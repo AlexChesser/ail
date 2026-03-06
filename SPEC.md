@@ -179,6 +179,8 @@ Hook operations may target `invocation` directly, enabling session setup before 
   message: "Reminder: all outputs in this session are subject to compliance review."
 ```
 
+The `before:` chain on `invocation` is a more powerful variant: rather than inserting a new step adjacent to invocation, it attaches private pre-processing that can transform the user's prompt before it reaches the agent. See §5.7 for full documentation and the governance warnings that apply when using this in a `FROM` base pipeline.
+
 ---
 
 ## 5. Step Specification
@@ -210,6 +212,7 @@ Exactly one primary field is required per step. All other fields are optional.
 | `max_retries` | Integer. Retry attempts when `on_error: retry`. Default: `2`. |
 | `on_result` | Block. Declarative branching after completion. See §5.3. |
 | `disabled` | Boolean. Skips step unconditionally. Useful during development. |
+| `before` | List. Private pre-processing steps that run before this step's prompt fires. See §5.7. |
 | `then` | List. Private post-processing steps chained to this step. See §5.5. |
 | `tools` | Block. Pre-approve or pre-deny tool calls for this step. See §5.6. |
 
@@ -255,6 +258,8 @@ Files are read at pipeline load time. Template variables within files are resolv
 |---|---|
 | `continue` | Proceed to next step. Default if `on_result` omitted. |
 | `pause_for_human` | Suspend pipeline. Wait for Approve / Reject / Modify. |
+| `preview_for_human` | Show transformed prompt alongside original. Human chooses: use transformed, use original, or edit. See §5.7. |
+| `use_original` | Discard `before:` transformation. Pass raw prompt to parent step unchanged. Only valid inside a `before:` chain. |
 | `abort_pipeline` | Stop immediately. Log to audit trail. |
 | `repeat_step` | Re-run this step. Respects `max_retries`. |
 | `goto: <step_id>` | Jump to a specific step by ID. Use sparingly. |
@@ -273,6 +278,24 @@ Files are read at pipeline load time. Template variables within files are resolv
 ### 5.4 Step Output Model
 
 Each step captures its output as `step.<id>.response` — the final text produced, available to subsequent steps via template variables.
+
+**Full step lifecycle:**
+
+```
+before: chain          ← private pre-processing; may transform the input prompt
+  ↓
+  (use_original bypasses transformation; raw prompt proceeds unchanged)
+  ↓
+parent step fires      ← LLM receives the (possibly transformed) prompt
+  ↓
+parent step completes  ← response captured as step.<id>.response
+  ↓
+on_result evaluated    ← declarative branching
+  ↓
+then: chain            ← private post-processing
+  ↓
+next step
+```
 
 For steps where `ail` calls an LLM provider directly, structured output (thinking traces, tool call sequences) is additionally captured. The full structured model is under active research and defined in §22 Open Questions.
 
@@ -415,6 +438,145 @@ A `sealed:` step's `tools:` policy cannot be overridden by hook operations from 
 #### Pattern syntax
 
 `ail` does not parse or validate tool patterns — they are passed verbatim to the Claude CLI. Pattern syntax follows Claude CLI conventions (e.g. `Bash(git log*)`, `Edit(./src/*)`). Refer to the Claude CLI reference for supported pattern forms.
+
+### 5.7 `before:` — Private Pre-Processing Chains
+
+`before:` attaches a private chain of pre-processing steps that run after a step is triggered but before its prompt is sent to the LLM. This is the symmetric counterpart to `then:` — where `then:` operates on output, `before:` operates on input.
+
+Steps in a `before:` chain share the same privacy properties as `then:` steps:
+
+- **Not visible to the hook system** — they cannot be targeted by `run_before`, `run_after`, `override`, or `disable` from any inheriting pipeline.
+- **Not independently referenceable** — their output is not accessible via `{{ step.<id>.response }}` from the wider pipeline.
+- **Tightly coupled** — they are considered part of the parent step's execution.
+
+The key difference from `then:`: a `before:` step's output becomes the transformed input for the parent step's LLM call. The original prompt is still accessible — and can be restored — via the `use_original` action.
+
+#### Use Cases
+
+**Prompt optimisation.** Transform a casual user prompt into a structured, research-backed LLM request before the agent sees it:
+
+```yaml
+pipeline:
+  - run_before: invocation
+    id: prompt_optimizer
+    skill: ail/prompt-optimizer
+    before:
+      - skill: ail/prompt-optimizer
+        on_result:
+          always:
+            action: preview_for_human
+            message: "Your prompt was transformed. Use the optimised version?"
+            show_original: true
+            if_rejected:
+              action: use_original
+```
+
+**Context compaction.** Compress accumulated conversation context before an expensive step on a long pipeline:
+
+```yaml
+- id: architecture_review
+  prompt: ./prompts/arch-review.md
+  before:
+    - ail/janitor
+```
+
+**Context gathering.** Retrieve relevant information and inject it as context before the parent step's LLM call — useful for sub-agent or critic steps:
+
+```yaml
+- id: code_critic
+  skill: ./skills/critic/
+  before:
+    - prompt: "Summarise the files changed in the last 3 steps in one paragraph."
+      provider: fast
+```
+
+#### Short and Full Form
+
+`before:` entries support the same short-form and full-form syntax as `then:`:
+
+```yaml
+before:
+  - ail/janitor                    # short-form: bare skill reference
+  - ./prompts/gather-context.md    # short-form: bare prompt file
+  - skill: ail/prompt-optimizer    # full-form
+    on_result:
+      always:
+        action: preview_for_human
+        show_original: true
+        if_rejected:
+          action: use_original
+```
+
+#### The `preview_for_human` Circuit Breaker
+
+When a `before:` step transforms a prompt, the human may not know it happened. For prompt transformation use cases — especially on `invocation` — the `preview_for_human` action provides a transparent opt-in circuit breaker.
+
+```yaml
+on_result:
+  always:
+    action: preview_for_human
+    message: "Your prompt was optimised. Use the transformed version?"
+    show_original: true    # display original alongside transformed in TUI
+    if_rejected:
+      action: use_original
+```
+
+The TUI renders the original and transformed prompts side by side. The human chooses one of three outcomes:
+
+| Choice | Effect |
+|---|---|
+| **Use transformed** | Transformation proceeds. Parent step receives optimised prompt. |
+| **Use original** | `use_original` fires. Transformation discarded silently. Parent step receives raw prompt. Transformation still appears in audit trail. |
+| **Edit** | Human edits the transformed version inline. Edited version proceeds. |
+
+The circuit breaker is recommended whenever prompt transformation is used in a context where the human might not expect it — particularly on `invocation` and in `FROM` base pipelines.
+
+#### `use_original` Semantics
+
+`use_original` is only valid inside a `before:` chain. It instructs the pipeline executor to discard the `before:` chain's output and pass the parent step's original prompt unchanged. The `before:` steps still execute and their outputs are recorded in the audit trail — transparency is preserved — but they do not affect what the LLM receives.
+
+`use_original` used outside a `before:` chain raises a parse error.
+
+#### `materialize-chain` Representation
+
+`before:` steps appear in `materialize-chain` output subordinated under their parent, annotated as private and non-hookable, above the parent step prompt:
+
+```yaml
+# origin: [2] .ail.yaml
+- id: security_audit
+  # before: (private — not hookable)
+  #   - id: security_audit::before::0  skill: ail/janitor
+  prompt: "..."
+  # then: (private — not hookable)
+  #   - id: security_audit::then::0  prompt: ./prompts/cleanup.md
+```
+
+#### ⚠️ Governance Warning — `before:` on `invocation` in `FROM` Pipelines
+
+`before:` on the `invocation` step in a `FROM` base pipeline silently transforms every user prompt in every session for every team that inherits from that pipeline. This is the most powerful and most consequential configuration in the entire spec.
+
+**Risks:**
+- Users may not know their prompts are being transformed.
+- Transformations that improve prompts on average may degrade specific ones.
+- A flawed transformation in a base pipeline affects all inheritors simultaneously.
+
+**Mitigations the spec provides:**
+- The `preview_for_human` circuit breaker makes transformation visible and opt-out-able.
+- `materialize-chain` always shows `before:` chains — pipeline authors can inspect what they've inherited.
+- An inheriting pipeline can `override:` the invocation hook to replace it with a version that has no `before:` chain.
+
+**The recommended pattern for `FROM` base pipelines:**
+
+If you use `before:` on `invocation` in a base pipeline, always include `preview_for_human` with `show_original: true`. Give inheritors the ability to see and reject the transformation. Do not silently transform prompts in shared infrastructure.
+
+#### When Not to Use `before:`
+
+If a pre-processing step needs to:
+- Be visible or hookable by inheriting pipelines
+- Produce output referenceable by later steps via `{{ step.<id>.response }}`
+- Branch via `on_result` in a way that affects the wider pipeline
+
+...it should be a top-level step preceding the parent, not a `before:` entry.
 
 ---
 
@@ -716,21 +878,30 @@ HITL gates are intentional checkpoints, not error states.
 
 ### 13.3 Tool Permission HITL
 
-When a pipeline step invokes a tool not covered by `tools.allow` or `tools.deny` (see §5.6), `ail` intercepts the permission callback and presents it to the human before the tool executes.
+When a pipeline step invokes a tool not covered by `tools.allow` or `tools.deny` (see §5.6), `ail` intercepts the permission callback via `--permission-prompt-tool stdio` and presents it to the human before the tool executes.
 
-This is implemented via the Claude CLI `--permission-prompt-tool stdio` flag. `ail` reads permission request events from the NDJSON stream, renders them in the TUI, and writes one of the following JSON responses back to stdin:
+`ail` reads permission request events from the NDJSON stream, renders them in the TUI, and writes a JSON response back to Claude CLI's stdin. The full set of valid responses is:
 
 ```json
+// Allow this tool call once
 { "behavior": "allow" }
 
-{ "behavior": "deny", "message": "User rejected this action" }
+// Allow with modified tool input (the Modify response)
+{ "behavior": "allow", "updatedInput": { ...corrected parameters... } }
 
-{ "behavior": "allow", "updatedInput": { ...modified tool input... } }
+// Deny this tool call
+{ "behavior": "deny", "message": "User rejected this action" }
 ```
 
-The third form — `updatedInput` — is how the **Modify** response is implemented. The human edits the tool's input parameters (for example, correcting a file path) before allowing execution to proceed with the corrected values.
+**`updatedInput`** is how the **Modify** HITL response is implemented. The human edits the tool's input parameters in `ail`'s TUI — correcting a file path, adjusting a command, removing a sensitive value — before allowing execution to proceed with the corrected values.
 
-**Allow for session** is implemented in `ail`'s session state — not in the Claude CLI. When the user selects this option, `ail` records the tool name and pattern in an in-memory allowlist and auto-responds `{"behavior": "allow"}` for matching requests for the remainder of the session, without prompting again.
+**Allow for session** is managed entirely in `ail`'s session state, not in the Claude CLI. When the user selects this option, `ail` records the tool name and input pattern in an in-memory allowlist. For the remainder of the session, matching permission requests receive an automatic `{"behavior": "allow"}` without prompting.
+
+#### Permission Mode
+
+`ail` launches Claude CLI in `default` permission mode unless configured otherwise. The supported modes — `default`, `accept_edits`, `plan`, `bypass_permissions` — map to `--permission-mode` flag values. This may be exposed as a session-level option in a future version. For headless runs, `--dangerously-skip-permissions` (or `bypass_permissions` mode) is the correct approach.
+
+> **Implementation note:** The `--permission-prompt-tool stdio` behaviour when combined with `-p` (non-interactive prompt mode) must be validated in the v0.0.1 spike. The VSCode extension uses this mechanism in interactive mode; `ail`'s non-interactive usage pattern may differ. See `RUNNER-SPEC.md`.
 
 ### 13.4 Tool Permission Flow
 
