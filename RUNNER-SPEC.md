@@ -49,35 +49,148 @@ A minimally compliant runner must:
 
 A minimum-compliant runner works with all text-based `ail` pipeline features: `prompt:` steps, `on_result:` matching, `condition:` evaluation, HITL gates, and template variable injection.
 
-### Extended Compliance *(under design)*
+### Extended Compliance
 
-An extended-compliant runner additionally declares optional capabilities, unlocking richer `ail` features. Capability declaration mechanism is to be defined — likely a `--ail-capabilities` flag that returns a structured JSON object.
+An extended-compliant runner implements the structured bidirectional JSON interface, unlocking the full `ail` feature set. The Claude CLI is the reference implementation.
 
-Candidate optional capabilities:
+Extended compliance requires:
 
-- **Structured output** — the runner can return a JSON response conforming to a declared schema
-- **Extended thinking** — the runner exposes reasoning traces separately from the final response
-- **Tool call inspection** — the runner exposes tool invocations and results as structured data
-- **Context passing** — the runner accepts a prior context object to maintain conversation state across invocations
-- **Streaming** — the runner streams output as it is produced rather than returning it all at once
+- **`--output-format stream-json`** — NDJSON event stream with typed events for tool calls, tool results, text, and completion
+- **`--input-format stream-json`** — accept follow-up NDJSON messages on stdin for session continuity
+- **`--permission-prompt-tool stdio`** — HITL tool permission intercept via stdin/stdout JSON protocol
+- **`--allowedTools` / `--disallowedTools`** — pre-approved and pre-denied tool patterns
+- **`--dangerously-skip-permissions`** — headless/automated mode bypass
+
+Optional extended capabilities (declare via `--ail-capabilities` — mechanism to be defined):
+
+- **Extended thinking** — exposes reasoning traces as typed events in the stream
+- **Structured output** — constrains final response to a JSON schema (`--json-schema`)
+- **Session resumption** — `session_id` from result events can be passed back to resume a prior session
 
 ---
 
-## Reference Implementation
+## Reference Implementation — Claude CLI
 
-The Claude CLI (`claude`) is the reference implementation for this specification. All contract decisions will be validated against Claude CLI behaviour first.
+The Claude CLI (`claude`) is the reference implementation for this specification. It is the only first-class runner in v0.0.1. All contract decisions are validated against Claude CLI behaviour first.
 
-Relevant Claude CLI flags and behaviours to document:
+### Invocation Model
 
-- [ ] Non-interactive invocation mode
-- [ ] Prompt passing mechanism
-- [ ] Output format and streaming behaviour
-- [ ] Exit code semantics
-- [ ] Context/session handling
-- [ ] Structured output support
-- [ ] Extended thinking exposure
+The Claude CLI supports a structured bidirectional JSON interface that `ail` uses instead of PTY wrapping:
 
-*This section will be populated during the v0.0.1 spike. See the spike notes in `SPIKE.md` (forthcoming).*
+| Direction | Flag | Format |
+|---|---|---|
+| Output from Claude | `--output-format stream-json` | NDJSON event stream on stdout |
+| Input to Claude | `--input-format stream-json` | NDJSON messages on stdin |
+| Prompt (non-interactive) | `-p "<prompt>"` or `--print "<prompt>"` | Plain string |
+
+### Output Event Stream
+
+`--output-format stream-json` produces a newline-delimited stream of JSON events. Key event types:
+
+```json
+// Session initialised
+{ "type": "system", "subtype": "init", "session_id": "abc123", ... }
+
+// Assistant tool call
+{ "type": "assistant", "message": {
+    "content": [{ "type": "tool_use", "id": "toolu_abc", "name": "Write",
+                  "input": { "file_path": "./foo.txt", "content": "..." } }]
+}}
+
+// Tool result fed back
+{ "type": "user", "message": {
+    "content": [{ "type": "tool_result", "tool_use_id": "toolu_abc", ... }]
+}}
+
+// Run complete
+{ "type": "result", "subtype": "success",
+  "result": "<final text response>",
+  "total_cost_usd": 0.003,
+  "session_id": "abc123" }
+
+// Run failed
+{ "type": "result", "subtype": "error", "error": "...", "session_id": "abc123" }
+```
+
+**Completion signal:** `ail` considers a Claude CLI invocation complete when it receives a `result` event. `subtype: success` → pipeline step succeeded. `subtype: error` → `on_error` handling fires.
+
+**Cost tracking:** `total_cost_usd` in the result event feeds directly into `ail/budget-gate` without any external token counting.
+
+### Tool Permission Interface
+
+When `ail` needs to intercept tool permissions (for tools not covered by `tools.allow` or `tools.deny`), it launches Claude CLI with:
+
+```
+--permission-prompt-tool stdio
+```
+
+Claude emits a permission request event on the NDJSON stream when it wants to invoke a tool requiring authorisation. `ail` reads the event, presents the HITL UI, and writes one of these responses to the Claude CLI process stdin:
+
+```json
+{ "behavior": "allow" }
+
+{ "behavior": "deny", "message": "User rejected" }
+
+{ "behavior": "allow", "updatedInput": { ...modified tool input... } }
+```
+
+The `updatedInput` form allows `ail` to present an inline editor — the human corrects a file path, removes a sensitive argument, or adjusts a command — and Claude executes the corrected version rather than its original parameters.
+
+#### Permission Modes
+
+Claude CLI supports six permission modes via `--permission-mode`:
+
+| Mode | Behaviour |
+|---|---|
+| `default` | Checks `settings.json`, `--allowedTools`, `--disallowedTools`, then calls `--permission-prompt-tool` for anything unresolved |
+| `accept_edits` | Auto-accepts file edits; prompts for other tool types |
+| `plan` | Read-only; no file modifications or commands |
+| `bypass_permissions` | No permission checks at all (equivalent to `--dangerously-skip-permissions`) |
+| `delegate` | Delegates permission decisions to the MCP tool specified |
+| `dont_ask` | Auto-accepts everything without prompting |
+
+`ail` defaults to `default` mode. For headless/automated runs (Docker sandbox, CI), use `bypass_permissions` or `--dangerously-skip-permissions`. `ail` exposes this as a session-level CLI flag, never as a pipeline YAML option.
+
+#### `PreToolUse` Hook (Alternative Intercept)
+
+As an alternative to `--permission-prompt-tool`, Claude CLI supports a `PreToolUse` hook — a process `ail` registers that runs synchronously after Claude creates tool parameters but before the tool executes. The hook receives `tool_name`, `tool_input`, and `tool_use_id` and can allow, deny, or modify the call.
+
+This is more suitable for automated validation (schema checking, path sanitisation) than for interactive HITL — the hook runs as a subprocess without a human UI. It is noted here for completeness; `ail`'s primary HITL mechanism remains `--permission-prompt-tool stdio`.
+
+> **Spike validation required:** Confirm that `--permission-prompt-tool stdio` behaves correctly when combined with `-p` (non-interactive mode). The VSCode extension uses this combination in interactive mode; `ail`'s usage differs. Document actual permission event shapes from the NDJSON stream.
+
+### Pre-Approved Tool Policy
+
+`tools.allow` and `tools.deny` in the pipeline step are passed to Claude CLI as:
+
+```
+--allowedTools Read,Edit,Glob
+--disallowedTools WebFetch,Bash
+```
+
+Pattern syntax (e.g. `Bash(git log*)`, `Edit(./src/*)`) is passed verbatim — `ail` does not parse or validate patterns.
+
+### Context and Session Continuity
+
+The `session_id` returned in each result event is retained by `ail` for the duration of the session. Whether it can be used to resume a session across separate subprocess invocations is to be validated in the v0.0.1 spike.
+
+`--input-format stream-json` supports sending follow-up messages within an active session. Whether `ail` uses this for pipeline step continuity (vs. spawning a new process per step with context injected via template variables) is a spike decision.
+
+### Flags Summary
+
+| Flag | Purpose | `ail` usage |
+|---|---|---|
+| `--output-format stream-json` | Structured NDJSON event stream | Always |
+| `--input-format stream-json` | Accept NDJSON messages on stdin | When session continuation needed |
+| `-p / --print` | Non-interactive prompt | Single-turn steps |
+| `--permission-prompt-tool stdio` | HITL tool permission intercept | When step has unspecified tools |
+| `--allowedTools` | Pre-approve tools | From `tools.allow` |
+| `--disallowedTools` | Pre-deny tools | From `tools.deny` |
+| `--permission-mode` | Set permission enforcement level | Session-level; `default` unless overridden |
+| `--dangerously-skip-permissions` | Bypass all permission checks | Headless/automated mode only |
+| `--verbose --include-partial-messages` | Token-level streaming | Observability / debugging |
+
+*Spike validation status: pending. This section reflects current understanding from CLI reference documentation. Actual behaviour must be verified in the v0.0.1 spike and this section updated with findings.*
 
 ---
 
@@ -110,11 +223,12 @@ See `ARCHITECTURE.md` *(forthcoming)* for the trait definition, dynamic loading 
 
 These questions must be answered before the contract can be considered stable.
 
-- **Context passing** — how does `ail` pass the accumulated context of a session to a runner for each invocation? As a file path, an environment variable, a flag, or stdin alongside the prompt? The answer differs per runner and may need to be part of the contract.
-- **Streaming vs batch** — should the minimum contract require streaming output, or is batch (full response on exit) sufficient? Streaming is better for the TUI experience but harder to implement correctly.
-- **Exit code catalogue** — beyond 0/non-zero, should the contract define specific exit codes for specific error types (timeout, model error, context limit exceeded)?
-- **Capability negotiation** — should `ail` query capabilities at session start and cache them, or query per invocation? Caching is faster; per-invocation is more correct if capabilities change.
-- **Minimum flag set** — what is the smallest set of flags a runner must support to be considered minimally compliant? This needs to be validated against each target runner to ensure the bar is achievable.
+- **Session continuity** — does `--input-format stream-json` support sending a new pipeline step prompt within an active Claude CLI session, or does each pipeline step require a new subprocess invocation? This determines whether context is maintained natively or via `ail`'s template variable injection. Spike validation required.
+- **Session resumption** — can `session_id` from a result event be passed back to Claude CLI to resume a prior session? If so, `ail` could maintain session state across user prompts. Spike validation required.
+- **Minimum flag set for non-Claude runners** — beyond the minimum compliance tier, what is the smallest set of behaviours any runner must implement? Needs to be validated against each target runner (Aider, Gemini CLI, etc.) to ensure the bar is achievable without the stream-json interface.
+- **Capability declaration mechanism** — the `--ail-capabilities` flag is proposed but not yet defined. What format should it return? What capabilities must be declared vs. assumed?
+- **Error event shapes** — the `result.subtype: error` event needs a defined set of error codes so `ail`'s `on_error` handling can distinguish timeout, model error, context limit exceeded, and permission denied.
+- **`--permission-prompt-tool stdio` in non-interactive mode** — verify that the HITL permission intercept works correctly when combined with `-p` (non-interactive prompt flag). The VSCode extension uses it in interactive mode; `ail`'s usage pattern may differ.
 
 ---
 

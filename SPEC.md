@@ -16,7 +16,7 @@
 7. [Pipeline Inheritance](#7-pipeline-inheritance)
 8. [Hook Ordering — The Onion Model](#8-hook-ordering--the-onion-model)
 9. [Calling Pipelines as Steps](#9-calling-pipelines-as-steps)
-10. [Named Pipelines & Composition](#10-named-pipelines--composition)
+10. [Named Pipelines & Composition](#10-named-pipelines--composition) *(deferred)*
 11. [Template Variables](#11-template-variables)
 12. [Conditions](#12-conditions)
 13. [Human-in-the-Loop (HITL) Gates](#13-human-in-the-loop-hitl-gates)
@@ -260,10 +260,10 @@ Files are read at pipeline load time. Template variables within files are resolv
 | `pause_for_human` | Suspend pipeline. Wait for Approve / Reject / Modify. |
 | `preview_for_human` | Show transformed prompt alongside original. Human chooses: use transformed, use original, or edit. See §5.7. |
 | `use_original` | Discard `before:` transformation. Pass raw prompt to parent step unchanged. Only valid inside a `before:` chain. |
-| `abort_pipeline` | Stop immediately. Log to audit trail. |
+| `abort_pipeline` | Stop immediately, treating the pipeline as failed. Logged to audit trail. |
 | `repeat_step` | Re-run this step. Respects `max_retries`. |
-| `goto: <step_id>` | Jump to a specific step by ID. Use sparingly. |
-| `run_pipeline: <id>` | Invoke a named pipeline. See §10. |
+| `break` | Exit the current pipeline cleanly. Remaining steps are skipped. Not an error — the pipeline completed successfully with an intentional early exit. In a sub-pipeline, returns control to the caller. |
+| `pipeline: <path>` | Conditionally call another pipeline. Equivalent to a `pipeline:` step but triggered by `on_result` match. Follows the same isolation model as §9. |
 
 **Match operators:**
 
@@ -274,6 +274,25 @@ Files are read at pipeline load time. Template variables within files are resolv
 | `starts_with: "TEXT"` | Response begins with literal string. |
 | `is_empty` | Response is blank or whitespace only. |
 | `always` | Unconditionally fires. |
+
+**`break` vs `abort_pipeline`:**
+
+| Action | Intent | Exit state | Caller behaviour |
+|---|---|---|---|
+| `break` | Intentional early exit | Success | Sub-pipeline returns cleanly; caller continues |
+| `abort_pipeline` | Something went wrong | Failure | Caller's `on_error` fires |
+
+```yaml
+- id: early_exit_check
+  prompt: "Does this response contain any code changes? Answer CODE_CHANGED or NO_CODE."
+  on_result:
+    contains: "NO_CODE"
+    if_true:
+      action: break
+      message: "No code changes — quality gates skipped."
+    if_false:
+      action: continue
+```
 
 ### 5.4 Step Output Model
 
@@ -333,8 +352,6 @@ When configuration is needed, a `then:` entry may be a full step block. All stan
   prompt: ./prompts/security-audit.md
   then:
     - skill: ail/janitor
-      with:
-        target_tokens: 256
     - prompt: "Summarise the findings in one sentence for the audit log."
       provider: fast
 ```
@@ -429,9 +446,7 @@ pipeline:
       deny: [WebFetch]
 ```
 
-#### Interaction with `sealed:` and `then:`
-
-A `sealed:` step's `tools:` policy cannot be overridden by hook operations from inheriting pipelines — the tool policy is part of what is sealed.
+#### Interaction with `then:`
 
 `then:` chain steps inherit their parent step's `tools:` policy unless explicitly overridden within the full-form `then:` entry.
 
@@ -769,32 +784,22 @@ If the called pipeline aborts internally, `ail` surfaces a pipeline stack trace 
 
 ## 10. Named Pipelines & Composition
 
-A single `.ail.yaml` file may define multiple named pipelines under a `pipelines` key. Only `default` runs automatically. Others are invocable via `run_pipeline` in `on_result`.
+> **Status: Deferred — not in v0.1 scope.**
+
+Multiple named pipelines within a single `.ail.yaml` file will be supported in a future version. The same composition is currently achievable by calling separate `.ail.yaml` files as `pipeline:` steps (§9), which is the recommended pattern until this feature is implemented.
+
+The syntax described here is reserved and will be rejected by the current parser.
 
 ```yaml
+# DEFERRED — not yet implemented
 pipelines:
-
   default:
     - id: dry_check
       prompt: "Refactor for DRY principles."
-      on_result:
-        always:
-          action: run_pipeline
-          target: security_gates
 
   security_gates:
     - id: vuln_scan
       prompt: "Identify vulnerabilities."
-      on_result:
-        contains: "VULNERABILITY"
-        if_true:
-          action: run_pipeline
-          target: escalation
-
-  escalation:
-    - id: notify_human
-      action: pause_for_human
-      message: "Security escalation required."
 ```
 
 ---
@@ -837,19 +842,18 @@ The `condition` field allows declarative skip logic. If false, the step is skipp
 
 ### 12.2 Expression Syntax
 
+> **Status: Deferred — not in v0.1 scope.**
+
+A general condition expression language — supporting dot-path comparisons, step response checks, and logical operators — is planned for a future version. The named conditions in §12.1 cover the common cases and are the only supported form in the current implementation.
+
 ```yaml
-# Built-in
-condition: if_code_changed
-
-# Dot-path comparison
+# DEFERRED — not yet implemented
 condition: "context.file_count > 0"
-
-# Step response check
 condition: "step.security_audit.response contains 'VULNERABILITY'"
-
-# Logical operators
 condition: "if_code_changed and not if_first_run"
 ```
+
+The named conditions (`if_code_changed`, `if_files_modified`, etc.) are fully supported and are the recommended approach.
 
 ---
 
@@ -951,8 +955,6 @@ For automated runs (CI, the autonomous agent use case, Docker sandbox), HITL pro
 pipeline:
   - id: distill
     skill: ail/janitor
-    with:
-      target_tokens: 512
 
   - id: security
     skill: ail/security-audit
@@ -962,7 +964,7 @@ pipeline:
         action: abort_pipeline
 ```
 
-> **Note:** `with:` syntax for passing parameters to skills is provisionally supported. Full parameter declaration semantics — how a SKILL.md declares accepted parameters — are to be defined after the Claude CLI research phase. See §22.
+> **Note:** Skill parameterisation (`with:` or equivalent) is deferred. How a `SKILL.md` declares and receives parameters is an open question that will be resolved alongside structured output schema research. See §23.
 
 ---
 
@@ -1001,15 +1003,19 @@ Provider API keys are read from environment variables. `ail` never stores creden
 
 ## 16. Triggers
 
-| Trigger | When it fires |
-|---|---|
-| `human_prompt_complete` | Default. Every time the runner finishes responding to human input. |
-| `code_file_saved` | When the runner writes a code file to disk. |
-| `session_end` | When the session is terminated. Useful for summary or commit steps. |
-| `manual` | Only when explicitly invoked via `ail run`. Never automatic. |
-| `scheduled: "cron"` | On a cron schedule. For background tasks. |
+The only supported trigger in the current implementation is `human_prompt_complete` — the core invariant trigger that fires after every runner response.
+
+| Trigger | When it fires | Status |
+|---|---|---|
+| `human_prompt_complete` | Every time the runner finishes responding to human input. | **Supported** |
+| `code_file_saved` | When the runner writes a code file to disk. | Deferred |
+| `session_end` | When the session is terminated. | Deferred |
+| `manual` | Only when explicitly invoked via `ail run`. | Deferred |
+| `scheduled: "cron"` | On a cron schedule. For background tasks. | Deferred |
 
 > **Note:** Session setup — steps that run once before the first human prompt — is handled via `run_before: invocation` (see §4.3), not a separate trigger. This keeps the trigger list focused on when a pipeline fires, not on lifecycle hooks.
+
+> **Note:** The deferred triggers above require no breaking changes to the pipeline language when they are implemented — they are additive. The `human_prompt_complete` trigger is the default and need not be declared explicitly.
 
 ---
 
@@ -1219,10 +1225,6 @@ version: "0.1"
 pipeline:
   - id: compare
     skill: ail/model-compare
-    with:
-      model_a: openai/gpt-4o
-      model_b: anthropic/claude-opus-4-5
-      prompt: "{{ step.invocation.prompt }}"
     on_result:
       always:
         action: pause_for_human
@@ -1352,7 +1354,6 @@ The goal of v0.0.1 is a working demo: one pipeline, one runner, one follow-up pr
 - `defaults:` block
 - Multiple named pipelines
 - All built-in modules
-- `session_end` trigger
 - Everything in §21 Planned Extensions
 
 **The v0.0.1 demo case:**
@@ -1503,6 +1504,39 @@ This fits the Unix pipe philosophy already established in the spec: a determinis
 
 **Why this matters:**  
 Direct MCP invocation makes `ail` pipelines genuinely composable with the broader MCP ecosystem. A pipeline could gather live data from any MCP-compatible source — filesystem, database, web search, calendar, code analysis tools — before passing it to an LLM step, without burning tokens on the retrieval itself. This is particularly valuable for research pipelines and compliance workflows where the data gathering step must be deterministic and auditable.
+
+---
+
+### Native LLM Provider Support (OpenAI-Compatible REST)
+
+> **Status: Planned — no CLI runner required**
+
+A native runner tier that calls OpenAI-compatible `/v1/chat/completions` REST endpoints directly, without wrapping a CLI tool. Enables `ail` pipelines to run against any model host that exposes the OpenAI-compatible API — Ollama, Together AI, Groq, LiteLLM, corporate LLM proxies, and Anthropic's compatibility layer — without requiring a CLI agent to be installed.
+
+```yaml
+# Proposed syntax — not final
+providers:
+  local_ollama:
+    type: openai-compatible
+    base_url: http://localhost:11434/v1
+    model: llama3.2
+  hosted_groq:
+    type: openai-compatible
+    base_url: https://api.groq.com/openai/v1
+    api_key_env: GROQ_API_KEY
+    model: mixtral-8x7b-32768
+
+pipeline:
+  - id: fast_triage
+    prompt: "Is this a security issue? Answer yes or no."
+    provider: local_ollama
+```
+
+When a step uses a native REST provider, `ail` acts as the agent for that turn — managing conversation history, tool call dispatch, streaming reassembly, and context window state. This is a significant responsibility boundary shift from the CLI runner model (where the runner manages these concerns) and is called out explicitly in ARCHITECTURE.md §8.
+
+The pipeline language syntax for `providers:` is forward-compatible with this extension. The `type:` field is reserved for this purpose and currently has no effect.
+
+**Prerequisite:** native runner support depends on the `ail serve` server mode (see below) being designed first, as the two share the same HTTP client infrastructure and auth model.
 
 ---
 
@@ -1741,36 +1775,6 @@ plugins:
 
 ---
 
-### Sealed Steps
-
-> **Status: Planned** — Syntax reserved. Not implemented.
-
-The `sealed: true` flag on a step prevents any hook from being inserted immediately before or after it via `run_before` or `run_after` in any inheriting pipeline. The step itself remains visible and referenceable — unlike `then:` children, which are private — but its adjacency is protected.
-
-This is distinct from `then:`. A step with `then:` hides its post-processing from the hook system. A `sealed` step prevents hooks from attaching to the step itself.
-
-```yaml
-- id: security_audit
-  sealed: true          # no run_before or run_after may target this step
-  prompt: ./prompts/security-audit.md
-  then:
-    - ail/janitor       # private; already non-hookable by virtue of being in then:
-```
-
-`sealed:` and `then:` compose naturally. A sealed step with a `then:` chain is both externally protected (no hooks on the parent) and internally private (no hooks on the children).
-
-**Attempting to hook a sealed step is a parse error**, not a silent failure:
-
-```
-Error: step 'security_audit' is sealed and cannot be targeted by run_before or run_after.
-```
-
-**Unresolved questions:**
-- Can a child pipeline unseal a step declared sealed in a base pipeline? The intuitive answer is no — sealing is a declaration by the step's author that adjacency matters — but there may be legitimate override cases.
-- Should `override:` be permitted on a sealed step? Overriding replaces the step entirely rather than inserting around it, which may be acceptable even when `run_before`/`run_after` are not.
-
----
-
 ### Pipeline Registry & Versioning
 
 > **Status: Planned**
@@ -1921,11 +1925,11 @@ Full speccing of `step.<id>.turns[]` template variable access is deferred until 
 
 ---
 
-### `with:` Parameter Semantics for Skills
+### Skill Parameterisation
 
-**Question:** The `with:` block on a `skill:` step passes parameters to the skill. How does a SKILL.md declare what parameters it accepts? How are they injected — as template variables, environment variables, or a structured input block?
+**Question:** How does a `SKILL.md` declare what parameters it accepts, and how are they injected — as template variables, environment variables, or a structured input block?
 
-**Blocked on:** Claude CLI research phase. The answer likely depends on how the Claude skills system handles parameterisation.
+**Status:** Deferred. The `with:` syntax has been removed from the spec pending this design. The answer is likely related to structured output schema research (see Step Turns & Structured Output above). Will be revisited when JSON schema support is explored.
 
 ---
 
