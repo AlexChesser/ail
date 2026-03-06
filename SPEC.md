@@ -26,9 +26,10 @@
 17. [Error Handling & Resilience](#17-error-handling--resilience)
 18. [The `materialize-chain` Command](#18-the-materialize-chain-command)
 19. [Complete Examples](#19-complete-examples)
-20. [MVP — v0.0.1 Scope](#20-mvp--v001-scope)
-21. [Planned Extensions](#21-planned-extensions)
-22. [Open Questions](#22-open-questions)
+20. [Runners & Adapters](#20-runners--adapters)
+21. [MVP — v0.0.1 Scope](#21-mvp--v001-scope)
+22. [Planned Extensions](#22-planned-extensions)
+23. [Open Questions](#23-open-questions)
 
 ---
 
@@ -206,6 +207,7 @@ Exactly one primary field is required per step. All other fields are optional.
 | `max_retries` | Integer. Retry attempts when `on_error: retry`. Default: `2`. |
 | `on_result` | Block. Declarative branching after completion. See §5.3. |
 | `disabled` | Boolean. Skips step unconditionally. Useful during development. |
+| `then` | List. Private post-processing steps chained to this step. See §5.5. |
 
 ### 5.2 `prompt:` — Inline and File
 
@@ -271,6 +273,78 @@ Each step captures its output as `step.<id>.response` — the final text produce
 For steps where `ail` calls an LLM provider directly, structured output (thinking traces, tool call sequences) is additionally captured. The full structured model is under active research and defined in §22 Open Questions.
 
 For steps that wrap third-party CLI runners, `ail` captures stdout as the response. Completion is detected via process exit code 0. See §22 Open Questions for details on runner-specific behaviour.
+
+### 5.5 `then:` — Private Post-Processing Chains
+
+`then:` attaches a private chain of post-processing steps directly to a parent step. Steps in a `then:` chain are:
+
+- **Not visible to the hook system** — they cannot be targeted by `run_before`, `run_after`, `override`, or `disable` from any inheriting pipeline.
+- **Not independently referenceable** — their output is not accessible via `{{ step.<id>.response }}` from the wider pipeline.
+- **Unconditionally run** — they execute after the parent step completes, regardless of `on_result`. If the parent step is skipped by its `condition`, the `then:` chain is also skipped.
+- **Tightly coupled** — they are considered part of the parent step's execution, not peers.
+
+This makes `then:` the right tool for housekeeping that belongs to a step — context distillation, internal scoring, cleanup — where forcing a full top-level step would create visual noise and false hookability.
+
+#### Short-form entries
+
+A `then:` entry may be a bare string — a skill reference or prompt file path — when no additional configuration is needed:
+
+```yaml
+- id: security_audit
+  prompt: ./prompts/security-audit.md
+  then:
+    - ail/janitor              # bare skill reference
+    - ./prompts/cleanup.md     # bare prompt file
+```
+
+#### Full-form entries
+
+When configuration is needed, a `then:` entry may be a full step block. All standard step fields are supported except `id` (auto-generated as `<parent_id>::<index>`), `condition` (inherited from parent), and `on_result` (use top-level steps if branching is needed):
+
+```yaml
+- id: security_audit
+  prompt: ./prompts/security-audit.md
+  then:
+    - skill: ail/janitor
+      with:
+        target_tokens: 256
+    - prompt: "Summarise the findings in one sentence for the audit log."
+      provider: fast
+```
+
+#### Mixed short and full form
+
+```yaml
+- id: my_step
+  prompt: "Generate the feature implementation."
+  then:
+    - ail/janitor                    # short-form
+    - skill: ail/dry-refactor        # full-form with skill
+    - prompt: ./prompts/score.md     # full-form with prompt file
+      provider: fast
+```
+
+#### `materialize-chain` representation
+
+`then:` steps appear in `materialize-chain` output subordinated under their parent, annotated as private and non-hookable:
+
+```yaml
+# origin: [2] .ail.yaml
+- id: security_audit
+  prompt: "..."
+  # then: (private — not hookable)
+  #   - id: security_audit::0  skill: ail/janitor
+  #   - id: security_audit::1  prompt: ./prompts/cleanup.md
+```
+
+#### When not to use `then:`
+
+If a post-processing step needs to:
+- Be visible or hookable by inheriting pipelines
+- Be referenceable by later steps via `{{ step.<id>.response }}`
+- Branch via `on_result`
+
+...it should be a top-level step, not a `then:` entry.
 
 ---
 
@@ -901,7 +975,67 @@ pipeline:
 
 ---
 
-## 20. MVP — v0.0.1 Scope
+## 20. Runners & Adapters
+
+> **Note:** This section describes the conceptual model for how `ail` connects to underlying CLI tools. The detailed contract for runner compliance is defined in a separate document — `RUNNER-SPEC.md` — which is currently a stub under active development. The interface described here should be considered directional, not final.
+
+### What a Runner Is
+
+A runner is the underlying CLI agent that `ail` wraps. It receives the human's prompt, produces a response, and signals completion. `ail` orchestrates everything that happens after that signal fires.
+
+The runner is deliberately outside the pipeline language. `SPEC.md` defines what pipelines do. The runner is what the pipeline acts upon.
+
+### Three Tiers of Runner Support
+
+**Tier 1 — First-class runners**
+Built-in adapters shipped with `ail` and maintained by the core team. Tested against every `ail` release. The runner's behaviour, output format, completion signal, and error codes are fully understood and handled.
+
+Initial first-class runner: **Claude CLI** (`claude`). The v0.0.1 proof of concept targets Claude exclusively.
+
+Roadmap for first-class support (not yet committed): Aider, OpenCode, Codex CLI, Gemini CLI, Qwen CLI, DeepSeek CLI, llama.cpp.
+
+**Tier 2 — AIL-compliant runners**
+Any CLI tool that implements the AIL Runner Contract defined in `RUNNER-SPEC.md`. A compliant runner works with `ail`'s built-in generic adapter without requiring a custom implementation. The tool author reads `RUNNER-SPEC.md` and ships their CLI accordingly. `ail` makes no guarantees about compliant runners beyond what the contract specifies.
+
+**Tier 3 — Custom adapters**
+Any CLI tool that does not implement the runner contract can be wrapped in a community-written or private adapter. Adapters implement the `Runner` trait defined in `ail`'s Rust core and are loaded at runtime as dynamic libraries. See `ARCHITECTURE.md` (forthcoming) for the trait interface and dynamic loading system.
+
+### Runner Configuration
+
+The active runner is declared in the pipeline file or in `~/.config/ail/config.yaml`:
+
+```yaml
+# In .ail.yaml
+runner:
+  id: claude
+  command: claude
+  args: ["--print"]         # invocation flags; runner-specific
+
+# Or reference a custom adapter
+runner:
+  id: my-custom-runner
+  adapter: ~/.ail/adapters/my-runner.so
+```
+
+If no runner is declared, `ail` defaults to the Claude CLI.
+
+### The AIL Runner Contract (Summary)
+
+The full contract is defined in `RUNNER-SPEC.md`. At a high level, a compliant runner must:
+
+- Accept a prompt via a flag or stdin in non-interactive mode
+- Write its response to stdout
+- Exit with code `0` on success, non-zero on error
+- Optionally declare supported capabilities (structured output, extended thinking, tool calls) via a `--ail-capabilities` flag
+
+Runners that implement the optional capability declarations unlock richer `ail` features — structured step output, thinking traces, tool call inspection. Runners that implement only the minimum contract work with Tier 1 text-based pipeline features.
+
+### Further Reading
+
+- `RUNNER-SPEC.md` — The AIL Runner Contract. Read this if you are a CLI tool author who wants first-class `ail` compatibility.
+- `ARCHITECTURE.md` *(forthcoming)* — The Rust trait interface and dynamic loading system. Read this if you are writing a custom runner adapter.
+
+## 21. MVP — v0.0.1 Scope
 
 The goal of v0.0.1 is a working demo: one pipeline, one runner, one follow-up prompt, visibly running. Nothing more. This is the proof of concept that validates the core invariant before any additional complexity is added.
 
@@ -950,7 +1084,7 @@ One file. One step. Always runs. Ships.
 
 ---
 
-## 21. Planned Extensions
+## 22. Planned Extensions
 
 These features are designed and their syntax is reserved. Not yet implemented. Do not use in production pipelines — the current parser will reject them.
 
@@ -1041,6 +1175,317 @@ ail --dry-run
 
 ---
 
+### Direct MCP Tool Invocation
+
+> **Status: Exploratory** — The concept and value are clear. The design has unresolved questions. Syntax is not yet reserved. Do not attempt to implement without opening a discussion issue first.
+
+MCP (Model Context Protocol) is an open standard for connecting LLMs to external tools and data sources. An MCP server exposes named tools — functions that can be called with structured arguments to read data, query systems, or perform actions — and returns structured results.
+
+There are two ways MCP can interact with `ail`:
+
+**Mode 1 — LLM-driven (already implied by the step model)**  
+During a pipeline step that calls an LLM directly, the LLM may emit tool calls targeting an MCP server. `ail` acts as the MCP client, executes the tool, and returns the result to the LLM. This is the standard MCP use case and requires no new pipeline syntax — it is a provider/runtime concern.
+
+**Mode 2 — Pipeline-driven (this extension)**  
+A pipeline step calls an MCP tool directly, bypassing the LLM entirely. The tool result flows forward as the step's response, available to subsequent steps via `{{ step.<id>.response }}`. No tokens are consumed.
+
+```yaml
+# Proposed syntax — not final
+- id: get_repo_structure
+  mcp:
+    server: filesystem
+    tool: list_directory
+    arguments:
+      path: "{{ session.cwd }}"
+
+- id: analyse_structure
+  prompt: |
+    Here is the repository structure:
+    {{ step.get_repo_structure.response }}
+    Identify any architectural concerns.
+```
+
+This fits the Unix pipe philosophy already established in the spec: a deterministic, zero-token step that gathers data and passes it downstream.
+
+**Unresolved questions before this can be specced:**
+
+- How does `ail` discover and connect to MCP servers? Via a config block, a running process, or a URI?
+- How are MCP servers declared — per-pipeline, per-session, or globally in `~/.config/ail/`?
+- How is authentication handled for MCP servers that require credentials?
+- If an MCP tool call fails, how does it interact with `on_error`? MCP errors are structured — can `on_result` match against them?
+- Is `mcp:` a primary field (peer to `prompt:`, `skill:`, `pipeline:`) or a sub-field of `action:`?
+- Should the pipeline be able to *register* MCP tools that the LLM can use in subsequent steps, or only call them directly?
+
+**Why this matters:**  
+Direct MCP invocation makes `ail` pipelines genuinely composable with the broader MCP ecosystem. A pipeline could gather live data from any MCP-compatible source — filesystem, database, web search, calendar, code analysis tools — before passing it to an LLM step, without burning tokens on the retrieval itself. This is particularly valuable for research pipelines and compliance workflows where the data gathering step must be deterministic and auditable.
+
+---
+
+### Safety Guardrails
+
+> **Status: Exploratory** — The structural pattern is clear. Several design questions remain open, and one fundamental limitation must be stated plainly. Syntax is not yet reserved.
+
+#### The Two Layers
+
+Safety in `ail` operates across two distinct layers with very different reliability guarantees:
+
+**Layer 1 — What `ail` can enforce deterministically**
+Constraints on the pipeline itself: what gets injected into prompts, which skills and pipelines are permitted, which configurations are blocked at parse time. These are runtime guarantees — `ail` either allows the pipeline to run or it does not.
+
+**Layer 2 — What depends on the underlying model**
+Whether a model actually follows an injected instruction is a model concern, not a runtime concern. `ail` can inject "never include credentials in your response" into every prompt, but it cannot guarantee the model obeys it. For hard safety requirements, the reliable pattern is a dedicated validation step after any step that might produce sensitive content — with `on_result` logic that catches violations. A pipeline step is deterministic in a way that a model instruction is not.
+
+This distinction must be understood by anyone relying on `ail` for safety-critical workflows.
+
+#### Proposed Structure
+
+Safety resources follow the same pattern as `observability:` — declared as a top-level block, inheritable via `FROM`, with org-declared directives carrying a `required: true` flag that child pipelines cannot override or remove.
+
+```yaml
+safety:
+
+  # Injected into every prompt in this pipeline, unconditionally
+  directives:
+    - id: no_credentials
+      inject: "Never include credentials, API keys, or passwords in your response."
+      position: prepend         # or: append
+      required: true            # child pipelines cannot disable this directive
+
+    - id: pii_reminder
+      inject: "Do not reproduce personally identifiable information."
+      position: prepend
+      required: true
+
+  # Step configurations rejected at parse time
+  blocklist:
+    - pattern: "disable.*hitl"
+      message: "HITL gates cannot be disabled by policy."
+
+  # Only these skill and pipeline paths are permitted
+  skill_allowlist:
+    - ail/*
+    - ./skills/*
+    - /etc/ail/approved-skills/*
+
+  pipeline_allowlist:
+    - ./pipelines/*
+    - /etc/ail/approved-pipelines/*
+```
+
+#### Inheritance via `FROM`
+
+Safety directives declared in a `FROM` base pipeline are inherited by all child pipelines. A child may add its own directives but cannot remove or override a directive marked `required: true`. Any attempt to do so is a parse error, not a silent failure.
+
+This makes safety directives a governance guarantee at the org level — the same model used for observability compliance.
+
+#### The Reliable Safety Pattern
+
+For any output that must be validated — not just instructed — the correct `ail` pattern is a dedicated validation step:
+
+```yaml
+pipeline:
+  - id: generate_code
+    prompt: ./prompts/generate.md
+
+  - id: safety_check
+    prompt: |
+      Review the above output strictly for the following:
+      - No credentials, tokens, or secrets
+      - No personally identifiable information
+      - No hardcoded environment-specific values
+      If clean, respond SAFE. Otherwise list each violation.
+    on_result:
+      contains: "SAFE"
+      if_true:
+        action: continue
+      if_false:
+        action: pause_for_human
+        message: "Safety violation detected. Review required before proceeding."
+```
+
+This is deterministic — the pipeline either continues or it does not — in a way that prompt injection alone cannot be.
+
+#### Unresolved Questions
+
+- Are `blocklist` patterns evaluated at parse time (static analysis of the YAML) or at runtime (when a step is about to execute)? Parse time is safer but may not catch dynamically constructed step configurations.
+- How does the `skill_allowlist` interact with built-in `ail/*` modules? They should probably be implicitly permitted unless explicitly removed.
+- Should `required: true` directives be visible to child pipeline authors — i.e. should `materialize-chain` show injected directive content — or should they be opaque to prevent circumvention?
+- Can a directive declare which step types it applies to (e.g. only `prompt:` steps, not `action:` steps), or does it apply universally?
+- How does sensitive directive content interact with the observability layer? A safety directive that contains policy language may itself be sensitive and should not appear in trace exports by default.
+
+---
+
+### Model Benchmarking
+
+> **Status: Exploratory** — The building blocks exist in the current spec. A dedicated benchmarking execution model requires design work that goes beyond the current single-run pipeline model. Syntax is not yet reserved.
+
+#### What the Current Spec Already Supports
+
+The `ail/model-compare` built-in and multi-provider routing cover the simplest benchmarking case — same prompt, two models, side-by-side output reviewed by a human. For casual model comparison this is sufficient and available today.
+
+#### What a Real Benchmarking Workflow Needs
+
+A serious benchmarking workflow requires capabilities the current spec does not express:
+
+- **Dataset input** — run against a controlled set of prompts, not just a single human input
+- **Repeatability** — run the same prompt N times against the same model to measure variance
+- **Structured scoring** — a quality score per run captured as data, not just human review
+- **Aggregation** — collect results across all runs into a comparable report
+- **Isolation** — benchmark runs must not share context with production pipeline runs or with each other
+
+None of these fit the current execution model, which is designed around a single `invocation` triggering a single pipeline run. Benchmarking is fundamentally a multi-run, dataset-driven execution model.
+
+#### Proposed Direction
+
+Benchmarking is a strong candidate for the plugin extensibility layer (see below). Rather than adding `benchmark:` as a core spec keyword, it would be expressed as an `x-benchmark:` extension that a benchmarking plugin handles:
+
+```yaml
+# Proposed — not final syntax
+x-benchmark:
+  dataset: ./benchmarks/security-prompts.jsonl
+  runs_per_prompt: 5
+  models:
+    - openai/gpt-4o
+    - anthropic/claude-opus-4-5
+    - groq/llama-3.1-70b-versatile
+  scoring:
+    skill: ./skills/quality-scorer/
+    output_schema: ./schemas/benchmark-score.json
+  report:
+    format: markdown
+    destination: ./reports/{{ benchmark.run_id }}.md
+```
+
+The benchmark plugin would manage the multi-run execution loop, invoke the pipeline's steps for each input, collect structured scores, and produce a report — all without the core runtime needing to know about datasets or aggregation.
+
+#### Why This Matters as a Vertical
+
+For the LLM researcher segment, benchmarking is table-stakes. The ability to run a controlled dataset through multiple models, score the outputs with a custom skill, and produce a comparable report — entirely from a YAML file — is a genuinely novel capability that no current tool provides cleanly. It is also a natural lead-in to the learning loop use case: a benchmark run that identifies which model performs best on a given task type can feed directly into routing decisions.
+
+#### Unresolved Questions
+
+- Is a `trigger: dataset` the right execution model, or should benchmarking be entirely plugin-managed outside the normal pipeline trigger system?
+- How does context isolation work between benchmark runs? Each run must be completely independent.
+- Should scoring be a skill (LLM-evaluated) or a deterministic function (regex, JSON schema validation, exact match)? Both are useful; the spec should support both.
+- How are benchmark results stored and compared across runs over time — is this a persistence concern for the `ail` runtime, or for the plugin?
+
+---
+
+### Plugin Extensibility Layer
+
+> **Status: Exploratory** — The `x-` prefix model is the leading candidate. Core runtime changes are minimal. Full plugin dispatch mechanism requires design. Syntax partially reserved (`x-` prefix).
+
+#### Motivation
+
+As `ail` grows, vertical use cases will emerge that are too specific to belong in the core spec — benchmarking, Datadog integration, custom compliance frameworks, team-specific reporting. Adding each as a core keyword pollutes the spec and creates a maintenance burden. A plugin extensibility layer allows third parties to extend the YAML language itself, adding new top-level keywords and new step fields, without forking the spec or the runtime.
+
+#### The Leading Candidate: `x-` Prefix Model
+
+Following the Docker Compose convention, any top-level key or step field prefixed with `x-` is reserved for extensions. The core runtime passes `x-` fields to registered plugin handlers. If no handler is registered for a given `x-` field, it is either silently ignored or raises a warning — configurable by policy.
+
+```yaml
+# Third-party plugins extend the top-level namespace
+x-datadog:
+  api_key: "{{ env.DD_API_KEY }}"
+  service: "ail-pipelines"
+  env: production
+
+x-benchmark:
+  dataset: ./benchmarks/prompts.jsonl
+  runs_per_prompt: 3
+
+# Plugins can also add step-level fields
+pipeline:
+  - id: security_audit
+    prompt: ./prompts/security.md
+    x-notify:
+      channel: "#security-alerts"
+      on: pause_for_human
+```
+
+#### Plugin Registration
+
+Plugins are declared in `~/.config/ail/plugins.yaml` or in a `plugins:` block in the pipeline file:
+
+```yaml
+# Proposed — not final syntax
+plugins:
+  - id: datadog
+    path: ~/.ail/plugins/datadog/
+    handles: [x-datadog]
+
+  - id: benchmark
+    path: ~/.ail/plugins/benchmark/
+    handles: [x-benchmark]
+    trigger: manual            # benchmark plugin registers its own trigger type
+```
+
+A plugin is itself an Agent Skills-compatible directory — a `PLUGIN.md` file declaring its capabilities, accepted `x-` fields, and handler entry point. This keeps the plugin format consistent with the skill format already established in the spec.
+
+#### What a Plugin Can Do
+
+A plugin handler receives the full parsed pipeline and the values of its declared `x-` fields. It may:
+
+- Add steps to the pipeline before execution begins
+- Register new trigger types
+- Subscribe to step lifecycle events (before step, after step, on error)
+- Write to the audit trail
+- Export to external systems
+
+A plugin may not modify core pipeline behaviour — step execution order, `on_result` logic, HITL gate behaviour — without those modifications being visible in `materialize-chain` output.
+
+#### Governance and Safety Interaction
+
+Plugins declared in a `FROM` base pipeline are inherited by child pipelines. A base pipeline may declare a plugin as `required: true`, preventing child pipelines from removing it — the same governance model used for safety directives and observability resources.
+
+```yaml
+plugins:
+  - id: compliance-reporter
+    path: /etc/ail/plugins/compliance-reporter/
+    handles: [x-compliance]
+    required: true             # child pipelines cannot remove this plugin
+```
+
+#### Unresolved Questions
+
+- Should the plugin entry point be a compiled binary, a script, or a WASM module? Each has different portability and security implications. WASM is the most sandboxed but has the highest implementation cost.
+- How does `materialize-chain` represent plugin-injected steps? They must be visible to maintain the "no surprises" guarantee.
+- Can a plugin declare new `on_result` action types, or are those reserved for the core spec?
+- Should plugins be sandboxed from the filesystem and network by default, with explicit capability grants? Given that plugins run as part of a pipeline that may handle sensitive data, this seems important but adds implementation complexity.
+- Is `PLUGIN.md` the right format, or should plugins have a more structured manifest (JSON schema, TOML) given that they declare machine-readable capabilities rather than human-readable instructions?
+
+---
+
+### Sealed Steps
+
+> **Status: Planned** — Syntax reserved. Not implemented.
+
+The `sealed: true` flag on a step prevents any hook from being inserted immediately before or after it via `run_before` or `run_after` in any inheriting pipeline. The step itself remains visible and referenceable — unlike `then:` children, which are private — but its adjacency is protected.
+
+This is distinct from `then:`. A step with `then:` hides its post-processing from the hook system. A `sealed` step prevents hooks from attaching to the step itself.
+
+```yaml
+- id: security_audit
+  sealed: true          # no run_before or run_after may target this step
+  prompt: ./prompts/security-audit.md
+  then:
+    - ail/janitor       # private; already non-hookable by virtue of being in then:
+```
+
+`sealed:` and `then:` compose naturally. A sealed step with a `then:` chain is both externally protected (no hooks on the parent) and internally private (no hooks on the children).
+
+**Attempting to hook a sealed step is a parse error**, not a silent failure:
+
+```
+Error: step 'security_audit' is sealed and cannot be targeted by run_before or run_after.
+```
+
+**Unresolved questions:**
+- Can a child pipeline unseal a step declared sealed in a base pipeline? The intuitive answer is no — sealing is a declaration by the step's author that adjacency matters — but there may be legitimate override cases.
+- Should `override:` be permitted on a sealed step? Overriding replaces the step entirely rather than inserting around it, which may be acceptable even when `run_before`/`run_after` are not.
+
+---
+
 ### Pipeline Registry & Versioning
 
 > **Status: Planned**
@@ -1049,7 +1494,85 @@ Named pipeline identity, versioning, and a registry system. Enables `FROM: org/s
 
 ---
 
-## 22. Open Questions
+### Observability — Tracing & Logging
+
+> **Status: Exploratory** — The structure and value are clear. Several design questions remain open. Syntax is not yet reserved.
+
+#### Motivation
+
+`ail` pipelines are multi-step, multi-provider, potentially multi-pipeline executions. Without structured observability, debugging a misbehaving pipeline means reading raw stdout. For teams with compliance requirements, there is no auditable record of what ran, when, against what input, and what it produced.
+
+The 15-factor app standard already mandates that the runtime emits structured logs to stdout. This extension goes further: it allows pipelines to declare named observability resources — traces and loggers — and reference them from individual steps, in the same way Docker Compose declares `networks:` and `volumes:` as top-level resources that services reference by name.
+
+#### Proposed Structure
+
+Observability resources are declared in a top-level `observability:` block and referenced from steps. This keeps configuration centralised and step definitions clean.
+
+```yaml
+observability:
+
+  traces:
+    - id: main_trace
+      exporter: otlp
+      endpoint: "{{ env.OTEL_ENDPOINT }}"
+      service_name: "ail/{{ pipeline.run_id }}"
+
+  logs:
+    - id: audit_log
+      format: json
+      destination: stdout          # 15-factor compliant; the default for all logs
+
+    - id: step_detail_log
+      format: json
+      destination: file
+      path: ./.ail/logs/{{ pipeline.run_id }}.jsonl
+
+defaults:
+  trace: main_trace                # applied to every step unless overridden
+  log: [audit_log]
+
+pipeline:
+  - id: security_audit
+    prompt: "..."
+    log: [audit_log, step_detail_log]   # step-level override adds a destination
+
+  - id: internal_score
+    prompt: "Rate quality 0.0–1.0. Number only."
+    trace: none                         # opt this step out of tracing
+```
+
+#### OpenTelemetry Compatibility
+
+OTEL is the target standard for trace export. Each pipeline run maps to an OTEL trace; each step maps to a span. Span attributes would carry at minimum:
+
+- `ail.step.id`
+- `ail.step.provider`
+- `ail.step.token_usage.input`
+- `ail.step.token_usage.output`
+- `ail.step.condition.result`
+- `ail.step.on_result.matched`
+- `ail.pipeline.run_id`
+- `ail.pipeline.file`
+
+This makes `ail` pipeline executions visible in any OTEL-compatible backend — Grafana, Jaeger, Honeycomb, Datadog — with zero additional integration work.
+
+#### Inheritance via `FROM`
+
+Observability resources declared in a `FROM` base pipeline are inherited by all child pipelines. An organisation can declare a mandatory `compliance_trace` in its base pipeline and all inheriting pipelines emit to it automatically. A child pipeline may add additional loggers but cannot silently remove an inherited tracer — any attempt to `disable` a base-declared observability resource creates an explicit audit event rather than silently succeeding.
+
+This makes compliance observability a governance guarantee, not a convention.
+
+#### Unresolved Questions
+
+- Are inherited observability resources merged (child adds to parent's list) or overridable (child can replace parent's config)? Merging is safer for compliance; overriding is more flexible for development.
+- Can a step opt out of a default tracer? The `trace: none` syntax above is proposed but not decided. There may be compliance contexts where opting out should be impossible.
+- How does sensitive data interact with trace export? Prompt content may contain credentials, PII, or proprietary information. There should be a way to mark prompt content as redacted in trace spans without disabling tracing entirely. This needs explicit design.
+- Is the `observability:` block itself inheritable via `FROM` hook operations (`run_before`, `run_after`, `override`, `disable`), or does it follow a simpler merge model separate from the step hook system?
+- What is the minimum viable observability for v0.0.1? Almost certainly structured JSON to stdout — already implied by 15-factor compliance. Everything else in this section is additive on top of that baseline.
+
+---
+
+## 23. Open Questions
 
 These are unresolved questions that require either implementation experience or dedicated research before they can be specced. They are tracked here so they are not lost.
 
