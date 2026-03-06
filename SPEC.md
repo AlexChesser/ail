@@ -119,6 +119,9 @@ defaults:                   # optional; inherited by all steps
   provider: openai/gpt-4o
   timeout_seconds: 120
   on_error: pause_for_human
+  tools:                    # pipeline-wide tool policy; overridable per step
+    allow: [Read, Glob, LS]
+    deny: [WebFetch]
 
 pipeline:                   # required; ordered list of steps
   - id: dry_refactor
@@ -208,6 +211,7 @@ Exactly one primary field is required per step. All other fields are optional.
 | `on_result` | Block. Declarative branching after completion. See §5.3. |
 | `disabled` | Boolean. Skips step unconditionally. Useful during development. |
 | `then` | List. Private post-processing steps chained to this step. See §5.5. |
+| `tools` | Block. Pre-approve or pre-deny tool calls for this step. See §5.6. |
 
 ### 5.2 `prompt:` — Inline and File
 
@@ -345,6 +349,72 @@ If a post-processing step needs to:
 - Branch via `on_result`
 
 ...it should be a top-level step, not a `then:` entry.
+
+### 5.6 `tools:` — Pre-Approved and Pre-Denied Tool Calls
+
+`tools:` on a step declares which Claude CLI tools are unconditionally allowed or denied before the permission callback is consulted. This eliminates HITL prompts for tools the pipeline author has already deemed safe or unsafe for a given step.
+
+```yaml
+# Simple allow/deny lists
+- id: security_audit
+  prompt: ./prompts/security-audit.md
+  tools:
+    allow: [Read, Glob, LS]
+    deny: [Bash, Git, WebFetch]
+
+# Pattern syntax — passed verbatim to --allowedTools / --disallowedTools
+- id: constrained_refactor
+  prompt: ./prompts/refactor.md
+  tools:
+    allow:
+      - Read
+      - Edit(./src/*)          # only edit files under src/
+      - Bash(git log*)         # only git log commands
+    deny:
+      - Bash(rm *)             # deny destructive bash
+      - WebFetch
+```
+
+#### How it works
+
+`ail` passes `tools.allow` as `--allowedTools` and `tools.deny` as `--disallowedTools` when invoking the Claude CLI for this step. Claude enforces these before reaching the permission callback — pre-approved tools execute silently, pre-denied tools are rejected silently.
+
+Tools not listed in either fall through to `ail`'s HITL permission UI.
+
+#### Three-tier tool behaviour
+
+| Tier | Mechanism | User sees |
+|---|---|---|
+| Pre-approved | `tools.allow` → `--allowedTools` | Nothing — executes silently |
+| Pre-denied | `tools.deny` → `--disallowedTools` | Nothing — rejected silently |
+| Unspecified | Falls through to HITL | Permission prompt in TUI |
+
+#### Inheritance
+
+`tools:` may be declared in the `defaults:` block to apply a pipeline-wide policy. Per-step declarations override the default for that step. Via `FROM` inheritance, an org base pipeline can establish a safe default tool policy that all child pipelines inherit.
+
+```yaml
+defaults:
+  tools:
+    allow: [Read, Glob, LS]   # safe read-only tools — pipeline-wide default
+    deny: [WebFetch]           # no network access anywhere in this pipeline
+
+pipeline:
+  - id: refactor
+    tools:
+      allow: [Read, Glob, LS, Edit, Bash(git diff*)]  # extend for this step
+      deny: [WebFetch]
+```
+
+#### Interaction with `sealed:` and `then:`
+
+A `sealed:` step's `tools:` policy cannot be overridden by hook operations from inheriting pipelines — the tool policy is part of what is sealed.
+
+`then:` chain steps inherit their parent step's `tools:` policy unless explicitly overridden within the full-form `then:` entry.
+
+#### Pattern syntax
+
+`ail` does not parse or validate tool patterns — they are passed verbatim to the Claude CLI. Pattern syntax follows Claude CLI conventions (e.g. `Bash(git log*)`, `Edit(./src/*)`). Refer to the Claude CLI reference for supported pattern forms.
 
 ---
 
@@ -641,11 +711,55 @@ HITL gates are intentional checkpoints, not error states.
 |---|---|
 | **Approve** | Gate clears. Pipeline continues unchanged. |
 | **Reject** | Pipeline aborts. Reason logged to audit trail. |
-| **Modify** | Human edits the preceding step's output or provides a correction. Pipeline re-evaluates from this step. |
+| **Modify** | Human edits the step output or tool input before execution resumes. |
+| **Allow for session** | Tool is added to the in-memory session allowlist. Subsequent identical tool calls in this session are auto-approved silently. |
 
-### 13.3 Implicit HITL via `on_result`
+### 13.3 Tool Permission HITL
+
+When a pipeline step invokes a tool not covered by `tools.allow` or `tools.deny` (see §5.6), `ail` intercepts the permission callback and presents it to the human before the tool executes.
+
+This is implemented via the Claude CLI `--permission-prompt-tool stdio` flag. `ail` reads permission request events from the NDJSON stream, renders them in the TUI, and writes one of the following JSON responses back to stdin:
+
+```json
+{ "behavior": "allow" }
+
+{ "behavior": "deny", "message": "User rejected this action" }
+
+{ "behavior": "allow", "updatedInput": { ...modified tool input... } }
+```
+
+The third form — `updatedInput` — is how the **Modify** response is implemented. The human edits the tool's input parameters (for example, correcting a file path) before allowing execution to proceed with the corrected values.
+
+**Allow for session** is implemented in `ail`'s session state — not in the Claude CLI. When the user selects this option, `ail` records the tool name and pattern in an in-memory allowlist and auto-responds `{"behavior": "allow"}` for matching requests for the remainder of the session, without prompting again.
+
+### 13.4 Tool Permission Flow
+
+```
+Claude CLI emits tool_use event
+  ↓
+Is tool in step's tools.allow?
+  YES → { "behavior": "allow" } — silent, no prompt
+  ↓ NO
+Is tool in step's tools.deny?
+  YES → { "behavior": "deny" } — silent, no prompt
+  ↓ NO
+Is tool in session allowlist?
+  YES → { "behavior": "allow" } — silent, no prompt
+  ↓ NO
+Present HITL prompt to human
+  → Approve      → { "behavior": "allow" }
+  → Allow for session → { "behavior": "allow" } + add to session allowlist
+  → Modify       → { "behavior": "allow", "updatedInput": <edited> }
+  → Reject       → { "behavior": "deny", "message": "User rejected" }
+```
+
+### 13.5 Implicit HITL via `on_result`
 
 Preferred over explicit gates — interrupts only when something genuinely requires attention. See §5.3.
+
+### 13.6 Headless / Automated Mode
+
+For automated runs (CI, the autonomous agent use case, Docker sandbox), HITL prompts are not viable. Pass `--dangerously-skip-permissions` to the Claude CLI invocation to bypass all tool permission checks. This is only appropriate in a fully trusted, sandboxed environment. `ail` will expose this as a session-level flag — not a pipeline YAML option — to prevent it from being accidentally committed to a shared pipeline file.
 
 ---
 
@@ -1580,49 +1694,51 @@ These are unresolved questions that require either implementation experience or 
 
 ### Completion Detection
 
-**Question:** How does `ail` reliably detect that an underlying CLI runner has finished responding?
+**Status: Resolved for Claude CLI.**
 
-**Current hypothesis:** For runners invoked as discrete CLI processes (e.g. `claude --print "..."`, `aider --message "..."`), process exit code 0 signals completion. This is the Unix standard and requires no PTY parsing.
+The Claude CLI `--output-format stream-json` flag produces a newline-delimited NDJSON stream. Completion is signalled by a `{"type": "result", "subtype": "success", ...}` event — unambiguous, structured, and carrying cost metadata. PTY wrapping is not required for the Claude CLI runner.
 
-**What needs research:** Whether all target runners support a non-interactive `--print` or `--message` invocation mode, what their exit code behaviour is on error, and whether there are cases where a runner exits 0 but has not produced useful output.
+For other runners without a structured output mode, process exit code 0 remains the fallback hypothesis. This should be validated per runner during each integration sprint. See `RUNNER-SPEC.md`.
 
-**Blocking:** Phase 0 spike. This is the most critical unknown before any code is written.
+**Remaining work:** Verify that `--output-format stream-json` is available in all Claude CLI invocation modes used by `ail`, and document error event shapes (`subtype: error`) for `on_error` handling.
 
 ---
 
 ### Context Accumulation
 
-**Question:** When a pipeline step runs, what context does it receive? Only the immediately preceding step's response (`{{ last_response }}`)? The full conversation history? Something configurable?
+**Status: Partially resolved. Spike validation required.**
 
-**Why it matters:** This directly affects every prompt template a user writes. A step that needs to reference code from three steps ago behaves very differently depending on the accumulation model.
+The `--input-format stream-json` flag allows `ail` to send follow-up messages to an active Claude CLI session as NDJSON on stdin, maintaining conversation state natively within a session. The `session_id` returned in the result event may allow session resumption across invocations.
 
-**What needs research:** The Claude CLI and other runner CLIs likely have specific mechanisms for context passing — `--context`, session files, or conversation history flags. This should be researched against the Claude CLI reference before speccing.
+This means context accumulation for the `invocation` step and the first pipeline step is likely handled natively by the Claude CLI session model. Whether subsequent pipeline steps within the same `ail` run share the same session — or are invoked as separate processes with context injected via template variables — is the remaining question.
 
-**Related:** The step `turns[]` structured data model (see below) may be the same research effort.
+**Remaining work:** Spike must determine whether `--input-format stream-json` supports sending a new pipeline step prompt within the same session, or whether each step requires a new subprocess invocation with context passed via `{{ step.invocation.response }}` and `{{ last_response }}` template variables.
 
 ---
 
 ### Step Turns & Structured Output Data Model
 
-**Question:** For steps where `ail` calls an LLM directly, a single "step" may involve multiple round trips (tool calls, thinking traces, intermediate responses). How is this represented?
+**Status: Concrete model established for Claude CLI. Full spec deferred.**
 
-**Proposed model (pending validation):**
+The `--output-format stream-json` stream provides structured event types that map directly to the proposed `turns[]` model:
 
 ```
 step.<id>
-  .response          ← final text output; what flows to next step
-  .turns[]           ← full round-trip sequence
-    .thinking        ← reasoning trace if present
-    .text            ← text blocks
-    .tool_calls[]
-      .name
-      .input
-      .result
+  .response              ← content of the result event; flows to next step
+  .cost_usd              ← total_cost_usd from result event
+  .turns[]               ← full NDJSON event sequence
+    .type                ← "assistant" | "user" | "system"
+    .content[]
+      .type              ← "tool_use" | "tool_result" | "text"
+      .name              ← tool name (tool_use events)
+      .input             ← tool input parameters (tool_use events)
+      .result            ← tool result (tool_result events)
+      .text              ← text content (text events)
 ```
 
-**What needs research:** What the Claude API actually returns for extended thinking and tool use responses, whether other providers have equivalent structures, and how this maps to stdout capture from CLI runners.
+Full speccing of `step.<id>.turns[]` template variable access is deferred until the spike validates the exact event shapes and confirms whether partial message streaming (`--include-partial-messages`) is needed for the MVP.
 
-**Related:** Context accumulation research above.
+**Remaining work:** Spike validation of event shapes, especially error events and extended thinking blocks.
 
 ---
 
