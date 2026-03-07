@@ -69,7 +69,7 @@
 - Prompt strings are serialized with double-quote scalar (`"..."`) and interior quotes/backslashes escaped. This is correct for YAML but may not preserve exact formatting of complex multi-line prompts. For v0.0.1 single-line prompts this is sufficient.
 
 ### Flags for human review
-- [SPEC] §18 describes output as
+- [SPEC] §18 describes output as "annotated YAML with origin comments". The format `# origin: [N] path` is not prescribed by SPEC — it's an implementation choice. If SPEC later formalises the comment format, this will need updating.
 
 ---
 
@@ -88,7 +88,7 @@
 - `TurnEntry.timestamp` is `#[serde(skip)]` — SystemTime does not implement Serialize without additional crate support. A future phase can add chrono/time and serialize it.
 
 ### Flags for human review
-- [SPEC] §4.4 requires the log to be persisted
+- [SPEC] §4.4 requires the log to be persisted before the next step runs. The current implementation attempts persistence but continues with a warning on write failure.
 
 ---
 
@@ -106,7 +106,7 @@
 - The template engine is a simple linear scan — no AST, no nesting. Sufficient for v0.0.1.
 
 ### Flags for human review
-- None. before the next step runs. The current implementation attempts persistence but continues on failure (with a warning). A strict implementation would abort the step on write failure. "annotated YAML with origin comments". The format `# origin: [N] path` is not prescribed by SPEC — it's an implementation choice. If SPEC later formalises the comment format, this will need updating. is a technical debt marker. A future decision: box `AilError` in return types, or restructure `detail` as `Box<str>`. Not blocking for v0.0.1.
+- None.
 
 ---
 
@@ -159,6 +159,39 @@
 ### Flags for human review
 - [UNDOC] `--verbose` is required alongside `--output-format stream-json --print`. This is undocumented in RUNNER-SPEC.md. RUNNER-SPEC.md should be updated.
 - [ARCH] Integration tests for `ClaudeCliRunner` cannot run inside a Claude Code session. This means CI will need to either run them outside, or skip them. Annotated `#[ignore]` for now.
+
+---
+
+## Phase 9 — Pipeline Executor (continued: invocation flow)
+
+### Discoveries not covered by the reference documents
+- The build prompt Phase 9 spec requires `--once` to invoke the user's prompt through Claude as invocation 1 before calling `execute_pipeline()`. This was missed in the initial Phase 9 implementation and corrected in Phase 10.
+- Pipeline steps must use `--resume <session_id>` to continue the claude conversation. Without this, "Review the above output" in `dont_be_stupid` has no referent — Claude has no conversation history.
+- `runner_session_id: Option<String>` was added to `TurnEntry` to carry the claude session_id through the turn log, enabling the executor to pick it up for resume.
+
+### Assumptions that proved wrong
+- Initial assumption: pipeline steps could be run as independent claude invocations with template variables carrying context. Corrected: `--resume` is the right mechanism for conversation continuity; template variables are for injecting values, not for re-establishing session history.
+
+### Flags for human review
+- None.
+
+---
+
+## Phase 10 — Reflection and v0.0.1 Tag
+
+### Flag summary (requires human review of reference documents)
+
+| Flag | Where | Action needed |
+|------|-------|---------------|
+| [UNDOC] `--verbose` required with stream-json | RUNNER-SPEC.md | Update RUNNER-SPEC.md to document this |
+| [UNDOC] `clippy::result_large_err` suppressed in 4 modules | All Result<_, AilError> returns | Future decision: box AilError or Box<str> detail |
+| [SPEC] §4.4 NDJSON write failure continues with warning | `turn_log.rs` | Decide: abort step on write failure? |
+| [SPEC] §18 origin comment format | `materialize.rs` | Formalise format in SPEC |
+| [ARCH] Integration tests can't run in Claude Code session | `runner/claude.rs` | CI strategy needed |
+
+### Resolved during build
+- All flags documented above are tracked in CHANGELOG.md §open-questions.
+- SPEC.md and ARCHITECTURE.md were not modified — all findings were recorded here instead.
 
 ---
 

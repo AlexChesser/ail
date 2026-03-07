@@ -443,6 +443,97 @@ mod spec {
         }
     }
 
+    // --- Stubbed features not yet implemented ---
+
+    mod s6_pipeline_inheritance {
+        /// SPEC §6 — extends: field traverses parent pipeline files
+        #[test]
+        #[ignore = "not yet implemented — SPEC §6"]
+        fn extends_field_is_parsed() {
+            todo!()
+        }
+
+        /// SPEC §6 — materialized chain includes all inherited steps with origins
+        #[test]
+        #[ignore = "not yet implemented — SPEC §6"]
+        fn materialize_chain_traverses_inheritance() {
+            todo!()
+        }
+    }
+
+    mod s12_step_conditions {
+        /// SPEC §12.1 — condition: never skips the step without error
+        #[test]
+        #[ignore = "not yet implemented — SPEC §12"]
+        fn condition_never_skips_step() {
+            todo!()
+        }
+
+        /// SPEC §12.2 — condition: always executes the step (default)
+        #[test]
+        #[ignore = "not yet implemented — SPEC §12"]
+        fn condition_always_executes_step() {
+            todo!()
+        }
+    }
+
+    mod s5_3_on_result {
+        /// SPEC §5.3 — on_result contains match continues execution
+        #[test]
+        #[ignore = "not yet implemented — SPEC §5.3"]
+        fn on_result_contains_match_continues() {
+            todo!()
+        }
+
+        /// SPEC §5.3 — on_result abort_pipeline exits as AilError
+        #[test]
+        #[ignore = "not yet implemented — SPEC §5.3"]
+        fn on_result_abort_pipeline_exits_as_ail_error() {
+            todo!()
+        }
+
+        /// SPEC §5.3 — on_result break exits as Ok(BreakExit), not Err
+        #[test]
+        #[ignore = "not yet implemented — SPEC §5.3"]
+        fn on_result_break_exits_as_ok_not_err() {
+            todo!()
+        }
+
+        /// SPEC §5.3 — on_result pause_for_human suspends and waits
+        #[test]
+        #[ignore = "not yet implemented — SPEC §5.3"]
+        fn on_result_pause_for_human_suspends() {
+            todo!()
+        }
+    }
+
+    mod s9_tool_permissions {
+        /// SPEC §9 — tool_permissions: deny list restricts tools passed to claude
+        #[test]
+        #[ignore = "not yet implemented — SPEC §9"]
+        fn tool_deny_list_is_passed_to_runner() {
+            todo!()
+        }
+    }
+
+    mod s10_model_config {
+        /// SPEC §10 — model: field overrides the claude model for a step
+        #[test]
+        #[ignore = "not yet implemented — SPEC §10"]
+        fn step_model_override_is_passed_to_runner() {
+            todo!()
+        }
+    }
+
+    mod s15_skills {
+        /// SPEC §15 — skill: field loads and executes a skill pipeline
+        #[test]
+        #[ignore = "not yet implemented — SPEC §15"]
+        fn skill_step_loads_and_executes_skill_pipeline() {
+            todo!()
+        }
+    }
+
     mod s17_error_handling {
         use ail_core::error::{error_types, AilError, ErrorContext};
 
