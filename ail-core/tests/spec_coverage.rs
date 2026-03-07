@@ -241,6 +241,60 @@ mod spec {
     }
 
     mod s4_execution_model {
+        mod executor {
+            use ail_core::config::domain::{Pipeline, Step, StepBody, StepId};
+            use ail_core::executor::execute;
+            use ail_core::runner::stub::StubRunner;
+            use ail_core::session::Session;
+
+            fn prompt_step(id: &str, text: &str) -> Step {
+                Step {
+                    id: StepId(id.to_string()),
+                    body: StepBody::Prompt(text.to_string()),
+                }
+            }
+
+            /// SPEC §4.2 — core invariant: steps execute in declared order
+            #[test]
+            fn steps_execute_in_declaration_order() {
+                let tmp = tempfile::tempdir().unwrap();
+                let orig = std::env::current_dir().unwrap();
+                std::env::set_current_dir(tmp.path()).unwrap();
+
+                let pipeline = Pipeline {
+                    steps: vec![prompt_step("first", "A"), prompt_step("second", "B")],
+                    source: None,
+                };
+                let mut session = Session::new(pipeline, "p".to_string());
+                execute(&mut session, &StubRunner::new("r")).unwrap();
+
+                let ids: Vec<_> = session
+                    .turn_log
+                    .entries()
+                    .iter()
+                    .map(|e| e.step_id.as_str())
+                    .collect();
+                assert_eq!(ids, vec!["first", "second"]);
+
+                std::env::set_current_dir(orig).unwrap();
+            }
+
+            /// SPEC §4.2 — passthrough (zero steps) is valid and is a no-op
+            #[test]
+            fn passthrough_pipeline_is_noop() {
+                let tmp = tempfile::tempdir().unwrap();
+                let orig = std::env::current_dir().unwrap();
+                std::env::set_current_dir(tmp.path()).unwrap();
+
+                let mut session = Session::new(Pipeline::passthrough(), "p".to_string());
+                let result = execute(&mut session, &StubRunner::new("x"));
+                assert!(result.is_ok());
+                assert_eq!(session.turn_log.entries().len(), 0);
+
+                std::env::set_current_dir(orig).unwrap();
+            }
+        }
+
         mod session {
             use ail_core::config::domain::Pipeline;
             use ail_core::session::{Session, TurnEntry, TurnLog};

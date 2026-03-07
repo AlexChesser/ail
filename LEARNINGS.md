@@ -138,6 +138,24 @@
 - `ClaudeCliRunner` does not capture stderr — on error, `claude` sets `result.subtype = "error"` and `result.is_error = true` in the NDJSON stream. Stderr is not needed for error detection.
 - The `result` event's `result` field (not `message.content`) is the canonical response text. The `assistant` event content is streaming/partial.
 
+---
+
+## Phase 9 — Pipeline Executor
+
+### Discoveries not covered by the reference documents
+- `executor.rs` propagates error context (run_id, step_id) onto `AilError` after the fact using `map_err` mutation. This is possible because `AilError.context` is `Option<ErrorContext>` and is `pub`. A future phase may prefer a builder pattern.
+- The executor handles `PauseForHuman` as a no-op in v0.0.1. This is intentional; the spec says it's valid in headless/`--once` mode.
+
+### Assumptions that proved wrong
+- None.
+
+### Decisions made that future phases should know about
+- `Skill` and `SubPipeline` step bodies return `PIPELINE_ABORTED` error in the executor. This is not a silent failure — it's an explicit error. A future phase implements these by recursing into child pipelines or loading skill files.
+- `--once` with no `.ail.yaml` is valid: the passthrough pipeline runs zero steps, so the runner is never called.
+
+### Flags for human review
+- None.
+
 ### Flags for human review
 - [UNDOC] `--verbose` is required alongside `--output-format stream-json --print`. This is undocumented in RUNNER-SPEC.md. RUNNER-SPEC.md should be updated.
 - [ARCH] Integration tests for `ClaudeCliRunner` cannot run inside a Claude Code session. This means CI will need to either run them outside, or skip them. Annotated `#[ignore]` for now.

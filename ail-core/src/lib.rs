@@ -1,5 +1,6 @@
 pub mod config;
 pub mod error;
+pub mod executor;
 pub mod materialize;
 pub mod runner;
 pub mod session;
