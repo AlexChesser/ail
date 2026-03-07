@@ -88,7 +88,25 @@
 - `TurnEntry.timestamp` is `#[serde(skip)]` — SystemTime does not implement Serialize without additional crate support. A future phase can add chrono/time and serialize it.
 
 ### Flags for human review
-- [SPEC] §4.4 requires the log to be persisted before the next step runs. The current implementation attempts persistence but continues on failure (with a warning). A strict implementation would abort the step on write failure. "annotated YAML with origin comments". The format `# origin: [N] path` is not prescribed by SPEC — it's an implementation choice. If SPEC later formalises the comment format, this will need updating. is a technical debt marker. A future decision: box `AilError` in return types, or restructure `detail` as `Box<str>`. Not blocking for v0.0.1.
+- [SPEC] §4.4 requires the log to be persisted
+
+---
+
+## Phase 7 — Template Variable Resolution
+
+### Discoveries not covered by the reference documents
+- `#[allow(clippy::result_large_err)]` is now required in `template.rs` for the same reason as `validation.rs` and `config/mod.rs` — `AilError` contains `String`.
+- `set_var`/`remove_var` in tests are technically not thread-safe on all platforms. Nextest runs tests in isolation which avoids this, but it's worth noting.
+
+### Assumptions that proved wrong
+- None.
+
+### Decisions made that future phases should know about
+- `{{ last_response }}` errors if no turn entries exist. The executor (Phase 9) must only use `last_response` in step 2+ of a pipeline (after the invocation response exists). A pipeline that uses `{{ last_response }}` in its first step will fail at resolve time. This is correct behaviour per SPEC §11 ("silent empty is never permitted").
+- The template engine is a simple linear scan — no AST, no nesting. Sufficient for v0.0.1.
+
+### Flags for human review
+- None. before the next step runs. The current implementation attempts persistence but continues on failure (with a warning). A strict implementation would abort the step on write failure. "annotated YAML with origin comments". The format `# origin: [N] path` is not prescribed by SPEC — it's an implementation choice. If SPEC later formalises the comment format, this will need updating. is a technical debt marker. A future decision: box `AilError` in return types, or restructure `detail` as `Box<str>`. Not blocking for v0.0.1.
 
 ---
 
