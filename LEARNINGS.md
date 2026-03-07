@@ -69,7 +69,26 @@
 - Prompt strings are serialized with double-quote scalar (`"..."`) and interior quotes/backslashes escaped. This is correct for YAML but may not preserve exact formatting of complex multi-line prompts. For v0.0.1 single-line prompts this is sufficient.
 
 ### Flags for human review
-- [SPEC] §18 describes output as "annotated YAML with origin comments". The format `# origin: [N] path` is not prescribed by SPEC — it's an implementation choice. If SPEC later formalises the comment format, this will need updating. is a technical debt marker. A future decision: box `AilError` in return types, or restructure `detail` as `Box<str>`. Not blocking for v0.0.1.
+- [SPEC] §18 describes output as
+
+---
+
+## Phase 6 — TurnLog and Session
+
+### Discoveries not covered by the reference documents
+- Rust's module system disallows naming a submodule the same as its parent module (`session/session.rs` inside `session/`). Renamed to `session/state.rs`. This is a Rust idiom, not a domain decision.
+- `clippy::result_large_err` did not fire for `TurnLog` — NDJSON write failures are only `std::io::Error`, not `AilError`.
+- Tests that call `TurnLog::append()` must change the working directory to a temp directory, since the NDJSON file is written relative to CWD (`.ail/runs/`). This makes these tests slightly sensitive to CWD mutation. Nextest isolation makes this safe for now.
+
+### Assumptions that proved wrong
+- None.
+
+### Decisions made that future phases should know about
+- `TurnLog::append()` never panics on NDJSON write failure — it logs a warning and continues. The spec (§4.4) says the log is written before the next step runs, but a write failure in a v0.0.1 proof of concept shouldn't abort the pipeline. This is a pragmatic choice flagged for review.
+- `TurnEntry.timestamp` is `#[serde(skip)]` — SystemTime does not implement Serialize without additional crate support. A future phase can add chrono/time and serialize it.
+
+### Flags for human review
+- [SPEC] §4.4 requires the log to be persisted before the next step runs. The current implementation attempts persistence but continues on failure (with a warning). A strict implementation would abort the step on write failure. "annotated YAML with origin comments". The format `# origin: [N] path` is not prescribed by SPEC — it's an implementation choice. If SPEC later formalises the comment format, this will need updating. is a technical debt marker. A future decision: box `AilError` in return types, or restructure `detail` as `Box<str>`. Not blocking for v0.0.1.
 
 ---
 

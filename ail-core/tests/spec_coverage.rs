@@ -114,6 +114,96 @@ mod spec {
         }
     }
 
+    mod s4_execution_model {
+        mod session {
+            use ail_core::config::domain::Pipeline;
+            use ail_core::session::{Session, TurnEntry, TurnLog};
+            use std::time::SystemTime;
+
+            fn make_session() -> Session {
+                Session::new(Pipeline::passthrough(), "test prompt".to_string())
+            }
+
+            fn make_entry(step_id: &str, response: Option<&str>) -> TurnEntry {
+                TurnEntry {
+                    step_id: step_id.to_string(),
+                    prompt: "some prompt".to_string(),
+                    response: response.map(|s| s.to_string()),
+                    timestamp: SystemTime::now(),
+                    cost_usd: None,
+                }
+            }
+
+            /// SPEC §4 — each pipeline run has a unique run_id
+            #[test]
+            fn session_new_generates_unique_run_id() {
+                let s = make_session();
+                assert!(!s.run_id.is_empty());
+            }
+
+            /// SPEC §4 — entries are ordered and retrievable
+            #[test]
+            fn turn_log_entries_are_ordered() {
+                let tmp = tempfile::tempdir().unwrap();
+                let original_dir = std::env::current_dir().unwrap();
+                std::env::set_current_dir(tmp.path()).unwrap();
+
+                let mut log = TurnLog::new("test-run-ordered".to_string());
+                log.append(make_entry("step_1", Some("response 1")));
+                log.append(make_entry("step_2", Some("response 2")));
+                let entries = log.entries();
+                assert_eq!(entries[0].step_id, "step_1");
+                assert_eq!(entries[1].step_id, "step_2");
+
+                std::env::set_current_dir(original_dir).unwrap();
+            }
+
+            /// SPEC §4 — last_response returns the most recent entry
+            #[test]
+            fn last_response_returns_most_recent_entry() {
+                let tmp = tempfile::tempdir().unwrap();
+                let original_dir = std::env::current_dir().unwrap();
+                std::env::set_current_dir(tmp.path()).unwrap();
+
+                let mut log = TurnLog::new("test-run-last".to_string());
+                log.append(make_entry("step_1", Some("first")));
+                log.append(make_entry("step_2", Some("second")));
+                assert_eq!(log.last_response(), Some("second"));
+
+                std::env::set_current_dir(original_dir).unwrap();
+            }
+
+            /// SPEC §4 — turn log persists to append-only NDJSON file
+            #[test]
+            fn turn_log_append_writes_ndjson_line_to_disk() {
+                let tmp = tempfile::tempdir().unwrap();
+                let original_dir = std::env::current_dir().unwrap();
+                std::env::set_current_dir(tmp.path()).unwrap();
+
+                let run_id = "test-run-ndjson".to_string();
+                let mut log = TurnLog::new(run_id.clone());
+                log.append(make_entry("step_1", Some("hello")));
+
+                let path = tmp.path().join(format!(".ail/runs/{run_id}.jsonl"));
+                assert!(path.exists(), "NDJSON file should exist at {path:?}");
+                let contents = std::fs::read_to_string(&path).unwrap();
+                let line = contents.lines().next().unwrap();
+                let parsed: serde_json::Value = serde_json::from_str(line).unwrap();
+                assert_eq!(parsed["step_id"], "step_1");
+
+                std::env::set_current_dir(original_dir).unwrap();
+            }
+
+            /// SPEC §4 — two sessions produce different run_ids
+            #[test]
+            fn two_sessions_have_distinct_run_ids() {
+                let s1 = make_session();
+                let s2 = make_session();
+                assert_ne!(s1.run_id, s2.run_id);
+            }
+        }
+    }
+
     mod s18_materialize_chain {
         use ail_core::config::load;
         use ail_core::materialize::materialize;
