@@ -52,7 +52,24 @@
 - `Pipeline::passthrough()` returns zero steps; the executor (Phase 9) must handle this case (no-op, exit 0).
 
 ### Flags for human review
-- [UNDOC] `#[allow(clippy::result_large_err)]` is a technical debt marker. A future decision: box `AilError` in return types, or restructure `detail` as `Box<str>`. Not blocking for v0.0.1.
+- [UNDOC] `#[allow(clippy::result_large_err)]`
+
+---
+
+## Phase 5 — `materialize-chain` Command
+
+### Discoveries not covered by the reference documents
+- `serde_yaml::from_str` returns `Result<T, _>`, not `T`, so unit tests asserting YAML validity must check `result.is_ok()`, not call `.is_ok()` on the value itself. Trivial but caught a compile error.
+
+### Assumptions that proved wrong
+- None.
+
+### Decisions made that future phases should know about
+- `materialize()` hardcodes `version: "0.0.1"` in output. Phase 5 scope is single-file only; inheritance chain traversal is deferred. When inheritance is implemented, the `version` emitted should come from the resolved pipeline's version field.
+- Prompt strings are serialized with double-quote scalar (`"..."`) and interior quotes/backslashes escaped. This is correct for YAML but may not preserve exact formatting of complex multi-line prompts. For v0.0.1 single-line prompts this is sufficient.
+
+### Flags for human review
+- [SPEC] §18 describes output as "annotated YAML with origin comments". The format `# origin: [N] path` is not prescribed by SPEC — it's an implementation choice. If SPEC later formalises the comment format, this will need updating. is a technical debt marker. A future decision: box `AilError` in return types, or restructure `detail` as `Box<str>`. Not blocking for v0.0.1.
 
 ---
 

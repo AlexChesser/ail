@@ -12,8 +12,31 @@ fn main() {
 
     match cli.command {
         Some(Commands::MaterializeChain { pipeline, out }) => {
-            tracing::info!(event = "materialize_chain", ?pipeline, ?out);
-            eprintln!("materialize-chain: not yet implemented");
+            let path = match ail_core::config::discovery::discover(pipeline) {
+                Some(p) => p,
+                None => {
+                    eprintln!("No pipeline file found.");
+                    std::process::exit(1);
+                }
+            };
+            match ail_core::config::load(&path) {
+                Ok(p) => {
+                    let output = ail_core::materialize::materialize(&p);
+                    match out {
+                        Some(out_path) => {
+                            if let Err(e) = std::fs::write(&out_path, &output) {
+                                eprintln!("Failed to write to {}: {e}", out_path.display());
+                                std::process::exit(1);
+                            }
+                        }
+                        None => print!("{output}"),
+                    }
+                }
+                Err(e) => {
+                    eprintln!("{e}");
+                    std::process::exit(1);
+                }
+            }
         }
         Some(Commands::Validate { pipeline }) => {
             let path = match ail_core::config::discovery::discover(pipeline) {
