@@ -1,6 +1,6 @@
-# `ail` — Alexander's Impressive Loops (AI Loops) 
+# ail — Alexander's Impressive Loops (AI Loops)
 
-> **The control plane for how AI coding agents behave after the human stops typing.**
+> **A deterministic pipeline for nondeterministic workflows.**
 
 [![Spec: CC BY-SA 4.0](https://img.shields.io/badge/spec-CC%20BY--SA%204.0-lightgrey.svg)](#license)
 [![Core: MPL 2.0](https://img.shields.io/badge/core-MPL%202.0-blue.svg)](#license)
@@ -11,6 +11,8 @@
 `ail` is an open-source pipeline runtime that wraps AI coding agents like the Claude CLI and automatically runs a deterministic chain of follow-up prompts after every agent response — before control ever returns to the human.
 
 Write a `.ail.yaml` file. Every time your AI coding agent finishes, your quality gates run. Every time. Without you having to remember to ask.
+
+> 💡 **The long-term vision:** self-improving workflows that scale from your terminal to your entire organization. [Read more →](#the-target-self-improving-loops)
 
 > ⚠️ **This project is in early development.** The parser and domain model are working, but the executor is not yet complete. The pipeline language is a working hypothesis — it feels solid, but real-world implementation will test that. The examples below show what `ail` is being built toward — not what it does today. See [Current Status](#current-status) for what is and isn't implemented.
 
@@ -302,6 +304,24 @@ The most valuable contribution right now is completing `on_result` branching ([S
 | `demo/` | [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/) | Examples and demo pipelines are released into the public domain. No attribution required, no conditions. Copy freely into any project, proprietary or otherwise. |
 
 **Contributor License Agreement (CLA):** All contributors must sign the `ail` CLA before their pull requests can be merged. The CLA assigns copyright in your contributions to the project maintainer. This preserves the ability to relicense any part of the project in the future without needing to track down and re-obtain permission from every contributor. The CLA agreement will be linked here once the tooling is in place.
+
+---
+
+## The Target: Self-Improving Loops
+
+The immediate value of `ail` is simple: stop forgetting to run your quality gates. That problem is real and the solution is useful on day one.
+
+There is a longer ambition that makes it interesting.
+
+The loop looks like this: a pipeline fans out the same prompt to two models in parallel. A third model compares the responses and selects the better one to move forward as the canonical output. So far, that's just model comparison — useful but not novel.
+
+Rather than discarding the losing response, the pipeline sends it down a separate chain that asks: *what principle would have improved this?* Not a fix specific to this particular case — something generic enough to apply next time. That principle gets written back into the `.ail.yaml` as a new post-processing step, inserted after the step that produced the losing response. The pipeline reloads. The next run is already better.
+
+Every run is an experiment. Every failure is a lesson. The `.ail.yaml` becomes a living record of prompt engineering knowledge that the pipeline wrote on its own.
+
+With built-in sampling rates and cutover thresholds, `ail` pipelines naturally adjust their costs downward as workflows improve. And because pipelines are shareable and inheritable, those improvements don't stay local — they propagate from a developer to a project to an organization.
+
+Whether this works as well in practice as it sounds in theory is exactly what building it will tell us.
 
 ---
 
