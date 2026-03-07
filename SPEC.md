@@ -139,9 +139,9 @@ pipeline:                   # required; ordered list of steps
 
 ## 4. The Pipeline Execution Model
 
-### 4.1 `invocation` — The Implicit First Step
+### 4.1 `invocation` — Step Zero
 
-Every pipeline has an implicit first step called `invocation`. It is never written in the YAML file, but it always exists and can always be referenced.
+Every pipeline has an implicit first step called `invocation`. It is always step zero, always exists, and can always be referenced by subsequent steps via template variables.
 
 `invocation` represents the triggering event and the runner's response to it. The trigger may be:
 
@@ -152,7 +152,7 @@ Every pipeline has an implicit first step called `invocation`. It is never writt
 The pipeline's authored steps begin executing only after `invocation` completes. `ail` never intercepts or replaces the triggering interaction — it extends it.
 
 ```
-invocation           ← implicit; always step zero
+invocation           ← step zero; always present
   ↓
 step_1               ← first authored step in the pipeline
   ↓
@@ -162,6 +162,29 @@ step_2
   ↓
 [control returns to caller]
 ```
+
+#### Declaring `invocation` in YAML
+
+`invocation` may be declared explicitly as the first step in the pipeline YAML. When declared, it must be the first step; placing it anywhere else is a validation error.
+
+```yaml
+version: "0.0.1"
+pipeline:
+  - id: invocation
+    prompt: "{{ session.invocation_prompt }}"
+  - id: review
+    prompt: "Review the above output."
+```
+
+**If `invocation` is declared**, the executor runs it as a first-class step with whatever configuration the user supplied — this includes a custom prompt template, a non-default model or provider, `before:`/`then:` hooks, or any other step-level configuration. The host does not run a separate default invocation.
+
+**If `invocation` is not declared**, the host runs a default invocation (the `--once` prompt, plain settings) before handing off to the executor. This is the minimal case for pipelines that do not need to customise how the triggering interaction is handled.
+
+Declaring `invocation` in YAML also makes it visible in `materialize-chain` output, which is the primary way readers understand what a pipeline does end-to-end.
+
+#### `invocation` in `FROM` chains
+
+When a pipeline inherits from a base pipeline via `FROM`, the `invocation` step belongs to the triggering pipeline — not the base. The inherited steps execute after `invocation` completes, in the order they appear in the resolved (materialised) pipeline. The `invocation` step is never inherited and never duplicated; it fires exactly once per pipeline run, always as step zero.
 
 Because `invocation` names the event rather than the actor, the template variables are unambiguous regardless of what triggered the pipeline:
 

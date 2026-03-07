@@ -51,6 +51,21 @@ pub fn validate(dto: PipelineFileDto, source: PathBuf) -> Result<Pipeline, AilEr
         Some(v) => v,
     };
 
+    // invocation step, if present, must be first (SPEC §4.1)
+    let invocation_pos = step_dtos
+        .iter()
+        .position(|s| s.id.as_deref() == Some("invocation"));
+    if let Some(pos) = invocation_pos {
+        if pos != 0 {
+            return Err(AilError {
+                error_type: error_types::CONFIG_VALIDATION_FAILED,
+                title: "invocation step must be first",
+                detail: "The 'invocation' step, if declared, must be the first step in the pipeline (SPEC §4.1)".to_string(),
+                context: None,
+            });
+        }
+    }
+
     let mut seen_ids: HashSet<String> = HashSet::new();
     let mut steps: Vec<Step> = Vec::with_capacity(step_dtos.len());
 

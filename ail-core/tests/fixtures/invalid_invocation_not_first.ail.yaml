@@ -1,0 +1,6 @@
+version: "0.0.1"
+pipeline:
+  - id: some_step
+    prompt: "Do something"
+  - id: invocation
+    prompt: "{{ session.invocation_prompt }}"

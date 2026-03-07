@@ -14,7 +14,7 @@ use crate::template;
 /// Early exit only via explicit declared outcomes — never silent failures.
 pub fn execute(session: &mut Session, runner: &dyn Runner) -> Result<(), AilError> {
     if session.pipeline.steps.is_empty() {
-        tracing::info!(run_id = %session.run_id, "passthrough pipeline — no steps to execute");
+        tracing::info!(run_id = %session.run_id, "empty pipeline — no steps to execute");
         return Ok(());
     }
 
@@ -118,16 +118,18 @@ mod tests {
     }
 
     #[test]
-    fn passthrough_pipeline_executes_without_runner_call() {
+    fn passthrough_pipeline_runs_invocation_step() {
         let tmp = tempfile::tempdir().unwrap();
         let orig = std::env::current_dir().unwrap();
         std::env::set_current_dir(tmp.path()).unwrap();
 
-        let mut session = Session::new(Pipeline::passthrough(), "prompt".to_string());
-        let runner = StubRunner::new("should not be called");
+        let mut session = Session::new(Pipeline::passthrough(), "hello".to_string());
+        let runner = StubRunner::new("stub response");
         let result = execute(&mut session, &runner);
         assert!(result.is_ok());
-        assert_eq!(session.turn_log.entries().len(), 0);
+        // passthrough declares invocation as step zero; executor runs it
+        assert_eq!(session.turn_log.entries().len(), 1);
+        assert_eq!(session.turn_log.entries()[0].step_id, "invocation");
 
         std::env::set_current_dir(orig).unwrap();
     }

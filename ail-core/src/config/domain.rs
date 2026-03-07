@@ -7,10 +7,15 @@ pub struct Pipeline {
 }
 
 impl Pipeline {
-    /// Zero-step passthrough pipeline — the safe default when no `.ail.yaml` is found (SPEC §3.1).
+    /// Default pipeline used when no `.ail.yaml` is found (SPEC §3.1, §4.1).
+    /// Contains only the implicit `invocation` step, which represents the triggering
+    /// event (the `--once` prompt) and is populated by the host before `execute()` runs.
     pub fn passthrough() -> Self {
         Pipeline {
-            steps: vec![],
+            steps: vec![Step {
+                id: StepId("invocation".to_string()),
+                body: StepBody::Prompt("{{ session.invocation_prompt }}".to_string()),
+            }],
             source: None,
         }
     }

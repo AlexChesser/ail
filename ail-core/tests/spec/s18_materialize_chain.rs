@@ -1,9 +1,19 @@
+use ail_core::config::domain::Pipeline;
 use ail_core::config::load;
 use ail_core::materialize::materialize;
 use std::path::PathBuf;
 
 fn fixtures_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures")
+}
+
+/// SPEC §18 — passthrough pipeline materializes to valid YAML with zero steps
+/// (covers the CLI fallback when no pipeline file is found)
+#[test]
+fn passthrough_pipeline_materializes_to_valid_yaml() {
+    let output = materialize(&Pipeline::passthrough());
+    let parsed: serde_yaml::Value = serde_yaml::from_str(&output).unwrap();
+    assert!(parsed.is_mapping());
 }
 
 /// SPEC §18 — output includes origin annotation per step

@@ -36,9 +36,9 @@ mod executor {
         std::env::set_current_dir(orig).unwrap();
     }
 
-    /// SPEC §4.2 — passthrough (zero steps) is valid and is a no-op
+    /// SPEC §4.1, §4.2 — passthrough runs the invocation step declared at step zero
     #[test]
-    fn passthrough_pipeline_is_noop() {
+    fn passthrough_pipeline_runs_invocation_step() {
         let tmp = tempfile::tempdir().unwrap();
         let orig = std::env::current_dir().unwrap();
         std::env::set_current_dir(tmp.path()).unwrap();
@@ -46,7 +46,8 @@ mod executor {
         let mut session = Session::new(Pipeline::passthrough(), "p".to_string());
         let result = execute(&mut session, &StubRunner::new("x"));
         assert!(result.is_ok());
-        assert_eq!(session.turn_log.entries().len(), 0);
+        assert_eq!(session.turn_log.entries().len(), 1);
+        assert_eq!(session.turn_log.entries()[0].step_id, "invocation");
 
         std::env::set_current_dir(orig).unwrap();
     }

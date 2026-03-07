@@ -36,7 +36,9 @@ pub fn resolve(template: &str, session: &Session) -> Result<String, AilError> {
 
 fn resolve_variable(variable: &str, session: &Session) -> Result<String, AilError> {
     match variable {
-        "step.invocation.prompt" => Ok(session.invocation_prompt.clone()),
+        "session.invocation_prompt" | "step.invocation.prompt" => {
+            Ok(session.invocation_prompt.clone())
+        }
 
         "step.invocation.response" => session
             .turn_log
