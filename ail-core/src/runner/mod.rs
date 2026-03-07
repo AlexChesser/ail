@@ -11,12 +11,17 @@ pub struct RunResult {
     pub session_id: Option<String>,
 }
 
+/// Options passed to a runner invocation. Extensible without changing the trait signature.
+#[derive(Default)]
+pub struct InvokeOptions {
+    /// Resumes an existing conversation by session ID (passed as `--resume <id>`).
+    pub resume_session_id: Option<String>,
+    /// Tools pre-approved for this step — passed as `--allowedTools` (SPEC §5.6).
+    pub allowed_tools: Vec<String>,
+    /// Tools pre-denied for this step — passed as `--disallowedTools` (SPEC §5.6).
+    pub denied_tools: Vec<String>,
+}
+
 pub trait Runner {
-    /// Invoke the runner with `prompt`.
-    ///
-    /// `resume_session_id` — if provided, passes `--resume <id>` to the claude
-    /// CLI so the invocation continues an existing conversation. This is how
-    /// pipeline steps get access to the conversation history from the initial
-    /// `--once` invocation.
-    fn invoke(&self, prompt: &str, resume_session_id: Option<&str>) -> Result<RunResult, AilError>;
+    fn invoke(&self, prompt: &str, options: InvokeOptions) -> Result<RunResult, AilError>;
 }

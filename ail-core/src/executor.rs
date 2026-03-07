@@ -4,7 +4,7 @@ use std::time::SystemTime;
 
 use crate::config::domain::StepBody;
 use crate::error::{error_types, AilError};
-use crate::runner::Runner;
+use crate::runner::{InvokeOptions, Runner};
 use crate::session::{Session, TurnEntry};
 use crate::template;
 
@@ -45,9 +45,21 @@ pub fn execute(session: &mut Session, runner: &dyn Runner) -> Result<(), AilErro
                 // or hangs, this is the only evidence the step was attempted.
                 session.turn_log.record_step_started(&step_id, &resolved);
 
-                let result = runner
-                    .invoke(&resolved, resume_id.as_deref())
-                    .map_err(|mut e| {
+                let options = InvokeOptions {
+                    resume_session_id: resume_id,
+                    allowed_tools: step
+                        .tools
+                        .as_ref()
+                        .map(|t| t.allow.clone())
+                        .unwrap_or_default(),
+                    denied_tools: step
+                        .tools
+                        .as_ref()
+                        .map(|t| t.deny.clone())
+                        .unwrap_or_default(),
+                };
+
+                let result = runner.invoke(&resolved, options).map_err(|mut e| {
                         e.context = Some(crate::error::ErrorContext {
                             pipeline_run_id: Some(session.run_id.clone()),
                             step_id: Some(step_id.clone()),
@@ -118,6 +130,7 @@ mod tests {
         Step {
             id: StepId(id.to_string()),
             body: StepBody::Prompt(text.to_string()),
+            tools: None,
         }
     }
 

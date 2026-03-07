@@ -1,0 +1,9 @@
+version: "0.0.1"
+pipeline:
+  - id: invocation
+    prompt: "{{ session.invocation_prompt }}"
+    tools:
+      allow:
+        - Write
+        - Edit
+        - Bash

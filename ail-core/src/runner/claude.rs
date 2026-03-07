@@ -3,7 +3,7 @@
 use std::io::{BufRead, BufReader};
 use std::process::{Command, Stdio};
 
-use super::{RunResult, Runner};
+use super::{InvokeOptions, RunResult, Runner};
 use crate::error::{error_types, AilError};
 
 /// Drives the `claude` CLI in `--output-format stream-json --verbose -p` mode.
@@ -37,14 +37,26 @@ impl Default for ClaudeCliRunner {
 }
 
 impl Runner for ClaudeCliRunner {
-    fn invoke(&self, prompt: &str, resume_session_id: Option<&str>) -> Result<RunResult, AilError> {
-        let mut args: Vec<&str> = vec!["--output-format", "stream-json", "--verbose"];
-        if let Some(sid) = resume_session_id {
-            args.push("--resume");
-            args.push(sid);
+    fn invoke(&self, prompt: &str, options: InvokeOptions) -> Result<RunResult, AilError> {
+        let mut args: Vec<String> = vec![
+            "--output-format".into(),
+            "stream-json".into(),
+            "--verbose".into(),
+        ];
+        if let Some(sid) = &options.resume_session_id {
+            args.push("--resume".into());
+            args.push(sid.clone());
         }
-        args.push("-p");
-        args.push(prompt);
+        if !options.allowed_tools.is_empty() {
+            args.push("--allowedTools".into());
+            args.push(options.allowed_tools.join(","));
+        }
+        if !options.denied_tools.is_empty() {
+            args.push("--disallowedTools".into());
+            args.push(options.denied_tools.join(","));
+        }
+        args.push("-p".into());
+        args.push(prompt.to_string());
 
         let mut child = Command::new(&self.claude_bin)
             .args(&args)
@@ -175,7 +187,7 @@ mod tests {
     fn claude_cli_runner_returns_non_empty_response() {
         let runner = ClaudeCliRunner::new();
         let result = runner
-            .invoke("Reply with exactly the word: hello", None)
+            .invoke("Reply with exactly the word: hello", InvokeOptions::default())
             .unwrap();
         assert!(!result.response.is_empty());
         assert!(result.cost_usd.is_some());
@@ -187,7 +199,7 @@ mod tests {
     fn claude_cli_runner_response_contains_expected_text() {
         let runner = ClaudeCliRunner::new();
         let result = runner
-            .invoke("Reply with exactly one word: banana", None)
+            .invoke("Reply with exactly one word: banana", InvokeOptions::default())
             .unwrap();
         assert!(
             result.response.to_lowercase().contains("banana"),

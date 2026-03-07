@@ -13,4 +13,13 @@ pub struct StepDto {
     pub skill: Option<String>,
     pub pipeline: Option<String>,
     pub action: Option<String>,
+    pub tools: Option<ToolsDto>,
+}
+
+#[derive(Deserialize)]
+pub struct ToolsDto {
+    #[serde(default)]
+    pub allow: Vec<String>,
+    #[serde(default)]
+    pub deny: Vec<String>,
 }

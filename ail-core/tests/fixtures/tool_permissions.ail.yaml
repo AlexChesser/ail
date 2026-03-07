@@ -1,0 +1,17 @@
+version: "0.0.1"
+pipeline:
+  - id: invocation
+    prompt: "{{ session.invocation_prompt }}"
+    tools:
+      allow:
+        - Read
+        - Glob
+        - Edit(./src/*)
+      deny:
+        - Bash
+        - WebFetch
+  - id: review
+    prompt: "Review the above output."
+    tools:
+      allow:
+        - Read

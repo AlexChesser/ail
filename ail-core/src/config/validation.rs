@@ -3,7 +3,7 @@
 use std::collections::HashSet;
 use std::path::PathBuf;
 
-use super::domain::{ActionKind, Pipeline, Step, StepBody, StepId};
+use super::domain::{ActionKind, Pipeline, Step, StepBody, StepId, ToolPolicy};
 use super::dto::PipelineFileDto;
 use crate::error::{error_types, AilError};
 
@@ -129,9 +129,15 @@ pub fn validate(dto: PipelineFileDto, source: PathBuf) -> Result<Pipeline, AilEr
             unreachable!("primary_count == 1 enforced above")
         };
 
+        let tools = step_dto.tools.map(|t| ToolPolicy {
+            allow: t.allow,
+            deny: t.deny,
+        });
+
         steps.push(Step {
             id: StepId(id_str),
             body,
+            tools,
         });
     }
 

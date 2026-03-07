@@ -1,6 +1,6 @@
 mod cli;
 
-use ail_core::runner::Runner;
+use ail_core::runner::{InvokeOptions, Runner};
 use clap::Parser;
 use cli::{Cli, Commands};
 
@@ -82,7 +82,7 @@ fn main() {
                     .unwrap_or(false);
 
                 if !has_invocation_step {
-                    match runner.invoke(&prompt, None) {
+                    match runner.invoke(&prompt, InvokeOptions::default()) {
                         Ok(result) => {
                             println!("{}", result.response);
                             session.turn_log.append(ail_core::session::TurnEntry {
