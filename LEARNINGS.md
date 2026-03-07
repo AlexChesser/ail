@@ -37,6 +37,25 @@
 
 ---
 
+## Phase 4 — Pipeline Discovery and Parsing
+
+### Discoveries not covered by the reference documents
+- `clippy::result_large_err` fires on `Result<_, AilError>` because `AilError` contains a heap-allocated `String`. Suppressed with `#[allow(clippy::result_large_err)]` at the module level in `validation.rs` and `config/mod.rs`. A future phase could box `AilError` at the call site, but that changes the public API surface and is deferred.
+- Domain types need `#[derive(Debug)]` so they can be used in `Result::unwrap_err()` in tests. This is a test ergonomics need, not a domain concern. The spec doesn't preclude deriving `Debug` — only `Deserialize`.
+- The `falls_back_to_ail_yaml_in_cwd` discovery test mutates the process's current working directory. Nextest runs each test in isolation which makes this safe, but any future test that also mutates CWD in the same binary will need to be aware.
+
+### Assumptions that proved wrong
+- None.
+
+### Decisions made that future phases should know about
+- The DTO-to-domain boundary is structurally enforced: `dto.rs` derives `Deserialize`, `domain.rs` derives only `Debug`, transformation in `validation.rs`. The `#[allow(clippy::result_large_err)]` file-level attribute lives in `validation.rs` and `mod.rs` only.
+- `Pipeline::passthrough()` returns zero steps; the executor (Phase 9) must handle this case (no-op, exit 0).
+
+### Flags for human review
+- [UNDOC] `#[allow(clippy::result_large_err)]` is a technical debt marker. A future decision: box `AilError` in return types, or restructure `detail` as `Box<str>`. Not blocking for v0.0.1.
+
+---
+
 ## Phase 2 — Error Type Foundation
 
 ### Discoveries not covered by the reference documents

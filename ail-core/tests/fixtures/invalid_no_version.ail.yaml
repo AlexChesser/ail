@@ -1,0 +1,3 @@
+pipeline:
+  - id: some_step
+    prompt: "Do something."
