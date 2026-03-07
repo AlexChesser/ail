@@ -1,7 +1,6 @@
 # AIL Pipeline Language Specification
 
-> **ail** — Alexander's Impressive Loops *(super-secret project real name for those in the know)*
-> *Refer to this as: Artificial Intelligence Loops — in front of the business muggles.*
+> **ail** — Alexander's Impressive Loops  
 > *The control plane for how agents behave after the human stops typing.*
 
 ---
@@ -40,8 +39,8 @@ Current agentic coding tools treat a human prompt as a single transactional even
 
 **ail** introduces the **Deterministic Post-Processor**: a YAML-orchestrated pipeline runtime that ensures a specific, pre-determined chain of automated prompts fires after every human prompt — consistently, without manual intervention.
 
-> **The Core Guarantee**
-> For every completion event produced by an underlying agent, `ail` will begin executing the pipeline defined in the active `.ail.yaml` file before control returns to the human. Steps execute in order. Individual steps may be skipped by declared conditions or disabled explicitly. Execution may terminate early via `break`, `abort_pipeline`, or an unhandled error. All of these are explicit, declared outcomes — not silent failures. The human never receives runner output without the pipeline having had the opportunity to run.
+> **The Core Invariant**  
+> For every completion event produced by an underlying agent, the pipeline defined in the active `.ail.yaml` file **must** execute in full, in order, before control returns to the human. This is the contract `ail` provides.
 
 The AIL Pipeline Language (APL) is the product. The orchestration engine is its runtime. Everything else — context distillation, learning loops, multi-model routing — are optional pipeline steps, not architectural prerequisites.
 
@@ -66,16 +65,15 @@ A pipeline orchestrates. A skill instructs. They are complementary, not intercha
 | `step` | A single unit of work within a pipeline. A step invokes a prompt, skill, sub-pipeline, or action, then optionally branches on the result. |
 | `invocation` | The implicit first step of every pipeline. Represents the triggering event — a human prompt, an agent call, or a scheduler firing — and the runner's response to it. |
 | `skill` | A directory containing a `SKILL.md` file — natural language instructions that tell the model how to perform a specialised task. Read by the LLM, not the runtime. |
-| `trigger` | The event that causes the pipeline to begin executing. The default trigger is `invocation_prompt_complete`. |
+| `trigger` | The event that causes the pipeline to begin executing. The default trigger is `human_prompt_complete`. |
 | `session` | One running instance of an underlying agent (e.g. Aider, Claude Code) managed by `ail`. |
-| `completion event` | The signal that the underlying runner has finished. For CLI tools, this is typically process exit with code 0. See §23 Open Questions. |
+| `completion event` | The signal that the underlying runner has finished. For CLI tools, this is typically process exit with code 0. See §22 Open Questions. |
 | `HITL gate` | A Human-in-the-Loop gate. The pipeline pauses and waits for explicit human input before continuing. |
-| `pipeline run log` | The durable, persisted record of a pipeline execution. Written to disk before the next step runs. The authoritative source for template variable resolution. See §4.4. |
-| `context` | The working memory passed between pipeline steps, accessed via the pipeline run log and template variables. |
+| `context` | The working memory passed between pipeline steps. See §22 Open Questions for accumulation semantics. |
 | `provider` | The LLM backend a step routes its prompt to. May differ per step. |
 | `condition` | A boolean expression evaluated before a step runs. If false, the step is skipped. |
 | `on_result` | Declarative branching logic that fires after a step completes, based on the content of the response. |
-| `FROM` | Keyword declaring that this pipeline inherits from another. Accepts a file path. Chainable. Must be acyclic. |
+| `FROM` | Keyword declaring that this pipeline inherits from another. Accepts a file path. Infinitely chainable. |
 | `run_before` | Hook keyword. Inserts a step immediately before the named step ID in the inherited pipeline. |
 | `run_after` | Hook keyword. Inserts a step immediately after the named step ID in the inherited pipeline. |
 | `override` | Replaces a named step from an inherited pipeline entirely. |
@@ -106,7 +104,7 @@ The discovery order is significant beyond file resolution — it is the **author
 version: "0.1"              # required; must match supported spec version
 
 FROM: ./base.yaml           # optional; inherit from another pipeline (see §7)
-                            # accepts file paths only — see §22 for future URI support
+                            # accepts file paths only — see §21 for future URI support
 
 meta:                       # optional block
   name: "My Quality Gates"
@@ -132,8 +130,6 @@ pipeline:                   # required; ordered list of steps
   - id: security_audit
     prompt: "Review the changes for common security vulnerabilities."
 ```
-
-**Version field:** The `version` field declares the minimum `ail` runtime version required to execute this pipeline. Each file in a `FROM` chain makes its own independent version declaration. The active `ail` runtime must support all versions declared anywhere in the resolved chain — if any file declares a version higher than the runtime supports, `ail` raises a fatal parse error identifying the conflicting file and recommending a runtime upgrade. There is no constraint on relative versions between files in the chain.
 
 ---
 
@@ -170,7 +166,7 @@ Because `invocation` names the event rather than the actor, the template variabl
 
 ### 4.2 Execution Guarantee
 
-Once an `invocation` completion event fires, `ail` begins executing the pipeline before control returns to the caller. If a HITL gate fires mid-pipeline, control remains locked until the human responds. Individual steps may be skipped by declared conditions, and execution may terminate early via `break`, `abort_pipeline`, or an unhandled error — all of which are explicit, declared outcomes recorded in the pipeline run log.
+Once an `invocation` completion event fires, the full pipeline executes before control returns to the caller. If a HITL gate fires mid-pipeline, control remains locked until the human responds.
 
 ### 4.3 Hooks on `invocation`
 
@@ -184,58 +180,6 @@ Hook operations may target `invocation` directly, enabling session setup before 
 ```
 
 The `before:` chain on `invocation` is a more powerful variant: rather than inserting a new step adjacent to invocation, it attaches private pre-processing that can transform the user's prompt before it reaches the agent. See §5.7 for full documentation and the governance warnings that apply when using this in a `FROM` base pipeline.
-
-### 4.4 Pipeline Run Log & Step Context
-
-Every pipeline execution is backed by a **pipeline run log** — a durable, structured record written to disk before the next step begins. The log is the authoritative source for template variable resolution. An implementation that resolves template variables from an in-memory cache without a durable backing store does not conform to this spec.
-
-#### Log Identity
-
-Each pipeline run is identified by a `pipeline.run_id` — the same identifier used in the tracing and observability systems (see §22). There is no separate context identifier; run identity is unified across logging, tracing, and template variable access.
-
-#### What Is Logged Per Step
-
-Each step's log entry captures, at minimum:
-
-| Field | Always present | Notes |
-|---|---|---|
-| `prompt` | Yes | The prompt sent to the LLM for this step |
-| `response` | Yes | The final text output of the step |
-| `tool_calls[]` | If any occurred | Name, input parameters, and result per call |
-| `interim_calls[]` | If provider exposes them | Mid-step LLM calls where available |
-| `provider` | Yes | Which provider handled this step |
-| `session_id` | If provider reports it | Captured for session resumption. |
-| `cost_usd` | If provider reports it | Token cost for this step |
-| `duration_ms` | Yes | Wall clock time for the step |
-| `condition_result` | If condition declared | Whether the step's condition evaluated true or false |
-| `on_result_matched` | If `on_result` declared | Which branch fired |
-| `error` | If step failed | Structured error detail: error_type, title, detail. Follows the RFC 9457-inspired AilError model defined in ARCHITECTURE.md. null on success. |
-
-The storage format (SQLite, JSONL, binary, or other) is an implementation detail. What the spec owns is the schema above and the guarantee that it is persisted before the next step runs. Log location follows XDG conventions and is documented in `ARCHITECTURE.md`.
-
-#### Accessing Prior Step Results
-
-Any step may access the logged output of any previously completed step in the same pipeline run via template variables:
-
-```
-{{ step.invocation.prompt }}           — the original human prompt
-{{ step.invocation.response }}         — the runner's response
-{{ step.dry_refactor.response }}       — a named step's response
-{{ step.dry_refactor.tool_calls }}     — a named step's tool calls (array)
-{{ preceding_response }}               — the immediately preceding step's response
-```
-
-Variables resolve at step execution time from the persisted log, not from in-memory state. A reference to a step that has not yet run raises a fatal parse error. A reference to a step that was skipped by its condition raises a fatal parse error unless the referencing step has a matching condition guard, in which case it resolves to an empty string.
-
-#### Provider Isolation
-
-Steps running against different providers are isolated from each other by default. Each step calling a different provider receives only the context explicitly injected via template variables — there is no implicit cross-provider session sharing.
-
-Steps running against the same provider also run in isolation by default — each step is a fresh invocation. Session continuity within the same provider must be explicitly requested via `resume: true` (see §15.4).
-
-#### Sub-Pipeline Context Isolation
-
-A called pipeline (via `pipeline:` step) owns its context in isolation. The caller has access only to the sub-pipeline's input, final response, and — where available — its top-level tool calls. The sub-pipeline's internal steps, intermediate responses, and local template variables are not visible to the caller.
 
 ---
 
@@ -256,7 +200,7 @@ Exactly one primary field is required per step. All other fields are optional.
 
 | Field | Description |
 |---|---|
-| `id` | String. **Required.** Unique identifier for this step within the resolved pipeline. Snake_case recommended. Step IDs are the public API of a `FROM`-able pipeline — treat them as stable identifiers. |
+| `id` | String. Unique identifier for this step. Snake_case recommended. Required if this step will be targeted by hooks, conditions, or template variables. |
 | `prompt` | String or file path. Inline text or path to a `.md` file. Path detected by prefix: `./` `../` `~/` `/`. |
 | `skill` | Path. Loads an Agent Skills-compliant `SKILL.md` package. See §6. |
 | `pipeline` | File path. Calls another `.ail.yaml` as an isolated sub-pipeline. See §9. |
@@ -271,16 +215,13 @@ Exactly one primary field is required per step. All other fields are optional.
 | `before` | List. Private pre-processing steps that run before this step's prompt fires. See §5.7. |
 | `then` | List. Private post-processing steps chained to this step. See §5.5. |
 | `tools` | Block. Pre-approve or pre-deny tool calls for this step. See §5.6. |
-| `resume` | Boolean. When `true`, resumes the most recent preceding session on the same provider. See §15.4. |
-
-**`id` is always required.** Every step must declare an explicit `id`. Because any pipeline may be inherited from via `FROM`, `ail` cannot know at parse time which steps will be targeted by hook operations in inheriting pipelines. Step IDs must be stable identifiers — renaming a step ID in a `FROM`-able pipeline is a breaking change for all inheritors.
 
 ### 5.2 `prompt:` — Inline and File
 
 ```yaml
 # Inline prompt
 - id: simple_check
-  prompt: "Review the above output and fix anything obviously wrong."
+  prompt: "Don't be stupid. Review the above output and fix anything obviously wrong."
 
 # Prompt loaded from a markdown file
 - id: detailed_review
@@ -334,13 +275,6 @@ Files are read at pipeline load time. Template variables within files are resolv
 | `is_empty` | Response is blank or whitespace only. |
 | `always` | Unconditionally fires. |
 
-> ⚠️ **Reliability warning — prose matching is best-effort.**
-> The `contains`, `matches`, and `starts_with` operators match against free-form LLM text output. LLMs are not deterministic. A step instructed to respond `CLEAN` may respond `CLEAN.`, `Yes, CLEAN`, or `The code is clean` — all of which fail a `contains: "CLEAN"` check. **Prose-based `on_result` branching is not a reliable control flow mechanism.**
->
-> **Improving reliability with constrained prompts.** You can significantly reduce variance by instructing the model to respond with a single, exact token: `"Answer only with CLEAN or VULNERABILITIES_FOUND, nothing else."` This does not make prose matching a hard contract — the model may still deviate — but it narrows the output space substantially and makes `contains` checks much more reliable in practice.
->
-> For a genuine contract, use `input_schema` with the `field:` + `equals:` operators. See §22 (Planned Extensions — Structured Step I/O Schemas). The `contains` and `matches` operators are best suited to advisory checks, logging triggers, and `always`-fired actions where a missed match is acceptable.
-
 **`break` vs `abort_pipeline`:**
 
 | Action | Intent | Exit state | Caller behaviour |
@@ -362,7 +296,7 @@ Files are read at pipeline load time. Template variables within files are resolv
 
 ### 5.4 Step Output Model
 
-Each step captures its output as `step.<id>.response` — the final text produced, available to subsequent steps via template variables resolved from the pipeline run log.
+Each step captures its output as `step.<id>.response` — the final text produced, available to subsequent steps via template variables.
 
 **Full step lifecycle:**
 
@@ -373,7 +307,7 @@ before: chain          ← private pre-processing; may transform the input promp
   ↓
 parent step fires      ← LLM receives the (possibly transformed) prompt
   ↓
-parent step completes  ← response captured; log entry written to disk
+parent step completes  ← response captured as step.<id>.response
   ↓
 on_result evaluated    ← declarative branching
   ↓
@@ -382,9 +316,9 @@ then: chain            ← private post-processing
 next step
 ```
 
-For steps where `ail` calls an LLM provider directly, structured output (thinking traces, tool call sequences) is additionally captured in the pipeline run log. The full structured model is under active research — see §22 (Planned Extensions — Structured Step I/O Schemas).
+For steps where `ail` calls an LLM provider directly, structured output (thinking traces, tool call sequences) is additionally captured. The full structured model is under active research and defined in §22 Open Questions.
 
-For steps that wrap third-party CLI runners, `ail` captures stdout as the response. See §23 Open Questions for details on runner-specific behaviour.
+For steps that wrap third-party CLI runners, `ail` captures stdout as the response. Completion is detected via process exit code 0. See §22 Open Questions for details on runner-specific behaviour.
 
 ### 5.5 `then:` — Private Post-Processing Chains
 
@@ -411,7 +345,7 @@ A `then:` entry may be a bare string — a skill reference or prompt file path �
 
 #### Full-form entries
 
-When configuration is needed, a `then:` entry may be a full step block. All standard step fields are supported except `id` (auto-generated as `<parent_id>::then::<index>`), `condition` (inherited from parent), and `on_result` (use top-level steps if branching is needed):
+When configuration is needed, a `then:` entry may be a full step block. All standard step fields are supported except `id` (auto-generated as `<parent_id>::<index>`), `condition` (inherited from parent), and `on_result` (use top-level steps if branching is needed):
 
 ```yaml
 - id: security_audit
@@ -419,6 +353,18 @@ When configuration is needed, a `then:` entry may be a full step block. All stan
   then:
     - skill: ail/janitor
     - prompt: "Summarise the findings in one sentence for the audit log."
+      provider: fast
+```
+
+#### Mixed short and full form
+
+```yaml
+- id: my_step
+  prompt: "Generate the feature implementation."
+  then:
+    - ail/janitor                    # short-form
+    - skill: ail/dry-refactor        # full-form with skill
+    - prompt: ./prompts/score.md     # full-form with prompt file
       provider: fast
 ```
 
@@ -431,8 +377,8 @@ When configuration is needed, a `then:` entry may be a full step block. All stan
 - id: security_audit
   prompt: "..."
   # then: (private — not hookable)
-  #   - id: security_audit::then::0  skill: ail/janitor
-  #   - id: security_audit::then::1  prompt: ./prompts/cleanup.md
+  #   - id: security_audit::0  skill: ail/janitor
+  #   - id: security_audit::1  prompt: ./prompts/cleanup.md
 ```
 
 #### When not to use `then:`
@@ -471,7 +417,7 @@ If a post-processing step needs to:
 
 #### How it works
 
-`ail` passes `tools.allow` as `--allowedTools` and `tools.deny` as `--disallowedTools` when invocation the Claude CLI for this step. Claude enforces these before reaching the permission callback — pre-approved tools execute silently, pre-denied tools are rejected silently.
+`ail` passes `tools.allow` as `--allowedTools` and `tools.deny` as `--disallowedTools` when invoking the Claude CLI for this step. Claude enforces these before reaching the permission callback — pre-approved tools execute silently, pre-denied tools are rejected silently.
 
 Tools not listed in either fall through to `ail`'s HITL permission UI.
 
@@ -549,7 +495,7 @@ pipeline:
     - ail/janitor
 ```
 
-**Context gathering.** Retrieve relevant information and inject it as context before the parent step's LLM call:
+**Context gathering.** Retrieve relevant information and inject it as context before the parent step's LLM call — useful for sub-agent or critic steps:
 
 ```yaml
 - id: code_critic
@@ -598,9 +544,11 @@ The TUI renders the original and transformed prompts side by side. The human cho
 | **Use original** | `use_original` fires. Transformation discarded silently. Parent step receives raw prompt. Transformation still appears in audit trail. |
 | **Edit** | Human edits the transformed version inline. Edited version proceeds. |
 
+The circuit breaker is recommended whenever prompt transformation is used in a context where the human might not expect it — particularly on `invocation` and in `FROM` base pipelines.
+
 #### `use_original` Semantics
 
-`use_original` is only valid inside a `before:` chain. It instructs the pipeline executor to discard the `before:` chain's output and pass the parent step's original prompt unchanged. The `before:` steps still execute and their outputs are recorded in the pipeline run log — transparency is preserved — but they do not affect what the LLM receives.
+`use_original` is only valid inside a `before:` chain. It instructs the pipeline executor to discard the `before:` chain's output and pass the parent step's original prompt unchanged. The `before:` steps still execute and their outputs are recorded in the audit trail — transparency is preserved — but they do not affect what the LLM receives.
 
 `use_original` used outside a `before:` chain raises a parse error.
 
@@ -627,18 +575,14 @@ The TUI renders the original and transformed prompts side by side. The human cho
 - Transformations that improve prompts on average may degrade specific ones.
 - A flawed transformation in a base pipeline affects all inheritors simultaneously.
 
-**Detection:** When `ail materialize-chain` resolves a pipeline that contains a `before:` chain on `invocation` — whether declared directly or inherited via `FROM` — it emits a prominent warning identifying the origin pipeline and noting that prompt transformation is active on every invocation. This warning is rendered in the interactive TUI at session start.
-
-This warning is a **UI-layer concern only**. It is not a parse error, not a lint failure, and is not emitted in headless or agent-driven modes. A pipeline with `before:` on `invocation` and no `preview_for_human` is fully valid — the warning exists to surface the configuration to humans who may not have inspected their full inheritance chain. Requiring `preview_for_human` would make such pipelines incompatible with unattended runs, in direct conflict with the Agent-First Design principle.
-
 **Mitigations the spec provides:**
-- The `preview_for_human` circuit breaker makes transformation visible and opt-out-able in interactive sessions.
+- The `preview_for_human` circuit breaker makes transformation visible and opt-out-able.
 - `materialize-chain` always shows `before:` chains — pipeline authors can inspect what they've inherited.
 - An inheriting pipeline can `override:` the invocation hook to replace it with a version that has no `before:` chain.
 
 **The recommended pattern for `FROM` base pipelines:**
 
-If you use `before:` on `invocation` in a base pipeline, always include `preview_for_human` with `show_original: true` for interactive sessions. Give inheritors the ability to see and reject the transformation. Do not silently transform prompts in shared infrastructure.
+If you use `before:` on `invocation` in a base pipeline, always include `preview_for_human` with `show_original: true`. Give inheritors the ability to see and reject the transformation. Do not silently transform prompts in shared infrastructure.
 
 #### When Not to Use `before:`
 
@@ -720,17 +664,9 @@ A pipeline may inherit from another using `FROM`. The inheriting pipeline receiv
 FROM: ./org-base.yaml
 ```
 
-`FROM` accepts file paths only — relative, absolute, or home-relative. Remote URI support is a planned extension (see §22).
+`FROM` accepts file paths only — relative, absolute, or home-relative. Remote URI support is a planned extension (see §21).
 
-`FROM` chains are resolved at startup and must be **acyclic**. `ail` detects cycles at load time by tracking canonical resolved file paths — including symlink resolution. A cycle raises a fatal parse error with the full chain displayed at the point the cycle was detected:
-
-```
-Error: circular inheritance detected
-  .ail.yaml → ./team-base.yaml → ./org-base.yaml → .ail.yaml
-  ail cannot resolve a pipeline that inherits from itself.
-```
-
-The full resolved chain is inspectable via `ail materialize-chain` (§18).
+`FROM` is infinitely chainable. The full chain is resolved at startup and inspectable via `ail materialize-chain` (§18).
 
 ### 7.2 Hook Operations
 
@@ -761,24 +697,14 @@ pipeline:
 
 **Error conditions:**
 
-All hook operations targeting a step ID that does not exist in the fully resolved inheritance chain raise a **fatal parse error**. This applies uniformly to all four operations — there is no best-effort hook insertion. The error message includes the list of valid step IDs in the resolved chain so the author can identify the correct target.
-
-| Condition | Result |
-|---|---|
-| `disable:` targeting nonexistent ID | **parse error** |
-| `override:` targeting nonexistent ID | **parse error** |
-| `run_before:` targeting nonexistent ID | **parse error** |
-| `run_after:` targeting nonexistent ID | **parse error** |
-| `override:` declaring an `id` different from the step being overridden | **parse error** |
-| Two hooks in the same file both targeting the same step ID with the same operation | **parse error** — use sequential steps instead |
-
-Hook operations are validated against the **fully resolved chain**, not just the immediate parent. A hook targeting `security_audit` in a grandchild pipeline is valid as long as `security_audit` exists anywhere in the full `FROM` ancestry.
-
-**Renaming a step ID in a `FROM`-able pipeline breaks all inheritors** — treat step IDs as a public API.
+- `disable:` targeting a step ID that does not exist in the chain → **parse error**
+- `override:` declaring an `id` different from the step being overridden → **parse error**
+- Two hooks in the same file both declaring `run_before` or `run_after` targeting the same step ID → **parse error**. Use sequential steps instead.
+- Renaming a step ID in a `FROM`-able pipeline breaks all inheritors → treat step IDs as a **public API**
 
 ### 7.3 `FROM` and Pipeline Identity
 
-Pipelines do not currently have a registry identity beyond their file path. When specifying `FROM`, use the file path directly. Pipeline registries, versioning, and remote URIs are planned extensions (§22).
+Pipelines do not currently have a registry identity beyond their file path. When specifying `FROM`, use the file path directly. Pipeline registries, versioning, and remote URIs are planned extensions (§21).
 
 ---
 
@@ -852,7 +778,7 @@ The caller sees only the called pipeline's final output. Internal steps, interme
 
 ### 9.3 Failure Propagation
 
-If the called pipeline aborts internally, `ail` surfaces a pipeline stack trace to the TUI — equivalent to a call stack — showing which pipeline failed, at which step, and why. The caller's `on_error` field governs what happens next. The full internal trace is written to the pipeline run log.
+If the called pipeline aborts internally, `ail` surfaces a pipeline stack trace to the TUI — equivalent to a call stack — showing which pipeline failed, at which step, and why. The caller's `on_error` field governs what happens next. The full internal trace is written to the audit trail.
 
 ---
 
@@ -880,7 +806,7 @@ pipelines:
 
 ## 11. Template Variables
 
-Prompt strings and file-based prompts may reference runtime context using `{{ variable }}` syntax. Variables resolve at step execution time from the persisted pipeline run log, not from in-memory state.
+Prompt strings and file-based prompts may reference runtime context using `{{ variable }}` syntax. Variables resolve at step execution time, not at load time.
 
 | Variable | Value |
 |---|---|
@@ -888,17 +814,14 @@ Prompt strings and file-based prompts may reference runtime context using `{{ va
 | `{{ step.invocation.response }}` | The runner's response before any pipeline steps ran. |
 | `{{ last_response }}` | The full response from the immediately preceding step. |
 | `{{ step.<id>.response }}` | The response from a specific named step in this pipeline run. |
-| `{{ step.<id>.tool_calls }}` | The tool calls made by a specific named step (array). |
 | `{{ session.tool }}` | The underlying runner name (e.g. `aider`, `claude-code`). |
 | `{{ session.cwd }}` | The current working directory of the session. |
 | `{{ pipeline.run_id }}` | Unique ID for this pipeline execution. |
-| `{{ env.VAR_NAME }}` | An environment variable. Fails loudly if not set — use this form for required variables. Use `{{ env.VAR_NAME \| default("value") }}` to fall back to a string literal. v0.1 supports string literals only. File and inline fallbacks for complex JSON or prompt content are a planned extension — for now, declare required variables explicitly and handle optional configuration via separate steps. |
+| `{{ env.VAR_NAME }}` | An environment variable. Fails loudly if not set. |
 
 > **Note:** There are no convenience aliases. All variable references use the dot-path structure above. This keeps the mental model consistent — every step, including `invocation`, is accessed the same way.
 
 **Skipped step variables:** If a template variable references a step that was skipped by its `condition`, `ail` raises a **parse-time error** if the reference is unconditional, or returns an empty string if the referencing step itself has a matching condition guard. Silently empty references are never permitted.
-
-**Future step variables:** Template variables may only reference steps that have already run. A reference to a step that has not yet executed at the point of resolution raises a fatal parse error.
 
 ---
 
@@ -953,7 +876,7 @@ HITL gates are intentional checkpoints, not error states.
 | Response | Effect |
 |---|---|
 | **Approve** | Gate clears. Pipeline continues unchanged. |
-| **Reject** | Pipeline aborts. Reason logged to pipeline run log. |
+| **Reject** | Pipeline aborts. Reason logged to audit trail. |
 | **Modify** | Human edits the step output or tool input before execution resumes. |
 | **Allow for session** | Tool is added to the in-memory session allowlist. Subsequent identical tool calls in this session are auto-approved silently. |
 
@@ -982,7 +905,7 @@ When a pipeline step invokes a tool not covered by `tools.allow` or `tools.deny`
 
 `ail` launches Claude CLI in `default` permission mode unless configured otherwise. The supported modes — `default`, `accept_edits`, `plan`, `bypass_permissions` — map to `--permission-mode` flag values. This may be exposed as a session-level option in a future version. For headless runs, `--dangerously-skip-permissions` (or `bypass_permissions` mode) is the correct approach.
 
-> **Implementation note:** The `--permission-prompt-tool stdio` behaviour when combined with `-p` (non-interactive prompt mode) must be validated in the v0.0.1 spike. See `RUNNER-SPEC.md`.
+> **Implementation note:** The `--permission-prompt-tool stdio` behaviour when combined with `-p` (non-interactive prompt mode) must be validated in the v0.0.1 spike. The VSCode extension uses this mechanism in interactive mode; `ail`'s non-interactive usage pattern may differ. See `RUNNER-SPEC.md`.
 
 ### 13.4 Tool Permission Flow
 
@@ -1076,34 +999,33 @@ defaults:
 
 Provider API keys are read from environment variables. `ail` never stores credentials. The expected environment variable names follow each provider's standard conventions (e.g. `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`). See your provider's documentation.
 
-### 15.4 Session Resumption — `resume:`
+---
 
-By default, each pipeline step is a fresh, isolated invocation against its provider. Steps on different providers are always isolated from each other. Steps on the same provider are also isolated by default — no implicit session continuity is assumed.
+## 16. Triggers
 
-When a step declares `resume: true`, `ail` uses the session ID from the most recent preceding step on the same provider within this pipeline run and passes it to the current step's invocation. This requests session continuity at the provider level — the LLM receives the conversation history from the prior step.
+The only supported trigger in the current implementation is `human_prompt_complete` — the core invariant trigger that fires after every runner response.
 
-```yaml
-- id: security_audit
-  provider: anthropic/claude-opus-4-5
-  resume: true
-  prompt: "Now review the refactored code for security vulnerabilities."
-```
+| Trigger | When it fires | Status |
+|---|---|---|
+| `human_prompt_complete` | Every time the runner finishes responding to human input. | **Supported** |
+| `code_file_saved` | When the runner writes a code file to disk. | Deferred |
+| `session_end` | When the session is terminated. | Deferred |
+| `manual` | Only when explicitly invoked via `ail run`. | Deferred |
+| `scheduled: "cron"` | On a cron schedule. For background tasks. | Deferred |
 
-**Scoping rule:** `resume: true` resumes the session from the **most recent preceding step on the same provider** in this pipeline run. If no preceding step on the same provider exists, the step behaves as a fresh session and a warning is emitted.
+> **Note:** Session setup — steps that run once before the first human prompt — is handled via `run_before: invocation` (see §4.3), not a separate trigger. This keeps the trigger list focused on when a pipeline fires, not on lifecycle hooks.
 
-**Provider capability:** Session resumption depends on the provider supporting it. `resume: true` on a runner or provider that does not support session resumption raises a warning at parse time and falls back to an isolated invocation. Whether and how session resumption is implemented is defined in `RUNNER-SPEC.md`.
-
-**Session ID capture:** `ail` captures the session ID returned by a provider invocation whenever the provider makes one available, and writes it to the pipeline run log.  This happens regardless of whether `resume: true` is declared — session IDs are always logged when present. `resume: true` consumes the most recently logged session ID for the same provider.
+> **Note:** The deferred triggers above require no breaking changes to the pipeline language when they are implemented — they are additive. The `human_prompt_complete` trigger is the default and need not be declared explicitly.
 
 ---
 
-## 16. Error Handling & Resilience
+## 17. Error Handling & Resilience
 
 | Value | Effect |
 |---|---|
 | `continue` | Log error, proceed. Only for explicitly non-critical steps. |
 | `pause_for_human` | Suspend pipeline, surface error in HITL panel. **Default.** |
-| `abort_pipeline` | Stop immediately. Log full error context to pipeline run log. |
+| `abort_pipeline` | Stop immediately. Log full error context to audit trail. |
 | `retry` | Retry up to `max_retries` times, then escalate to `pause_for_human`. |
 
 ```yaml
@@ -1123,7 +1045,7 @@ pipeline:
 
 ---
 
-## 17. The `materialize-chain` Command
+## 18. The `materialize-chain` Command
 
 Resolves the full inheritance chain and writes the complete flattened pipeline to disk — steps in exact execution order, with origin comments.
 
@@ -1171,23 +1093,22 @@ pipeline:
     prompt: "..."
 ```
 
-`materialize-chain` is the primary debugging tool. Reach for it first when a pipeline behaves unexpectedly. It also emits warnings for governance-relevant configurations — including `before:` chains on `invocation` — so human operators can inspect what they've inherited before running a session.
+`materialize-chain` is the primary debugging tool. Reach for it first when a pipeline behaves unexpectedly.
 
 ---
 
-## 18. Complete Examples
+## 19. Complete Examples
 
-### 18.1 The Simplest Possible Pipeline
+### 19.1 The Simplest Possible Pipeline
 
 ```yaml
 version: "0.1"
 
 pipeline:
-  - id: review
-    prompt: "Review the above output. Fix anything obviously wrong or unnecessarily complex."
+  - prompt: "Review the above output. Fix anything obviously wrong or unnecessarily complex."
 ```
 
-### 18.2 Solo Developer Quality Loop
+### 19.2 Solo Developer Quality Loop
 
 ```yaml
 version: "0.1"
@@ -1209,9 +1130,9 @@ pipeline:
     prompt: ./prompts/test-writer.md
 ```
 
-### 18.3 Session Setup with `run_before: invocation`
+### 19.3 Session Setup with `run_before: invocation`
 
-*Check a local cache for an architecture description before the first prompt. If not found, ask the human whether to generate one.*
+*Check a local cache for an architecture description before the first prompt. If not found, ask the human whether to generate one. Teaches `run_before: invocation` and the pipeline-as-step pattern together.*
 
 ```yaml
 version: "0.1"
@@ -1235,7 +1156,7 @@ pipeline:
 
 `load-or-generate-architecture.yaml` might check for a cached `.ail/architecture.md`, load it into context if present, or `pause_for_human` offering to run an architecture exploration if not.
 
-### 18.4 Org Base Pipeline
+### 19.4 Org Base Pipeline
 
 ```yaml
 version: "0.1"
@@ -1270,7 +1191,7 @@ pipeline:
         message: "Security findings require review before this code proceeds."
 ```
 
-### 18.5 Project Inheriting from Org Base
+### 19.5 Project Inheriting from Org Base
 
 ```yaml
 version: "0.1"
@@ -1296,7 +1217,7 @@ pipeline:
   - disable: commit_checkpoint
 ```
 
-### 18.6 LLM Researcher Model Comparison
+### 19.6 LLM Researcher Model Comparison
 
 ```yaml
 version: "0.1"
@@ -1310,7 +1231,7 @@ pipeline:
         message: "Comparison complete. Review outputs above."
 ```
 
-### 18.7 Multi-Speed Pipeline
+### 19.7 Multi-Speed Pipeline
 
 ```yaml
 version: "0.1"
@@ -1341,7 +1262,7 @@ pipeline:
 
 ---
 
-## 19. Runners & Adapters
+## 20. Runners & Adapters
 
 > **Note:** This section describes the conceptual model for how `ail` connects to underlying CLI tools. The detailed contract for runner compliance is defined in a separate document — `RUNNER-SPEC.md` — which is currently a stub under active development. The interface described here should be considered directional, not final.
 
@@ -1361,10 +1282,10 @@ Initial first-class runner: **Claude CLI** (`claude`). The v0.0.1 proof of conce
 Roadmap for first-class support (not yet committed): Aider, OpenCode, Codex CLI, Gemini CLI, Qwen CLI, DeepSeek CLI, llama.cpp.
 
 **Tier 2 — AIL-compliant runners**
-Any CLI tool that implements the AIL Runner Contract defined in `RUNNER-SPEC.md`. A compliant runner works with `ail`'s built-in generic adapter without requiring a custom implementation.
+Any CLI tool that implements the AIL Runner Contract defined in `RUNNER-SPEC.md`. A compliant runner works with `ail`'s built-in generic adapter without requiring a custom implementation. The tool author reads `RUNNER-SPEC.md` and ships their CLI accordingly. `ail` makes no guarantees about compliant runners beyond what the contract specifies.
 
 **Tier 3 — Custom adapters**
-Any CLI tool that does not implement the runner contract can be wrapped in a community-written or private adapter. Adapters implement the `Runner` trait defined in `ail`'s Rust core and are loaded at runtime as dynamic libraries. See `ARCHITECTURE.md` for the trait interface and dynamic loading system.
+Any CLI tool that does not implement the runner contract can be wrapped in a community-written or private adapter. Adapters implement the `Runner` trait defined in `ail`'s Rust core and are loaded at runtime as dynamic libraries. See `ARCHITECTURE.md` (forthcoming) for the trait interface and dynamic loading system.
 
 ### Runner Configuration
 
@@ -1392,22 +1313,18 @@ The full contract is defined in `RUNNER-SPEC.md`. At a high level, a compliant r
 - Accept a prompt via a flag or stdin in non-interactive mode
 - Write its response to stdout
 - Exit with code `0` on success, non-zero on error
-- Optionally declare supported capabilities (structured output, extended thinking, tool calls, session resumption) via a `--ail-capabilities` flag
+- Optionally declare supported capabilities (structured output, extended thinking, tool calls) via a `--ail-capabilities` flag
 
-Runners that implement the optional capability declarations unlock richer `ail` features — structured step output, thinking traces, tool call inspection, and `resume: true` support. Runners that implement only the minimum contract work with Tier 1 text-based pipeline features.
-
-> **Note:** Session continuity behaviour — what "isolated" means per runner, and how session IDs are captured and passed for `resume: true` — is defined in `RUNNER-SPEC.md`, not here. The pipeline language declares intent; the runner contract defines mechanics.
+Runners that implement the optional capability declarations unlock richer `ail` features — structured step output, thinking traces, tool call inspection. Runners that implement only the minimum contract work with Tier 1 text-based pipeline features.
 
 ### Further Reading
 
-- `RUNNER-SPEC.md` — The AIL Runner Contract.
-- `ARCHITECTURE.md` — The Rust trait interface and dynamic loading system.
+- `RUNNER-SPEC.md` — The AIL Runner Contract. Read this if you are a CLI tool author who wants first-class `ail` compatibility.
+- `ARCHITECTURE.md` *(forthcoming)* — The Rust trait interface and dynamic loading system. Read this if you are writing a custom runner adapter.
 
----
+## 21. MVP — v0.0.1 Scope
 
-## 20. MVP — v0.0.1 Scope
-
-The goal of v0.0.1 is a working demo: one pipeline, one runner, one follow-up prompt, visibly running. Nothing more.
+The goal of v0.0.1 is a working demo: one pipeline, one runner, one follow-up prompt, visibly running. Nothing more. This is the proof of concept that validates the core invariant before any additional complexity is added.
 
 **In scope for v0.0.1:**
 
@@ -1416,15 +1333,14 @@ The goal of v0.0.1 is a working demo: one pipeline, one runner, one follow-up pr
 | Single pipeline file (`.ail.yaml`) | No inheritance, no `FROM` |
 | `pipeline:` array with ordered steps | Top-to-bottom execution only |
 | `prompt:` field — inline string only | No file path resolution yet |
-| `id:` field | Required for all steps |
+| `id:` field | Required for all steps in v0.0.1 |
 | `provider:` field | At least one working provider |
 | `on_result: contains` + `continue` / `pause_for_human` / `abort_pipeline` | Minimal branching |
 | `condition: always` and `condition: never` | Trivial conditions — proves the condition system exists |
 | `{{ step.invocation.response }}` and `{{ last_response }}` | Core template variables |
 | Passthrough mode when no `.ail.yaml` found | Safe default |
-| `ail materialize-chain` | Flattens a single-file pipeline |
+| `ail materialize-chain` | Flattens a single-file pipeline — no inheritance to traverse yet, but establishes the command |
 | Basic TUI — streaming stdout passthrough | Human can see the runner working |
-| Pipeline run log — persisted to disk | Step responses durable before next step |
 | Completion detection via process exit code 0 | For CLI runner steps |
 
 **Explicitly out of scope for v0.0.1:**
@@ -1436,15 +1352,14 @@ The goal of v0.0.1 is a working demo: one pipeline, one runner, one follow-up pr
 - `condition:` expressions beyond `always` / `never`
 - File path resolution for `prompt:`
 - `defaults:` block
-- `resume:` field
 - Multiple named pipelines
 - All built-in modules
-- Everything in §22 Planned Extensions
+- Everything in §21 Planned Extensions
 
 **The v0.0.1 demo case:**
 
 ```yaml
-version: "0.1"
+version: "0.0.1"
 
 pipeline:
   - id: dont_be_stupid
@@ -1455,85 +1370,11 @@ One file. One step. Always runs. Ships.
 
 ---
 
-## 21. Planned Extensions
+## 22. Planned Extensions
 
 These features are designed and their syntax is reserved. Not yet implemented. Do not use in production pipelines — the current parser will reject them.
 
 > **For contributors:** Open an issue referencing this section before beginning implementation work.
-
----
-
-### Structured Step I/O Schemas
-
-> **Status: Planned — v0.1 target**
-
-#### Motivation
-
-The `on_result` prose-matching operators (`contains`, `matches`, `starts_with`) match against free-form LLM text. LLMs are not deterministic — a step instructed to respond `CLEAN` may produce `CLEAN.`, `Yes, CLEAN`, or variations that fail the match. Prose-based branching is documented as best-effort and unsuitable for reliable control flow.
-
-Structured I/O schemas provide a reliable alternative: a step declares what structured output it expects to receive, the runtime validates it before the step runs, and `on_result` can branch on known fields with exact equality.
-
-#### `input_schema`
-
-A step may declare an `input_schema` — a JSON Schema describing the structure it expects from the preceding step's output. The runtime validates the preceding step's response against this schema before the step executes. A validation failure is treated as a step error and escalates via `on_error`.
-
-```yaml
-- id: security_audit
-  skill: ail/security-audit
-  input_schema:
-    type: object
-    properties:
-      result:
-        type: string
-        enum: ["CLEAN", "VULNERABILITIES_FOUND"]
-      findings:
-        type: array
-        items:
-          type: string
-    required: [result]
-  on_result:
-    field: result
-    equals: "CLEAN"
-    if_true:
-      action: continue
-    if_false:
-      action: pause_for_human
-      message: "Security findings require review."
-```
-
-#### `output_schema`
-
-A step may declare an `output_schema` — a JSON Schema describing the structure it promises to produce. The runtime validates the step's response against this schema after execution. A validation failure is treated as a step error and escalates via `on_error`.
-
-`output_schema` is optional and independent of `input_schema`. Both may be declared on the same step.
-
-#### Parse-time compatibility
-
-When a step declares `input_schema` and the immediately preceding step declares `output_schema`, the runtime validates schema compatibility at **parse time** — before execution begins. A mismatch between declared output and declared input is a parse error, not a runtime error.
-
-#### The `field:` + `equals:` operator
-
-When a step declares `input_schema`, `on_result` gains access to the `field:` + `equals:` operator — exact equality matching against a named field in the validated input:
-
-```yaml
-on_result:
-  field: result
-  equals: "CLEAN"
-  if_true:
-    action: continue
-  if_false:
-    action: pause_for_human
-```
-
-**Parse-time rule:** A step that declares `on_result` using `field:` + `equals:` **must** also declare an `input_schema` that includes the referenced field. This is enforced at parse time.
-
-#### Relationship to the expression language
-
-This feature deliberately stops short of a general expression language. Field access and equality matching on validated JSON covers the reliable branching use cases without reopening the full expression language question. If more complex conditions prove necessary in practice, the condition expression language (§12.2) is the correct extension point.
-
-#### Provider compatibility
-
-`output_schema` may optionally be passed to the provider as a structured output constraint — using the provider's native JSON mode or schema enforcement — where supported. Providers that do not support native schema enforcement will have their output validated by `ail` after receipt. A validation failure is treated as a step error.
 
 ---
 
@@ -1580,6 +1421,20 @@ Pipeline URIs, versioning, and a registry system analogous to Docker Hub. `FROM`
 
 ---
 
+### Structured Step Output Schema
+
+> **Status: Planned — pending Claude CLI research**
+
+Steps declare an expected JSON schema. `ail` validates and retries on malformed output.
+
+```yaml
+- id: vulnerability_scan
+  prompt: ./prompts/vuln-scan.md
+  output_schema: ./schemas/vulnerability-report.json
+```
+
+---
+
 ### Step Output Visibility Control
 
 > **Status: Planned — pending streaming research**
@@ -1608,15 +1463,17 @@ ail --dry-run
 
 ### Direct MCP Tool Invocation
 
-> **Status: Exploratory** — The concept and value are clear. The design has unresolved questions. Syntax is not yet reserved.
+> **Status: Exploratory** — The concept and value are clear. The design has unresolved questions. Syntax is not yet reserved. Do not attempt to implement without opening a discussion issue first.
 
-MCP (Model Context Protocol) is an open standard for connecting LLMs to external tools and data sources. There are two ways MCP can interact with `ail`:
+MCP (Model Context Protocol) is an open standard for connecting LLMs to external tools and data sources. An MCP server exposes named tools — functions that can be called with structured arguments to read data, query systems, or perform actions — and returns structured results.
 
-**Mode 1 — LLM-driven (already implied by the step model)**
-During a pipeline step that calls an LLM directly, the LLM may emit tool calls targeting an MCP server. `ail` acts as the MCP client, executes the tool, and returns the result to the LLM. This requires no new pipeline syntax.
+There are two ways MCP can interact with `ail`:
 
-**Mode 2 — Pipeline-driven (this extension)**
-A pipeline step calls an MCP tool directly, bypassing the LLM entirely. The tool result flows forward as the step's response. No tokens are consumed.
+**Mode 1 — LLM-driven (already implied by the step model)**  
+During a pipeline step that calls an LLM directly, the LLM may emit tool calls targeting an MCP server. `ail` acts as the MCP client, executes the tool, and returns the result to the LLM. This is the standard MCP use case and requires no new pipeline syntax — it is a provider/runtime concern.
+
+**Mode 2 — Pipeline-driven (this extension)**  
+A pipeline step calls an MCP tool directly, bypassing the LLM entirely. The tool result flows forward as the step's response, available to subsequent steps via `{{ step.<id>.response }}`. No tokens are consumed.
 
 ```yaml
 # Proposed syntax — not final
@@ -1633,6 +1490,20 @@ A pipeline step calls an MCP tool directly, bypassing the LLM entirely. The tool
     {{ step.get_repo_structure.response }}
     Identify any architectural concerns.
 ```
+
+This fits the Unix pipe philosophy already established in the spec: a deterministic, zero-token step that gathers data and passes it downstream.
+
+**Unresolved questions before this can be specced:**
+
+- How does `ail` discover and connect to MCP servers? Via a config block, a running process, or a URI?
+- How are MCP servers declared — per-pipeline, per-session, or globally in `~/.config/ail/`?
+- How is authentication handled for MCP servers that require credentials?
+- If an MCP tool call fails, how does it interact with `on_error`? MCP errors are structured — can `on_result` match against them?
+- Is `mcp:` a primary field (peer to `prompt:`, `skill:`, `pipeline:`) or a sub-field of `action:`?
+- Should the pipeline be able to *register* MCP tools that the LLM can use in subsequent steps, or only call them directly?
+
+**Why this matters:**  
+Direct MCP invocation makes `ail` pipelines genuinely composable with the broader MCP ecosystem. A pipeline could gather live data from any MCP-compatible source — filesystem, database, web search, calendar, code analysis tools — before passing it to an LLM step, without burning tokens on the retrieval itself. This is particularly valuable for research pipelines and compliance workflows where the data gathering step must be deterministic and auditable.
 
 ---
 
@@ -1681,7 +1552,7 @@ Safety in `ail` operates across two distinct layers with very different reliabil
 Constraints on the pipeline itself: what gets injected into prompts, which skills and pipelines are permitted, which configurations are blocked at parse time. These are runtime guarantees — `ail` either allows the pipeline to run or it does not.
 
 **Layer 2 — What depends on the underlying model**
-Whether a model actually follows an injected instruction is a model concern, not a runtime concern. `ail` can inject "never include credentials in your response" into every prompt, but it cannot guarantee the model obeys it. For hard safety requirements, the reliable pattern is a dedicated validation step after any step that might produce sensitive content — using `input_schema` + `field:` + `equals:` for deterministic branching. A pipeline step is deterministic in a way that a model instruction is not.
+Whether a model actually follows an injected instruction is a model concern, not a runtime concern. `ail` can inject "never include credentials in your response" into every prompt, but it cannot guarantee the model obeys it. For hard safety requirements, the reliable pattern is a dedicated validation step after any step that might produce sensitive content — with `on_result` logic that catches violations. A pipeline step is deterministic in a way that a model instruction is not.
 
 This distinction must be understood by anyone relying on `ail` for safety-critical workflows.
 
@@ -1728,7 +1599,7 @@ This makes safety directives a governance guarantee at the org level — the sam
 
 #### The Reliable Safety Pattern
 
-For any output that must be validated — not just instructed — a dedicated validation step provides stronger guarantees than a model directive alone. Where deterministic branching is required, `input_schema` + `field:` + `equals:` is the recommended approach:
+For any output that must be validated — not just instructed — the correct `ail` pattern is a dedicated validation step:
 
 ```yaml
 pipeline:
@@ -1741,17 +1612,9 @@ pipeline:
       - No credentials, tokens, or secrets
       - No personally identifiable information
       - No hardcoded environment-specific values
-      Answer only with SAFE or UNSAFE.
-    input_schema:
-      type: object
-      properties:
-        result:
-          type: string
-          enum: ["SAFE", "UNSAFE"]
-      required: [result]
+      If clean, respond SAFE. Otherwise list each violation.
     on_result:
-      field: result
-      equals: "SAFE"
+      contains: "SAFE"
       if_true:
         action: continue
       if_false:
@@ -1759,29 +1622,156 @@ pipeline:
         message: "Safety violation detected. Review required before proceeding."
 ```
 
+This is deterministic — the pipeline either continues or it does not — in a way that prompt injection alone cannot be.
+
 #### Unresolved Questions
 
-- Are `blocklist` patterns evaluated at parse time or at runtime? Parse time is safer but may not catch dynamically constructed step configurations.
+- Are `blocklist` patterns evaluated at parse time (static analysis of the YAML) or at runtime (when a step is about to execute)? Parse time is safer but may not catch dynamically constructed step configurations.
 - How does the `skill_allowlist` interact with built-in `ail/*` modules? They should probably be implicitly permitted unless explicitly removed.
-- Should `required: true` directives be visible to child pipeline authors via `materialize-chain`, or opaque to prevent circumvention?
-- Can a directive declare which step types it applies to (e.g. only `prompt:` steps, not `action:` steps)?
-- How does sensitive directive content interact with the observability layer? Safety policy language may itself be sensitive and should not appear in trace exports by default.
+- Should `required: true` directives be visible to child pipeline authors — i.e. should `materialize-chain` show injected directive content — or should they be opaque to prevent circumvention?
+- Can a directive declare which step types it applies to (e.g. only `prompt:` steps, not `action:` steps), or does it apply universally?
+- How does sensitive directive content interact with the observability layer? A safety directive that contains policy language may itself be sensitive and should not appear in trace exports by default.
 
 ---
 
 ### Model Benchmarking
 
-> **Status: Exploratory**
+> **Status: Exploratory** — The building blocks exist in the current spec. A dedicated benchmarking execution model requires design work that goes beyond the current single-run pipeline model. Syntax is not yet reserved.
 
-A strong candidate for the plugin extensibility layer — expressed as an `x-benchmark:` extension rather than a core spec keyword.
+#### What the Current Spec Already Supports
+
+The `ail/model-compare` built-in and multi-provider routing cover the simplest benchmarking case — same prompt, two models, side-by-side output reviewed by a human. For casual model comparison this is sufficient and available today.
+
+#### What a Real Benchmarking Workflow Needs
+
+A serious benchmarking workflow requires capabilities the current spec does not express:
+
+- **Dataset input** — run against a controlled set of prompts, not just a single human input
+- **Repeatability** — run the same prompt N times against the same model to measure variance
+- **Structured scoring** — a quality score per run captured as data, not just human review
+- **Aggregation** — collect results across all runs into a comparable report
+- **Isolation** — benchmark runs must not share context with production pipeline runs or with each other
+
+None of these fit the current execution model, which is designed around a single `invocation` triggering a single pipeline run. Benchmarking is fundamentally a multi-run, dataset-driven execution model.
+
+#### Proposed Direction
+
+Benchmarking is a strong candidate for the plugin extensibility layer (see below). Rather than adding `benchmark:` as a core spec keyword, it would be expressed as an `x-benchmark:` extension that a benchmarking plugin handles:
+
+```yaml
+# Proposed — not final syntax
+x-benchmark:
+  dataset: ./benchmarks/security-prompts.jsonl
+  runs_per_prompt: 5
+  models:
+    - openai/gpt-4o
+    - anthropic/claude-opus-4-5
+    - groq/llama-3.1-70b-versatile
+  scoring:
+    skill: ./skills/quality-scorer/
+    output_schema: ./schemas/benchmark-score.json
+  report:
+    format: markdown
+    destination: ./reports/{{ benchmark.run_id }}.md
+```
+
+The benchmark plugin would manage the multi-run execution loop, invoke the pipeline's steps for each input, collect structured scores, and produce a report — all without the core runtime needing to know about datasets or aggregation.
+
+#### Why This Matters as a Vertical
+
+For the LLM researcher segment, benchmarking is table-stakes. The ability to run a controlled dataset through multiple models, score the outputs with a custom skill, and produce a comparable report — entirely from a YAML file — is a genuinely novel capability that no current tool provides cleanly. It is also a natural lead-in to the learning loop use case: a benchmark run that identifies which model performs best on a given task type can feed directly into routing decisions.
+
+#### Unresolved Questions
+
+- Is a `trigger: dataset` the right execution model, or should benchmarking be entirely plugin-managed outside the normal pipeline trigger system?
+- How does context isolation work between benchmark runs? Each run must be completely independent.
+- Should scoring be a skill (LLM-evaluated) or a deterministic function (regex, JSON schema validation, exact match)? Both are useful; the spec should support both.
+- How are benchmark results stored and compared across runs over time — is this a persistence concern for the `ail` runtime, or for the plugin?
 
 ---
 
 ### Plugin Extensibility Layer
 
-> **Status: Exploratory**
+> **Status: Exploratory** — The `x-` prefix model is the leading candidate. Core runtime changes are minimal. Full plugin dispatch mechanism requires design. Syntax partially reserved (`x-` prefix).
 
-Following the Docker Compose convention, any top-level key or step field prefixed with `x-` is reserved for extensions. The core runtime passes `x-` fields to registered plugin handlers.
+#### Motivation
+
+As `ail` grows, vertical use cases will emerge that are too specific to belong in the core spec — benchmarking, Datadog integration, custom compliance frameworks, team-specific reporting. Adding each as a core keyword pollutes the spec and creates a maintenance burden. A plugin extensibility layer allows third parties to extend the YAML language itself, adding new top-level keywords and new step fields, without forking the spec or the runtime.
+
+#### The Leading Candidate: `x-` Prefix Model
+
+Following the Docker Compose convention, any top-level key or step field prefixed with `x-` is reserved for extensions. The core runtime passes `x-` fields to registered plugin handlers. If no handler is registered for a given `x-` field, it is either silently ignored or raises a warning — configurable by policy.
+
+```yaml
+# Third-party plugins extend the top-level namespace
+x-datadog:
+  api_key: "{{ env.DD_API_KEY }}"
+  service: "ail-pipelines"
+  env: production
+
+x-benchmark:
+  dataset: ./benchmarks/prompts.jsonl
+  runs_per_prompt: 3
+
+# Plugins can also add step-level fields
+pipeline:
+  - id: security_audit
+    prompt: ./prompts/security.md
+    x-notify:
+      channel: "#security-alerts"
+      on: pause_for_human
+```
+
+#### Plugin Registration
+
+Plugins are declared in `~/.config/ail/plugins.yaml` or in a `plugins:` block in the pipeline file:
+
+```yaml
+# Proposed — not final syntax
+plugins:
+  - id: datadog
+    path: ~/.ail/plugins/datadog/
+    handles: [x-datadog]
+
+  - id: benchmark
+    path: ~/.ail/plugins/benchmark/
+    handles: [x-benchmark]
+    trigger: manual            # benchmark plugin registers its own trigger type
+```
+
+A plugin is itself an Agent Skills-compatible directory — a `PLUGIN.md` file declaring its capabilities, accepted `x-` fields, and handler entry point. This keeps the plugin format consistent with the skill format already established in the spec.
+
+#### What a Plugin Can Do
+
+A plugin handler receives the full parsed pipeline and the values of its declared `x-` fields. It may:
+
+- Add steps to the pipeline before execution begins
+- Register new trigger types
+- Subscribe to step lifecycle events (before step, after step, on error)
+- Write to the audit trail
+- Export to external systems
+
+A plugin may not modify core pipeline behaviour — step execution order, `on_result` logic, HITL gate behaviour — without those modifications being visible in `materialize-chain` output.
+
+#### Governance and Safety Interaction
+
+Plugins declared in a `FROM` base pipeline are inherited by child pipelines. A base pipeline may declare a plugin as `required: true`, preventing child pipelines from removing it — the same governance model used for safety directives and observability resources.
+
+```yaml
+plugins:
+  - id: compliance-reporter
+    path: /etc/ail/plugins/compliance-reporter/
+    handles: [x-compliance]
+    required: true             # child pipelines cannot remove this plugin
+```
+
+#### Unresolved Questions
+
+- Should the plugin entry point be a compiled binary, a script, or a WASM module? Each has different portability and security implications. WASM is the most sandboxed but has the highest implementation cost.
+- How does `materialize-chain` represent plugin-injected steps? They must be visible to maintain the "no surprises" guarantee.
+- Can a plugin declare new `on_result` action types, or are those reserved for the core spec?
+- Should plugins be sandboxed from the filesystem and network by default, with explicit capability grants? Given that plugins run as part of a pipeline that may handle sensitive data, this seems important but adds implementation complexity.
+- Is `PLUGIN.md` the right format, or should plugins have a more structured manifest (JSON schema, TOML) given that they declare machine-readable capabilities rather than human-readable instructions?
 
 ---
 
@@ -1795,9 +1785,54 @@ Named pipeline identity, versioning, and a registry system. Enables `FROM: org/s
 
 ### Observability — Tracing & Logging
 
-> **Status: Exploratory**
+> **Status: Exploratory** — The structure and value are clear. Several design questions remain open. Syntax is not yet reserved.
 
-OTEL is the target standard for trace export. Each pipeline run maps to an OTEL trace; each step maps to a span, carrying at minimum:
+#### Motivation
+
+`ail` pipelines are multi-step, multi-provider, potentially multi-pipeline executions. Without structured observability, debugging a misbehaving pipeline means reading raw stdout. For teams with compliance requirements, there is no auditable record of what ran, when, against what input, and what it produced.
+
+The 15-factor app standard already mandates that the runtime emits structured logs to stdout. This extension goes further: it allows pipelines to declare named observability resources — traces and loggers — and reference them from individual steps, in the same way Docker Compose declares `networks:` and `volumes:` as top-level resources that services reference by name.
+
+#### Proposed Structure
+
+Observability resources are declared in a top-level `observability:` block and referenced from steps. This keeps configuration centralised and step definitions clean.
+
+```yaml
+observability:
+
+  traces:
+    - id: main_trace
+      exporter: otlp
+      endpoint: "{{ env.OTEL_ENDPOINT }}"
+      service_name: "ail/{{ pipeline.run_id }}"
+
+  logs:
+    - id: audit_log
+      format: json
+      destination: stdout          # 15-factor compliant; the default for all logs
+
+    - id: step_detail_log
+      format: json
+      destination: file
+      path: ./.ail/logs/{{ pipeline.run_id }}.jsonl
+
+defaults:
+  trace: main_trace                # applied to every step unless overridden
+  log: [audit_log]
+
+pipeline:
+  - id: security_audit
+    prompt: "..."
+    log: [audit_log, step_detail_log]   # step-level override adds a destination
+
+  - id: internal_score
+    prompt: "Rate quality 0.0–1.0. Number only."
+    trace: none                         # opt this step out of tracing
+```
+
+#### OpenTelemetry Compatibility
+
+OTEL is the target standard for trace export. Each pipeline run maps to an OTEL trace; each step maps to a span. Span attributes would carry at minimum:
 
 - `ail.step.id`
 - `ail.step.provider`
@@ -1808,37 +1843,27 @@ OTEL is the target standard for trace export. Each pipeline run maps to an OTEL 
 - `ail.pipeline.run_id`
 - `ail.pipeline.file`
 
-The pipeline run log (§4.4) is the authoritative source; the OTEL exporter is a consumer of it.
+This makes `ail` pipeline executions visible in any OTEL-compatible backend — Grafana, Jaeger, Honeycomb, Datadog — with zero additional integration work.
+
+#### Inheritance via `FROM`
+
+Observability resources declared in a `FROM` base pipeline are inherited by all child pipelines. An organisation can declare a mandatory `compliance_trace` in its base pipeline and all inheriting pipelines emit to it automatically. A child pipeline may add additional loggers but cannot silently remove an inherited tracer — any attempt to `disable` a base-declared observability resource creates an explicit audit event rather than silently succeeding.
+
+This makes compliance observability a governance guarantee, not a convention.
+
+#### Unresolved Questions
+
+- Are inherited observability resources merged (child adds to parent's list) or overridable (child can replace parent's config)? Merging is safer for compliance; overriding is more flexible for development.
+- Can a step opt out of a default tracer? The `trace: none` syntax above is proposed but not decided. There may be compliance contexts where opting out should be impossible.
+- How does sensitive data interact with trace export? Prompt content may contain credentials, PII, or proprietary information. There should be a way to mark prompt content as redacted in trace spans without disabling tracing entirely. This needs explicit design.
+- Is the `observability:` block itself inheritable via `FROM` hook operations (`run_before`, `run_after`, `override`, `disable`), or does it follow a simpler merge model separate from the step hook system?
+- What is the minimum viable observability for v0.0.1? Almost certainly structured JSON to stdout — already implied by 15-factor compliance. Everything else in this section is additive on top of that baseline.
 
 ---
 
-### Template Variable Fallbacks
+## 23. Open Questions
 
-> **Status: Planned**
-
-The `default()` filter in v0.1 accepts string literals only:
-```yaml
-{{ env.VAR_NAME | default("") }}
-{{ env.VAR_NAME | default("NOT_SET") }}
-```
-
-A future version will support file references and inline blocks for cases where the fallback is a full prompt, markdown document, or complex JSON object:
-```yaml
-# File reference — fallback loaded from disk at resolution time
-{{ env.SYSTEM_PROMPT | default(file: ./defaults/fallback-prompt.md) }}
-{{ step.optional_context.response | default(file: ./defaults/empty-context.json) }}
-
-# Inline block — for structured content without a separate file
-{{ env.CONFIG | default(inline: '{"mode": "safe", "timeout": 120}') }}
-```
-
-This is particularly relevant for optional context injection steps where a missing variable should produce a well-formed prompt or configuration object rather than an empty string or short token. Until this extension is implemented, declare required variables explicitly and handle optional configuration via dedicated steps with `condition:` guards.
-
----
-
-## 22. Open Questions
-
-These are unresolved questions that require either implementation experience or dedicated research before they can be specced.
+These are unresolved questions that require either implementation experience or dedicated research before they can be specced. They are tracked here so they are not lost.
 
 ---
 
@@ -1846,11 +1871,23 @@ These are unresolved questions that require either implementation experience or 
 
 **Status: Resolved for Claude CLI.**
 
-The Claude CLI `--output-format stream-json` flag produces a newline-delimited NDJSON stream. Completion is signalled by a `{"type": "result", "subtype": "success", ...}` event — unambiguous, structured, and carrying cost metadata.
+The Claude CLI `--output-format stream-json` flag produces a newline-delimited NDJSON stream. Completion is signalled by a `{"type": "result", "subtype": "success", ...}` event — unambiguous, structured, and carrying cost metadata. PTY wrapping is not required for the Claude CLI runner.
 
 For other runners without a structured output mode, process exit code 0 remains the fallback hypothesis. This should be validated per runner during each integration sprint. See `RUNNER-SPEC.md`.
 
 **Remaining work:** Verify that `--output-format stream-json` is available in all Claude CLI invocation modes used by `ail`, and document error event shapes (`subtype: error`) for `on_error` handling.
+
+---
+
+### Context Accumulation
+
+**Status: Partially resolved. Spike validation required.**
+
+The `--input-format stream-json` flag allows `ail` to send follow-up messages to an active Claude CLI session as NDJSON on stdin, maintaining conversation state natively within a session. The `session_id` returned in the result event may allow session resumption across invocations.
+
+This means context accumulation for the `invocation` step and the first pipeline step is likely handled natively by the Claude CLI session model. Whether subsequent pipeline steps within the same `ail` run share the same session — or are invoked as separate processes with context injected via template variables — is the remaining question.
+
+**Remaining work:** Spike must determine whether `--input-format stream-json` supports sending a new pipeline step prompt within the same session, or whether each step requires a new subprocess invocation with context passed via `{{ step.invocation.response }}` and `{{ last_response }}` template variables.
 
 ---
 
@@ -1874,6 +1911,8 @@ step.<id>
       .text              ← text content (text events)
 ```
 
+Full speccing of `step.<id>.turns[]` template variable access is deferred until the spike validates the exact event shapes and confirms whether partial message streaming (`--include-partial-messages`) is needed for the MVP.
+
 **Remaining work:** Spike validation of event shapes, especially error events and extended thinking blocks.
 
 ---
@@ -1882,15 +1921,15 @@ step.<id>
 
 **Question:** If a user edits `.ail.yaml` while a session is running, does the change take effect immediately or require a session restart?
 
-**Note:** This may be a tool implementation decision rather than a spec decision.
+**Note:** This may be a tool implementation decision rather than a spec decision. The spec defines what pipelines *are*; whether the runtime watches for file changes is an operational concern. Flagged here until implementation experience clarifies whether it needs to be specced.
 
 ---
 
 ### Skill Parameterisation
 
-**Question:** How does a `SKILL.md` declare what parameters it accepts, and how are they injected?
+**Question:** How does a `SKILL.md` declare what parameters it accepts, and how are they injected — as template variables, environment variables, or a structured input block?
 
-**Status:** Deferred. The `with:` syntax has been removed from the spec pending this design. Will be revisited when structured I/O schema support (§22) is implemented.
+**Status:** Deferred. The `with:` syntax has been removed from the spec pending this design. The answer is likely related to structured output schema research (see Step Turns & Structured Output above). Will be revisited when JSON schema support is explored.
 
 ---
 
