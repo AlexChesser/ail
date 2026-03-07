@@ -19,6 +19,24 @@
 
 ---
 
+## Phase 3 — CLI Argument Surface
+
+### Discoveries not covered by the reference documents
+- `cargo fmt` reformats `matches!()` macros and long `try_parse_from` chains. No semantic impact.
+- clap derive automatically generates `--version` from `#[command(version = ...)]`; the build prompt's "print `ail 0.0.1`, exit 0" behaviour for `--version` is satisfied by clap natively.
+
+### Assumptions that proved wrong
+- None.
+
+### Decisions made that future phases should know about
+- All unimplemented commands write to `stderr` via `eprintln!`. This is intentional for stubs — Phase 4 and later replace these stubs with real implementations.
+- `main.rs` is deliberately minimal. All argument parsing logic lives in `cli.rs`.
+
+### Flags for human review
+- None.
+
+---
+
 ## Phase 2 — Error Type Foundation
 
 ### Discoveries not covered by the reference documents
