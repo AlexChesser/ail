@@ -1,5 +1,6 @@
 mod cli;
 
+use ail_core::runner::Runner;
 use clap::Parser;
 use cli::{Cli, Commands};
 
@@ -72,13 +73,33 @@ fn main() {
                     None => ail_core::config::domain::Pipeline::passthrough(),
                 };
 
-                let mut session = ail_core::session::Session::new(pipeline, prompt);
+                let mut session = ail_core::session::Session::new(pipeline, prompt.clone());
                 let runner = ail_core::runner::claude::ClaudeCliRunner::new();
 
+                // Invocation 1: run the user's --once prompt through Claude.
+                match runner.invoke(&prompt, None) {
+                    Ok(result) => {
+                        println!("{}", result.response);
+                        session.turn_log.append(ail_core::session::TurnEntry {
+                            step_id: "invocation".to_string(),
+                            prompt: prompt.clone(),
+                            response: Some(result.response),
+                            timestamp: std::time::SystemTime::now(),
+                            cost_usd: result.cost_usd,
+                            runner_session_id: result.session_id,
+                        });
+                    }
+                    Err(e) => {
+                        eprintln!("{e}");
+                        std::process::exit(1);
+                    }
+                }
+
+                // Invocation 2+: execute pipeline steps, resuming the session.
                 match ail_core::executor::execute(&mut session, &runner) {
                     Ok(()) => {
                         if let Some(last) = session.turn_log.last_response() {
-                            println!("{last}");
+                            println!("\n--- dont_be_stupid ---\n{last}");
                         }
                     }
                     Err(e) => {

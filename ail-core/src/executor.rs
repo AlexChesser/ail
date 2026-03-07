@@ -34,14 +34,23 @@ pub fn execute(session: &mut Session, runner: &dyn Runner) -> Result<(), AilErro
                     e
                 })?;
 
-                let result = runner.invoke(&resolved).map_err(|mut e| {
-                    e.context = Some(crate::error::ErrorContext {
-                        pipeline_run_id: Some(session.run_id.clone()),
-                        step_id: Some(step_id.clone()),
-                        source: None,
-                    });
-                    e
-                })?;
+                // Resume the conversation from the last invocation so Claude
+                // has the conversation history (e.g. for "Review the above output").
+                let resume_id = session
+                    .turn_log
+                    .last_runner_session_id()
+                    .map(|s| s.to_string());
+
+                let result = runner
+                    .invoke(&resolved, resume_id.as_deref())
+                    .map_err(|mut e| {
+                        e.context = Some(crate::error::ErrorContext {
+                            pipeline_run_id: Some(session.run_id.clone()),
+                            step_id: Some(step_id.clone()),
+                            source: None,
+                        });
+                        e
+                    })?;
 
                 tracing::info!(
                     run_id = %session.run_id,
@@ -56,6 +65,7 @@ pub fn execute(session: &mut Session, runner: &dyn Runner) -> Result<(), AilErro
                     response: Some(result.response),
                     timestamp: SystemTime::now(),
                     cost_usd: result.cost_usd,
+                    runner_session_id: result.session_id,
                 });
             }
 

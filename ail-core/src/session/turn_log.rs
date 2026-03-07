@@ -12,6 +12,9 @@ pub struct TurnEntry {
     #[serde(skip)]
     pub timestamp: SystemTime,
     pub cost_usd: Option<f64>,
+    /// The claude CLI session_id returned by this invocation.
+    /// Used to resume the conversation for the next pipeline step.
+    pub runner_session_id: Option<String>,
 }
 
 pub struct TurnLog {
@@ -57,6 +60,13 @@ impl TurnLog {
             .iter()
             .rev()
             .find_map(|e| e.response.as_deref())
+    }
+
+    pub fn last_runner_session_id(&self) -> Option<&str> {
+        self.entries
+            .iter()
+            .rev()
+            .find_map(|e| e.runner_session_id.as_deref())
     }
 
     pub fn response_for_step(&self, id: &str) -> Option<&str> {

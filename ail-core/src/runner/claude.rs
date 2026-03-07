@@ -37,9 +37,17 @@ impl Default for ClaudeCliRunner {
 }
 
 impl Runner for ClaudeCliRunner {
-    fn invoke(&self, prompt: &str) -> Result<RunResult, AilError> {
+    fn invoke(&self, prompt: &str, resume_session_id: Option<&str>) -> Result<RunResult, AilError> {
+        let mut args: Vec<&str> = vec!["--output-format", "stream-json", "--verbose"];
+        if let Some(sid) = resume_session_id {
+            args.push("--resume");
+            args.push(sid);
+        }
+        args.push("-p");
+        args.push(prompt);
+
         let mut child = Command::new(&self.claude_bin)
-            .args(["--output-format", "stream-json", "--verbose", "-p", prompt])
+            .args(&args)
             .env_remove("CLAUDECODE")
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
@@ -166,7 +174,9 @@ mod tests {
     #[ignore]
     fn claude_cli_runner_returns_non_empty_response() {
         let runner = ClaudeCliRunner::new();
-        let result = runner.invoke("Reply with exactly the word: hello").unwrap();
+        let result = runner
+            .invoke("Reply with exactly the word: hello", None)
+            .unwrap();
         assert!(!result.response.is_empty());
         assert!(result.cost_usd.is_some());
         assert!(result.session_id.is_some());
@@ -177,7 +187,7 @@ mod tests {
     fn claude_cli_runner_response_contains_expected_text() {
         let runner = ClaudeCliRunner::new();
         let result = runner
-            .invoke("Reply with exactly one word: banana")
+            .invoke("Reply with exactly one word: banana", None)
             .unwrap();
         assert!(
             result.response.to_lowercase().contains("banana"),

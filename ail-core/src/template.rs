@@ -128,6 +128,7 @@ mod tests {
             response: Some(response.to_string()),
             timestamp: SystemTime::now(),
             cost_usd: None,
+            runner_session_id: None,
         });
     }
 

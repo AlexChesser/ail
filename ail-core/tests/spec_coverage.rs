@@ -121,7 +121,7 @@ mod spec {
         #[test]
         fn stub_runner_satisfies_runner_trait() {
             let runner: Box<dyn Runner> = Box::new(StubRunner::new("test response"));
-            let result = runner.invoke("any prompt").unwrap();
+            let result = runner.invoke("any prompt", None).unwrap();
             assert_eq!(result.response, "test response");
         }
 
@@ -129,7 +129,7 @@ mod spec {
         #[test]
         fn stub_runner_result_has_cost_and_session_id() {
             let runner = StubRunner::new("response");
-            let result = runner.invoke("prompt").unwrap();
+            let result = runner.invoke("prompt", None).unwrap();
             assert!(result.cost_usd.is_some());
             assert!(result.session_id.is_some());
         }
@@ -141,7 +141,9 @@ mod spec {
         fn claude_cli_runner_returns_non_empty_response() {
             use ail_core::runner::claude::ClaudeCliRunner;
             let runner = ClaudeCliRunner::new();
-            let result = runner.invoke("Reply with exactly the word: hello").unwrap();
+            let result = runner
+                .invoke("Reply with exactly the word: hello", None)
+                .unwrap();
             assert!(!result.response.is_empty());
             assert!(result.cost_usd.is_some());
         }
@@ -164,6 +166,7 @@ mod spec {
                 response: Some(response.to_string()),
                 timestamp: SystemTime::now(),
                 cost_usd: None,
+                runner_session_id: None,
             });
         }
 
@@ -311,6 +314,7 @@ mod spec {
                     response: response.map(|s| s.to_string()),
                     timestamp: SystemTime::now(),
                     cost_usd: None,
+                    runner_session_id: None,
                 }
             }
 

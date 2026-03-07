@@ -18,7 +18,11 @@ impl StubRunner {
 }
 
 impl Runner for StubRunner {
-    fn invoke(&self, _prompt: &str) -> Result<RunResult, AilError> {
+    fn invoke(
+        &self,
+        _prompt: &str,
+        _resume_session_id: Option<&str>,
+    ) -> Result<RunResult, AilError> {
         Ok(RunResult {
             response: self.response.clone(),
             cost_usd: self.cost_usd,
@@ -34,15 +38,15 @@ mod tests {
     #[test]
     fn stub_runner_returns_configured_response() {
         let runner = StubRunner::new("stub response");
-        let result = runner.invoke("any prompt").unwrap();
+        let result = runner.invoke("any prompt", None).unwrap();
         assert_eq!(result.response, "stub response");
     }
 
     #[test]
     fn stub_runner_ignores_prompt_content() {
         let runner = StubRunner::new("fixed");
-        let r1 = runner.invoke("prompt one").unwrap();
-        let r2 = runner.invoke("prompt two").unwrap();
+        let r1 = runner.invoke("prompt one", None).unwrap();
+        let r2 = runner.invoke("prompt two", None).unwrap();
         assert_eq!(r1.response, r2.response);
     }
 }
