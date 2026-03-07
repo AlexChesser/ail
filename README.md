@@ -1,4 +1,4 @@
-# ail — Alexander's Impressive Loops
+# `ail` — Alexander's Impressive Loops (AI Loops) 
 
 > **The control plane for how AI coding agents behave after the human stops typing.**
 
