@@ -8,7 +8,7 @@ It is the control plane for agent behaviour after the human stops typing.
 
 ```
 ail/                        # binary crate — CLI entry point only
-  src/main.rs               # --once, materialize-chain, validate handlers
+  src/main.rs               # --once, materialize, validate handlers
   src/cli.rs                # Cli, Commands (clap derive)
 ail-core/                   # library crate — all logic, no UI
   src/
@@ -53,7 +53,7 @@ cd demo && ../target/release/ail --once "add a fizzbuzz function" --pipeline .ai
 cargo run -- validate --pipeline demo/.ail.yaml
 
 # Inspect resolved pipeline YAML
-cargo run -- materialize-chain --pipeline demo/.ail.yaml
+cargo run -- materialize --pipeline demo/.ail.yaml
 ```
 
 ## SPEC is the Contract — Always Audit on Functional Changes

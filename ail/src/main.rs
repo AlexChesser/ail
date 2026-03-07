@@ -12,7 +12,7 @@ fn main() {
     tracing::info!(event = "startup", version = ail_core::version());
 
     match cli.command {
-        Some(Commands::MaterializeChain { pipeline, out }) => {
+        Some(Commands::Materialize { pipeline, out }) => {
             let pipeline_path = ail_core::config::discovery::discover(pipeline);
             let p = match pipeline_path {
                 Some(ref path) => match ail_core::config::load(path) {

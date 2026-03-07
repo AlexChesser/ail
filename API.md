@@ -387,7 +387,7 @@ Parses and validates a `.ail.yaml` definition without executing it. Returns any 
 POST /api/v1/pipelines/materialize
 ```
 
-Resolves the full `FROM` inheritance chain and returns the complete materialised pipeline as it will actually execute. Equivalent to `ail materialize-chain` from the CLI.
+Resolves the full `FROM` inheritance chain and returns the complete materialised pipeline as it will actually execute. Equivalent to `ail materialize` from the CLI.
 
 ---
 

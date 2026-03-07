@@ -123,6 +123,7 @@ mod tests {
         Session::new(Pipeline::passthrough(), "original prompt".to_string())
     }
 
+    #[allow(dead_code)]
     fn append_response(session: &mut Session, step_id: &str, response: &str) {
         session.turn_log.append(TurnEntry {
             step_id: step_id.to_string(),

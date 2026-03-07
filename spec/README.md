@@ -40,7 +40,7 @@ The AIL Pipeline Language Specification — for pipeline authors and implementer
 | [s14-built-in-modules.md](core/s14-built-in-modules.md) | §14 Built-in Modules | ail/janitor, ail/security-audit, ail/test-writer, etc. | deferred |
 | [s15-providers.md](core/s15-providers.md) | §15 Providers | Provider strings; aliases; `resume:` for session continuity | deferred |
 | [s16-error-handling.md](core/s16-error-handling.md) | §16 Error Handling | on_error: continue / pause_for_human / abort_pipeline / retry | deferred |
-| [s17-materialize-chain.md](core/s17-materialize-chain.md) | §17 materialize-chain | CLI command; output format with origin comments | partial — single-file flatten + origin comments ✓; `FROM` chain traversal/`--expand-pipelines` not impl |
+| [s17-materialize.md](core/s17-materialize.md) | §17 materialize | CLI command; output format with origin comments | partial — single-file flatten + origin comments ✓; `FROM` chain traversal/`--expand-pipelines` not impl |
 | [s18-complete-examples.md](core/s18-complete-examples.md) | §18 Complete Examples | Full worked YAML — simplest, solo dev, org base, multi-speed | reference |
 | [s19-runners-adapters.md](core/s19-runners-adapters.md) | §19 Runners & Adapters | Three-tier runner model; runner config; contract summary | reference |
 | [s20-mvp.md](core/s20-mvp.md) | §20 MVP v0.0.1 Scope | What is and isn't in scope for v0.0.1 | reference |

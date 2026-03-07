@@ -8,6 +8,6 @@ fn extends_field_is_parsed() {
 /// SPEC §6 — materialized chain includes all inherited steps with origins
 #[test]
 #[ignore = "not yet implemented — SPEC §6"]
-fn materialize_chain_traverses_inheritance() {
+fn materialize_traverses_inheritance() {
     todo!()
 }

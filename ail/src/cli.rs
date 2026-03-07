@@ -26,8 +26,9 @@ pub struct Cli {
 
 #[derive(Subcommand)]
 pub enum Commands {
-    /// Traverse the full pipeline inheritance chain and output the resolved pipeline.
-    MaterializeChain {
+    /// Resolve and output the full pipeline. Alias: mp
+    #[command(name = "materialize", visible_alias = "mp")]
+    Materialize {
         /// Path to the pipeline YAML file. Overrides automatic discovery.
         #[arg(long, value_name = "PATH")]
         pipeline: Option<PathBuf>,
@@ -67,22 +68,25 @@ mod tests {
     }
 
     #[test]
-    fn materialize_chain_subcommand_parses() {
-        let cli = Cli::try_parse_from(["ail", "materialize-chain"]).unwrap();
-        assert!(matches!(
-            cli.command,
-            Some(Commands::MaterializeChain { .. })
-        ));
+    fn materialize_subcommand_parses() {
+        let cli = Cli::try_parse_from(["ail", "materialize"]).unwrap();
+        assert!(matches!(cli.command, Some(Commands::Materialize { .. })));
     }
 
     #[test]
-    fn materialize_chain_with_out_parses() {
+    fn materialize_alias_mp_parses() {
+        let cli = Cli::try_parse_from(["ail", "mp"]).unwrap();
+        assert!(matches!(cli.command, Some(Commands::Materialize { .. })));
+    }
+
+    #[test]
+    fn materialize_with_out_parses() {
         let cli =
-            Cli::try_parse_from(["ail", "materialize-chain", "--out", "/tmp/out.yaml"]).unwrap();
-        if let Some(Commands::MaterializeChain { out, .. }) = cli.command {
+            Cli::try_parse_from(["ail", "materialize", "--out", "/tmp/out.yaml"]).unwrap();
+        if let Some(Commands::Materialize { out, .. }) = cli.command {
             assert_eq!(out, Some(PathBuf::from("/tmp/out.yaml")));
         } else {
-            panic!("expected MaterializeChain command");
+            panic!("expected Materialize command");
         }
     }
 

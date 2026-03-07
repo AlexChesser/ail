@@ -81,7 +81,7 @@ s05 — step specification
 s08 — runner adapter
 s09 — tool permissions
 s11 — template variables
-s18 — materialize-chain
+s18 — materialize
 s21 — MVP scope
 ```
 

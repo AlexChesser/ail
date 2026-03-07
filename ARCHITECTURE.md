@@ -135,7 +135,7 @@ Inspired by the [12-factor app methodology](https://12factor.net), adapted for a
 | **Telemetry** | Structured spans and metrics emitted from day one, even if no exporter is configured. Observability is not an afterthought. |
 | **API-first** | Every operation available in the interactive TUI is also available via CLI flags. Agents must be able to drive `ail` without a human present. |
 | **Security** | Credentials are never stored by `ail`. All sensitive configuration is via environment variables. The tool runs with the minimum permissions required. |
-| **Admin processes** | `ail materialize-chain`, `ail validate`, `ail run` are first-class commands, not afterthoughts. |
+| **Admin processes** | `ail materialize`, `ail validate`, `ail run` are first-class commands, not afterthoughts. |
 | **Port binding** | *Not applicable — `ail` is a CLI tool, not a network service. The nearest adaptation: `ail` does not depend on any ambient service to run. It is self-contained.* |
 
 ---
@@ -839,7 +839,7 @@ POST   /sessions/{key}/hitl/{gate_id} respond to a pending HITL gate
 GET    /sessions/{key}/hitl/pending   list gates waiting for a response
 
 POST   /pipelines/validate            validate a .ail.yaml without running it
-POST   /pipelines/materialize         materialize-chain via API
+POST   /pipelines/materialize         materialize via API
 
 GET    /openapi.json                  the OpenAPI 3.1 spec (auto-generated)
 GET    /ui                            Swagger UI (embedded, zero config)
@@ -1049,7 +1049,7 @@ HITL
 
 Pipelines
   POST   /api/v1/pipelines/validate           validate a .ail.yaml without running
-  POST   /api/v1/pipelines/materialize        materialize-chain via API
+  POST   /api/v1/pipelines/materialize        materialize via API
 
 Meta
   GET    /api/v1/health                       health check

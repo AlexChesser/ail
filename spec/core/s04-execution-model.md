@@ -41,7 +41,7 @@ pipeline:
 
 **If `invocation` is not declared**, the host runs a default invocation (the `--once` prompt, plain settings) before handing off to the executor. This is the minimal case for pipelines that do not need to customise how the triggering interaction is handled.
 
-Declaring `invocation` in YAML also makes it visible in `materialize-chain` output, which is the primary way readers understand what a pipeline does end-to-end.
+Declaring `invocation` in YAML also makes it visible in `materialize` output, which is the primary way readers understand what a pipeline does end-to-end.
 
 #### `invocation` in `FROM` chains
 

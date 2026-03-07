@@ -15,7 +15,7 @@ The goal of v0.0.1 is a working demo: one pipeline, one runner, one follow-up pr
 | `condition: always` and `condition: never` | Trivial conditions — proves the condition system exists |
 | `{{ step.invocation.response }}` and `{{ last_response }}` | Core template variables |
 | Passthrough mode when no `.ail.yaml` found | Safe default |
-| `ail materialize-chain` | Flattens a single-file pipeline — no inheritance to traverse yet, but establishes the command |
+| `ail materialize` | Flattens a single-file pipeline — no inheritance to traverse yet, but establishes the command |
 | Basic TUI — streaming stdout passthrough | Human can see the runner working |
 | Pipeline run log — persisted to disk | Step responses durable before next step |
 | Completion detection via process exit code 0 | For CLI runner steps |

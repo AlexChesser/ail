@@ -6,7 +6,7 @@
 
 - **`ail --once "<prompt>" --pipeline <file>`** — single non-interactive run. Executes the user's prompt through Claude, then runs every pipeline step in declaration order, resuming the same Claude session (`--resume <session_id>`) so each step has full conversation history.
 - **`ail validate --pipeline <file>`** — validates a pipeline YAML file and prints the step count or a structured error. Exit 0 on valid, exit 1 on invalid.
-- **`ail materialize-chain --pipeline <file>`** — serialises the resolved pipeline back to annotated YAML with `# origin: [N] path` comments per step. Output round-trips through the parser.
+- **`ail materialize --pipeline <file>`** — serialises the resolved pipeline back to annotated YAML with `# origin: [N] path` comments per step. Output round-trips through the parser.
 - **Pipeline YAML parsing** — `version`, `pipeline[]`, `id`, `prompt`, `skill`, `pipeline`, `action` fields. Full DTO→domain validation: missing version, empty pipeline, duplicate step ids, missing primary field all return typed `AilError`.
 - **Pipeline file discovery** — four-step search order: explicit `--pipeline`, `.ail.yaml` in CWD, `.ail/default.yaml` in CWD, `~/.config/ail/default.yaml`.
 - **Template variable resolution** — `{{ step.invocation.prompt }}`, `{{ last_response }}`, `{{ step.<id>.response }}`, `{{ pipeline.run_id }}`, `{{ session.tool }}`, `{{ session.cwd }}`, `{{ env.<VAR> }}`. Unresolved variables abort with a typed error — never silently empty.

@@ -193,9 +193,9 @@ When configuration is needed, a `then:` entry may be a full step block. All stan
       provider: fast
 ```
 
-#### `materialize-chain` representation
+#### `materialize` representation
 
-`then:` steps appear in `materialize-chain` output subordinated under their parent, annotated as private and non-hookable:
+`then:` steps appear in `materialize` output subordinated under their parent, annotated as private and non-hookable:
 
 ```yaml
 # origin: [2] .ail.yaml
@@ -377,9 +377,9 @@ The circuit breaker is recommended whenever prompt transformation is used in a c
 
 `use_original` used outside a `before:` chain raises a parse error.
 
-#### `materialize-chain` Representation
+#### `materialize` Representation
 
-`before:` steps appear in `materialize-chain` output subordinated under their parent, annotated as private and non-hookable, above the parent step prompt:
+`before:` steps appear in `materialize` output subordinated under their parent, annotated as private and non-hookable, above the parent step prompt:
 
 ```yaml
 # origin: [2] .ail.yaml
@@ -400,13 +400,13 @@ The circuit breaker is recommended whenever prompt transformation is used in a c
 - Transformations that improve prompts on average may degrade specific ones.
 - A flawed transformation in a base pipeline affects all inheritors simultaneously.
 
-**Detection:** When `ail materialize-chain` resolves a pipeline that contains a `before:` chain on `invocation` — whether declared directly or inherited via `FROM` — it emits a prominent warning identifying the origin pipeline and noting that prompt transformation is active on every invocation. This warning is rendered in the interactive TUI at session start.
+**Detection:** When `ail materialize` resolves a pipeline that contains a `before:` chain on `invocation` — whether declared directly or inherited via `FROM` — it emits a prominent warning identifying the origin pipeline and noting that prompt transformation is active on every invocation. This warning is rendered in the interactive TUI at session start.
 
 This warning is a **UI-layer concern only**. It is not a parse error, not a lint failure, and is not emitted in headless or agent-driven modes. A pipeline with `before:` on `invocation` and no `preview_for_human` is fully valid — the warning exists to surface the configuration to humans who may not have inspected their full inheritance chain. Requiring `preview_for_human` would make such pipelines incompatible with unattended runs, in direct conflict with the Agent-First Design principle.
 
 **Mitigations the spec provides:**
 - The `preview_for_human` circuit breaker makes transformation visible and opt-out-able in interactive sessions.
-- `materialize-chain` always shows `before:` chains — pipeline authors can inspect what they've inherited.
+- `materialize` always shows `before:` chains — pipeline authors can inspect what they've inherited.
 - An inheriting pipeline can `override:` the invocation hook to replace it with a version that has no `before:` chain.
 
 **The recommended pattern for `FROM` base pipelines:**

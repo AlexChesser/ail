@@ -18,7 +18,7 @@ Error: circular inheritance detected
   ail cannot resolve a pipeline that inherits from itself.
 ```
 
-The full resolved chain is inspectable via `ail materialize-chain` (§18).
+The full resolved chain is inspectable via `ail materialize` (§18).
 
 ### 7.2 Hook Operations
 

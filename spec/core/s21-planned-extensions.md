@@ -324,7 +324,7 @@ This is deterministic — the pipeline either continues or it does not — in a 
 
 - Are `blocklist` patterns evaluated at parse time (static analysis of the YAML) or at runtime (when a step is about to execute)? Parse time is safer but may not catch dynamically constructed step configurations.
 - How does the `skill_allowlist` interact with built-in `ail/*` modules? They should probably be implicitly permitted unless explicitly removed.
-- Should `required: true` directives be visible to child pipeline authors — i.e. should `materialize-chain` show injected directive content — or should they be opaque to prevent circumvention?
+- Should `required: true` directives be visible to child pipeline authors — i.e. should `materialize` show injected directive content — or should they be opaque to prevent circumvention?
 - Can a directive declare which step types it applies to (e.g. only `prompt:` steps, not `action:` steps), or does it apply universally?
 - How does sensitive directive content interact with the observability layer? A safety directive that contains policy language may itself be sensitive and should not appear in trace exports by default.
 
@@ -447,7 +447,7 @@ A plugin handler receives the full parsed pipeline and the values of its declare
 - Write to the audit trail
 - Export to external systems
 
-A plugin may not modify core pipeline behaviour — step execution order, `on_result` logic, HITL gate behaviour — without those modifications being visible in `materialize-chain` output.
+A plugin may not modify core pipeline behaviour — step execution order, `on_result` logic, HITL gate behaviour — without those modifications being visible in `materialize` output.
 
 #### Governance and Safety Interaction
 
@@ -464,7 +464,7 @@ plugins:
 #### Unresolved Questions
 
 - Should the plugin entry point be a compiled binary, a script, or a WASM module? Each has different portability and security implications. WASM is the most sandboxed but has the highest implementation cost.
-- How does `materialize-chain` represent plugin-injected steps? They must be visible to maintain the "no surprises" guarantee.
+- How does `materialize` represent plugin-injected steps? They must be visible to maintain the "no surprises" guarantee.
 - Can a plugin declare new `on_result` action types, or are those reserved for the core spec?
 - Should plugins be sandboxed from the filesystem and network by default, with explicit capability grants? Given that plugins run as part of a pipeline that may handle sensitive data, this seems important but adds implementation complexity.
 - Is `PLUGIN.md` the right format, or should plugins have a more structured manifest (JSON schema, TOML) given that they declare machine-readable capabilities rather than human-readable instructions?

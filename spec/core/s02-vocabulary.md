@@ -20,6 +20,6 @@
 | `run_after` | Hook keyword. Inserts a step immediately after the named step ID in the inherited pipeline. |
 | `override` | Replaces a named step from an inherited pipeline entirely. |
 | `disable` | Removes a named step from an inherited pipeline without replacing it. |
-| `materialize-chain` | CLI command that traverses the full inheritance chain and writes the resolved pipeline to disk. |
+| `materialize` | CLI command that traverses the full inheritance chain and writes the resolved pipeline to disk. |
 
 ---
