@@ -1,0 +1,14 @@
+[package]
+name = "ail"
+version = "0.0.1"
+edition = "2021"
+
+[[bin]]
+name = "ail"
+path = "src/main.rs"
+
+[dependencies]
+ail-core = { path = "../ail-core" }
+clap = { version = "4", features = ["derive"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["json"] }
