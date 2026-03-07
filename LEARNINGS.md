@@ -110,6 +110,40 @@
 
 ---
 
+## Phase 8 — Runner Trait and Claude CLI Adapter (pre-spike assumptions)
+
+**Written before any code. These are assumptions being tested:**
+
+1. `claude --output-format stream-json -p "<prompt>"` emits NDJSON on stdout and exits 0 on success.
+2. The stream includes a `{"type":"result","subtype":"success","result":"<text>","total_cost_usd":<float>,"session_id":"<id>"}` event as the final event.
+3. Lines before the `result` event include `{"type":"assistant",...}` and `{"type":"user",...}` tool interaction events, and possibly `{"type":"system","subtype":"init",...}`.
+4. The process exits after the `result` event — we don't need to close stdin or send any signal.
+5. `--output-format stream-json` works with `-p` (non-interactive) with no PTY required.
+6. `total_cost_usd` is always present in the result event for successful runs.
+7. Stderr from the claude process carries error messages on failure.
+
+**Post-spike findings will be updated below.**
+
+### Discoveries not covered by the reference documents
+- `--output-format stream-json` **requires `--verbose`** when used with `-p`. Without `--verbose`, claude exits with: "When using --print, --output-format=stream-json requires --verbose". RUNNER-SPEC.md does not document this. The correct invocation is `claude --output-format stream-json --verbose -p "<prompt>"`.
+- The claude CLI blocks nested sessions via the `CLAUDECODE` env var. `ClaudeCliRunner` must remove `CLAUDECODE` from the child process environment using `.env_remove("CLAUDECODE")` on the `Command` builder.
+- When run from inside a Claude Code bash tool (even with `env -u CLAUDECODE`), the command appeared to hang. The user confirmed it works when run manually outside the session. This means integration tests for `ClaudeCliRunner` must be `#[ignore]` — they cannot be run from within a Claude Code session.
+
+### Assumptions that proved wrong
+- **Assumption #1 was partially wrong**: `claude --output-format stream-json -p "<prompt>"` alone is insufficient — `--verbose` is also required.
+- All other assumptions confirmed: three-event stream (system/init, assistant, result), `result` event carries `result` text and `total_cost_usd`, process exits cleanly after `result`.
+
+### Decisions made that future phases should know about
+- The `runner/` module exports a `Runner` trait, `StubRunner` (for unit tests), and `ClaudeCliRunner` (real implementation).
+- `ClaudeCliRunner` does not capture stderr — on error, `claude` sets `result.subtype = "error"` and `result.is_error = true` in the NDJSON stream. Stderr is not needed for error detection.
+- The `result` event's `result` field (not `message.content`) is the canonical response text. The `assistant` event content is streaming/partial.
+
+### Flags for human review
+- [UNDOC] `--verbose` is required alongside `--output-format stream-json --print`. This is undocumented in RUNNER-SPEC.md. RUNNER-SPEC.md should be updated.
+- [ARCH] Integration tests for `ClaudeCliRunner` cannot run inside a Claude Code session. This means CI will need to either run them outside, or skip them. Annotated `#[ignore]` for now.
+
+---
+
 ## Phase 2 — Error Type Foundation
 
 ### Discoveries not covered by the reference documents
