@@ -216,9 +216,28 @@ Every pipeline execution is backed by a **pipeline run log** — a durable, stru
 
 Each pipeline run is identified by a `pipeline.run_id` — the same identifier used in the tracing and observability systems (see §22). There is no separate context identifier; run identity is unified across logging, tracing, and template variable access.
 
+#### Log Location
+
+Run logs are stored per project, not per invocation. The project is identified by a SHA-1 hash of the working directory path at session start:
+
+```
+~/.ail/projects/<sha1_of_cwd>/runs/<run_id>.jsonl
+```
+
+This means all `ail` runs within the same working directory share a project bucket. A new `--once` invocation in the same repository automatically has access to the full history of prior runs in that project. Starting a clean session in the same project is a deferred feature (see §22).
+
+#### Step Event Sequence
+
+Two events are written to the log per step:
+
+1. **`step_started`** — written immediately before the runner is invoked. Contains `step_id` and the fully resolved `prompt`. If the runner crashes or hangs, this record is the only evidence the step was attempted.
+2. **`step_completed`** (a full `TurnEntry`) — written when the runner returns a response. Contains `step_id`, `prompt`, `response`, `cost_usd`, and `runner_session_id`.
+
+An implementation that writes only on completion does not conform to this spec. The `step_started` event is required for crash-safe observability.
+
 #### What Is Logged Per Step
 
-Each step's log entry captures, at minimum:
+Each completed step's log entry captures, at minimum:
 
 | Field | Always present | Notes |
 |---|---|---|
@@ -233,8 +252,6 @@ Each step's log entry captures, at minimum:
 | `condition_result` | If condition declared | Whether the step's condition evaluated true or false |
 | `on_result_matched` | If `on_result` declared | Which branch fired |
 | `error` | If step failed | Structured error detail: error_type, title, detail. Follows the RFC 9457-inspired AilError model defined in ARCHITECTURE.md. null on success. |
-
-The storage format (SQLite, JSONL, binary, or other) is an implementation detail. What the spec owns is the schema above and the guarantee that it is persisted before the next step runs. Log location follows XDG conventions and is documented in `ARCHITECTURE.md`.
 
 #### Accessing Prior Step Results
 

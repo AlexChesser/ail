@@ -112,7 +112,7 @@ mod session {
         std::env::set_current_dir(original_dir).unwrap();
     }
 
-    /// SPEC §4 — turn log persists to append-only NDJSON file
+    /// SPEC §4, §4.4 — turn log persists to project-scoped NDJSON file
     #[test]
     fn turn_log_append_writes_ndjson_line_to_disk() {
         let tmp = tempfile::tempdir().unwrap();
@@ -123,11 +123,16 @@ mod session {
         let mut log = TurnLog::new(run_id.clone());
         log.append(make_entry("step_1", Some("hello")));
 
-        let path = tmp.path().join(format!(".ail/runs/{run_id}.jsonl"));
+        // Path is now project-scoped: ~/.ail/projects/<sha1_of_cwd>/runs/<run_id>.jsonl
+        let path = log.run_path();
         assert!(path.exists(), "NDJSON file should exist at {path:?}");
         let contents = std::fs::read_to_string(&path).unwrap();
-        let line = contents.lines().next().unwrap();
-        let parsed: serde_json::Value = serde_json::from_str(line).unwrap();
+        // First line may be a step_started event; find the TurnEntry line
+        let entry_line = contents
+            .lines()
+            .find(|l| l.contains("\"step_id\"") && !l.contains("\"type\""))
+            .expect("expected a TurnEntry line in NDJSON");
+        let parsed: serde_json::Value = serde_json::from_str(entry_line).unwrap();
         assert_eq!(parsed["step_id"], "step_1");
 
         std::env::set_current_dir(original_dir).unwrap();

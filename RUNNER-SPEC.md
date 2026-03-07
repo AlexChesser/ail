@@ -172,9 +172,14 @@ Pattern syntax (e.g. `Bash(git log*)`, `Edit(./src/*)`) is passed verbatim — `
 
 ### Context and Session Continuity
 
-The `session_id` returned in each result event is retained by `ail` for the duration of the session. Whether it can be used to resume a session across separate subprocess invocations is to be validated in the v0.0.1 spike.
+**Resolved in v0.0.1 spike.** The `session_id` returned in each `result` event can be passed back as `--resume <session_id>` to resume the conversation in a subsequent subprocess invocation. `ail` uses one process per pipeline step, resuming via `--resume` between steps. `--input-format stream-json` is not used.
 
-`--input-format stream-json` supports sending follow-up messages within an active session. Whether `ail` uses this for pipeline step continuity (vs. spawning a new process per step with context injected via template variables) is a spike decision.
+The `--resume` flag is not documented in the Claude CLI `--help` output but is functional. It preserves full conversation history across invocations, enabling pipeline steps to reference prior outputs naturally (e.g. "Review the above output.") without template variable injection.
+
+`ail`'s session chaining model:
+1. `invocation` step runs; its `result` event carries `session_id` → stored in turn log
+2. Each subsequent pipeline step spawns a new subprocess with `--resume <last_session_id>` and `-p <resolved_prompt>`
+3. The runner has full conversation history; template variable injection is used for cross-step references outside the active conversation thread
 
 ### Flags Summary
 
@@ -188,9 +193,15 @@ The `session_id` returned in each result event is retained by `ail` for the dura
 | `--disallowedTools` | Pre-deny tools | From `tools.deny` |
 | `--permission-mode` | Set permission enforcement level | Session-level; `default` unless overridden |
 | `--dangerously-skip-permissions` | Bypass all permission checks | Headless/automated mode only |
+| `--verbose` | Required with `--output-format stream-json -p` | Always — omitting it causes an error |
+| `--resume <session_id>` | Resume a prior session by ID | Between pipeline steps |
 | `--verbose --include-partial-messages` | Token-level streaming | Observability / debugging |
 
-*Spike validation status: pending. This section reflects current understanding from CLI reference documentation. Actual behaviour must be verified in the v0.0.1 spike and this section updated with findings.*
+**Note:** `--output-format stream-json` requires `--verbose` when used with `-p` (non-interactive mode). Omitting `--verbose` produces the error: _"When using --print, --output-format=stream-json requires --verbose"_. This is undocumented in Claude CLI's `--help` output.
+
+**Note:** Claude CLI sets the `CLAUDECODE` environment variable. When `ail` spawns a subprocess, it must remove this variable from the child environment — Claude CLI blocks nested sessions if it detects it is running inside another Claude Code session.
+
+*Spike validation status: resolved for Claude CLI v0.0.1. Flags above reflect verified behaviour.*
 
 ---
 
@@ -223,8 +234,8 @@ See `ARCHITECTURE.md` *(forthcoming)* for the trait definition, dynamic loading 
 
 These questions must be answered before the contract can be considered stable.
 
-- **Session continuity** — does `--input-format stream-json` support sending a new pipeline step prompt within an active Claude CLI session, or does each pipeline step require a new subprocess invocation? This determines whether context is maintained natively or via `ail`'s template variable injection. Spike validation required.
-- **Session resumption** — can `session_id` from a result event be passed back to Claude CLI to resume a prior session? If so, `ail` could maintain session state across user prompts. Spike validation required.
+- ~~**Session continuity**~~ — **Resolved.** Each pipeline step uses a new subprocess with `--resume <session_id>`. `--input-format stream-json` is not used.
+- ~~**Session resumption**~~ — **Resolved.** `session_id` from the `result` event is passed as `--resume <session_id>` to subsequent steps. Full conversation history is preserved.
 - **Minimum flag set for non-Claude runners** — beyond the minimum compliance tier, what is the smallest set of behaviours any runner must implement? Needs to be validated against each target runner (Aider, Gemini CLI, etc.) to ensure the bar is achievable without the stream-json interface.
 - **Capability declaration mechanism** — the `--ail-capabilities` flag is proposed but not yet defined. What format should it return? What capabilities must be declared vs. assumed?
 - **Error event shapes** — the `result.subtype: error` event needs a defined set of error codes so `ail`'s `on_error` handling can distinguish timeout, model error, context limit exceeded, and permission denied.

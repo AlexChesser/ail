@@ -41,6 +41,10 @@ pub fn execute(session: &mut Session, runner: &dyn Runner) -> Result<(), AilErro
                     .last_runner_session_id()
                     .map(|s| s.to_string());
 
+                // Record intent before calling the runner. If the runner crashes
+                // or hangs, this is the only evidence the step was attempted.
+                session.turn_log.record_step_started(&step_id, &resolved);
+
                 let result = runner
                     .invoke(&resolved, resume_id.as_deref())
                     .map_err(|mut e| {
