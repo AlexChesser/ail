@@ -4,38 +4,24 @@ Aleksandr Luria's *Higher Cortical Functions in Man* (1966) provides a neuro-psy
 
 #### Part I: The Higher Mental Functions and Their Organization in the Brain
 
-* 
-**Chapter 1: The Problem of Localization of Functions:** Luria rejects the "localizationist" view (specific spots for specific skills) and the "holistic" view (the whole brain does everything). He proposes that higher mental functions are **functional systems**—complex constellations of cortical zones working together that can change their "links" at different stages of development.
+* **Chapter 1: The Problem of Localization of Functions:** Luria rejects the "localizationist" view (specific spots for specific skills) and the "holistic" view (the whole brain does everything). He proposes that higher mental functions are **functional systems**—complex constellations of cortical zones working together that can change their "links" at different stages of development.
 
 
 * **Chapter 2: The Three Principal Functional Units:**
 1. **Arousal/Tone:** The brain stem and reticular formation.
-2. 
-**Information Processing:** The posterior regions (parietal, temporal, occipital) that receive, analyze, and store info.
-
-
-3. 
-**Programming & Regulation:** The frontal lobes, which create plans, execute them, and verify the outcome.
-
-
-
-
+2. **Information Processing:** The posterior regions (parietal, temporal, occipital) that receive, analyze, and store info.
+3. **Programming & Regulation:** The frontal lobes, which create plans, execute them, and verify the outcome.
 
 #### Part II: Disturbances of Higher Cortical Functions (Syndrome Analysis)
 
 * **Chapter 3-4: Lesions of the Temporal and Occipital Divisions:** Focuses on aphasia (speech) and agnosia (recognition). Key finding: Sensory input is "refracted" through historically established codes (language) to create meaning.
-
-
 * **Chapter 5: The Frontal Lobes and Regulation of Mental Activity:** This is the "Executive" chapter. Luria describes how frontal lesions lead to "pathological inertia" (repeating the same action) and a failure to subordinate behavior to a verbal instruction or a plan.
 
 
 
 #### Part III: Methods of Investigation (The Luria-Nebraska Tests)
 
-* 
-**Chapter 6-10: Clinical Exams:** Luria details tests for memory, speech, and spatial orientation. He emphasizes that a failure in a complex task (like a math problem) must be analyzed to see which *specific* link in the chain (auditory memory, spatial logic, or planning) is broken.
-
-
+* **Chapter 6-10: Clinical Exams:** Luria details tests for memory, speech, and spatial orientation. He emphasizes that a failure in a complex task (like a math problem) must be analyzed to see which *specific* link in the chain (auditory memory, spatial logic, or planning) is broken.
 
 ---
 
