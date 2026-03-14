@@ -84,6 +84,10 @@ This feature deliberately stops short of a general expression language. Field ac
 
 > **Status: Planned**
 
+#### Grouped Parallel Steps
+
+A step may declare a `parallel:` block containing child steps that execute concurrently. Results are accessed via the parent step ID:
+
 ```yaml
 - id: parallel_review
   parallel:
@@ -93,11 +97,7 @@ This feature deliberately stops short of a general expression language. Field ac
       skill: ail/dry-refactor
 ```
 
----
-
-### Fan-Out / Fan-In with Synthesis
-
-> **Status: Planned**
+#### Fan-Out / Fan-In with Synthesis
 
 ```yaml
 - id: full_review
@@ -112,6 +112,124 @@ This feature deliberately stops short of a general expression language. Field ac
       DRY: {{ step.full_review.dry.response }}
       Produce a single consolidated report.
 ```
+
+#### Multi-Provider Parallel Sampling
+
+> **Status: Planned — design seed (see D-020)**
+
+A specific application of parallel execution: the same prompt sent simultaneously to two providers. The canonical use case is quality comparison — a frontier model and a commodity model running in parallel, with a synthesis step that identifies what the frontier did better and proposes prompt improvements that would produce similar results from the commodity runner.
+
+```yaml
+# Note: parallel execution and provider: aliases require primitives not yet implemented.
+# This is a design seed. Syntax is not final.
+
+- id: implement_frontier
+  prompt: "{{ step.invocation.prompt }}"
+  provider: frontier
+
+- id: implement_commodity
+  prompt: "{{ step.invocation.prompt }}"
+  provider: commodity
+  # runs in parallel with implement_frontier — requires parallel execution
+
+- id: quality_compare
+  prompt: |
+    Two implementations of the same task:
+    A: {{ step.implement_frontier.response }}
+    B: {{ step.implement_commodity.response }}
+    What did A do better? What prompt change would produce A's result from B's model?
+  on_result:
+    match: always
+    action: pause_for_human
+    message: "Quality comparison complete. Approve pipeline update?"
+```
+
+This creates a systematic feedback loop: the pipeline's prompts and skills improve over time at directing any runner. The commodity runner produces better results not because the model improves, but because the instructions directing it get better. Combined with the self-modifying pipeline primitive (see below), the comparison step can propose and apply those improvements automatically.
+
+**Unresolved questions:**
+
+- Are parallel branches isolated (separate sessions) or do they share a provider connection?
+- How does the runtime handle failure in one parallel branch — does the other branch continue, or does the whole group fail?
+- Is `parallel_with:` (sibling syntax) needed alongside the `parallel:` group block, or is one sufficient? The grouped form requires a parent step ID; top-level step IDs referenced individually require the sibling form.
+
+---
+
+### Self-Modifying Pipelines
+
+> **Status: Deferred — post-POC. Significant design work required.**
+>
+> Dependencies: stable pipeline execution (v0.0.1), parallel step execution (above), structured step I/O schemas (above), HITL approval flow (§13), hot reload mechanism (§22).
+
+#### The Core Vision
+
+Every pipeline run produces a structured evidence record in the turn log (§4.4). Over time this log accumulates: the prompt, the response, the tool calls, the `on_result` branch that fired, the step that handed control to human review. It is a machine-readable record of how the agent fails and how those failures were resolved.
+
+The self-modifying pipeline reads that record and uses it. On approval, the diff is committed. The pipeline hot-reloads. The next invocation runs against an improved version of itself:
+
+```yaml
+# Note: log-injection and hot-reload require primitives described below.
+# This is a design seed. Syntax is not final.
+
+- id: pipeline_reflection
+  context:
+    run_log:
+      last_n: 50          # inject the 50 most recent log entries
+  prompt: |
+    Review the attached pipeline run log.
+    Identify the most common mismatch between intended and actual output.
+    Propose a new step that would prevent it.
+    Format your response as a YAML diff targeting the existing pipeline.
+  on_result:
+    match: always
+    action: pause_for_human
+    message: "Pipeline improvement proposed. Approve to apply."
+```
+
+#### Why This Is Categorically Different
+
+The self-modifying pipeline is not:
+
+- **CLAUDE.md / memory files** — those are static context injection. `ail` steps are executable logic. A step that checks linter output fires every time regardless of context state. A memory file is a request; a pipeline step is a guarantee.
+- **Hooks** — hooks cannot modify themselves and carry no HITL model.
+- **Orchestration frameworks** — LangGraph, CrewAI, and similar tools manage multi-agent communication graphs. The self-modifying pipeline is a specific, bounded application of the pipeline model to its own improvement — not general orchestration.
+
+The distinction that matters: the improvement is expressed in the same YAML that runs it, making it readable, diffable, testable, and version-controlled by anyone on the team. The accumulated operational knowledge of every developer who has ever committed to that repository lives in a file that any agent can run and any engineer can read.
+
+#### The SWE-bench Validation
+
+The hypothesis is runnable: a set of declared pipelines — linter step, test runner step, self-evaluation step — should improve a model's own SWE-bench score using that same model, with no changes to the weights. SWE-bench failures cluster around exactly the failure modes §1 names: output is produced but not verified against the test suite; there is no comparison circuit. A pipeline that guarantees the linter passes and the tests run before the score is recorded addresses this directly.
+
+Either outcome is informative. A confirmed improvement validates the architectural claim. A null result prompts spec revision. The benchmark exists; the pipelines can be written.
+
+#### Required Primitives (not yet specced)
+
+**Log injection (`context: run_log:`)**
+A way to reference the accumulated pipeline run log in a context step. The run log is already written to `~/.ail/projects/<sha1_of_cwd>/runs/` (§4.4). Log injection makes a filtered slice of that log available to a prompt step without a manual shell command. The exact syntax and filtering interface are not yet designed.
+
+**Pipeline diff application (`action: apply_pipeline_diff`)**
+A new `on_result` action that accepts a YAML diff from a preceding prompt step and applies it to the active pipeline file. The runtime must validate that the result is a valid pipeline before writing. Invalid diffs are treated as step errors escalating via `on_error`, not silent failures.
+
+**Hot reload**
+After `apply_pipeline_diff`, the runtime reloads the active pipeline. The next invocation uses the new version. The open question is timing — can hot reload happen mid-run (affecting later steps in the same execution), or only between runs? See §22.
+
+**`FROM`-based layering for modifications**
+Self-modifying pipelines should use `FROM` inheritance (§7) to layer improvements: the base pipeline remains unchanged, and each modification is an inheriting layer. This keeps changes auditable and reversible without overwriting the base. Full `FROM` traversal must be implemented before this is usable.
+
+#### Relationship to §1 Scope Discipline
+
+The third category in §1's scope compass — "extends `ail`'s capacity to select, compose, or improve its own pipelines" — is precisely what this section specifies. Norman and Shallice's Supervisory Attentional System intervenes when a task is novel or requires overriding a habitual response. Today `ail` is the contention scheduler: execute the declared pipeline. The self-modifying pipeline is where the SAS layer begins — `ail` improving the schema it schedules.
+
+#### Relationship to Multi-Provider Quality Comparison
+
+The multi-provider parallel sampling pattern (above) is a natural feeder for the self-modifying pipeline. The quality comparison step identifies what the frontier implementation did better; the self-modifying step proposes the prompt change that would close that gap. Run together, they form a closed feedback loop:
+
+1. Two providers run the same prompt in parallel
+2. A comparison step identifies the quality delta
+3. The reflection step proposes a prompt improvement
+4. Human approval applies the diff
+5. The next invocation runs with tighter instructions
+
+The gap between frontier and commodity closes because the pipeline's instructions get better at directing it — not because either model improves.
 
 ---
 

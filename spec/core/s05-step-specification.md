@@ -1,40 +1,53 @@
 ## 5. Step Specification
 
-Every item in the `pipeline` array is a step. Each step does exactly one of four things, declared by its primary field:
+Every item in the `pipeline` array is a step. Each step is of exactly one of four types, declared by its primary field:
 
-| Primary field | What it does |
-|---|---|
-| `prompt:` | Sends text to the LLM — inline string or path to a `.md` file. |
-| `skill:` | Loads a `SKILL.md` package as model instructions, optionally combined with a `prompt:`. |
-| `pipeline:` | Calls another pipeline as an isolated sub-routine. |
-| `action:` | Performs a non-LLM operation (e.g. `pause_for_human`). |
+| Step type | Primary field | Task source | LLM call | Token cost |
+|---|---|---|---|---|
+| Prompt | `prompt:` | Inline text or file | Yes | Yes |
+| Skill | `skill:` | `SKILL.md` body | Yes | Yes |
+| Context | `context:` | `shell:` / `mcp:` | No | No |
+| Sub-pipeline | `pipeline:` | Another `.ail.yaml` | Delegated | Delegated |
 
 Exactly one primary field is required per step. All other fields are optional.
 
-### 5.1 Core Fields
+`prompt:` and `skill:` are both LLM invocations — the distinction is where the task instruction comes from. `prompt:` gives it as text; `skill:` uses the body of a `SKILL.md` file, making the step self-contained and directly analogous to a `/skill-name` invocation in the `ail` REPL.
+
+### 5.1 Core Fields (all step types)
 
 | Field | Description |
 |---|---|
 | `id` | String. **Required.** Unique identifier for this step within the resolved pipeline. Snake_case recommended. Step IDs are the public API of a `FROM`-able pipeline — treat them as stable identifiers. |
-| `prompt` | String or file path. Inline text or path to a `.md` file. Path detected by prefix: `./` `../` `~/` `/`. |
-| `skill` | Path. Loads an Agent Skills-compliant `SKILL.md` package. See §6. |
-| `pipeline` | File path. Calls another `.ail.yaml` as an isolated sub-pipeline. See §9. |
-| `action` | String. A non-LLM operation. Supported: `pause_for_human`. |
-| `provider` | String. Overrides the default provider for this step. |
-| `timeout_seconds` | Integer. Maximum seconds to wait. Default: `120`. |
 | `condition` | Expression string. Step is skipped if false. See §12. |
 | `on_error` | Enum: `continue` \| `pause_for_human` \| `abort_pipeline` \| `retry`. Default: `pause_for_human`. |
 | `max_retries` | Integer. Retry attempts when `on_error: retry`. Default: `2`. |
-| `on_result` | Block. Declarative branching after completion. See §5.3. |
 | `disabled` | Boolean. Skips step unconditionally. Useful during development. |
-| `before` | List. Private pre-processing steps that run before this step's prompt fires. See §5.7. |
-| `then` | List. Private post-processing steps chained to this step. See §5.5. |
-| `tools` | Block. Pre-approve or pre-deny tool calls for this step. See §5.6. |
+
+**`id` is always required.** Because any pipeline may be inherited from via `FROM`, `ail` cannot know at parse time which steps will be targeted by hook operations in inheriting pipelines. Step IDs must be stable identifiers — renaming a step ID in a `FROM`-able pipeline is a breaking change for all inheritors.
+
+### 5.2 `prompt:` Steps — LLM Invocations
+
+A `prompt:` step invokes the LLM with an optional system context and a user-level prompt. It is the only step type that costs tokens.
+
+#### Fields
+
+| Field | Description |
+|---|---|
+| `prompt` | String or file path. **Required** when `system_prompt:` or `append_system_prompt:` is declared; optional otherwise. Inline text or path to a `.md` file. Path detected by prefix: `./` `../` `~/` `/`. |
+| `system_prompt` | String or file path. Sets the full system prompt for this step. Replaces any provider default. |
+| `append_system_prompt` | Array. Each entry extends the system context in declared order. See §5.9. |
+| `provider` | String. Overrides the default provider for this step. |
+| `model` | String. Overrides the default model for this step. |
+| `timeout_seconds` | Integer. Maximum seconds to wait. Default: `120`. |
+| `on_result` | Array or block. Declarative branching after completion. See §5.4. |
+| `before` | List. Private pre-processing steps that run before this step's prompt fires. See §5.10. |
+| `then` | List. Private post-processing steps chained to this step. See §5.7. |
+| `tools` | Block. Pre-approve or pre-deny tool calls for this step. See §5.8. |
 | `resume` | Boolean. When `true`, resumes the most recent preceding session on the same provider. See §15.4. |
 
-**`id` is always required.** Every step must declare an explicit `id`. Because any pipeline may be inherited from via `FROM`, `ail` cannot know at parse time which steps will be targeted by hook operations in inheriting pipelines. Step IDs must be stable identifiers — renaming a step ID in a `FROM`-able pipeline is a breaking change for all inheritors.
+**Rule:** A step with `system_prompt:` or `append_system_prompt:` but neither `prompt:` nor `skill:` is a parse error — you are configuring LLM context with no task instruction.
 
-### 5.2 `prompt:` — Inline and File
+#### Inline and file prompts
 
 ```yaml
 # Inline prompt
@@ -56,7 +69,81 @@ Exactly one primary field is required per step. All other fields are optional.
 
 Files are read at pipeline load time. Template variables within files are resolved at step execution time.
 
-### 5.3 `on_result` — Declarative Branching
+#### System context fields
+
+```yaml
+- id: security_review
+  system_prompt: ./prompts/base-system.md       # sets the base system prompt
+  append_system_prompt:
+    - skill: ./skills/security-reviewer/        # skill entry (see §6)
+    - skill: ail/dry-refactor                   # built-in skill
+    - "Always flag hardcoded credentials."      # inline string
+    - ./prompts/extra-context.md                # file, detected by path prefix
+  prompt: "{{ step.invocation.response }}"
+```
+
+`system_prompt:` sets the base. `append_system_prompt:` layers on top in declared order. Both may be present in the same step.
+
+### 5.3 `skill:` Steps — Self-Contained Skill Invocations
+
+A `skill:` step invokes the LLM using the body of a `SKILL.md` file as the task instruction. It is the pipeline equivalent of typing `/skill-name` in the `ail` REPL — self-contained, no additional prompt text required.
+
+```yaml
+# Invoke a skill standalone
+- id: commit
+  skill: ./skills/commit/
+
+# Invoke a built-in ail skill
+- id: janitor
+  skill: ail/janitor
+
+# Skill with additional system context
+- id: security_review
+  skill: ./skills/security-reviewer/
+  append_system_prompt:
+    - "Also check for hardcoded credentials."
+    - "{{ step.claude_md.result }}"
+```
+
+#### Fields
+
+`skill:` steps support all `prompt:` step fields except `prompt:` itself. The skill's `SKILL.md` body is the task instruction — you cannot also specify a `prompt:`.
+
+| Field | Description |
+|---|---|
+| `skill` | Path to a skill directory containing `SKILL.md`. **Required.** Accepts same path prefixes as `prompt:` file paths, plus `ail/` for built-in skills. Directory paths auto-discover `SKILL.md`. |
+| `system_prompt` | String or file path. Sets the full system prompt for this step. Replaces any provider default. |
+| `append_system_prompt` | Array. Each entry extends the system context in declared order. See §5.9. |
+| `provider` | String. Overrides the default provider for this step. |
+| `model` | String. Overrides the default model for this step. |
+| `timeout_seconds` | Integer. Maximum seconds to wait. Default: `120`. |
+| `on_result` | Array or block. Declarative branching after completion. See §5.4. |
+| `before` | List. Private pre-processing steps. See §5.10. |
+| `then` | List. Private post-processing steps. See §5.7. |
+| `tools` | Block. Pre-approve or pre-deny tool calls. See §5.8. |
+| `resume` | Boolean. Resume most recent preceding session on same provider. See §15.4. |
+
+#### Skill path resolution
+
+| Prefix | Resolution |
+|---|---|
+| `./` | Relative to the current pipeline file |
+| `../` | Parent directory of the current pipeline file |
+| `~/` | User home directory |
+| `/` | Absolute path |
+| `ail/` | Built-in `ail` skill package |
+
+The path must resolve to a directory containing a `SKILL.md` file. If no `SKILL.md` is found, `ail` raises a parse error.
+
+#### REPL invocation
+
+In the `ail` interactive REPL, `/skill-name [args]` is equivalent to a `skill:` step. `ail` resolves the skill via the same discovery order, executes it, and pauses for human review before returning control. Arguments are available as `$ARGUMENTS` within the skill body.
+
+### 5.4 `on_result` — Declarative Branching
+
+`on_result` fires after a step completes. It supports both single-match syntax and multi-branch array syntax.
+
+#### Single-match syntax
 
 ```yaml
 - id: security_audit
@@ -70,20 +157,23 @@ Files are read at pipeline load time. Template variables within files are resolv
       message: "Security issues detected. Review before proceeding."
 ```
 
-**Supported actions:**
+#### Multi-branch array syntax
 
-| Action | Effect |
-|---|---|
-| `continue` | Proceed to next step. Default if `on_result` omitted. |
-| `pause_for_human` | Suspend pipeline. Wait for Approve / Reject / Modify. |
-| `preview_for_human` | Show transformed prompt alongside original. Human chooses: use transformed, use original, or edit. See §5.7. |
-| `use_original` | Discard `before:` transformation. Pass raw prompt to parent step unchanged. Only valid inside a `before:` chain. |
-| `abort_pipeline` | Stop immediately, treating the pipeline as failed. Logged to audit trail. |
-| `repeat_step` | Re-run this step. Respects `max_retries`. |
-| `break` | Exit the current pipeline cleanly. Remaining steps are skipped. Not an error — the pipeline completed successfully with an intentional early exit. In a sub-pipeline, returns control to the caller. |
-| `pipeline: <path>` | Conditionally call another pipeline. Equivalent to a `pipeline:` step but triggered by `on_result` match. Follows the same isolation model as §9. |
+Rules are evaluated in declared order; the first match fires. Used when different conditions require different responses.
 
-**Match operators:**
+```yaml
+- id: lint
+  context:
+    shell: "cargo clippy -- -D warnings"
+  on_result:
+    - exit_code: 0
+      action: continue
+    - exit_code: any
+      action: pause_for_human
+      message: "Lint failures. Review before continuing."
+```
+
+#### Match operators
 
 | Operator | Meaning |
 |---|---|
@@ -91,14 +181,22 @@ Files are read at pipeline load time. Template variables within files are resolv
 | `matches: "REGEX"` | Response matches regular expression. |
 | `starts_with: "TEXT"` | Response begins with literal string. |
 | `is_empty` | Response is blank or whitespace only. |
+| `exit_code: N` | Process exit code equals N. Valid on `shell:` sources within `context:` steps only. |
+| `exit_code: any` | Any non-zero exit code. Valid on `shell:` sources within `context:` steps only. |
 | `always` | Unconditionally fires. |
 
-> ⚠️ **Reliability warning — prose matching is best-effort.**
-> The `contains`, `matches`, and `starts_with` operators match against free-form LLM text output. LLMs are not deterministic. A step instructed to respond `CLEAN` may respond `CLEAN.`, `Yes, CLEAN`, or `The code is clean` — all of which fail a `contains: "CLEAN"` check. **Prose-based `on_result` branching is not a reliable control flow mechanism.**
->
-> **Improving reliability with constrained prompts.** You can significantly reduce variance by instructing the model to respond with a single, exact token: `"Answer only with CLEAN or VULNERABILITIES_FOUND, nothing else."` This does not make prose matching a hard contract — the model may still deviate — but it narrows the output space substantially and makes `contains` checks much more reliable in practice.
->
-> For a genuine contract, use `input_schema` with the `field:` + `equals:` operators. See §22 (Planned Extensions — Structured Step I/O Schemas). The `contains` and `matches` operators are best suited to advisory checks, logging triggers, and `always`-fired actions where a missed match is acceptable.
+#### Supported actions
+
+| Action | Effect |
+|---|---|
+| `continue` | Proceed to next step. Default if `on_result` omitted. |
+| `pause_for_human` | Suspend pipeline. Wait for Approve / Reject / Modify. |
+| `preview_for_human` | Show transformed prompt alongside original. Human chooses: use transformed, use original, or edit. See §5.10. |
+| `use_original` | Discard `before:` transformation. Pass raw prompt to parent step unchanged. Only valid inside a `before:` chain. |
+| `abort_pipeline` | Stop immediately, treating the pipeline as failed. Logged to audit trail. |
+| `repeat_step` | Re-run this step. Respects `max_retries`. |
+| `break` | Exit the current pipeline cleanly. Remaining steps are skipped. Not an error — the pipeline completed successfully with an intentional early exit. In a sub-pipeline, returns control to the caller. |
+| `pipeline: <path>` | Conditionally call another pipeline. Equivalent to a `pipeline:` step but triggered by `on_result` match. Follows the same isolation model as §9. |
 
 **`break` vs `abort_pipeline`:**
 
@@ -107,21 +205,96 @@ Files are read at pipeline load time. Template variables within files are resolv
 | `break` | Intentional early exit | Success | Sub-pipeline returns cleanly; caller continues |
 | `abort_pipeline` | Something went wrong | Failure | Caller's `on_error` fires |
 
+> ⚠️ **Reliability warning — prose matching is best-effort.**
+> The `contains`, `matches`, and `starts_with` operators match against free-form LLM text output. LLMs are not deterministic. A step instructed to respond `CLEAN` may respond `CLEAN.`, `Yes, CLEAN`, or `The code is clean` — all of which fail a `contains: "CLEAN"` check. **Prose-based `on_result` branching is not a reliable control flow mechanism.**
+>
+> **Improving reliability with constrained prompts.** Instruct the model to respond with a single, exact token: `"Answer only with CLEAN or VULNERABILITIES_FOUND, nothing else."` This narrows the output space substantially and makes `contains` checks much more reliable in practice.
+>
+> For a hard contract, use structured output with `input_schema` (see §22 — Planned Extensions).
+
+### 5.5 `context:` Steps — Deterministic Information Gathering
+
+A `context:` step gathers information deterministically, without invoking an LLM. It costs no tokens. The step's result is available to subsequent steps via `{{ step.<id>.result }}`.
+
+Each `context:` step declares exactly one source — the step `id` is the identifier for the result. To gather multiple independent pieces of information, declare multiple `context:` steps.
+
 ```yaml
-- id: early_exit_check
-  prompt: "Does this response contain any code changes? Answer CODE_CHANGED or NO_CODE."
+- id: lint_output
+  context:
+    shell: "cargo clippy -- -D warnings"
   on_result:
-    contains: "NO_CODE"
-    if_true:
-      action: break
-      message: "No code changes — quality gates skipped."
-    if_false:
+    - exit_code: 0
       action: continue
+    - exit_code: any
+      action: pause_for_human
+      message: "Lint failures. Review before continuing."
+
+- id: test_output
+  context:
+    shell: "cargo test --quiet"
+  on_result:
+    - exit_code: 0
+      action: continue
+    - exit_code: any
+      action: pause_for_human
+      message: "Tests failing. Review output."
 ```
 
-### 5.4 Step Output Model
+#### Sources
 
-Each step captures its output as `step.<id>.response` — the final text produced, available to subsequent steps via template variables resolved from the pipeline run log.
+The value of `context:` is a single-source map — the key declares the source type and the value is its configuration.
+
+| Source type | Field | Description | Status |
+|---|---|---|---|
+| Shell command | `shell:` | Executes a shell command. Captures stdout and stderr separately; exposes combined output as `result`. | Implemented |
+| MCP tool | `mcp:` | Calls a named tool on a named MCP server. Value is a map with `server:`, `tool:`, and optional `arguments:`. | Planned |
+
+`on_result` is a standard step field (see §5.4) — it applies at the step level. The `exit_code:` operator is valid only on `shell:` sources.
+
+Steps without `on_result` continue past non-zero exit codes by default.
+
+#### Template access
+
+Context results are available from any step that runs after the context step completes.
+
+**`shell:` accessors:**
+
+| Accessor | Value |
+|---|---|
+| `{{ step.<id>.result }}` | stdout + stderr combined — the default for LLM consumption. No `2>&1` needed. |
+| `{{ step.<id>.stdout }}` | Standard output only. |
+| `{{ step.<id>.stderr }}` | Standard error only. |
+| `{{ step.<id>.exit_code }}` | Process exit code as a string. |
+
+> **Note:** `stdout` and `stderr` are captured on separate streams. `result` is a concatenation (stdout then stderr), not a true interleave — relative ordering between the two streams is not preserved. For diagnostics passed to an LLM this is acceptable; avoid parsing `result` when stream ordering matters.
+
+**`mcp:` accessors:** `{{ step.<id>.result }}` contains the tool output. No `stdout`/`stderr`/`exit_code` accessors apply. MCP error semantics are under active design — see §22.
+
+```yaml
+- id: claude_md
+  context:
+    shell: "cat CLAUDE.md 2>/dev/null || echo ''"
+
+- id: lint
+  context:
+    shell: "cargo clippy -- -D warnings"
+  on_result:
+    - exit_code: 0
+      action: continue
+    - exit_code: any
+      action: pause_for_human
+      message: "Lint failed (exit {{ step.lint.exit_code }}).\n{{ step.lint.stderr }}"
+
+- id: implement
+  append_system_prompt:
+    - "{{ step.claude_md.result }}"
+  prompt: "{{ step.invocation.prompt }}"
+```
+
+### 5.6 Step Output Model
+
+
+Each `prompt:` step captures its output as `step.<id>.response` — the final text produced, available to subsequent steps via template variables resolved from the pipeline run log.
 
 **Full step lifecycle:**
 
@@ -143,9 +316,9 @@ next step
 
 For steps where `ail` calls an LLM provider directly, structured output (thinking traces, tool call sequences) is additionally captured in the pipeline run log. The full structured model is under active research — see §22 (Planned Extensions — Structured Step I/O Schemas).
 
-For steps that wrap third-party CLI runners, `ail` captures stdout as the response. See §23 Open Questions for details on runner-specific behaviour.
+For `context:` steps, the step's output is captured as `{{ step.<id>.result }}`. `shell:` sources additionally expose `stdout`, `stderr`, and `exit_code`. Context steps do not produce a `step.<id>.response`.
 
-### 5.5 `then:` — Private Post-Processing Chains
+### 5.7 `then:` — Private Post-Processing Chains
 
 `then:` attaches a private chain of post-processing steps directly to a parent step. Steps in a `then:` chain are:
 
@@ -176,7 +349,6 @@ When configuration is needed, a `then:` entry may be a full step block. All stan
 - id: security_audit
   prompt: ./prompts/security-audit.md
   then:
-    - skill: ail/janitor
     - prompt: "Summarise the findings in one sentence for the audit log."
       provider: fast
 ```
@@ -188,7 +360,6 @@ When configuration is needed, a `then:` entry may be a full step block. All stan
   prompt: "Generate the feature implementation."
   then:
     - ail/janitor                    # short-form
-    - skill: ail/dry-refactor        # full-form with skill
     - prompt: ./prompts/score.md     # full-form with prompt file
       provider: fast
 ```
@@ -202,8 +373,7 @@ When configuration is needed, a `then:` entry may be a full step block. All stan
 - id: security_audit
   prompt: "..."
   # then: (private — not hookable)
-  #   - id: security_audit::then::0  skill: ail/janitor
-  #   - id: security_audit::then::1  prompt: ./prompts/cleanup.md
+  #   - id: security_audit::then::0  prompt: ./prompts/cleanup.md
 ```
 
 #### When not to use `then:`
@@ -215,9 +385,9 @@ If a post-processing step needs to:
 
 ...it should be a top-level step, not a `then:` entry.
 
-### 5.6 `tools:` — Pre-Approved and Pre-Denied Tool Calls
+### 5.8 `tools:` — Pre-Approved and Pre-Denied Tool Calls
 
-`tools:` on a step declares which Claude CLI tools are unconditionally allowed or denied before the permission callback is consulted. This eliminates HITL prompts for tools the pipeline author has already deemed safe or unsafe for a given step.
+`tools:` on a `prompt:` step declares which Claude CLI tools are unconditionally allowed or denied before the permission callback is consulted. This eliminates HITL prompts for tools the pipeline author has already deemed safe or unsafe for a given step.
 
 ```yaml
 # Simple allow/deny lists
@@ -279,7 +449,57 @@ pipeline:
 
 `ail` does not parse or validate tool patterns — they are passed verbatim to the Claude CLI. Pattern syntax follows Claude CLI conventions (e.g. `Bash(git log*)`, `Edit(./src/*)`). Refer to the Claude CLI reference for supported pattern forms.
 
-### 5.7 `before:` — Private Pre-Processing Chains
+### 5.9 `append_system_prompt:` — System Context Composition
+
+`append_system_prompt:` is an ordered array of system context additions. Each entry is appended to the system prompt in declared order. Entries use typed map keys — an unlabeled string is shorthand for `text:`.
+
+To invoke a skill as a self-contained task, use a `skill:` step (§5.3). To load a skill's instructions as system context, use `file:` with an explicit path to the `SKILL.md`.
+
+```yaml
+- id: security_review
+  append_system_prompt:
+    - shell: "git log --oneline -10"               # run command, inject stdout+stderr
+    - file: ./skills/security-reviewer/SKILL.md   # load skill instructions explicitly
+    - file: ./prompts/extra-context.md             # load any file
+    - text: "Always flag hardcoded credentials."   # explicit raw text
+    - "Also check for SQL injection."              # unlabeled — same as text:
+    - "{{ step.claude_md.result }}"                # template variable in raw text
+  prompt: "{{ step.invocation.response }}"
+```
+
+#### Entry types
+
+| Entry key | Value | Behaviour | Status |
+|---|---|---|---|
+| `shell:` | Shell command string | Executes command at step runtime; injects stdout+stderr combined. No `on_result` — use a `context:` step if branching is needed. | Planned |
+| `file:` | File path | Reads file at step runtime; injects content. Accepts path prefixes `./` `../` `~/` `/`. | Planned |
+| `mcp:` | Map: `server:`, `tool:`, `arguments:` | Calls MCP server tool at step runtime; injects output. | Planned |
+| `text:` | Inline string | Appended verbatim. Template variables resolved at runtime. | Planned |
+| *(unlabeled)* | Inline string | Shorthand for `text:`. Same behaviour. | Planned |
+
+**`shell:` vs `context:` step:**
+
+| | `context:` step | `append_system_prompt: shell:` |
+|---|---|---|
+| Result stored as `{{ step.<id>.result }}`? | Yes | No — injected directly |
+| `on_result` branching? | Yes | No |
+| Referenceable by later steps? | Yes | No |
+| Use when | You need stored output or exit-code branching | You want command output in system context |
+
+#### Order matters
+
+Entries are appended in declared order. `system_prompt:` sets the base (if present); `append_system_prompt:` entries layer on top. When multiple skills are loaded, their instructions accumulate in the order declared.
+
+#### `system_prompt:` vs `append_system_prompt:`
+
+| Field | Effect |
+|---|---|
+| `system_prompt:` | Replaces the full system prompt. Use when you need complete control over what the model sees. |
+| `append_system_prompt:` | Extends the existing system prompt. Use for layering skills and context on top of the provider default. |
+
+Both may be present in the same step: `system_prompt:` sets the base, `append_system_prompt:` layers on top.
+
+### 5.10 `before:` — Private Pre-Processing Chains
 
 `before:` attaches a private chain of pre-processing steps that run after a step is triggered but before its prompt is sent to the LLM. This is the symmetric counterpart to `then:` — where `then:` operates on output, `before:` operates on input.
 
@@ -299,9 +519,9 @@ The key difference from `then:`: a `before:` step's output becomes the transform
 pipeline:
   - run_before: invocation
     id: prompt_optimizer
-    skill: ail/prompt-optimizer
     before:
-      - skill: ail/prompt-optimizer
+      - prompt: "Rewrite this prompt for maximum clarity and precision."
+        provider: fast
         on_result:
           always:
             action: preview_for_human
@@ -320,11 +540,12 @@ pipeline:
     - ail/janitor
 ```
 
-**Context gathering.** Retrieve relevant information and inject it as context before the parent step's LLM call — useful for sub-agent or critic steps:
+**Context gathering.** Retrieve relevant information and inject it as context before the parent step's LLM call:
 
 ```yaml
 - id: code_critic
-  skill: ./skills/critic/
+  append_system_prompt:
+    - skill: ./skills/critic/
   before:
     - prompt: "Summarise the files changed in the last 3 steps in one paragraph."
       provider: fast
@@ -338,7 +559,8 @@ pipeline:
 before:
   - ail/janitor                    # short-form: bare skill reference
   - ./prompts/gather-context.md    # short-form: bare prompt file
-  - skill: ail/prompt-optimizer    # full-form
+  - prompt: "Optimise this prompt."  # full-form
+    provider: fast
     on_result:
       always:
         action: preview_for_human
@@ -369,8 +591,6 @@ The TUI renders the original and transformed prompts side by side. The human cho
 | **Use original** | `use_original` fires. Transformation discarded silently. Parent step receives raw prompt. Transformation still appears in audit trail. |
 | **Edit** | Human edits the transformed version inline. Edited version proceeds. |
 
-The circuit breaker is recommended whenever prompt transformation is used in a context where the human might not expect it — particularly on `invocation` and in `FROM` base pipelines.
-
 #### `use_original` Semantics
 
 `use_original` is only valid inside a `before:` chain. It instructs the pipeline executor to discard the `before:` chain's output and pass the parent step's original prompt unchanged. The `before:` steps still execute and their outputs are recorded in the pipeline run log — transparency is preserved — but they do not affect what the LLM receives.
@@ -385,7 +605,7 @@ The circuit breaker is recommended whenever prompt transformation is used in a c
 # origin: [2] .ail.yaml
 - id: security_audit
   # before: (private — not hookable)
-  #   - id: security_audit::before::0  skill: ail/janitor
+  #   - id: security_audit::before::0  prompt: "Optimise this prompt."
   prompt: "..."
   # then: (private — not hookable)
   #   - id: security_audit::then::0  prompt: ./prompts/cleanup.md
@@ -403,11 +623,6 @@ The circuit breaker is recommended whenever prompt transformation is used in a c
 **Detection:** When `ail materialize` resolves a pipeline that contains a `before:` chain on `invocation` — whether declared directly or inherited via `FROM` — it emits a prominent warning identifying the origin pipeline and noting that prompt transformation is active on every invocation. This warning is rendered in the interactive TUI at session start.
 
 This warning is a **UI-layer concern only**. It is not a parse error, not a lint failure, and is not emitted in headless or agent-driven modes. A pipeline with `before:` on `invocation` and no `preview_for_human` is fully valid — the warning exists to surface the configuration to humans who may not have inspected their full inheritance chain. Requiring `preview_for_human` would make such pipelines incompatible with unattended runs, in direct conflict with the Agent-First Design principle.
-
-**Mitigations the spec provides:**
-- The `preview_for_human` circuit breaker makes transformation visible and opt-out-able in interactive sessions.
-- `materialize` always shows `before:` chains — pipeline authors can inspect what they've inherited.
-- An inheriting pipeline can `override:` the invocation hook to replace it with a version that has no `before:` chain.
 
 **The recommended pattern for `FROM` base pipelines:**
 

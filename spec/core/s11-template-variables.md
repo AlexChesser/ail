@@ -7,7 +7,11 @@ Prompt strings and file-based prompts may reference runtime context using `{{ va
 | `{{ step.invocation.prompt }}` | The input that triggered this pipeline run. |
 | `{{ step.invocation.response }}` | The runner's response before any pipeline steps ran. |
 | `{{ last_response }}` | The full response from the immediately preceding step. |
-| `{{ step.<id>.response }}` | The response from a specific named step in this pipeline run. |
+| `{{ step.<id>.response }}` | The response from a specific named `prompt:` step in this pipeline run. |
+| `{{ step.<id>.result }}` | Output of a `context:` step. For `shell:`: stdout+stderr concatenated. For `mcp:`: tool output. |
+| `{{ step.<id>.stdout }}` | Standard output of a `shell:` context step. |
+| `{{ step.<id>.stderr }}` | Standard error of a `shell:` context step. |
+| `{{ step.<id>.exit_code }}` | Exit code of a `shell:` context step, as a string. |
 | `{{ step.<id>.tool_calls }}` | The tool calls made by a specific named step (array). |
 | `{{ session.tool }}` | The underlying runner name (e.g. `aider`, `claude-code`). |
 | `{{ session.cwd }}` | The current working directory of the session. |

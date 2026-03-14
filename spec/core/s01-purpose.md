@@ -1,13 +1,45 @@
 ## 1. Purpose & Philosophy
 
-Current agentic coding tools treat a human prompt as a single transactional event. If a developer wants a refactor or a security audit after code is generated, they must manually type the follow-up prompt every single time. This creates inconsistent quality and *prompt fatigue*.
+LLM agents fail in predictable ways: perseveration, goal substitution, source monitoring failure, anosognosia. These are the behavioral profile of a system with capable reasoning and absent executive control. Cognitive scientists named this cluster Dysexecutive Syndrome in 1986. Working memory maintenance, inhibitory control, and metacognitive monitoring — the capacities the clinical literature identifies as missing — do not emerge from within the model. They have to be built on top of it.
 
-**ail** introduces the **Deterministic Post-Processor**: a YAML-orchestrated pipeline runtime that ensures a specific, pre-determined chain of automated prompts fires after every human prompt — consistently, without manual intervention.
+`ail` is that layer. It is a YAML-orchestrated pipeline that fires a declared sequence of behaviors after every agent invocation, before control returns to the human.
 
 > **The Core Guarantee**
 > For every completion event produced by an underlying agent, `ail` will begin executing the pipeline defined in the active `.ail.yaml` file before control returns to the human. Steps execute in order. Individual steps may be skipped by declared conditions or disabled explicitly. Execution may terminate early via `break`, `abort_pipeline`, or an unhandled error. All of these are explicit, declared outcomes — not silent failures. The human never receives runner output without the pipeline having had the opportunity to run.
 
-The AIL Pipeline Language (APL) is the product. The orchestration engine is its runtime. Everything else — context distillation, learning loops, multi-model routing — are optional pipeline steps, not architectural prerequisites.
+An instruction inside a context window is subject to everything else in that window. Sessions grow. Tool calls accumulate. Earlier instructions drift toward the middle of the context where the attention mechanism is weakest — the lost-in-the-middle effect is well-documented and consistent across frontier models. The carefully written `CLAUDE.md` entry becomes one voice in a crowd.
+
+`ail` moves the behavior out of the context entirely. A pipeline step fires because it was declared, not because the model remembered to do it. The linter runs. The security review runs. The self-evaluation step runs. None of them depend on what ended up in the context window.
+
+This is the executive function layer. Working memory maintenance, inhibitory control, and metacognitive monitoring — the cognitive capacities that LLMs structurally lack — are externalised into a file that lives in the repository, runs on every invocation, and is independent of session state. A `CLAUDE.md` entry is a request. An `ail` step is a guarantee.
+
+### Scope Discipline
+
+<<<<<<< HEAD
+<<<<<<< HEAD
+`ail` is the artificial neocortex — the executive function layer that LLM agents structurally lack. The compass for every implementation decision is: *does this serve the frontal lobe?*
+
+A feature belongs in `ail` if it:
+- **Addresses one of the four failure modes** — perseveration, goal substitution, source monitoring failure, or anosognosia; or
+- **Strengthens one of Diamond's three executive function components** — inhibitory control, working memory updating, or cognitive flexibility; or
+- **Extends `ail`'s capacity to select, compose, or improve its own pipelines** — the supervisory attentional layer that decides which script to run, not just that it runs.
+
+The third category is the long arc. Norman and Shallice's Supervisory Attentional System sits above contention scheduling — it intervenes when tasks are novel, ambiguous, or require overriding a habitual response. Today `ail` is the contention scheduler: it executes the declared pipeline. The trajectory is toward the SAS: `ail` selecting and composing pipelines appropriate to the task. Features that serve general task execution without mapping to any of these three categories belong to the agent layer beneath `ail`, not to the control plane above it. See §22 for the planned trajectory.
+=======
+The core guarantee is the compass for every implementation decision. A feature belongs in `ail` if it serves the invocation pipeline — making the guarantee more reliable, more expressive, more portable, or more capable of operating autonomously. Features that have no relationship to this guarantee belong in §22 or not at all.
+
+The long-term vision — pipelines that analyse their own outputs, generate improvements to their own YAML, and evolve over time — is a natural extension of the guarantee, not a departure from it. See §22 for the planned trajectory.
+>>>>>>> cbba6f6... wip
+=======
+`ail` is the artificial neocortex — the executive function layer that LLM agents structurally lack. The compass for every implementation decision is: *does this serve the frontal lobe?*
+
+A feature belongs in `ail` if it:
+- **Addresses one of the four failure modes** — perseveration, goal substitution, source monitoring failure, or anosognosia; or
+- **Strengthens one of Diamond's three executive function components** — inhibitory control, working memory updating, or cognitive flexibility; or
+- **Extends `ail`'s capacity to select, compose, or improve its own pipelines** — the supervisory attentional layer that decides which script to run, not just that it runs.
+
+The third category is the long arc. Norman and Shallice's Supervisory Attentional System sits above contention scheduling — it intervenes when tasks are novel, ambiguous, or require overriding a habitual response. Today `ail` is the contention scheduler: it executes the declared pipeline. The trajectory is toward the SAS: `ail` selecting and composing pipelines appropriate to the task. Features that serve general task execution without mapping to any of these three categories belong to the agent layer beneath `ail`, not to the control plane above it. See §22 for the planned trajectory.
+>>>>>>> 21dc1f1... wip:
 
 ### The Two Layers
 

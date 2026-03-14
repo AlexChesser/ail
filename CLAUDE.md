@@ -22,8 +22,12 @@ ail-core/                   # library crate — all logic, no UI
   tests/spec/               # spec-coverage integration tests, one file per SPEC section
   tests/fixtures/           # minimal, solo_developer, invalid_* YAML fixtures
 demo/                       # working demo pipeline (.ail.yaml + README)
-SPEC.md                     # AIL Pipeline Language Specification (authoritative)
-RUNNER-SPEC.md              # Claude CLI runner contract
+spec/                       # split spec files (primary published artifacts)
+  core/s*.md                # AIL Pipeline Language Specification (one file per section)
+  runner/r*.md              # Claude CLI runner contract (one file per section)
+  README.md                 # navigation index — start here
+SPEC.md                     # redirect stub → spec/core/
+RUNNER-SPEC.md              # redirect stub → spec/runner/
 ARCHITECTURE.md             # design rationale and principles
 CHANGELOG.md                # v0.0.1 feature record and open questions
 ```
@@ -58,14 +62,14 @@ cargo run -- materialize --pipeline demo/.ail.yaml
 
 ## SPEC is the Contract — Always Audit on Functional Changes
 
-`SPEC.md` and `RUNNER-SPEC.md` are the **primary published artifacts** of this project. They are not aspirational documentation — they are a rigorous, real-world-tested contract. The implementation exists to prove the spec is correct and achievable, not the other way around.
+The `spec/` folder is the **primary published artifact** of this project. `SPEC.md` and `RUNNER-SPEC.md` are redirect stubs — the live spec lives in `spec/core/s*.md` and `spec/runner/r*.md`. The navigation index is `spec/README.md`. These specs are not aspirational documentation — they are a rigorous, real-world-tested contract. The implementation exists to prove the spec is correct and achievable, not the other way around.
 
 The author has already found places where the spec described the **opposite** of what actually works. Every spec change is therefore a correction of real knowledge, not a preference.
 
 **Whenever you make a materially functional change to behavior, you MUST:**
 
-1. Identify which SPEC.md sections are affected (check section numbers against the change)
-2. Update SPEC.md and/or RUNNER-SPEC.md to reflect the actual behavior
+1. Identify which spec sections are affected (check section numbers against the change; find files via `spec/README.md`)
+2. Update the affected `spec/core/s*.md` and/or `spec/runner/r*.md` files to reflect the actual behavior
 3. Explicitly flag — in your response — any case where the spec previously described behavior incorrectly
 4. Update `ail-core/CLAUDE.md` if module responsibilities or key types change
 
@@ -115,16 +119,24 @@ If nothing found → passthrough mode (safe zero-config default).
 3. Call `executor::execute()` for all declared steps; each step resumes via `--resume <last_runner_session_id>`.
 4. Print invocation response, then last non-invocation step response.
 
-## Template Variables (SPEC §11)
+## Template Variables (spec/core/s11)
 
 | Variable | Resolves to |
 |---|---|
-| `{{ session.invocation_prompt }}` | The original user prompt |
-| `{{ step.<id>.response }}` | Response from a named step |
+| `{{ step.invocation.prompt }}` | The original user prompt |
+| `{{ step.invocation.response }}` | The runner's response before any pipeline steps ran |
+| `{{ step.<id>.response }}` | Response from a named `prompt:` step |
+| `{{ step.<id>.result }}` | Output of a `context:` step (stdout+stderr for `shell:`, tool output for `mcp:`) |
+| `{{ step.<id>.stdout }}` | stdout of a `shell:` context step |
+| `{{ step.<id>.stderr }}` | stderr of a `shell:` context step |
+| `{{ step.<id>.exit_code }}` | Exit code of a `shell:` context step (string) |
 | `{{ last_response }}` | Most recent step response |
 | `{{ pipeline.run_id }}` | UUID for this run |
+| `{{ session.tool }}` | Runner name (e.g. `claude`) |
 | `{{ session.cwd }}` | Working directory |
 | `{{ env.<VAR> }}` | Environment variable |
+
+Note: `{{ session.invocation_prompt }}` is a supported alias for `{{ step.invocation.prompt }}` in the implementation but is deprecated — prefer the canonical form.
 
 Unresolved variables **abort with a typed error** — never silently empty.
 
@@ -145,7 +157,7 @@ Unresolved variables **abort with a typed error** — never silently empty.
 
 ## Known Constraints (v0.0.1)
 
-- `--output-format stream-json` requires `--verbose` with `-p` (undocumented in RUNNER-SPEC.md)
+- `--output-format stream-json` requires `--verbose` with `-p` — documented in `spec/runner/r02-claude-cli.md`
 - Must call `.env_remove("CLAUDECODE")` on the `Command` builder to avoid nested session guard
 - `pause_for_human` is a no-op in `--once` mode
 - `skill:` and `pipeline:` step bodies abort with `PIPELINE_ABORTED` (stubs)

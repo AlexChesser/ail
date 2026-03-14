@@ -1,6 +1,8 @@
 ## 6. Skills
 
-A skill is a directory containing a `SKILL.md` file — natural language instructions that tell the model how to perform a specialised task. Skills follow the [Agent Skills open standard](https://agentskills.io), making any skill authored for Claude, Gemini CLI, GitHub Copilot, Cursor, or other compatible tools directly usable in `ail` without modification.
+`ail` implements the [Agent Skills open standard](https://agentskills.io/specification). Refer to that specification for `SKILL.md` format, frontmatter fields, directory structure, argument substitution, and path resolution. Any divergence from the standard is a bug; report it as an issue.
+
+This section documents only what `ail` adds or changes.
 
 ### 6.1 The Skill/Pipeline Distinction
 
@@ -8,51 +10,27 @@ A skill is a directory containing a `SKILL.md` file — natural language instruc
 |---|---|---|
 | **Format** | Markdown | YAML |
 | **Read by** | The LLM | The `ail` runtime |
-| **Contains** | Instructions, examples, guidelines | Control flow, sequencing, branching |
-| **Scope** | How to think about a task | When to run it and what to do with the result |
+| **Purpose** | How to think about a task | When to run it and what to do with the result |
 
-### 6.2 Using a Skill in a Step
+### 6.2 Progressive Disclosure — ail's Deliberate Departure
 
-```yaml
-# Local skill directory
-- id: security_review
-  skill: ./skills/security-reviewer/
+The Agent Skills standard specifies that skill metadata (`name` + `description`) is always in context. `ail` deliberately departs from this — and the reason is the core of what `ail` is. Adding more instructions to a context saturation problem makes a larger context. A skill surfaced to the wrong step is subject to the same attention degradation as every other instruction competing for the middle of the window. `ail` operates at the layer that decides what goes into the context at all — selectively surfacing skill metadata only to the steps where it is relevant is that layer's job.
 
-# Parent directory skill
-- id: org_review
-  skill: ../org-skills/compliance-checker/
+`ail` conforms to the Agent Skills **format** standard. Context injection timing is `ail`'s to control.
 
-# Home directory skill
-- id: personal_style
-  skill: ~/skills/my-conventions/
+### 6.3 ail-Specific Behaviour
 
-# Built-in ail skill
-- id: dry_check
-  skill: ail/dry-refactor
-```
+**`skill:` pipeline step.** The `SKILL.md` body is sent to the runner as the user-level prompt. See §5.3.
 
-### 6.3 Combining `skill:` and `prompt:`
+**REPL invocation.** `/skill-name [args]` in the `ail` REPL executes the skill and pauses for human review before returning control. Discovery order: project `.claude/skills/` → personal `~/.claude/skills/` → `ail/` built-ins.
 
-A step may declare both. The skill provides standing instructions; the prompt provides the specific task for this invocation.
+**Loading skill instructions as system context.** To use a skill's content as passive context for a `prompt:` step rather than as a task, reference the file directly via `file:` in `append_system_prompt:` — `ail` does not support `skill:` entries in `append_system_prompt:`.
 
 ```yaml
-- id: security_review
-  skill: ./skills/security-reviewer/
+- id: review
+  append_system_prompt:
+    - file: ./skills/security-reviewer/SKILL.md
   prompt: "{{ step.invocation.response }}"
-  provider: frontier
-  on_result:
-    contains: "CLEAN"
-    if_true:
-      action: continue
-    if_false:
-      action: pause_for_human
-      message: "Security findings require human review."
 ```
-
-When both are present, skill content is provided as system/instruction context and the prompt is the user-level task.
-
-### 6.4 Agent Skills Compatibility
-
-`ail`'s built-in modules (§14) are implemented as Agent Skills-compliant `SKILL.md` packages — inspectable, forkable, and overridable. Any skill from the broader Agent Skills ecosystem is usable in `ail` by path reference.
 
 ---

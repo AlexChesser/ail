@@ -56,7 +56,36 @@ Full speccing of `step.<id>.turns[]` template variable access is deferred until 
 
 **Question:** If a user edits `.ail.yaml` while a session is running, does the change take effect immediately or require a session restart?
 
-**Note:** This may be a tool implementation decision rather than a spec decision. The spec defines what pipelines *are*; whether the runtime watches for file changes is an operational concern. Flagged here until implementation experience clarifies whether it needs to be specced.
+**Extended question (self-modifying pipelines):** The `apply_pipeline_diff` action (§21) writes a modification to the active pipeline file. What is the timing guarantee — can hot reload take effect mid-run (affecting steps later in the same execution), or only at the boundary between runs?
+
+The mid-run case creates a consistency risk: a step that fires after the reload was not declared in the pipeline that started the run. The between-runs case is safer but limits the utility of immediate self-improvement within a session.
+
+**Note:** This may be a tool implementation decision rather than a spec decision. The spec defines what pipelines *are*; whether the runtime watches for file changes is an operational concern. The self-modifying pipeline case requires an explicit decision — the diff action cannot be useful without a defined reload contract. Flagged here until implementation experience clarifies both paths.
+
+---
+
+### Self-Modifying Pipeline: Approval Flow
+
+**Question:** `pause_for_human` (§13) is the HITL gate for standard step review. Pipeline modification is a different category of approval — the human is approving a change to the control plane itself, not to the output of a task. Should this be:
+
+1. A standard `pause_for_human` where the message conveys the nature of the change (simpler, but no runtime distinction between types of approval)?
+2. A dedicated action — e.g., `approve_pipeline_modification` — with specific display semantics: renders the YAML diff, shows the target file path, and requires confirmed intent before writing?
+
+Option 2 is safer for interactive use (harder to accidentally approve a structural change), but adds a new action type that interacts with `on_result` matching. The open question is whether the runtime needs to distinguish between "approve this output" and "approve writing this file" at a structural level, or whether that distinction lives entirely in the UX layer.
+
+**Note:** Until this is resolved, the design seed in §21 uses `pause_for_human` as a proxy — this is accurate enough for the vision to be understood, but is not the final form.
+
+---
+
+### Self-Modifying Pipeline: Diff Validation
+
+**Question:** Before `apply_pipeline_diff` writes to disk, the runtime must confirm the result is a valid pipeline. How thorough should this validation be, and what happens on failure?
+
+- **Syntactic validation** — the diff parses as valid YAML (necessary, not sufficient)
+- **Schema validation** — the result conforms to the pipeline schema (catches structural errors)
+- **Semantic validation** — the result does not introduce circular `FROM` references, references non-existent step IDs, or declares conditions that can never be satisfied (higher confidence, higher implementation cost)
+
+A diff produced by an LLM is an untrusted input. Applying it directly without validation risks writing a malformed or semantically invalid pipeline that breaks all subsequent invocations. The spec must decide: what level of validation is required before write, and does validation failure escalate via `on_error` or via a dedicated rejection path?
 
 ---
 

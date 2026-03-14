@@ -123,7 +123,7 @@ Any step may access the logged output of any previously completed step in the sa
 {{ step.invocation.response }}         — the runner's response
 {{ step.dry_refactor.response }}       — a named step's response
 {{ step.dry_refactor.tool_calls }}     — a named step's tool calls (array)
-{{ preceding_response }}               — the immediately preceding step's response
+{{ last_response }}                    — the immediately preceding step's response
 ```
 
 Variables resolve at step execution time from the persisted log, not from in-memory state. A reference to a step that has not yet run raises a fatal parse error. A reference to a step that was skipped by its condition raises a fatal parse error unless the referencing step has a matching condition guard, in which case it resolves to an empty string.
