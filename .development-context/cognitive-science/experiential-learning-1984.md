@@ -52,7 +52,7 @@ Kolb emphasizes that knowledge is a social product, shared through common symbol
 
 ### Core Sections to Read Directly
 
-As a programmer with a background in Psychology and Education, these sections will be the most useful for your "Magnum Opus":
+As a programmer with a background in Psychology and Education, these sections will be the most useful for your article:
 
 **1. "Chapter 2: The Process of Experiential Learning" (Section: *The Cycle of Learning*)**
 

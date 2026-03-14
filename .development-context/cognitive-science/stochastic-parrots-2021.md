@@ -65,7 +65,7 @@ As the core developer of `ail`, these sections provide the "intellectual rigor" 
 * **Why:** It sets the stage for the "How big is too big?" debate.
 * **`ail` Link:** This provides the "manifesto" energy. You are building a tool for the "Post-Stochastic Parrot" era, where we stop trying to make models bigger and start trying to make them smarter through orchestration.
 
-### Suggested "Magnum Opus" Quote:
+### Suggested article Quote:
 
 > *"Text produced by an LM is a standing representation of the training data... it is not grounded in a communicative intent, any model of the world, or any model of the reader’s state of mind."* (p. 6)
 

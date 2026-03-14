@@ -85,7 +85,7 @@ While the whole book is foundational, focusing on these four specific sections w
 **Location:** *Chapter 4*
 
 * **The Core Concept:** Every function in the child's cultural development appears twice: first, on the social level (between people), and later, on the individual level (inside the mind).
-* **Why for `ail`?** This is the ultimate metaphor for the **Agent Loop**. Your pipeline starts as an "external" set of YAML rules (the social level). The "Magnum Opus" goal is to show how these external loops eventually define the "internal" executive function of the agent.
+* **Why for `ail`?** This is the ultimate metaphor for the **Agent Loop**. Your pipeline starts as an "external" set of YAML rules (the social level). The article goal is to show how these external loops eventually define the "internal" executive function of the agent.
 * **Key Insight:** This section explains how an "external" command becomes an "internal" plan—precisely what `ail` automates via `on_result` and `step` hooks.
 
 ### 3. Problems of Method (The Functional Method of Double Stimulation)

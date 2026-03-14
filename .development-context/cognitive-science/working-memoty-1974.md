@@ -66,7 +66,7 @@ As the author of the `ail` spec, these three sections of the paper are essential
 * **Why:** They summarize the shift from a "passive" to an "active" memory model.
 * **`ail` Link:** This is the perfect closing inspiration for your article. You are taking their 1974 vision of "Active Processing" and applying it to the most advanced "Stochastic Parrots" we have today to turn them into real practitioners.
 
-### Suggested "Magnum Opus" Quote:
+### Suggested article Quote:
 
 > *"We would like to suggest that the term 'working memory' be used to refer to the temporary storage of information that is being processed in any range of cognitive tasks... it is a system for the temporary maintenance and manipulation of information, which is necessary for performing complex tasks."* (p. 74)
 

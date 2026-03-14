@@ -52,7 +52,7 @@ Schön critiques the idea that "real" science only happens in the lab.
 
 ### Core Sections to Read Directly
 
-As a Technical Architect and the author of the "V2 Manifesto," these three sections are essential for your "Magnum Opus":
+As a Technical Architect and the author of the "V2 Manifesto," these three sections are essential for your article:
 
 **1. "The Structure of Reflection-in-Action" (Chapter 2, Section: *Thinking-in-Action*)**
 

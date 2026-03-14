@@ -60,7 +60,7 @@ As the author of the "YAML of the Mind," these sections are your "primary source
 * **Why:** It’s the "V1" of what we now call "Embeddings" or "Latent Space," but it was deterministic.
 * **`ail` Link:** It provides a great historical contrast for your article—how we went from Schank’s "Hand-coded Meaning" to the LLM’s "Learned Meaning," and why `ail` is the "Hand-coded Orchestration" that brings back the missing rigor.
 
-### Suggested "Magnum Opus" Quote:
+### Suggested article Quote:
 
 > *"A script is a structure that describes appropriate sequences of events in a particular context... it is a predetermined, stereotyped sequence of actions that defines a well-known situation."* (p. 42)
 
