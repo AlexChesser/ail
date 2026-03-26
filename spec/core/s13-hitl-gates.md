@@ -23,7 +23,7 @@ HITL gates are intentional checkpoints, not error states.
 
 ### 13.3 Tool Permission HITL
 
-When a pipeline step invokes a tool not covered by `tools.allow` or `tools.deny` (see §5.6), `ail` intercepts the permission callback via `--permission-prompt-tool stdio` and presents it to the human before the tool executes.
+When a pipeline step invokes a tool not covered by `tools.allow` or `tools.deny` (see §5.8), `ail` intercepts the permission callback via `--permission-prompt-tool stdio` and presents it to the human before the tool executes.
 
 `ail` reads permission request events from the NDJSON stream, renders them in the TUI, and writes a JSON response back to Claude CLI's stdin. The full set of valid responses is:
 
@@ -71,7 +71,7 @@ Present HITL prompt to human
 
 ### 13.5 Implicit HITL via `on_result`
 
-Preferred over explicit gates — interrupts only when something genuinely requires attention. See §5.3.
+Preferred over explicit gates — interrupts only when something genuinely requires attention. See §5.4.
 
 ### 13.6 Headless / Automated Mode
 

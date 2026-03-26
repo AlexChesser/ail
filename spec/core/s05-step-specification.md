@@ -73,16 +73,18 @@ Files are read at pipeline load time. Template variables within files are resolv
 
 ```yaml
 - id: security_review
-  system_prompt: ./prompts/base-system.md       # sets the base system prompt
+  system_prompt: ./prompts/base-system.md                    # sets the base system prompt
   append_system_prompt:
-    - skill: ./skills/security-reviewer/        # skill entry (see §6)
-    - skill: ail/dry-refactor                   # built-in skill
-    - "Always flag hardcoded credentials."      # inline string
-    - ./prompts/extra-context.md                # file, detected by path prefix
+    - file: ./skills/security-reviewer/SKILL.md              # skill content as context (see §5.9, §6)
+    - file: ./skills/dry-refactor/SKILL.md                   # built-in skill content
+    - "Always flag hardcoded credentials."                   # inline string
+    - ./prompts/extra-context.md                             # file, detected by path prefix
   prompt: "{{ step.invocation.response }}"
 ```
 
 `system_prompt:` sets the base. `append_system_prompt:` layers on top in declared order. Both may be present in the same step.
+
+> **Note:** `skill:` entries are **not** supported in `append_system_prompt:`. To use a skill's `SKILL.md` content as system context, reference the file directly via `file:`. To invoke the skill as an LLM call, use a `skill:` step. See §6.3.
 
 ### 5.3 `skill:` Steps — Self-Contained Skill Invocations
 
@@ -252,6 +254,19 @@ The value of `context:` is a single-source map — the key declares the source t
 `on_result` is a standard step field (see §5.4) — it applies at the step level. The `exit_code:` operator is valid only on `shell:` sources.
 
 Steps without `on_result` continue past non-zero exit codes by default.
+
+#### Shell execution semantics
+
+| Property | Behaviour |
+|---|---|
+| **Working directory** | `session.cwd` — the directory `ail` was launched from. |
+| **Shell** | `/bin/sh -c <command>`. Command is passed as a single string argument. |
+| **Timeout** | Inherits step `timeout_seconds` (default: 120). Timeout is a step error — triggers `on_error`, not `on_result`. |
+| **Environment** | Full parent environment inherited. No additional env vars are injected beyond what `ail` itself received. |
+| **Output capture** | stdout and stderr captured on separate streams. No size limit in v0.1 — avoid commands that produce unbounded output in a pipeline context. |
+| **Security model** | Shell execution runs as the `ail` process user with full filesystem access. Pipeline files are trusted input — do not execute pipelines from untrusted sources. |
+
+Non-zero exit codes are **results**, not errors: they fire `on_result`, not `on_error`. An `on_error` escalation from a `shell:` step means the process failed to start, timed out, or the system could not fork — not that the command returned a non-zero code.
 
 #### Template access
 

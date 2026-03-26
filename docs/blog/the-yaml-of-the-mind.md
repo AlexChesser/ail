@@ -100,25 +100,25 @@ The industry's solution has been to build mitigation. The thousands of community
 `ail` moves the instruction out of the noise entirely: the linter runs as a declared step in a pipeline.
 
 ```yaml
-# Note: shell: step type is planned — see ail roadmap
 version: "0.1"
 
 pipeline:
   - id: invocation
-    prompt: "{{ session.invocation.prompt }}"
+    prompt: "{{ step.invocation.prompt }}"
 
   - id: run_lint
-    shell: "cargo clippy -- -D warnings 2>&1"
+    context:
+      shell: "cargo clippy -- -D warnings"
     on_result:
       - exit_code: 0
-        action: break  # no errors
-      - match: always
+        action: break  # no errors — exit cleanly
+      - exit_code: any
         action: continue
 
   - id: fix_lint
     prompt: |
       Fix the following linter errors:
-      {{ step.run_lint.response }}
+      {{ step.run_lint.result }}
 ```
 
 The linter runs after every invocation. If it passes, the pipeline exits cleanly. If it fails, the errors are passed directly to the model with an explicit fix instruction — not as a hope buried in a system prompt, but as the next step in a declared sequence. The context for `fix_lint` contains exactly what it needs: the linter output, nothing else.
@@ -171,11 +171,11 @@ version: "0.1"
 
 pipeline:
   - id: invocation
-    prompt: "{{ session.invocation.prompt }}"
+    prompt: "{{ step.invocation.prompt }}"
 
   - id: action_acceptor
     prompt: |
-      Original request: {{ session.invocation.prompt }}
+      Original request: {{ step.invocation.prompt }}
       Result produced: {{ step.invocation.response }}
       Does the result achieve what was requested?
       Answer ACHIEVED or MISMATCH. One word only.

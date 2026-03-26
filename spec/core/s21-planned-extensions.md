@@ -139,9 +139,9 @@ A specific application of parallel execution: the same prompt sent simultaneousl
     B: {{ step.implement_commodity.response }}
     What did A do better? What prompt change would produce A's result from B's model?
   on_result:
-    match: always
-    action: pause_for_human
-    message: "Quality comparison complete. Approve pipeline update?"
+    always:
+      action: pause_for_human
+      message: "Quality comparison complete. Approve pipeline update?"
 ```
 
 This creates a systematic feedback loop: the pipeline's prompts and skills improve over time at directing any runner. The commodity runner produces better results not because the model improves, but because the instructions directing it get better. Combined with the self-modifying pipeline primitive (see below), the comparison step can propose and apply those improvements automatically.
@@ -180,9 +180,9 @@ The self-modifying pipeline reads that record and uses it. On approval, the diff
     Propose a new step that would prevent it.
     Format your response as a YAML diff targeting the existing pipeline.
   on_result:
-    match: always
-    action: pause_for_human
-    message: "Pipeline improvement proposed. Approve to apply."
+    always:
+      action: pause_for_human
+      message: "Pipeline improvement proposed. Approve to apply."
 ```
 
 #### Why This Is Categorically Different
@@ -200,6 +200,8 @@ The distinction that matters: the improvement is expressed in the same YAML that
 The hypothesis is runnable: a set of declared pipelines — linter step, test runner step, self-evaluation step — should improve a model's own SWE-bench score using that same model, with no changes to the weights. SWE-bench failures cluster around exactly the failure modes §1 names: output is produced but not verified against the test suite; there is no comparison circuit. A pipeline that guarantees the linter passes and the tests run before the score is recorded addresses this directly.
 
 Either outcome is informative. A confirmed improvement validates the architectural claim. A null result prompts spec revision. The benchmark exists; the pipelines can be written.
+
+> **Near-term path:** The SWE-bench experiment does not require the self-modifying pipeline or the plugin system below. It requires only v0.1 primitives: `context: shell:` steps, `on_result` branching on exit codes, and the `--headless` flag. An external driver script iterates over benchmark tasks, calling `ail --headless --once "<task>" --pipeline swe-bench.yaml` per task. See §20 (v0.1 scope) for the target pipeline.
 
 #### Required Primitives (not yet specced)
 

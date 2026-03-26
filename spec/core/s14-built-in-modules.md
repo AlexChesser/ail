@@ -24,6 +24,6 @@ pipeline:
         action: abort_pipeline
 ```
 
-> **Note:** Skill parameterisation (`with:` or equivalent) is deferred. How a `SKILL.md` declares and receives parameters is an open question that will be resolved alongside structured output schema research. See §23.
+> **Note:** Skill parameterisation (`with:` or equivalent) is deferred. How a `SKILL.md` declares and receives parameters is an open question that will be resolved alongside structured output schema research. See §22.
 
 ---

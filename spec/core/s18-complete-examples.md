@@ -83,7 +83,8 @@ pipeline:
     provider: frontier
     condition: if_code_changed
     skill: ail/security-audit
-    prompt: ./prompts/acme-security-context.md
+    append_system_prompt:
+      - file: ./prompts/acme-security-context.md
     on_result:
       contains: "SECURITY_CLEAN"
       if_true:
@@ -91,6 +92,10 @@ pipeline:
       if_false:
         action: pause_for_human
         message: "Security findings require review before this code proceeds."
+
+  - id: commit_checkpoint
+    condition: if_code_changed
+    skill: ail/commit-checkpoint
 ```
 
 ### 18.5 Project Inheriting from Org Base
