@@ -1,4 +1,6 @@
-use crate::config::domain::{ActionKind, Pipeline, StepBody};
+use crate::config::domain::{
+    ActionKind, ContextSource, ExitCodeMatch, Pipeline, ResultMatcher, StepBody,
+};
 
 /// Serialize a pipeline back to annotated YAML with origin comments per step.
 ///
@@ -18,7 +20,7 @@ pub fn materialize(pipeline: &Pipeline) -> String {
 
         match &step.body {
             StepBody::Prompt(text) => {
-                // Inline prompts use block scalar (|) to handle multi-line safely
+                // Inline prompts use double-quote scalar; escape backslashes and quotes.
                 let escaped = text.replace('\\', "\\\\").replace('"', "\\\"");
                 out.push_str(&format!("    prompt: \"{escaped}\"\n"));
             }
@@ -30,6 +32,34 @@ pub fn materialize(pipeline: &Pipeline) -> String {
             }
             StepBody::Action(ActionKind::PauseForHuman) => {
                 out.push_str("    action: pause_for_human\n");
+            }
+            StepBody::Context(ContextSource::Shell(cmd)) => {
+                let escaped = cmd.replace('\\', "\\\\").replace('"', "\\\"");
+                out.push_str(&format!("    context:\n      shell: \"{escaped}\"\n"));
+            }
+        }
+
+        if let Some(branches) = &step.on_result {
+            out.push_str("    on_result:\n");
+            for branch in branches {
+                let matcher = match &branch.matcher {
+                    ResultMatcher::Contains(text) => {
+                        let escaped = text.replace('"', "\\\"");
+                        format!("contains: \"{escaped}\"")
+                    }
+                    ResultMatcher::ExitCode(ExitCodeMatch::Exact(n)) => {
+                        format!("exit_code: {n}")
+                    }
+                    ResultMatcher::ExitCode(ExitCodeMatch::Any) => "exit_code: any".to_string(),
+                    ResultMatcher::Always => "always: true".to_string(),
+                };
+                let action = match branch.action {
+                    crate::config::domain::ResultAction::Continue => "continue",
+                    crate::config::domain::ResultAction::Break => "break",
+                    crate::config::domain::ResultAction::AbortPipeline => "abort_pipeline",
+                    crate::config::domain::ResultAction::PauseForHuman => "pause_for_human",
+                };
+                out.push_str(&format!("      - {matcher}\n        action: {action}\n"));
             }
         }
     }
@@ -48,6 +78,7 @@ mod tests {
                 id: StepId("test_step".to_string()),
                 body: StepBody::Prompt(prompt.to_string()),
                 tools: None,
+                on_result: None,
             }],
             source: Some(std::path::PathBuf::from("test.ail.yaml")),
         }

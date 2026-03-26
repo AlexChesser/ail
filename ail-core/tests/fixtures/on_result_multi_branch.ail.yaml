@@ -1,0 +1,25 @@
+version: "0.1"
+pipeline:
+  - id: lint
+    context:
+      shell: "cargo clippy -- -D warnings"
+    on_result:
+      - exit_code: 0
+        action: continue
+      - exit_code: any
+        action: continue
+  - id: tests
+    context:
+      shell: "cargo test --quiet"
+    on_result:
+      - exit_code: 0
+        action: break
+      - exit_code: any
+        action: continue
+  - id: fix_and_verify
+    prompt: |
+      Lint result (exit {{ step.lint.exit_code }}):
+      {{ step.lint.result }}
+      Test result (exit {{ step.tests.exit_code }}):
+      {{ step.tests.result }}
+      Fix all failures. Explain what you changed.

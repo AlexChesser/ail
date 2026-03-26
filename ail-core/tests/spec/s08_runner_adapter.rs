@@ -4,7 +4,9 @@ use ail_core::runner::{stub::StubRunner, InvokeOptions, Runner};
 #[test]
 fn stub_runner_satisfies_runner_trait() {
     let runner: Box<dyn Runner> = Box::new(StubRunner::new("test response"));
-    let result = runner.invoke("any prompt", InvokeOptions::default()).unwrap();
+    let result = runner
+        .invoke("any prompt", InvokeOptions::default())
+        .unwrap();
     assert_eq!(result.response, "test response");
 }
 
@@ -23,9 +25,12 @@ fn stub_runner_result_has_cost_and_session_id() {
 #[ignore]
 fn claude_cli_runner_returns_non_empty_response() {
     use ail_core::runner::claude::ClaudeCliRunner;
-    let runner = ClaudeCliRunner::new();
+    let runner = ClaudeCliRunner::new(false);
     let result = runner
-        .invoke("Reply with exactly the word: hello", InvokeOptions::default())
+        .invoke(
+            "Reply with exactly the word: hello",
+            InvokeOptions::default(),
+        )
         .unwrap();
     assert!(!result.response.is_empty());
     assert!(result.cost_usd.is_some());

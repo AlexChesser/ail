@@ -155,10 +155,11 @@ Unresolved variables **abort with a typed error** — never silently empty.
 - `ail-core/tests/fixtures/` — YAML test configs
 - `ClaudeCliRunner` integration tests are `#[ignore]` — cannot run inside a Claude Code session (nested-session guard). CI must run them separately with `--include-ignored`.
 
-## Known Constraints (v0.0.1)
+## Known Constraints (v0.1)
 
 - `--output-format stream-json` requires `--verbose` with `-p` — documented in `spec/runner/r02-claude-cli.md`
 - Must call `.env_remove("CLAUDECODE")` on the `Command` builder to avoid nested session guard
-- `pause_for_human` is a no-op in `--once` mode
-- `skill:` and `pipeline:` step bodies abort with `PIPELINE_ABORTED` (stubs)
+- `pause_for_human` is a no-op in `--once` / headless mode (v0.1)
+- `skill:` and `pipeline:` step bodies abort with `PIPELINE_ABORTED` (stubs — v0.2+)
 - Interactive REPL not implemented
+- `ClaudeCliRunner::new(headless: bool)` — pass `true` for `--headless` mode (`--dangerously-skip-permissions`)

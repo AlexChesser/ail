@@ -70,7 +70,7 @@ fn main() {
                 };
 
                 let mut session = ail_core::session::Session::new(pipeline, prompt.clone());
-                let runner = ail_core::runner::claude::ClaudeCliRunner::new();
+                let runner = ail_core::runner::claude::ClaudeCliRunner::new(cli.headless);
 
                 // If the pipeline does not declare an invocation step, the host runs it
                 // with default settings before handing off to the executor (SPEC §4.1).
@@ -92,6 +92,9 @@ fn main() {
                                 timestamp: std::time::SystemTime::now(),
                                 cost_usd: result.cost_usd,
                                 runner_session_id: result.session_id,
+                                stdout: None,
+                                stderr: None,
+                                exit_code: None,
                             });
                         }
                         Err(e) => {
@@ -105,12 +108,17 @@ fn main() {
                 // the executor runs it (with whatever config the user supplied). Subsequent
                 // steps resume the session via last_runner_session_id (SPEC §4.1, §4.2).
                 match ail_core::executor::execute(&mut session, &runner) {
-                    Ok(()) => {
+                    Ok(outcome) => {
+                        use ail_core::executor::ExecuteOutcome;
+                        match outcome {
+                            ExecuteOutcome::Break { step_id } => {
+                                tracing::info!(event = "pipeline_break", step_id = %step_id);
+                            }
+                            ExecuteOutcome::Completed => {}
+                        }
                         if has_invocation_step {
                             // Executor ran invocation — print its response now.
-                            if let Some(resp) =
-                                session.turn_log.response_for_step("invocation")
-                            {
+                            if let Some(resp) = session.turn_log.response_for_step("invocation") {
                                 println!("{resp}");
                             }
                         }

@@ -76,7 +76,8 @@ fn resolve_variable(variable: &str, session: &Session) -> Result<String, AilErro
         "pipeline.run_id" => Ok(session.run_id.clone()),
 
         other => {
-            // Handle `step.<id>.response` and `env.<VAR_NAME>`
+            // Handle `step.<id>.response`, `step.<id>.result`, `step.<id>.stdout`,
+            // `step.<id>.stderr`, `step.<id>.exit_code`, and `env.<VAR_NAME>`.
             if let Some(step_id) = other
                 .strip_prefix("step.")
                 .and_then(|s| s.strip_suffix(".response"))
@@ -89,6 +90,69 @@ fn resolve_variable(variable: &str, session: &Session) -> Result<String, AilErro
                         error_type: error_types::TEMPLATE_UNRESOLVED,
                         title: "Step response not found",
                         detail: format!("No response recorded for step '{step_id}'"),
+                        context: None,
+                    });
+            }
+
+            if let Some(step_id) = other
+                .strip_prefix("step.")
+                .and_then(|s| s.strip_suffix(".result"))
+            {
+                return session
+                    .turn_log
+                    .result_for_step(step_id)
+                    .ok_or_else(|| AilError {
+                        error_type: error_types::TEMPLATE_UNRESOLVED,
+                        title: "Step result not found",
+                        detail: format!("No result recorded for step '{step_id}'"),
+                        context: None,
+                    });
+            }
+
+            if let Some(step_id) = other
+                .strip_prefix("step.")
+                .and_then(|s| s.strip_suffix(".stdout"))
+            {
+                return session
+                    .turn_log
+                    .stdout_for_step(step_id)
+                    .map(|s| s.to_string())
+                    .ok_or_else(|| AilError {
+                        error_type: error_types::TEMPLATE_UNRESOLVED,
+                        title: "Step stdout not found",
+                        detail: format!("No stdout recorded for step '{step_id}'"),
+                        context: None,
+                    });
+            }
+
+            if let Some(step_id) = other
+                .strip_prefix("step.")
+                .and_then(|s| s.strip_suffix(".stderr"))
+            {
+                return session
+                    .turn_log
+                    .stderr_for_step(step_id)
+                    .map(|s| s.to_string())
+                    .ok_or_else(|| AilError {
+                        error_type: error_types::TEMPLATE_UNRESOLVED,
+                        title: "Step stderr not found",
+                        detail: format!("No stderr recorded for step '{step_id}'"),
+                        context: None,
+                    });
+            }
+
+            if let Some(step_id) = other
+                .strip_prefix("step.")
+                .and_then(|s| s.strip_suffix(".exit_code"))
+            {
+                return session
+                    .turn_log
+                    .exit_code_for_step(step_id)
+                    .map(|c| c.to_string())
+                    .ok_or_else(|| AilError {
+                        error_type: error_types::TEMPLATE_UNRESOLVED,
+                        title: "Step exit_code not found",
+                        detail: format!("No exit_code recorded for step '{step_id}'"),
                         context: None,
                     });
             }
@@ -132,6 +196,24 @@ mod tests {
             timestamp: SystemTime::now(),
             cost_usd: None,
             runner_session_id: None,
+            stdout: None,
+            stderr: None,
+            exit_code: None,
+        });
+    }
+
+    #[allow(dead_code)]
+    fn append_context(session: &mut Session, step_id: &str, stdout: &str, stderr: &str, code: i32) {
+        session.turn_log.append(TurnEntry {
+            step_id: step_id.to_string(),
+            prompt: "cmd".to_string(),
+            response: None,
+            timestamp: SystemTime::now(),
+            cost_usd: None,
+            runner_session_id: None,
+            stdout: Some(stdout.to_string()),
+            stderr: Some(stderr.to_string()),
+            exit_code: Some(code),
         });
     }
 

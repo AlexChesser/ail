@@ -81,8 +81,7 @@ mod tests {
 
     #[test]
     fn materialize_with_out_parses() {
-        let cli =
-            Cli::try_parse_from(["ail", "materialize", "--out", "/tmp/out.yaml"]).unwrap();
+        let cli = Cli::try_parse_from(["ail", "materialize", "--out", "/tmp/out.yaml"]).unwrap();
         if let Some(Commands::Materialize { out, .. }) = cli.command {
             assert_eq!(out, Some(PathBuf::from("/tmp/out.yaml")));
         } else {

@@ -3,8 +3,11 @@
 use std::collections::HashSet;
 use std::path::PathBuf;
 
-use super::domain::{ActionKind, Pipeline, Step, StepBody, StepId, ToolPolicy};
-use super::dto::PipelineFileDto;
+use super::domain::{
+    ActionKind, ContextSource, ExitCodeMatch, Pipeline, ResultAction, ResultBranch, ResultMatcher,
+    Step, StepBody, StepId, ToolPolicy,
+};
+use super::dto::{ExitCodeDto, PipelineFileDto};
 use crate::error::{error_types, AilError};
 
 pub fn validate(dto: PipelineFileDto, source: PathBuf) -> Result<Pipeline, AilError> {
@@ -91,6 +94,7 @@ pub fn validate(dto: PipelineFileDto, source: PathBuf) -> Result<Pipeline, AilEr
             step_dto.skill.is_some(),
             step_dto.pipeline.is_some(),
             step_dto.action.is_some(),
+            step_dto.context.is_some(),
         ]
         .iter()
         .filter(|&&b| b)
@@ -101,7 +105,7 @@ pub fn validate(dto: PipelineFileDto, source: PathBuf) -> Result<Pipeline, AilEr
                 error_type: error_types::CONFIG_VALIDATION_FAILED,
                 title: "Invalid step primary field",
                 detail: format!(
-                    "Step '{id_str}' must have exactly one primary field (prompt, skill, pipeline, or action); found {primary_count}"
+                    "Step '{id_str}' must have exactly one primary field (prompt, skill, pipeline, action, or context); found {primary_count}"
                 ),
                 context: None,
             });
@@ -125,6 +129,20 @@ pub fn validate(dto: PipelineFileDto, source: PathBuf) -> Result<Pipeline, AilEr
                     })
                 }
             }
+        } else if let Some(context_dto) = step_dto.context {
+            match context_dto.shell {
+                Some(cmd) => StepBody::Context(ContextSource::Shell(cmd)),
+                None => {
+                    return Err(AilError {
+                        error_type: error_types::CONFIG_VALIDATION_FAILED,
+                        title: "context step missing source",
+                        detail: format!(
+                        "Step '{id_str}' declares context: but no source (shell:, mcp:) is present"
+                    ),
+                        context: None,
+                    })
+                }
+            }
         } else {
             unreachable!("primary_count == 1 enforced above")
         };
@@ -134,10 +152,92 @@ pub fn validate(dto: PipelineFileDto, source: PathBuf) -> Result<Pipeline, AilEr
             deny: t.deny,
         });
 
+        let on_result = step_dto
+            .on_result
+            .map(|branches| {
+                branches
+                    .into_iter()
+                    .enumerate()
+                    .map(|(i, branch)| {
+                        let matcher_count = [
+                            branch.contains.is_some(),
+                            branch.exit_code.is_some(),
+                            branch.always.is_some(),
+                        ]
+                        .iter()
+                        .filter(|&&b| b)
+                        .count();
+
+                        if matcher_count != 1 {
+                            return Err(AilError {
+                                error_type: error_types::CONFIG_VALIDATION_FAILED,
+                                title: "Invalid on_result branch",
+                                detail: format!(
+                                    "Step '{id_str}' on_result branch {i} must have exactly one matcher (contains, exit_code, always); found {matcher_count}"
+                                ),
+                                context: None,
+                            });
+                        }
+
+                        let action_str = branch.action.ok_or_else(|| AilError {
+                            error_type: error_types::CONFIG_VALIDATION_FAILED,
+                            title: "on_result branch missing action",
+                            detail: format!(
+                                "Step '{id_str}' on_result branch {i} must declare an 'action'"
+                            ),
+                            context: None,
+                        })?;
+
+                        let action = match action_str.as_str() {
+                            "continue" => ResultAction::Continue,
+                            "break" => ResultAction::Break,
+                            "abort_pipeline" => ResultAction::AbortPipeline,
+                            "pause_for_human" => ResultAction::PauseForHuman,
+                            other => {
+                                return Err(AilError {
+                                    error_type: error_types::CONFIG_VALIDATION_FAILED,
+                                    title: "Unknown on_result action",
+                                    detail: format!(
+                                        "Step '{id_str}' on_result branch {i} specifies unknown action '{other}'"
+                                    ),
+                                    context: None,
+                                })
+                            }
+                        };
+
+                        let matcher = if let Some(text) = branch.contains {
+                            ResultMatcher::Contains(text)
+                        } else if let Some(exit_code_dto) = branch.exit_code {
+                            let exit_code_match = match exit_code_dto {
+                                ExitCodeDto::Integer(n) => ExitCodeMatch::Exact(n),
+                                ExitCodeDto::Keyword(k) if k == "any" => ExitCodeMatch::Any,
+                                ExitCodeDto::Keyword(k) => {
+                                    return Err(AilError {
+                                        error_type: error_types::CONFIG_VALIDATION_FAILED,
+                                        title: "Invalid exit_code value",
+                                        detail: format!(
+                                            "Step '{id_str}' on_result branch {i} exit_code must be an integer or 'any', got '{k}'"
+                                        ),
+                                        context: None,
+                                    })
+                                }
+                            };
+                            ResultMatcher::ExitCode(exit_code_match)
+                        } else {
+                            ResultMatcher::Always
+                        };
+
+                        Ok(ResultBranch { matcher, action })
+                    })
+                    .collect::<Result<Vec<_>, AilError>>()
+            })
+            .transpose()?;
+
         steps.push(Step {
             id: StepId(id_str),
             body,
             tools,
+            on_result,
         });
     }
 

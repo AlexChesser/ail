@@ -17,6 +17,12 @@ pub struct TurnEntry {
     /// The claude CLI session_id returned by this invocation.
     /// Used to resume the conversation for the next pipeline step.
     pub runner_session_id: Option<String>,
+    /// stdout from a `context: shell:` step.
+    pub stdout: Option<String>,
+    /// stderr from a `context: shell:` step.
+    pub stderr: Option<String>,
+    /// Exit code from a `context: shell:` step.
+    pub exit_code: Option<i32>,
 }
 
 /// Written to NDJSON before calling the runner. If the runner crashes or hangs,
@@ -113,6 +119,46 @@ impl TurnLog {
             .iter()
             .find(|e| e.step_id == id)
             .and_then(|e| e.response.as_deref())
+    }
+
+    /// Combined stdout + stderr for a context step, or the response for a prompt step.
+    /// Returns `None` if no entry exists for `id`.
+    pub fn result_for_step(&self, id: &str) -> Option<String> {
+        let entry = self.entries.iter().find(|e| e.step_id == id)?;
+        if entry.stdout.is_some() || entry.stderr.is_some() {
+            let stdout = entry.stdout.as_deref().unwrap_or("");
+            let stderr = entry.stderr.as_deref().unwrap_or("");
+            if stderr.is_empty() {
+                Some(stdout.to_string())
+            } else if stdout.is_empty() {
+                Some(stderr.to_string())
+            } else {
+                Some(format!("{stdout}\n{stderr}"))
+            }
+        } else {
+            entry.response.clone()
+        }
+    }
+
+    pub fn stdout_for_step(&self, id: &str) -> Option<&str> {
+        self.entries
+            .iter()
+            .find(|e| e.step_id == id)
+            .and_then(|e| e.stdout.as_deref())
+    }
+
+    pub fn stderr_for_step(&self, id: &str) -> Option<&str> {
+        self.entries
+            .iter()
+            .find(|e| e.step_id == id)
+            .and_then(|e| e.stderr.as_deref())
+    }
+
+    pub fn exit_code_for_step(&self, id: &str) -> Option<i32> {
+        self.entries
+            .iter()
+            .find(|e| e.step_id == id)
+            .and_then(|e| e.exit_code)
     }
 
     pub fn entries(&self) -> &[TurnEntry] {

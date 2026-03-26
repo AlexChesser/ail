@@ -27,6 +27,36 @@ impl Runner for StubRunner {
     }
 }
 
+/// A stub runner that counts invocations. Used to verify context steps bypass the runner.
+pub struct CountingStubRunner {
+    response: String,
+    count: std::sync::atomic::AtomicU32,
+}
+
+impl CountingStubRunner {
+    pub fn new(response: impl Into<String>) -> Self {
+        CountingStubRunner {
+            response: response.into(),
+            count: std::sync::atomic::AtomicU32::new(0),
+        }
+    }
+
+    pub fn invocation_count(&self) -> u32 {
+        self.count.load(std::sync::atomic::Ordering::SeqCst)
+    }
+}
+
+impl Runner for CountingStubRunner {
+    fn invoke(&self, _prompt: &str, _options: InvokeOptions) -> Result<RunResult, AilError> {
+        self.count.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        Ok(RunResult {
+            response: self.response.clone(),
+            cost_usd: Some(0.0),
+            session_id: Some("stub-session-id".to_string()),
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -34,15 +64,21 @@ mod tests {
     #[test]
     fn stub_runner_returns_configured_response() {
         let runner = StubRunner::new("stub response");
-        let result = runner.invoke("any prompt", InvokeOptions::default()).unwrap();
+        let result = runner
+            .invoke("any prompt", InvokeOptions::default())
+            .unwrap();
         assert_eq!(result.response, "stub response");
     }
 
     #[test]
     fn stub_runner_ignores_prompt_content() {
         let runner = StubRunner::new("fixed");
-        let r1 = runner.invoke("prompt one", InvokeOptions::default()).unwrap();
-        let r2 = runner.invoke("prompt two", InvokeOptions::default()).unwrap();
+        let r1 = runner
+            .invoke("prompt one", InvokeOptions::default())
+            .unwrap();
+        let r2 = runner
+            .invoke("prompt two", InvokeOptions::default())
+            .unwrap();
         assert_eq!(r1.response, r2.response);
     }
 }

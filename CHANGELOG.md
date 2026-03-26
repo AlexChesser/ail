@@ -1,5 +1,25 @@
 # Changelog
 
+## v0.1 — 2026-03-26
+
+### What works (all v0.0.1 features plus)
+
+- **`context: shell:` steps** — spawn `/bin/sh -c <cmd>`, capture stdout/stderr/exit_code separately, record to turn log. Non-zero exit codes are results not errors.
+- **`on_result` multi-branch evaluation** — array of match arms, first-match evaluation. Match operators: `contains:`, `exit_code: <int>`, `exit_code: any` (non-zero only), `always:`. Actions: `continue`, `break`, `abort_pipeline`, `pause_for_human` (no-op).
+- **`ExecuteOutcome`** — `execute()` returns `Ok(Completed)` or `Ok(Break { step_id })` on success; `Err(PIPELINE_ABORTED)` on `abort_pipeline` action.
+- **Context step template variables** — `{{ step.<id>.result }}`, `{{ step.<id>.stdout }}`, `{{ step.<id>.stderr }}`, `{{ step.<id>.exit_code }}`.
+- **File path resolution for `prompt:`** — if prompt starts with `./`, `../`, `~/`, or `/`, reads the file contents as the template.
+- **`--headless` flag wired** — passes `--dangerously-skip-permissions` to Claude CLI. Previously parsed but ignored.
+- **`ClaudeCliRunner::new(headless: bool)`** — constructor now requires headless flag.
+
+### Still stubbed
+
+- `skill:` and `pipeline:` step bodies abort with `PIPELINE_ABORTED`
+- Interactive REPL
+- `pause_for_human` is a no-op in headless mode
+
+---
+
 ## v0.0.1 — 2026-03-07
 
 ### What works

@@ -11,7 +11,10 @@ mod s9_tool_permissions {
     fn tool_policy_parses_from_yaml() {
         let pipeline = load(&fixtures_dir().join("tool_permissions.ail.yaml")).unwrap();
         let invocation = &pipeline.steps[0];
-        let tools = invocation.tools.as_ref().expect("invocation should have tools");
+        let tools = invocation
+            .tools
+            .as_ref()
+            .expect("invocation should have tools");
         assert!(tools.allow.contains(&"Read".to_string()));
         assert!(tools.allow.contains(&"Edit(./src/*)".to_string()));
         assert!(tools.deny.contains(&"Bash".to_string()));
@@ -58,6 +61,7 @@ mod s9_tool_permissions {
                     allow: vec!["Read".to_string(), "Edit".to_string()],
                     deny: vec!["Bash".to_string()],
                 }),
+                on_result: None,
             }],
             source: None,
         };

@@ -14,25 +14,30 @@ use crate::error::{error_types, AilError};
 ///   the nested-session guard from blocking the invocation.
 pub struct ClaudeCliRunner {
     pub claude_bin: String,
+    /// When true, passes `--dangerously-skip-permissions` to the claude CLI.
+    /// Required for headless/automated runs (CI, SWE-bench). See SPEC §8 headless mode.
+    pub headless: bool,
 }
 
 impl ClaudeCliRunner {
-    pub fn new() -> Self {
+    pub fn new(headless: bool) -> Self {
         ClaudeCliRunner {
             claude_bin: "claude".to_string(),
+            headless,
         }
     }
 
-    pub fn with_bin(bin: impl Into<String>) -> Self {
+    pub fn with_bin(bin: impl Into<String>, headless: bool) -> Self {
         ClaudeCliRunner {
             claude_bin: bin.into(),
+            headless,
         }
     }
 }
 
 impl Default for ClaudeCliRunner {
     fn default() -> Self {
-        Self::new()
+        Self::new(false)
     }
 }
 
@@ -43,6 +48,9 @@ impl Runner for ClaudeCliRunner {
             "stream-json".into(),
             "--verbose".into(),
         ];
+        if self.headless {
+            args.push("--dangerously-skip-permissions".into());
+        }
         if let Some(sid) = &options.resume_session_id {
             args.push("--resume".into());
             args.push(sid.clone());
@@ -185,9 +193,12 @@ mod tests {
     #[test]
     #[ignore]
     fn claude_cli_runner_returns_non_empty_response() {
-        let runner = ClaudeCliRunner::new();
+        let runner = ClaudeCliRunner::new(false);
         let result = runner
-            .invoke("Reply with exactly the word: hello", InvokeOptions::default())
+            .invoke(
+                "Reply with exactly the word: hello",
+                InvokeOptions::default(),
+            )
             .unwrap();
         assert!(!result.response.is_empty());
         assert!(result.cost_usd.is_some());
@@ -197,9 +208,12 @@ mod tests {
     #[test]
     #[ignore]
     fn claude_cli_runner_response_contains_expected_text() {
-        let runner = ClaudeCliRunner::new();
+        let runner = ClaudeCliRunner::new(false);
         let result = runner
-            .invoke("Reply with exactly one word: banana", InvokeOptions::default())
+            .invoke(
+                "Reply with exactly one word: banana",
+                InvokeOptions::default(),
+            )
             .unwrap();
         assert!(
             result.response.to_lowercase().contains("banana"),

@@ -15,6 +15,9 @@ fn append_response(session: &mut Session, step_id: &str, response: &str) {
         timestamp: SystemTime::now(),
         cost_usd: None,
         runner_session_id: None,
+        stdout: None,
+        stderr: None,
+        exit_code: None,
     });
 }
 

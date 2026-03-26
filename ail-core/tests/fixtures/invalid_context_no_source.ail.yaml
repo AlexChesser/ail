@@ -1,0 +1,4 @@
+version: "0.1"
+pipeline:
+  - id: step_one
+    context: {}

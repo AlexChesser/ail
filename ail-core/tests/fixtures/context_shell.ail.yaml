@@ -1,0 +1,5 @@
+version: "0.1"
+pipeline:
+  - id: lint
+    context:
+      shell: "cargo clippy -- -D warnings"

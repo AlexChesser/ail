@@ -9,6 +9,7 @@ mod executor {
             id: StepId(id.to_string()),
             body: StepBody::Prompt(text.to_string()),
             tools: None,
+            on_result: None,
         }
     }
 
@@ -71,6 +72,9 @@ mod session {
             timestamp: SystemTime::now(),
             cost_usd: None,
             runner_session_id: None,
+            stdout: None,
+            stderr: None,
+            exit_code: None,
         }
     }
 

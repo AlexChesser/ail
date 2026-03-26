@@ -17,7 +17,7 @@ Consumed by `ail` (the binary) and future language-server / SDK targets.
 | `materialize.rs` | `materialize(&Pipeline) → String` — annotated YAML round-trip |
 | `runner/mod.rs` | `Runner` trait, `RunResult`, `InvokeOptions` |
 | `runner/claude.rs` | `ClaudeCliRunner` — shells out to the `claude` CLI |
-| `runner/stub.rs` | `StubRunner` — deterministic test double |
+| `runner/stub.rs` | `StubRunner`, `CountingStubRunner` — deterministic test doubles |
 | `session/state.rs` | `Session` — `run_id`, `pipeline`, `invocation_prompt`, `turn_log` |
 | `session/turn_log.rs` | `TurnLog` — append-only NDJSON writer + in-memory entries |
 | `template.rs` | `resolve(template, &Session) → Result<String, AilError>` |
@@ -27,17 +27,26 @@ Consumed by `ail` (the binary) and future language-server / SDK targets.
 ```rust
 // Pipeline and its steps
 pub struct Pipeline { pub steps: Vec<Step>, pub source: Option<PathBuf> }
-pub struct Step    { pub id: StepId, pub body: StepBody, pub tools: Option<ToolPolicy> }
-pub enum StepBody  { Prompt(String), Skill(PathBuf), SubPipeline(PathBuf), Action(ActionKind) }
+pub struct Step    { pub id: StepId, pub body: StepBody, pub tools: Option<ToolPolicy>, pub on_result: Option<Vec<ResultBranch>> }
+pub enum StepBody  { Prompt(String), Skill(PathBuf), SubPipeline(PathBuf), Action(ActionKind), Context(ContextSource) }
+pub enum ContextSource { Shell(String) }
 pub enum ActionKind { PauseForHuman }
+pub struct ResultBranch { pub matcher: ResultMatcher, pub action: ResultAction }
+pub enum ResultMatcher { Contains(String), ExitCode(ExitCodeMatch), Always }
+pub enum ExitCodeMatch { Exact(i32), Any }
+pub enum ResultAction { Continue, Break, AbortPipeline, PauseForHuman }
 
 // Runner contract
 pub trait Runner { fn invoke(&self, prompt: &str, options: InvokeOptions) -> Result<RunResult, AilError>; }
 pub struct RunResult { pub response: String, pub cost_usd: Option<f64>, pub session_id: Option<String> }
 pub struct InvokeOptions { pub resume_session_id: Option<String>, pub allowed_tools: Vec<String>, pub denied_tools: Vec<String> }
 
+// Executor outcome
+pub enum ExecuteOutcome { Completed, Break { step_id: String } }
+
 // Session
 pub struct Session { pub run_id: String, pub pipeline: Pipeline, pub invocation_prompt: String, pub turn_log: TurnLog }
+// TurnEntry carries both prompt-step fields (response, runner_session_id) and context-step fields (stdout, stderr, exit_code)
 
 // Error
 pub struct AilError { pub error_type: &'static str, pub title: &'static str, pub detail: String, pub context: Option<ErrorContext> }
@@ -61,6 +70,9 @@ pub struct AilError { pub error_type: &'static str, pub title: &'static str, pub
 3. Intent is recorded (`record_step_started`) before the runner is called — crash evidence.
 4. `ClaudeCliRunner` must call `.env_remove("CLAUDECODE")` on `Command` to avoid nested-session guard.
 5. `--output-format stream-json` **requires** `--verbose` when combined with `-p`.
+6. **Context steps bypass the Runner** — `context: shell:` spawns `/bin/sh -c` directly; `Runner::invoke` is never called.
+7. **Non-zero shell exit codes are results, not errors** — they trigger `on_result`, not `on_error` (SPEC §5.5, §16).
+8. **`exit_code: any` does NOT match 0** — matches any non-zero exit code only.
 
 ## Rules
 
@@ -75,14 +87,16 @@ pub struct AilError { pub error_type: &'static str, pub title: &'static str, pub
 Tests live in `ail-core/tests/spec/` with one file per SPEC section:
 
 ```
-s03 — file format / YAML parsing
-s04 — execution model
-s05 — step specification
-s08 — runner adapter
-s09 — tool permissions
-s11 — template variables
-s18 — materialize
-s21 — MVP scope
+s03  — file format / YAML parsing
+s04  — execution model
+s05  — step specification (core fields)
+s05_3 — on_result multi-branch evaluation
+s05_5 — context:shell: steps + file path resolution
+s08  — runner adapter
+s09  — tool permissions
+s11  — template variables
+s18  — materialize
+s21  — MVP scope
 ```
 
 `#[ignore]` tests require the `claude` binary and a live session — run with
