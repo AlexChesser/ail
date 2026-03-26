@@ -44,18 +44,8 @@ The AIL Pipeline Language Specification — for pipeline authors and implementer
 | [s18-complete-examples.md](core/s18-complete-examples.md) | §18 Complete Examples | Full worked YAML — simplest, solo dev, org base, multi-speed | needs update for new step types |
 | [s19-runners-adapters.md](core/s19-runners-adapters.md) | §19 Runners & Adapters | Three-tier runner model; runner config; contract summary | reference |
 | [s20-mvp.md](core/s20-mvp.md) | §20 MVP v0.0.1 Scope | What is and isn't in scope for v0.0.1 | reference — v0.0.1 complete; alpha scope is next |
-<<<<<<< HEAD
-<<<<<<< HEAD
 | [s21-planned-extensions.md](core/s21-planned-extensions.md) | §21 Planned Extensions | Structured I/O, parallel steps, multi-provider quality comparison (D-020), self-modifying pipelines (D-019), MCP, plugins, observability | planned |
 | [s22-open-questions.md](core/s22-open-questions.md) | §22 Open Questions | Unresolved design questions (completion detection, hot reload, self-modifying pipeline approval/validation, etc.) | reference |
-=======
-| [s21-planned-extensions.md](core/s21-planned-extensions.md) | §21 Planned Extensions | Structured I/O, parallel steps, MCP, plugins, observability | planned |
-| [s22-open-questions.md](core/s22-open-questions.md) | §22 Open Questions | Unresolved design questions (completion detection, hot reload, etc.) | reference |
->>>>>>> cbba6f6... wip
-=======
-| [s21-planned-extensions.md](core/s21-planned-extensions.md) | §21 Planned Extensions | Structured I/O, parallel steps, multi-provider quality comparison (D-020), self-modifying pipelines (D-019), MCP, plugins, observability | planned |
-| [s22-open-questions.md](core/s22-open-questions.md) | §22 Open Questions | Unresolved design questions (completion detection, hot reload, self-modifying pipeline approval/validation, etc.) | reference |
->>>>>>> 8449d90... wip: planned extensions
 
 ---
 

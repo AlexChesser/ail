@@ -9,81 +9,18 @@
 [![Status: Active Development](https://img.shields.io/badge/status-active%20development-yellow.svg)](#roadmap)
 
 `ail` is an open-source pipeline runtime that wraps AI coding agents like the Claude CLI and automatically runs a deterministic chain of follow-up steps after every agent response — before control ever returns to the human.
-<<<<<<< HEAD
 
 > ⚠️ **This project is in early development.** The parser and domain model are working, but the executor is not yet complete. The pipeline language is a working hypothesis — it feels solid, but real-world implementation will test that. The examples below show what `ail` is being built toward — not what it does today. See [Current Status](#current-status) for what is and isn't implemented.
 
 ---
 
 > TODO: add a **QUICKSTART** section for people who DGAF about the cognitive and neuroscience 🤣
-<<<<<<< HEAD
-=======
->>>>>>> 7a8932c... Update README.md
-=======
->>>>>>> e070b68... Update README.md
 
 ---
 
 ## Your Agent Has a Diagnosis
 
 Cognitive science has been studying these failure modes since Harlow published *Passage of an Iron Bar through the Head* in 1848. By 1986, Alan Baddeley had a name for the cluster: **Dysexecutive Syndrome** — the predictable behavioral profile of a system with capable reasoning and absent executive control.
-
-<<<<<<< HEAD
-Your agent's failures aren't random. They have clinical names:
-
-| Failure | Clinical Name | What You See |
-|---|---|---|
-| Repeats the same tool call past the point it was working | **Perseveration** | The agent planes the board through to the bench |
-| Implements the schema you asked a question about | **Goal Substitution** | You asked for a discussion; it got to work |
-| Cites a function that doesn't exist | **Source Monitoring Failure** | Can't distinguish what it read from what it generated |
-| Reports no issues with code that has obvious problems | **Anosognosia** | High confidence is a syntactic property of the output |
-
-The standard response is to write more instructions — refine `CLAUDE.md`, add more skills, be more explicit. But an instruction inside a context window is subject to everything else in that window. Sessions grow. Tool calls accumulate. Earlier instructions drift toward the middle where the attention mechanism is weakest. Liu et al. documented this as the *lost-in-the-middle effect* in 2024; the Chroma Research team confirmed it across 18 frontier models in 2025. The carefully written rule becomes one voice in a crowd.
-
-`ail` moves the behavior out of the context entirely. A pipeline step fires because it was declared, not because the model remembered to do it.
-
----
-
-<<<<<<< HEAD
-## The Treatment
-
-Diamond's 2013 synthesis of executive function research identified three components that don't emerge from capability — they have to be built:
-
-| Executive Component | Agent Failure It Addresses | `ail` Primitive |
-|---|---|---|
-| **Inhibitory control** — suppress dominant but wrong responses | Perseveration | `max_retries:` + `on_error: abort_pipeline` |
-| **Working memory updating** — hold task-relevant state, release what's stale | Goal substitution, context contamination | Pipeline run log + `{{ step.<id>.response }}` |
-| **Cognitive flexibility** — shift strategy when the current one stops working | Perseveration, misapplied context | `on_result:` branches, conditional `pipeline:` steps |
-
-And the fourth, from Anokhin's 1955 work on feedback circuits: the **action acceptor** — a comparison of what you intended against what you actually produced. When this mechanism is damaged, output is generated without any internal signal that something went wrong.
-
-Every `on_result:` block is an action acceptor. The pipeline run log is what makes it honest: the intended prompt and the actual response are persisted independently, before the acceptor step runs, so it can't be contaminated by the output it's evaluating.
-
-```yaml
-version: "0.1"
-
-pipeline:
-  - id: action_acceptor
-    prompt: |
-      Original request: {{ step.invocation.prompt }}
-      Result produced: {{ step.invocation.response }}
-      Does the result achieve what was requested?
-      Answer ACHIEVED or MISMATCH. One word only.
-    on_result:
-      contains: "ACHIEVED"
-      if_true:
-        action: break
-      if_false:
-        action: pause_for_human
-        message: "Action acceptor detected a mismatch between intent and output."
-```
-=======
-Your agent's failure modes have clinical names.
-=======
-## Your Agent Has a Diagnosis
-
-Cognitive science has been studying these failure modes since Harlow published *Passage of an Iron Bar through the Head* in 1848. By 1986, Alan Baddeley had a name for the cluster: **Dysexecutive Syndrome** — the predictable behavioral profile of a system with capable reasoning and absent executive control.
->>>>>>> 7a8932c... Update README.md
 
 Your agent's failures aren't random. They have clinical names:
 
@@ -97,7 +34,6 @@ Your agent's failures aren't random. They have clinical names:
 The standard response is to write more instructions — refine `CLAUDE.md`, add more skills, be more explicit. But an instruction inside a context window is subject to everything else in that window. Sessions grow. Tool calls accumulate. Earlier instructions drift toward the middle where the attention mechanism is weakest. Liu et al. documented this as the *lost-in-the-middle effect* in 2024; the Chroma Research team confirmed it across 18 frontier models in 2025. The carefully written rule becomes one voice in a crowd.
 
 `ail` moves the behavior out of the context entirely. A pipeline step fires because it was declared, not because the model remembered to do it.
->>>>>>> cbba6f6... wip
 
 ---
 
@@ -157,27 +93,6 @@ Steps execute in order. Individual steps may be skipped by declared conditions o
 version: "0.1"
 
 pipeline:
-<<<<<<< HEAD
-<<<<<<< HEAD
-=======
-  - id: invocation
-    prompt: "{{ step.invocation.prompt }}"
-```
-
-`invocation` is always step zero — it represents the human's prompt and the agent's response to it. A pipeline with only `invocation` is a valid passthrough: the agent runs normally and nothing extra fires. Add steps below it and they run automatically every time, before control returns to you.
-
-### One Step Further
-
-```yaml
-version: "0.1"
-
-pipeline:
-  - id: invocation
-    prompt: "{{ step.invocation.prompt }}"
-
->>>>>>> cbba6f6... wip
-=======
->>>>>>> 7a8932c... Update README.md
   - id: review
     prompt: "Review the above output. Fix anything obviously wrong or unnecessarily complex."
 ```
@@ -195,15 +110,6 @@ defaults:
   on_error: pause_for_human
 
 pipeline:
-<<<<<<< HEAD
-<<<<<<< HEAD
-=======
-  - id: invocation
-    prompt: "{{ step.invocation.prompt }}"
-
->>>>>>> cbba6f6... wip
-=======
->>>>>>> 7a8932c... Update README.md
   - id: dry_refactor
     condition: if_code_changed
     prompt: "Refactor the code above to eliminate unnecessary repetition."
@@ -234,19 +140,9 @@ pipeline:
 | **Pipeline** | YAML | The `ail` runtime | Control flow — when, in what order, what to do with results |
 | **Skill** | Markdown | The LLM | Instructions — how to think about and execute a task |
 
-<<<<<<< HEAD
-<<<<<<< HEAD
 A pipeline orchestrates. A skill instructs. They are complementary, not interchangeable. Adding more skill instructions to a context saturation problem just makes a larger context. `ail` operates at the layer that decides what goes into the context at all.
 
 Full language documentation is in [`spec/README.md`](spec/README.md).
-=======
-A pipeline orchestrates. A skill instructs. They are complementary, not interchangeable. Full language documentation is in [`spec/README.md`](spec/README.md).
->>>>>>> cbba6f6... wip
-=======
-A pipeline orchestrates. A skill instructs. They are complementary, not interchangeable. Adding more skill instructions to a context saturation problem just makes a larger context. `ail` operates at the layer that decides what goes into the context at all.
-
-Full language documentation is in [`spec/README.md`](spec/README.md).
->>>>>>> 7a8932c... Update README.md
 
 ---
 
@@ -258,7 +154,6 @@ A feature belongs in `ail` if it:
 - **Addresses one of the four failure modes** — perseveration, goal substitution, source monitoring failure, or anosognosia; or
 - **Strengthens one of Diamond's three executive function components** — inhibitory control, working memory updating, or cognitive flexibility; or
 - **Extends `ail`'s capacity to select, compose, or improve its own pipelines** — the supervisory layer that decides *which* script to run, not just *that* it runs.
-<<<<<<< HEAD
 
 > *** TODO: consider the introduction of *ANY* currently known cortical or executive function here as well.  Specifically planning like from Anderson's "**Adaptive Control of Thought—Rational**" (ACT-R) the cognitive architecture or others lik Piaget & Schemas.  Or delving across into the Educational research angle (referecnes in older planning documents - will pull up laterelsewhere). 
 
@@ -268,17 +163,6 @@ Features that serve general task execution without mapping to any of these three
 
 ## Current Status
 
-=======
-
-> *** TODO: consider the introduction of *ANY* currently known cortical or executive function here as well.  Specifically planning like from Anderson's "**Adaptive Control of Thought—Rational**" (ACT-R) the cognitive architecture or others lik Piaget & Schemas.  Or delving across into the Educational research angle (referecnes in older planning documents - will pull up laterelsewhere). 
-
-Features that serve general task execution without mapping to any of these three categories belong to the agent layer beneath `ail`, not to the control plane above it.
-
----
-
-## Current Status
-
->>>>>>> 7a8932c... Update README.md
 The project is being built spec-first. The spec represents a hypothesis — things that sound good on paper may turn out to be awkward in practice. The spec will change as reality pushes back.
 
 ```bash
@@ -305,14 +189,6 @@ Current result: **64 passing, 13 failing** across 77 tests.
 - **Skills** — the `skill:` step type is not yet implemented
 - **Provider/model routing** — the `provider:` override on individual steps is not yet passed to the runner
 
-<<<<<<< HEAD
-<<<<<<< HEAD
-=======
-Everything in the [Planned Extensions](spec/core/s21-planned-extensions.md) section of the spec is also unimplemented.
-
->>>>>>> cbba6f6... wip
-=======
->>>>>>> 7a8932c... Update README.md
 ---
 
 ## How It Works
@@ -345,15 +221,7 @@ The following are designed and specced in their current form. They haven't been 
 
 ### Pipeline Inheritance (`FROM`) — [spec §7](spec/core/s07-pipeline-inheritance.md)
 
-<<<<<<< HEAD
-<<<<<<< HEAD
 Intelligence is largely the capacity to recognize which existing knowledge structure applies and activate it — Schank and Abelson called these *scripts* in 1977. `ail`'s `FROM` inheritance is script instantiation in that precise sense: the payments team uses the org's base quality pipeline and adds a PCI check adjacent to the security audit. The base script is inherited unchanged. The instantiation supplies only what the domain requires.
-=======
-### Pipeline Inheritance (`FROM`) — [spec §7](spec/core/s07-pipeline-inheritance.md)
->>>>>>> cbba6f6... wip
-=======
-Intelligence is largely the capacity to recognize which existing knowledge structure applies and activate it — Schank and Abelson called these *scripts* in 1977. `ail`'s `FROM` inheritance is script instantiation in that precise sense: the payments team uses the org's base quality pipeline and adds a PCI check adjacent to the security audit. The base script is inherited unchanged. The instantiation supplies only what the domain requires.
->>>>>>> 7a8932c... Update README.md
 
 > *** TODO: add that this was inspired by Dockerfiles, not Schank and Abelson 😄 
 
@@ -369,83 +237,36 @@ pipeline:
   - disable: commit_checkpoint
 ```
 
-<<<<<<< HEAD
-<<<<<<< HEAD
-Step IDs in an inheritable pipeline are a public API. Treat renames as breaking changes.
-=======
-=======
 Step IDs in an inheritable pipeline are a public API. Treat renames as breaking changes.
 
->>>>>>> 7a8932c... Update README.md
 ### Human-in-the-Loop Gates — [spec §13](spec/core/s13-hitl-gates.md)
->>>>>>> cbba6f6... wip
 
-<<<<<<< HEAD
-### Human-in-the-Loop Gates — [spec §13](spec/core/s13-hitl-gates.md)
-=======
 Explicit pause points that wait for human approval before continuing. Also fires automatically when `on_result` detects a mismatch, or when the agent requests permission for a tool not covered by the step's policy. HITL is not an error state — it is the pipeline's comparison circuit surfacing a detected mismatch.
->>>>>>> 7a8932c... Update README.md
 
-<<<<<<< HEAD
-Explicit pause points that wait for human approval before continuing. Also fires automatically when `on_result` detects a mismatch, or when the agent requests permission for a tool not covered by the step's policy. HITL is not an error state — it is the pipeline's comparison circuit surfacing a detected mismatch.
-=======
-### Multi-Provider Routing — [spec §15](spec/core/s15-providers.md)
->>>>>>> cbba6f6... wip
-
-<<<<<<< HEAD
 ### Multi-Provider Routing — [spec §15](spec/core/s15-providers.md)
 
-<<<<<<< HEAD
 Cognitive flexibility means routing individual steps to the right model for the task: a fast cheap model for triage, a frontier model where it matters. The pipeline allocates attention deliberately; so does `ail`.
 
-=======
-Cognitive flexibility means routing individual steps to the right model for the task: a fast cheap model for triage, a frontier model where it matters. The pipeline allocates attention deliberately; so does `ail`.
-
->>>>>>> 7a8932c... Update README.md
 ```yaml
 providers:
   fast:     groq/llama-3.1-70b-versatile
   frontier: anthropic/claude-opus-4-5
-<<<<<<< HEAD
-
-pipeline:
-  - id: syntax_triage
-    provider: fast
-    prompt: "Is the code above syntactically valid? Answer VALID or list issues."
-=======
-### Skills — [spec §6](spec/core/s06-skills.md)
-=======
->>>>>>> 7a8932c... Update README.md
 
 pipeline:
   - id: syntax_triage
     provider: fast
     prompt: "Is the code above syntactically valid? Answer VALID or list issues."
 
-<<<<<<< HEAD
-### `ail serve` — HTTP API Mode — [`API.md`](API.md)
->>>>>>> cbba6f6... wip
-
-=======
->>>>>>> 7a8932c... Update README.md
   - id: architecture_review
     provider: frontier
     condition: if_code_changed
     prompt: ./prompts/architectural-review.md
 ```
-<<<<<<< HEAD
 
 ### Skills — [spec §6](spec/core/s06-skills.md)
 
 A *skill* is a directory with a `SKILL.md` file — natural language instructions read by the LLM, not the runtime. Skills are loaded via `append_system_prompt:` entries — you can stack multiple skills in explicit order alongside inline instructions. `ail` supports the [Agent Skills open standard](https://agentskills.io): skills authored for Claude, Gemini CLI, Copilot, or Cursor are directly usable without modification.
 
-=======
-
-### Skills — [spec §6](spec/core/s06-skills.md)
-
-A *skill* is a directory with a `SKILL.md` file — natural language instructions read by the LLM, not the runtime. Skills are loaded via `append_system_prompt:` entries — you can stack multiple skills in explicit order alongside inline instructions. `ail` supports the [Agent Skills open standard](https://agentskills.io): skills authored for Claude, Gemini CLI, Copilot, or Cursor are directly usable without modification.
-
->>>>>>> 7a8932c... Update README.md
 Note the deliberate departure from the standard: `ail` does not keep all skill metadata in context permanently. Surfacing a skill to the wrong step subjects it to the same attention degradation as everything else competing for the middle of the window. Selective context injection is the executive layer's job.
 
 ---
@@ -509,15 +330,7 @@ cargo nextest run --no-fail-fast --run-ignored all
 3. Write the `spec_coverage.rs` test first — it defines the acceptance criteria
 4. Implement until the test passes
 
-<<<<<<< HEAD
-<<<<<<< HEAD
 The most valuable contribution right now is completing `on_result` branching ([spec §5.4](spec/core/s05-step-specification.md)). It is the next feature in the execution path and unlocks everything else.
-=======
-The most valuable contribution right now is completing `on_result` branching ([spec §5.3](spec/core/s05-step-specification.md)). It is the next feature in the execution path and unlocks everything else.
->>>>>>> cbba6f6... wip
-=======
-The most valuable contribution right now is completing `on_result` branching ([spec §5.4](spec/core/s05-step-specification.md)). It is the next feature in the execution path and unlocks everything else.
->>>>>>> 7a8932c... Update README.md
 
 ---
 

@@ -15,8 +15,6 @@ This is the executive function layer. Working memory maintenance, inhibitory con
 
 ### Scope Discipline
 
-<<<<<<< HEAD
-<<<<<<< HEAD
 `ail` is the artificial neocortex — the executive function layer that LLM agents structurally lack. The compass for every implementation decision is: *does this serve the frontal lobe?*
 
 A feature belongs in `ail` if it:
@@ -25,21 +23,6 @@ A feature belongs in `ail` if it:
 - **Extends `ail`'s capacity to select, compose, or improve its own pipelines** — the supervisory attentional layer that decides which script to run, not just that it runs.
 
 The third category is the long arc. Norman and Shallice's Supervisory Attentional System sits above contention scheduling — it intervenes when tasks are novel, ambiguous, or require overriding a habitual response. Today `ail` is the contention scheduler: it executes the declared pipeline. The trajectory is toward the SAS: `ail` selecting and composing pipelines appropriate to the task. Features that serve general task execution without mapping to any of these three categories belong to the agent layer beneath `ail`, not to the control plane above it. See §22 for the planned trajectory.
-=======
-The core guarantee is the compass for every implementation decision. A feature belongs in `ail` if it serves the invocation pipeline — making the guarantee more reliable, more expressive, more portable, or more capable of operating autonomously. Features that have no relationship to this guarantee belong in §22 or not at all.
-
-The long-term vision — pipelines that analyse their own outputs, generate improvements to their own YAML, and evolve over time — is a natural extension of the guarantee, not a departure from it. See §22 for the planned trajectory.
->>>>>>> cbba6f6... wip
-=======
-`ail` is the artificial neocortex — the executive function layer that LLM agents structurally lack. The compass for every implementation decision is: *does this serve the frontal lobe?*
-
-A feature belongs in `ail` if it:
-- **Addresses one of the four failure modes** — perseveration, goal substitution, source monitoring failure, or anosognosia; or
-- **Strengthens one of Diamond's three executive function components** — inhibitory control, working memory updating, or cognitive flexibility; or
-- **Extends `ail`'s capacity to select, compose, or improve its own pipelines** — the supervisory attentional layer that decides which script to run, not just that it runs.
-
-The third category is the long arc. Norman and Shallice's Supervisory Attentional System sits above contention scheduling — it intervenes when tasks are novel, ambiguous, or require overriding a habitual response. Today `ail` is the contention scheduler: it executes the declared pipeline. The trajectory is toward the SAS: `ail` selecting and composing pipelines appropriate to the task. Features that serve general task execution without mapping to any of these three categories belong to the agent layer beneath `ail`, not to the control plane above it. See §22 for the planned trajectory.
->>>>>>> 21dc1f1... wip:
 
 ### The Two Layers
 
