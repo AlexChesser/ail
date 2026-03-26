@@ -88,6 +88,20 @@ This is more suitable for automated validation (schema checking, path sanitisati
 
 > **Spike validation required:** Confirm that `--permission-prompt-tool stdio` behaves correctly when combined with `-p` (non-interactive mode). The VSCode extension uses this combination in interactive mode; `ail`'s usage differs. Document actual permission event shapes from the NDJSON stream.
 
+### Headless Mode
+
+When `ail` is invoked with `--headless` (required for automated runs such as CI and the SWE-bench benchmarking experiment), it passes `--dangerously-skip-permissions` to the Claude CLI. This bypasses all tool permission checks — no HITL prompts, no `--permission-prompt-tool` intercept.
+
+`ail --headless` maps to:
+
+```
+claude --output-format stream-json --verbose --dangerously-skip-permissions -p <prompt>
+```
+
+`pause_for_human` actions in headless mode abort the pipeline immediately (default) or auto-approve (if `--headless-approve` is set). This is a session-level flag, never a pipeline YAML option — it must not be committable to a shared pipeline file.
+
+> **Security:** Only use headless mode in a sandboxed or fully trusted environment. `--dangerously-skip-permissions` grants the model unrestricted tool access.
+
 ### Pre-Approved Tool Policy
 
 `tools.allow` and `tools.deny` in the pipeline step are passed to Claude CLI as:

@@ -35,8 +35,13 @@ These questions must be answered before the contract can be considered stable.
 - ~~**Session resumption**~~ — **Resolved.** `session_id` from the `result` event is passed as `--resume <session_id>` to subsequent steps. Full conversation history is preserved.
 - **Minimum flag set for non-Claude runners** — beyond the minimum compliance tier, what is the smallest set of behaviours any runner must implement? Needs to be validated against each target runner (Aider, Gemini CLI, etc.) to ensure the bar is achievable without the stream-json interface.
 - **Capability declaration mechanism** — the `--ail-capabilities` flag is proposed but not yet defined. What format should it return? What capabilities must be declared vs. assumed?
-- **Error event shapes** — the `result.subtype: error` event needs a defined set of error codes so `ail`'s `on_error` handling can distinguish timeout, model error, context limit exceeded, and permission denied.
-- **`--permission-prompt-tool stdio` in non-interactive mode** — verify that the HITL permission intercept works correctly when combined with `-p` (non-interactive prompt flag). The VSCode extension uses it in interactive mode; `ail`'s usage pattern may differ.
+- **Error event shapes** — the `result.subtype: error` event needs a defined set of error codes. Three categories are needed for `on_error` differentiation:
+  - `runner_timeout` — step exceeded `timeout_seconds`; candidate for retry
+  - `runner_error` — model/provider failure (context limit, rate limit, internal error); may be retried
+  - `runner_permission_denied` — tool call blocked by permission check; retry is not useful
+  The current implementation maps all three to a single `RUNNER_INVOCATION_FAILED` type. Differentiation is deferred to v0.1+.
+- **`--permission-prompt-tool stdio` in non-interactive mode** — verify that the HITL permission intercept works correctly when combined with `-p` (non-interactive prompt flag). The VSCode extension uses it in interactive mode; `ail`'s usage pattern may differ. **Blocked until HITL gates are implemented (v0.1+). Benchmarking runs bypass this entirely via `--dangerously-skip-permissions`.**
+- **`--verbose` requirement stability** — `--output-format stream-json` requires `--verbose` when combined with `-p`. This is undocumented in Claude CLI's `--help`. A compatibility test should verify this requirement still holds before each Claude CLI version upgrade.
 
 ---
 

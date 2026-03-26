@@ -55,6 +55,8 @@ A minimally compliant runner must:
 
 A minimum-compliant runner works with all text-based `ail` pipeline features: `prompt:` steps, `on_result:` matching, `condition:` evaluation, HITL gates, and template variable injection.
 
+> **Note:** `context:` steps (`shell:`, `mcp:`) are executed directly by `ail` and do not pass through the runner. A minimum-compliant runner is sufficient for pipelines that include `context:` steps — the runner handles only `prompt:` and `skill:` steps.
+
 ### Extended Compliance
 
 An extended-compliant runner implements the structured bidirectional JSON interface, unlocking the full `ail` feature set. The Claude CLI is the reference implementation.
@@ -62,10 +64,11 @@ An extended-compliant runner implements the structured bidirectional JSON interf
 Extended compliance requires:
 
 - **`--output-format stream-json`** — NDJSON event stream with typed events for tool calls, tool results, text, and completion
-- **`--input-format stream-json`** — accept follow-up NDJSON messages on stdin for session continuity
 - **`--permission-prompt-tool stdio`** — HITL tool permission intercept via stdin/stdout JSON protocol
 - **`--allowedTools` / `--disallowedTools`** — pre-approved and pre-denied tool patterns
 - **`--dangerously-skip-permissions`** — headless/automated mode bypass
+
+> **Session continuity:** `ail` uses `--resume <session_id>` per step rather than `--input-format stream-json`. The `--resume` approach spawns one subprocess per pipeline step and passes the session ID from the previous step's `result` event. `--input-format stream-json` is not a compliance requirement — `ail` does not use it. It may become relevant for real-time HITL injection in a future version.
 
 Optional extended capabilities (declare via `--ail-capabilities` — mechanism to be defined):
 

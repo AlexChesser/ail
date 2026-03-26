@@ -16,9 +16,9 @@ pub struct RunResult {
 pub struct InvokeOptions {
     /// Resumes an existing conversation by session ID (passed as `--resume <id>`).
     pub resume_session_id: Option<String>,
-    /// Tools pre-approved for this step — passed as `--allowedTools` (SPEC §5.6).
+    /// Tools pre-approved for this step — passed as `--allowedTools` (SPEC §5.8).
     pub allowed_tools: Vec<String>,
-    /// Tools pre-denied for this step — passed as `--disallowedTools` (SPEC §5.6).
+    /// Tools pre-denied for this step — passed as `--disallowedTools` (SPEC §5.8).
     pub denied_tools: Vec<String>,
 }
 
