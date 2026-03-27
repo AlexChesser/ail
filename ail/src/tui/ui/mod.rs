@@ -1,4 +1,5 @@
 pub mod layout;
+pub mod modal;
 pub mod prompt;
 pub mod sidebar;
 pub mod statusbar;
@@ -10,7 +11,7 @@ use crate::tui::app::AppState;
 use layout::WidthTier;
 
 /// Render the entire TUI for a single frame.
-pub fn draw(frame: &mut Frame, app: &AppState) {
+pub fn draw(frame: &mut Frame, app: &mut AppState) {
     let area = frame.area();
     let regions = layout::compute(area);
     let tier = WidthTier::from_width(area.width);
@@ -20,7 +21,7 @@ pub fn draw(frame: &mut Frame, app: &AppState) {
         sidebar::draw(frame, app, sidebar_area, tier == WidthTier::GlyphOnly);
     }
 
-    // Main viewport
+    // Main viewport (updates app.viewport_height)
     viewport::draw(frame, app, regions.viewport);
 
     // Status bar
@@ -28,4 +29,7 @@ pub fn draw(frame: &mut Frame, app: &AppState) {
 
     // Prompt input
     prompt::draw(frame, app, regions.prompt);
+
+    // Modal overlay (HITL gate, interrupt, HUD) — drawn last so it's on top
+    modal::draw(frame, app, regions.viewport);
 }

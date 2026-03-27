@@ -9,8 +9,8 @@ pub struct StepDisplay {
 }
 
 /// The visual state of a step glyph.
-#[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)]
 pub enum StepGlyph {
     NotReached,
     Running,
@@ -23,9 +23,12 @@ pub enum StepGlyph {
 
 /// High-level execution phase shown in the status bar.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)]
 pub enum ExecutionPhase {
     Idle,
     Running,
+    Paused,
+    HitlGate,
     Completed,
     Failed,
 }
@@ -43,10 +46,31 @@ pub struct AppState {
     pub cursor_pos: usize,
     pub prompt_history: Vec<String>,
     pub history_index: Option<usize>,
-    /// Set when the user presses Enter; cleared by the backend once consumed.
+    /// Set when the user presses Enter; cleared by the main loop once consumed.
     pub pending_prompt: Option<String>,
-    /// Last response text to show in the viewport.
-    pub last_response: Option<String>,
+
+    // Viewport state (M5)
+    /// Accumulated display lines. Each entry may be a separator, prompt echo, or output line.
+    pub viewport_lines: Vec<String>,
+    /// Lines scrolled up from the bottom (0 = auto-scroll to latest output).
+    pub viewport_scroll: u16,
+    /// Updated each frame so scroll methods can compute page size.
+    pub viewport_height: u16,
+
+    // Streaming tracking (M5)
+    pub active_step_id: Option<String>,
+    /// True once at least one StreamDelta has arrived for the current step.
+    pub step_streamed: bool,
+
+    // Run statistics (M6)
+    pub run_start: Option<std::time::Instant>,
+    pub run_end: Option<std::time::Instant>,
+    pub cumulative_cost_usd: f64,
+    pub cumulative_input_tokens: u64,
+    pub cumulative_output_tokens: u64,
+    pub current_step_index: usize,
+    pub total_steps: usize,
+    pub last_session_id: Option<String>,
 }
 
 impl AppState {
@@ -74,35 +98,77 @@ impl AppState {
             prompt_history: Vec::new(),
             history_index: None,
             pending_prompt: None,
-            last_response: None,
+            viewport_lines: Vec::new(),
+            viewport_scroll: 0,
+            viewport_height: 24,
+            active_step_id: None,
+            step_streamed: false,
+            run_start: None,
+            run_end: None,
+            cumulative_cost_usd: 0.0,
+            cumulative_input_tokens: 0,
+            cumulative_output_tokens: 0,
+            current_step_index: 0,
+            total_steps: 0,
+            last_session_id: None,
         }
     }
+
+    // ── executor event handling ───────────────────────────────────────────────
 
     /// Apply an `ExecutorEvent` from the backend thread to the UI state.
     pub fn apply_executor_event(&mut self, ev: ExecutorEvent) {
         match ev {
-            ExecutorEvent::StepStarted { ref step_id, .. } => {
+            ExecutorEvent::StepStarted {
+                ref step_id,
+                step_index,
+                total_steps,
+            } => {
                 self.phase = ExecutionPhase::Running;
+                self.active_step_id = Some(step_id.clone());
+                self.step_streamed = false;
+                self.current_step_index = step_index;
+                self.total_steps = total_steps;
+                if self.run_start.is_none() {
+                    self.run_start = Some(std::time::Instant::now());
+                }
                 for s in &mut self.steps {
                     if s.id == *step_id {
                         s.glyph = StepGlyph::Running;
                     }
                 }
+                // Step separator in the viewport.
+                if !self.viewport_lines.is_empty() {
+                    self.viewport_lines.push(String::new());
+                }
+                self.viewport_lines.push(format!("── {} ──", step_id));
+                self.viewport_scroll = 0;
             }
-            ExecutorEvent::StepCompleted { ref step_id, .. } => {
+            ExecutorEvent::StepCompleted {
+                ref step_id,
+                cost_usd,
+            } => {
                 for s in &mut self.steps {
                     if s.id == *step_id {
                         s.glyph = StepGlyph::Completed;
                     }
                 }
+                if let Some(c) = cost_usd {
+                    self.cumulative_cost_usd += c;
+                }
             }
-            ExecutorEvent::StepFailed { ref step_id, .. } => {
+            ExecutorEvent::StepFailed {
+                ref step_id,
+                ref error,
+            } => {
                 self.phase = ExecutionPhase::Failed;
                 for s in &mut self.steps {
                     if s.id == *step_id {
                         s.glyph = StepGlyph::Failed;
                     }
                 }
+                self.append_text(&format!("\n[error: {error}]"));
+                self.run_end = Some(std::time::Instant::now());
             }
             ExecutorEvent::StepSkipped { ref step_id } => {
                 for s in &mut self.steps {
@@ -111,48 +177,123 @@ impl AppState {
                     }
                 }
             }
-            ExecutorEvent::RunnerEvent(ail_core::runner::RunnerEvent::StreamDelta { text }) => {
-                let resp = self.last_response.get_or_insert_with(String::new);
-                resp.push_str(&text);
+            ExecutorEvent::RunnerEvent(ail_core::runner::RunnerEvent::StreamDelta { ref text }) => {
+                self.step_streamed = true;
+                self.append_text(text);
+                self.viewport_scroll = 0;
             }
-            ExecutorEvent::RunnerEvent(ail_core::runner::RunnerEvent::Completed(result)) => {
-                self.last_response = Some(result.response);
+            ExecutorEvent::RunnerEvent(ail_core::runner::RunnerEvent::Completed(ref result)) => {
+                if !self.step_streamed {
+                    // Stub runner or no streaming — show full response text now.
+                    self.append_text(&result.response);
+                    self.viewport_scroll = 0;
+                }
+                if let Some(ref sid) = result.session_id {
+                    self.last_session_id = Some(sid.clone());
+                }
+            }
+            ExecutorEvent::RunnerEvent(ail_core::runner::RunnerEvent::CostUpdate {
+                cost_usd,
+                input_tokens,
+                output_tokens,
+            }) => {
+                self.cumulative_cost_usd += cost_usd;
+                self.cumulative_input_tokens += input_tokens;
+                self.cumulative_output_tokens += output_tokens;
+            }
+            ExecutorEvent::RunnerEvent(ail_core::runner::RunnerEvent::ToolUse {
+                ref tool_name,
+            }) => {
+                self.viewport_lines.push(format!("  [tool: {}]", tool_name));
+                self.viewport_scroll = 0;
+            }
+            ExecutorEvent::RunnerEvent(_) => {
+                // ToolResult, Error — no viewport update needed in M5.
             }
             ExecutorEvent::PipelineCompleted(_) => {
                 self.phase = ExecutionPhase::Completed;
+                self.run_end = Some(std::time::Instant::now());
+                self.viewport_lines.push(String::new());
+                self.viewport_lines.push("── done ──".to_string());
+                self.viewport_scroll = 0;
             }
-            ExecutorEvent::PipelineError(msg) => {
+            ExecutorEvent::PipelineError(ref msg) => {
                 self.phase = ExecutionPhase::Failed;
-                self.last_response = Some(format!("Error: {msg}"));
+                self.run_end = Some(std::time::Instant::now());
+                self.append_text(&format!("\n[pipeline error: {msg}]"));
             }
-            // Other RunnerEvent variants (ToolUse, ToolResult, CostUpdate, Error) — no-op for now
-            ExecutorEvent::RunnerEvent(_) => {}
         }
     }
 
-    /// Reset all step glyphs to NotReached before a new pipeline run.
-    #[allow(dead_code)]
-    pub fn reset_step_glyphs(&mut self) {
+    /// Append `text` (which may contain `\n`) to `viewport_lines`.
+    fn append_text(&mut self, text: &str) {
+        let mut parts = text.split('\n');
+        if let Some(first) = parts.next() {
+            if !first.is_empty() {
+                if let Some(last) = self.viewport_lines.last_mut() {
+                    last.push_str(first);
+                } else {
+                    self.viewport_lines.push(first.to_string());
+                }
+            }
+        }
+        for part in parts {
+            self.viewport_lines.push(part.to_string());
+        }
+    }
+
+    /// Echo the user's prompt in the viewport before the pipeline runs.
+    pub fn echo_prompt(&mut self, prompt: &str) {
+        if !self.viewport_lines.is_empty() {
+            self.viewport_lines.push(String::new());
+        }
+        self.viewport_lines.push(format!("> {prompt}"));
+        self.viewport_scroll = 0;
+    }
+
+    /// Reset glyphs and run statistics for a new pipeline run.
+    pub fn reset_for_run(&mut self) {
         for step in &mut self.steps {
             if step.glyph != StepGlyph::Disabled {
                 step.glyph = StepGlyph::NotReached;
             }
         }
+        self.run_start = None;
+        self.run_end = None;
+        self.cumulative_cost_usd = 0.0;
+        self.cumulative_input_tokens = 0;
+        self.cumulative_output_tokens = 0;
+        self.current_step_index = 0;
+        self.total_steps = 0;
+        self.active_step_id = None;
+        self.step_streamed = false;
     }
 
-    /// The current input as a String.
+    // ── viewport scrolling ────────────────────────────────────────────────────
+
+    pub fn viewport_page_up(&mut self) {
+        let page = self.viewport_height.max(1);
+        let max_scroll = (self.viewport_lines.len() as u16).saturating_sub(self.viewport_height);
+        self.viewport_scroll = (self.viewport_scroll + page).min(max_scroll);
+    }
+
+    pub fn viewport_page_down(&mut self) {
+        let page = self.viewport_height.max(1);
+        self.viewport_scroll = self.viewport_scroll.saturating_sub(page);
+    }
+
+    // ── prompt input ──────────────────────────────────────────────────────────
+
     #[allow(dead_code)]
     pub fn input_str(&self) -> String {
         self.input_buffer.iter().collect()
     }
 
-    /// Insert a character at the cursor position.
     pub fn input_insert(&mut self, c: char) {
         self.input_buffer.insert(self.cursor_pos, c);
         self.cursor_pos += 1;
     }
 
-    /// Delete the character before the cursor (backspace).
     pub fn input_backspace(&mut self) {
         if self.cursor_pos > 0 {
             self.input_buffer.remove(self.cursor_pos - 1);
@@ -160,73 +301,61 @@ impl AppState {
         }
     }
 
-    /// Delete the character at the cursor (delete key).
     pub fn input_delete(&mut self) {
         if self.cursor_pos < self.input_buffer.len() {
             self.input_buffer.remove(self.cursor_pos);
         }
     }
 
-    /// Move cursor left one character.
     pub fn cursor_left(&mut self) {
         if self.cursor_pos > 0 {
             self.cursor_pos -= 1;
         }
     }
 
-    /// Move cursor right one character.
     pub fn cursor_right(&mut self) {
         if self.cursor_pos < self.input_buffer.len() {
             self.cursor_pos += 1;
         }
     }
 
-    /// Jump cursor to start of line.
     pub fn cursor_home(&mut self) {
         self.cursor_pos = 0;
     }
 
-    /// Jump cursor to end of line.
     pub fn cursor_end(&mut self) {
         self.cursor_pos = self.input_buffer.len();
     }
 
-    /// Jump cursor left one word (Ctrl+Left / Alt+b).
     pub fn cursor_word_left(&mut self) {
         if self.cursor_pos == 0 {
             return;
         }
         let mut pos = self.cursor_pos - 1;
-        // skip whitespace
         while pos > 0 && self.input_buffer[pos] == ' ' {
             pos -= 1;
         }
-        // skip non-whitespace
         while pos > 0 && self.input_buffer[pos - 1] != ' ' {
             pos -= 1;
         }
         self.cursor_pos = pos;
     }
 
-    /// Jump cursor right one word (Ctrl+Right / Alt+f).
     pub fn cursor_word_right(&mut self) {
         let len = self.input_buffer.len();
         if self.cursor_pos >= len {
             return;
         }
         let mut pos = self.cursor_pos;
-        // skip non-whitespace
         while pos < len && self.input_buffer[pos] != ' ' {
             pos += 1;
         }
-        // skip whitespace
         while pos < len && self.input_buffer[pos] == ' ' {
             pos += 1;
         }
         self.cursor_pos = pos;
     }
 
-    /// Submit the current input: push to history and set pending_prompt.
     pub fn submit_input(&mut self) {
         let text: String = self.input_buffer.iter().collect();
         if text.trim().is_empty() {
@@ -239,7 +368,6 @@ impl AppState {
         self.pending_prompt = Some(text);
     }
 
-    /// Navigate history up (older).
     pub fn history_up(&mut self) {
         if self.prompt_history.is_empty() {
             return;
@@ -255,7 +383,6 @@ impl AppState {
         self.input_buffer = entry;
     }
 
-    /// Navigate history down (newer); returns to empty buffer at the bottom.
     pub fn history_down(&mut self) {
         match self.history_index {
             None => {}

@@ -23,7 +23,6 @@ pub fn run(
     cli_provider: ail_core::config::domain::ProviderConfig,
     headless: bool,
 ) -> io::Result<()> {
-    // Set up terminal
     enable_raw_mode()?;
     let mut stdout = io::stdout();
     execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
@@ -32,7 +31,6 @@ pub fn run(
 
     let result = run_app(&mut terminal, pipeline, cli_provider, headless);
 
-    // Restore terminal on exit
     disable_raw_mode()?;
     execute!(
         terminal.backend_mut(),
@@ -59,28 +57,25 @@ fn run_app(
             match event_rx.try_recv() {
                 Ok(BackendEvent::Executor(ev)) => app.apply_executor_event(ev),
                 Ok(BackendEvent::Error(msg)) => {
-                    app.last_response = Some(format!("Backend error: {msg}"));
+                    app.viewport_lines.push(format!("[backend error: {msg}]"));
                     app.phase = app::ExecutionPhase::Failed;
                 }
                 Err(_) => break,
             }
         }
 
-        terminal.draw(|f| ui::draw(f, &app))?;
+        terminal.draw(|f| ui::draw(f, &mut app))?;
 
-        // Poll for input with a short timeout so the loop stays responsive
         if event::poll(Duration::from_millis(16))? {
             let ev = event::read()?;
             input::handle_event(&mut app, ev);
         }
 
-        // If the user submitted a prompt, send it to the backend.
+        // Submit pending prompt to backend.
         if let Some(prompt) = app.pending_prompt.take() {
-            // Reset step glyphs for the new run.
-            app.reset_step_glyphs();
-            app.last_response = None;
+            app.echo_prompt(&prompt);
+            app.reset_for_run();
             app.phase = app::ExecutionPhase::Running;
-            // Ignore send errors (backend thread may have exited on error).
             let _ = cmd_tx.send(BackendCommand::SubmitPrompt(prompt));
         }
 

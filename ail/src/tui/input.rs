@@ -6,9 +6,17 @@ use super::app::AppState;
 pub fn handle_event(app: &mut AppState, event: Event) {
     if let Event::Key(key) = event {
         match (key.modifiers, key.code) {
-            // Quit: Ctrl-C (q removed — q is a valid prompt character)
+            // Quit: Ctrl-C
             (KeyModifiers::CONTROL, KeyCode::Char('c')) => {
                 app.running = false;
+            }
+
+            // Viewport scroll (global — available regardless of focus)
+            (KeyModifiers::NONE, KeyCode::PageUp) => {
+                app.viewport_page_up();
+            }
+            (KeyModifiers::NONE, KeyCode::PageDown) => {
+                app.viewport_page_down();
             }
 
             // Submit prompt
@@ -16,7 +24,7 @@ pub fn handle_event(app: &mut AppState, event: Event) {
                 app.submit_input();
             }
 
-            // Character insertion (Shift+Enter inserts a newline in the buffer)
+            // Shift+Enter inserts a newline in the buffer
             (KeyModifiers::SHIFT, KeyCode::Enter) => {
                 app.input_insert('\n');
             }
