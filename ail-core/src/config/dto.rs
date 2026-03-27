@@ -3,7 +3,20 @@ use serde::Deserialize;
 #[derive(Deserialize)]
 pub struct PipelineFileDto {
     pub version: Option<String>,
+    pub defaults: Option<DefaultsDto>,
     pub pipeline: Option<Vec<StepDto>>,
+}
+
+#[derive(Deserialize)]
+pub struct DefaultsDto {
+    pub model: Option<String>,
+    pub provider: Option<ProviderDto>,
+}
+
+#[derive(Deserialize)]
+pub struct ProviderDto {
+    pub base_url: Option<String>,
+    pub auth_token: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -16,6 +29,7 @@ pub struct StepDto {
     pub context: Option<ContextDto>,
     pub tools: Option<ToolsDto>,
     pub on_result: Option<Vec<OnResultBranchDto>>,
+    pub model: Option<String>,
 }
 
 #[derive(Deserialize)]

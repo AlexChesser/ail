@@ -20,6 +20,21 @@ pub struct Cli {
     #[arg(long)]
     pub headless: bool,
 
+    /// Override the model for all runner invocations (e.g. `gemma3:1b` for Ollama).
+    /// Takes precedence over any model declared in the pipeline YAML.
+    #[arg(long, value_name = "MODEL")]
+    pub model: Option<String>,
+
+    /// Override the provider base URL for all runner invocations (e.g. `http://localhost:11434`).
+    /// Set as `ANTHROPIC_BASE_URL` in the runner subprocess environment.
+    #[arg(long, value_name = "URL")]
+    pub provider_url: Option<String>,
+
+    /// Override the provider auth token for all runner invocations (e.g. `ollama`).
+    /// Set as `ANTHROPIC_AUTH_TOKEN` in the runner subprocess environment.
+    #[arg(long, value_name = "TOKEN")]
+    pub provider_token: Option<String>,
+
     #[command(subcommand)]
     pub command: Option<Commands>,
 }
@@ -112,6 +127,29 @@ mod tests {
         assert!(cli.once.is_none());
         assert!(cli.pipeline.is_none());
         assert!(!cli.headless);
+        assert!(cli.model.is_none());
+        assert!(cli.provider_url.is_none());
+        assert!(cli.provider_token.is_none());
         assert!(cli.command.is_none());
+    }
+
+    #[test]
+    fn model_flag_parses() {
+        let cli = Cli::try_parse_from(["ail", "--model", "gemma3:1b"]).unwrap();
+        assert_eq!(cli.model.as_deref(), Some("gemma3:1b"));
+    }
+
+    #[test]
+    fn provider_flags_parse() {
+        let cli = Cli::try_parse_from([
+            "ail",
+            "--provider-url",
+            "http://localhost:11434",
+            "--provider-token",
+            "ollama",
+        ])
+        .unwrap();
+        assert_eq!(cli.provider_url.as_deref(), Some("http://localhost:11434"));
+        assert_eq!(cli.provider_token.as_deref(), Some("ollama"));
     }
 }

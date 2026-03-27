@@ -79,8 +79,10 @@ mod tests {
                 body: StepBody::Prompt(prompt.to_string()),
                 tools: None,
                 on_result: None,
+                model: None,
             }],
             source: Some(std::path::PathBuf::from("test.ail.yaml")),
+            defaults: Default::default(),
         }
     }
 

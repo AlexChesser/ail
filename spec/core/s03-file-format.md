@@ -27,12 +27,16 @@ meta:                       # optional block
   description: "DRY refactor + security audit on every output"
   author: "alex@example.com"
 
-providers:                  # optional; named provider aliases (see §15)
+providers:                  # optional; named provider aliases (see §15) — not yet parsed
   fast:     groq/llama-3.1-70b-versatile
   frontier: anthropic/claude-opus-4-5
 
 defaults:                   # optional; inherited by all steps
-  provider: openai/gpt-4o
+  model: gemma3:1b          # ✓ PARSED — model name passed as --model to the runner
+  provider:                 # ✓ PARSED — provider connection details
+    base_url: http://localhost:11434   # set as ANTHROPIC_BASE_URL in subprocess env
+    auth_token: ollama                 # set as ANTHROPIC_AUTH_TOKEN in subprocess env
+  # timeout_seconds, on_error, tools at defaults level — not yet parsed
   timeout_seconds: 120
   on_error: pause_for_human
   tools:                    # pipeline-wide tool policy; overridable per step

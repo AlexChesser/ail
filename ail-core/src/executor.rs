@@ -57,6 +57,18 @@ pub fn execute(session: &mut Session, runner: &dyn Runner) -> Result<ExecuteOutc
                 // or hangs, this is the only evidence the step was attempted.
                 session.turn_log.record_step_started(&step_id, &resolved);
 
+                // Resolve model+provider: pipeline defaults → per-step model → CLI override.
+                let resolved_provider = session
+                    .pipeline
+                    .defaults
+                    .clone()
+                    .merge(crate::config::domain::ProviderConfig {
+                        model: step.model.clone(),
+                        base_url: None,
+                        auth_token: None,
+                    })
+                    .merge(session.cli_provider.clone());
+
                 let options = InvokeOptions {
                     resume_session_id: resume_id,
                     allowed_tools: step
@@ -69,6 +81,9 @@ pub fn execute(session: &mut Session, runner: &dyn Runner) -> Result<ExecuteOutc
                         .as_ref()
                         .map(|t| t.deny.clone())
                         .unwrap_or_default(),
+                    model: resolved_provider.model,
+                    base_url: resolved_provider.base_url,
+                    auth_token: resolved_provider.auth_token,
                 };
 
                 let result = runner.invoke(&resolved, options).map_err(|mut e| {
@@ -308,6 +323,7 @@ mod tests {
         let pipeline = Pipeline {
             steps,
             source: None,
+            defaults: Default::default(),
         };
         Session::new(pipeline, "invocation prompt".to_string())
     }
@@ -318,6 +334,7 @@ mod tests {
             body: StepBody::Prompt(text.to_string()),
             tools: None,
             on_result: None,
+            model: None,
         }
     }
 

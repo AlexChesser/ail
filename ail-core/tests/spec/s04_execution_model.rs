@@ -9,6 +9,7 @@ mod executor {
             id: StepId(id.to_string()),
             body: StepBody::Prompt(text.to_string()),
             tools: None,
+            model: None,
             on_result: None,
         }
     }
@@ -22,6 +23,7 @@ mod executor {
 
         let pipeline = Pipeline {
             steps: vec![prompt_step("first", "A"), prompt_step("second", "B")],
+            defaults: Default::default(),
             source: None,
         };
         let mut session = Session::new(pipeline, "p".to_string());

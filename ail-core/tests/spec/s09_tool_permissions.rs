@@ -61,8 +61,10 @@ mod s9_tool_permissions {
                     allow: vec!["Read".to_string(), "Edit".to_string()],
                     deny: vec!["Bash".to_string()],
                 }),
+                model: None,
                 on_result: None,
             }],
+            defaults: Default::default(),
             source: None,
         };
         let mut session = Session::new(pipeline, "p".to_string());

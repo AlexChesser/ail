@@ -9,6 +9,7 @@ fn make_session(steps: Vec<Step>) -> Session {
     Session::new(
         Pipeline {
             steps,
+            defaults: Default::default(),
             source: None,
         },
         "prompt".to_string(),
@@ -24,6 +25,7 @@ fn prompt_step_with_on_result(
         id: StepId(id.to_string()),
         body: StepBody::Prompt("test".to_string()),
         tools: None,
+        model: None,
         on_result: Some(branches),
     };
     (step, StubRunner::new(response))
@@ -40,6 +42,7 @@ fn context_step_with_exit(id: &str, exit_code: i32, branches: Vec<ResultBranch>)
         id: StepId(id.to_string()),
         body: StepBody::Context(ail_core::config::domain::ContextSource::Shell(cmd)),
         tools: None,
+        model: None,
         on_result: Some(branches),
     }
 }
@@ -49,6 +52,7 @@ fn prompt_step(id: &str, text: &str) -> Step {
         id: StepId(id.to_string()),
         body: StepBody::Prompt(text.to_string()),
         tools: None,
+        model: None,
         on_result: None,
     }
 }

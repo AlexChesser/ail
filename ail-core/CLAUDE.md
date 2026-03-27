@@ -27,7 +27,7 @@ Consumed by `ail` (the binary) and future language-server / SDK targets.
 ```rust
 // Pipeline and its steps
 pub struct Pipeline { pub steps: Vec<Step>, pub source: Option<PathBuf> }
-pub struct Step    { pub id: StepId, pub body: StepBody, pub tools: Option<ToolPolicy>, pub on_result: Option<Vec<ResultBranch>> }
+pub struct Step    { pub id: StepId, pub body: StepBody, pub tools: Option<ToolPolicy>, pub on_result: Option<Vec<ResultBranch>>, pub model: Option<String> }
 pub enum StepBody  { Prompt(String), Skill(PathBuf), SubPipeline(PathBuf), Action(ActionKind), Context(ContextSource) }
 pub enum ContextSource { Shell(String) }
 pub enum ActionKind { PauseForHuman }
@@ -36,16 +36,20 @@ pub enum ResultMatcher { Contains(String), ExitCode(ExitCodeMatch), Always }
 pub enum ExitCodeMatch { Exact(i32), Any }
 pub enum ResultAction { Continue, Break, AbortPipeline, PauseForHuman }
 
+// Provider/model config (SPEC §15) — resolved chain: defaults → per-step → cli_provider
+pub struct ProviderConfig { pub model: Option<String>, pub base_url: Option<String>, pub auth_token: Option<String> }
+// merge(self, other): other wins on conflict; absent fields fall through from self
+
 // Runner contract
 pub trait Runner { fn invoke(&self, prompt: &str, options: InvokeOptions) -> Result<RunResult, AilError>; }
 pub struct RunResult { pub response: String, pub cost_usd: Option<f64>, pub session_id: Option<String> }
-pub struct InvokeOptions { pub resume_session_id: Option<String>, pub allowed_tools: Vec<String>, pub denied_tools: Vec<String> }
+pub struct InvokeOptions { pub resume_session_id: Option<String>, pub allowed_tools: Vec<String>, pub denied_tools: Vec<String>, pub model: Option<String>, pub base_url: Option<String>, pub auth_token: Option<String> }
 
 // Executor outcome
 pub enum ExecuteOutcome { Completed, Break { step_id: String } }
 
 // Session
-pub struct Session { pub run_id: String, pub pipeline: Pipeline, pub invocation_prompt: String, pub turn_log: TurnLog }
+pub struct Session { pub run_id: String, pub pipeline: Pipeline, pub invocation_prompt: String, pub turn_log: TurnLog, pub cli_provider: ProviderConfig }
 // TurnEntry carries both prompt-step fields (response, runner_session_id) and context-step fields (stdout, stderr, exit_code)
 
 // Error

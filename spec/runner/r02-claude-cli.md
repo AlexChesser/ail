@@ -138,11 +138,14 @@ The `--resume` flag is not documented in the Claude CLI `--help` output but is f
 | `--dangerously-skip-permissions` | Bypass all permission checks | Headless/automated mode only |
 | `--verbose` | Required with `--output-format stream-json -p` | Always — omitting it causes an error |
 | `--resume <session_id>` | Resume a prior session by ID | Between pipeline steps |
+| `--model <name>` | Override the model for this invocation | From `defaults.model`, per-step `model:`, or `--model` CLI flag |
 | `--verbose --include-partial-messages` | Token-level streaming | Observability / debugging |
 
 **Note:** `--output-format stream-json` requires `--verbose` when used with `-p` (non-interactive mode). Omitting `--verbose` produces the error: _"When using --print, --output-format=stream-json requires --verbose"_. This is undocumented in Claude CLI's `--help` output.
 
 **Note:** Claude CLI sets the `CLAUDECODE` environment variable. When `ail` spawns a subprocess, it must remove this variable from the child environment — Claude CLI blocks nested sessions if it detects it is running inside another Claude Code session.
+
+**Note:** The Claude CLI respects `ANTHROPIC_BASE_URL` and `ANTHROPIC_AUTH_TOKEN` environment variables, allowing `ail` to redirect API calls to alternative providers (e.g. local Ollama at `http://localhost:11434`). These are set **per subprocess** via `Command::env()` — they are never exported to the parent process environment. Set via pipeline `defaults.provider.base_url`/`defaults.provider.auth_token` in the YAML, or overridden via `--provider-url`/`--provider-token` CLI flags.
 
 *Spike validation status: resolved for Claude CLI v0.0.1. Flags above reflect verified behaviour.*
 

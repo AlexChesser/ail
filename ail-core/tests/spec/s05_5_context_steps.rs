@@ -171,8 +171,10 @@ fn context_shell_captures_stdout() {
             id: StepId("greet".to_string()),
             body: StepBody::Context(ContextSource::Shell("printf 'hello'".to_string())),
             tools: None,
+            model: None,
             on_result: None,
         }],
+        defaults: Default::default(),
         source: None,
     };
     let mut session = ail_core::session::Session::new(pipeline, "p".to_string());
@@ -199,8 +201,10 @@ fn context_shell_captures_stderr() {
             id: StepId("warn".to_string()),
             body: StepBody::Context(ContextSource::Shell("printf 'error msg' >&2".to_string())),
             tools: None,
+            model: None,
             on_result: None,
         }],
+        defaults: Default::default(),
         source: None,
     };
     let mut session = ail_core::session::Session::new(pipeline, "p".to_string());
@@ -230,8 +234,10 @@ fn context_shell_captures_exit_code_zero() {
             id: StepId("ok".to_string()),
             body: StepBody::Context(ContextSource::Shell("true".to_string())),
             tools: None,
+            model: None,
             on_result: None,
         }],
+        defaults: Default::default(),
         source: None,
     };
     let mut session = ail_core::session::Session::new(pipeline, "p".to_string());
@@ -256,8 +262,10 @@ fn context_shell_captures_nonzero_exit_code() {
             id: StepId("fail".to_string()),
             body: StepBody::Context(ContextSource::Shell("exit 42".to_string())),
             tools: None,
+            model: None,
             on_result: None,
         }],
+        defaults: Default::default(),
         source: None,
     };
     let mut session = ail_core::session::Session::new(pipeline, "p".to_string());
@@ -283,8 +291,10 @@ fn context_shell_does_not_call_runner() {
             id: StepId("lint".to_string()),
             body: StepBody::Context(ContextSource::Shell("true".to_string())),
             tools: None,
+            model: None,
             on_result: None,
         }],
+        defaults: Default::default(),
         source: None,
     };
     let mut session = ail_core::session::Session::new(pipeline, "p".to_string());
@@ -316,15 +326,18 @@ fn context_then_prompt_pipeline() {
                     "printf 'no issues found'".to_string(),
                 )),
                 tools: None,
+                model: None,
                 on_result: None,
             },
             Step {
                 id: StepId("review".to_string()),
                 body: StepBody::Prompt("Lint output: {{ step.lint.result }}".to_string()),
                 tools: None,
+                model: None,
                 on_result: None,
             },
         ],
+        defaults: Default::default(),
         source: None,
     };
     let mut session = ail_core::session::Session::new(pipeline, "p".to_string());
@@ -356,15 +369,18 @@ fn template_step_exit_code_resolves() {
                 id: StepId("lint".to_string()),
                 body: StepBody::Context(ContextSource::Shell("exit 3".to_string())),
                 tools: None,
+                model: None,
                 on_result: None,
             },
             Step {
                 id: StepId("report".to_string()),
                 body: StepBody::Prompt("Exit was: {{ step.lint.exit_code }}".to_string()),
                 tools: None,
+                model: None,
                 on_result: None,
             },
         ],
+        defaults: Default::default(),
         source: None,
     };
     let mut session = ail_core::session::Session::new(pipeline, "p".to_string());
@@ -397,8 +413,10 @@ fn prompt_file_path_loads_contents() {
             id: StepId("review".to_string()),
             body: StepBody::Prompt(prompt_file.to_str().unwrap().to_string()),
             tools: None,
+            model: None,
             on_result: None,
         }],
+        defaults: Default::default(),
         source: None,
     };
     let mut session = ail_core::session::Session::new(pipeline, "p".to_string());
@@ -428,8 +446,10 @@ fn prompt_file_not_found_returns_error() {
             id: StepId("review".to_string()),
             body: StepBody::Prompt("./nonexistent_prompt_file.md".to_string()),
             tools: None,
+            model: None,
             on_result: None,
         }],
+        defaults: Default::default(),
         source: None,
     };
     let mut session = ail_core::session::Session::new(pipeline, "p".to_string());
@@ -457,8 +477,10 @@ fn prompt_inline_string_unchanged() {
             id: StepId("review".to_string()),
             body: StepBody::Prompt("Please review this code.".to_string()),
             tools: None,
+            model: None,
             on_result: None,
         }],
+        defaults: Default::default(),
         source: None,
     };
     let mut session = ail_core::session::Session::new(pipeline, "p".to_string());

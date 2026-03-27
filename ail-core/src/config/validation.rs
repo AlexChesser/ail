@@ -4,13 +4,23 @@ use std::collections::HashSet;
 use std::path::PathBuf;
 
 use super::domain::{
-    ActionKind, ContextSource, ExitCodeMatch, Pipeline, ResultAction, ResultBranch, ResultMatcher,
-    Step, StepBody, StepId, ToolPolicy,
+    ActionKind, ContextSource, ExitCodeMatch, Pipeline, ProviderConfig, ResultAction, ResultBranch,
+    ResultMatcher, Step, StepBody, StepId, ToolPolicy,
 };
 use super::dto::{ExitCodeDto, PipelineFileDto};
 use crate::error::{error_types, AilError};
 
 pub fn validate(dto: PipelineFileDto, source: PathBuf) -> Result<Pipeline, AilError> {
+    // Resolve top-level defaults (provider/model config).
+    let defaults = dto
+        .defaults
+        .map(|d| ProviderConfig {
+            model: d.model,
+            base_url: d.provider.as_ref().and_then(|p| p.base_url.clone()),
+            auth_token: d.provider.as_ref().and_then(|p| p.auth_token.clone()),
+        })
+        .unwrap_or_default();
+
     // version must be present and non-empty
     match &dto.version {
         None => {
@@ -238,11 +248,13 @@ pub fn validate(dto: PipelineFileDto, source: PathBuf) -> Result<Pipeline, AilEr
             body,
             tools,
             on_result,
+            model: step_dto.model,
         });
     }
 
     Ok(Pipeline {
         steps,
         source: Some(source),
+        defaults,
     })
 }

@@ -1,9 +1,35 @@
 use std::path::PathBuf;
 
+/// Provider and model configuration resolved from pipeline defaults, per-step overrides,
+/// or CLI flags. All fields are optional — unset fields fall back to runner/environment defaults.
+#[derive(Debug, Clone, Default)]
+pub struct ProviderConfig {
+    /// Model name to pass as `--model` to the runner (e.g. `gemma3:1b`, `claude-sonnet-4-20250514`).
+    pub model: Option<String>,
+    /// Provider base URL, set as `ANTHROPIC_BASE_URL` in the runner subprocess environment.
+    pub base_url: Option<String>,
+    /// Provider auth token, set as `ANTHROPIC_AUTH_TOKEN` in the runner subprocess environment.
+    pub auth_token: Option<String>,
+}
+
+impl ProviderConfig {
+    /// Merge another `ProviderConfig` on top of `self`, with `other` taking precedence.
+    /// Fields present in `other` override fields in `self`; absent fields fall through.
+    pub fn merge(self, other: ProviderConfig) -> ProviderConfig {
+        ProviderConfig {
+            model: other.model.or(self.model),
+            base_url: other.base_url.or(self.base_url),
+            auth_token: other.auth_token.or(self.auth_token),
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct Pipeline {
     pub steps: Vec<Step>,
     pub source: Option<PathBuf>,
+    /// Default provider/model config applied to all steps unless overridden (SPEC §3, §15).
+    pub defaults: ProviderConfig,
 }
 
 impl Pipeline {
@@ -17,8 +43,10 @@ impl Pipeline {
                 body: StepBody::Prompt("{{ session.invocation_prompt }}".to_string()),
                 tools: None,
                 on_result: None,
+                model: None,
             }],
             source: None,
+            defaults: ProviderConfig::default(),
         }
     }
 }
@@ -32,6 +60,8 @@ pub struct Step {
     pub tools: Option<ToolPolicy>,
     /// Declarative branching after step completion (SPEC §5.4).
     pub on_result: Option<Vec<ResultBranch>>,
+    /// Per-step model override. Overrides `pipeline.defaults.model` but not CLI flags.
+    pub model: Option<String>,
 }
 
 #[derive(Debug, Default)]

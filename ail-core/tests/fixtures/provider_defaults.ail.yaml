@@ -1,0 +1,12 @@
+version: "0.0.1"
+defaults:
+  model: gemma3:1b
+  provider:
+    base_url: http://localhost:11434
+    auth_token: ollama
+pipeline:
+  - id: step_one
+    prompt: "Hello from step one"
+  - id: step_two
+    prompt: "Hello from step two"
+    model: claude-haiku-4-5-20251001

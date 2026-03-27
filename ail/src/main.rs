@@ -70,6 +70,11 @@ fn main() {
                 };
 
                 let mut session = ail_core::session::Session::new(pipeline, prompt.clone());
+                session.cli_provider = ail_core::config::domain::ProviderConfig {
+                    model: cli.model.clone(),
+                    base_url: cli.provider_url.clone(),
+                    auth_token: cli.provider_token.clone(),
+                };
                 let runner = ail_core::runner::claude::ClaudeCliRunner::new(cli.headless);
 
                 // If the pipeline does not declare an invocation step, the host runs it
@@ -82,7 +87,13 @@ fn main() {
                     .unwrap_or(false);
 
                 if !has_invocation_step {
-                    match runner.invoke(&prompt, InvokeOptions::default()) {
+                    let invocation_options = InvokeOptions {
+                        model: session.cli_provider.model.clone(),
+                        base_url: session.cli_provider.base_url.clone(),
+                        auth_token: session.cli_provider.auth_token.clone(),
+                        ..InvokeOptions::default()
+                    };
+                    match runner.invoke(&prompt, invocation_options) {
                         Ok(result) => {
                             println!("{}", result.response);
                             session.turn_log.append(ail_core::session::TurnEntry {

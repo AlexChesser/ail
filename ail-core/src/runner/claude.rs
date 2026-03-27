@@ -63,12 +63,22 @@ impl Runner for ClaudeCliRunner {
             args.push("--disallowedTools".into());
             args.push(options.denied_tools.join(","));
         }
+        if let Some(ref model) = options.model {
+            args.push("--model".into());
+            args.push(model.clone());
+        }
         args.push("-p".into());
         args.push(prompt.to_string());
 
-        let mut child = Command::new(&self.claude_bin)
-            .args(&args)
-            .env_remove("CLAUDECODE")
+        let mut cmd = Command::new(&self.claude_bin);
+        cmd.args(&args).env_remove("CLAUDECODE");
+        if let Some(ref url) = options.base_url {
+            cmd.env("ANTHROPIC_BASE_URL", url);
+        }
+        if let Some(ref token) = options.auth_token {
+            cmd.env("ANTHROPIC_AUTH_TOKEN", token);
+        }
+        let mut child = cmd
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
             .spawn()
