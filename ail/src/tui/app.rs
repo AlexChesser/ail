@@ -264,13 +264,12 @@ impl AppState {
             ExecutorEvent::RunnerEvent(ail_core::runner::RunnerEvent::StreamDelta { ref text }) => {
                 self.step_streamed = true;
                 self.append_text(text);
-                self.viewport_scroll = 0;
+                // Do NOT reset viewport_scroll here — preserves user's scroll position.
             }
             ExecutorEvent::RunnerEvent(ail_core::runner::RunnerEvent::Completed(ref result)) => {
                 if !self.step_streamed {
                     // Stub runner or no streaming — show full response text now.
                     self.append_text(&result.response);
-                    self.viewport_scroll = 0;
                 }
                 if let Some(ref sid) = result.session_id {
                     self.last_session_id = Some(sid.clone());
@@ -289,7 +288,7 @@ impl AppState {
                 ref tool_name,
             }) => {
                 self.viewport_lines.push(format!("  [tool: {}]", tool_name));
-                self.viewport_scroll = 0;
+                // Do NOT reset viewport_scroll — preserves user's scroll position.
             }
             ExecutorEvent::HitlGateReached { ref step_id } => {
                 self.phase = ExecutionPhase::HitlGate;
