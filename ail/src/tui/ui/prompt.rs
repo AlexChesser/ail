@@ -1,6 +1,6 @@
 use ratatui::{
     layout::Rect,
-    style::{Color, Style},
+    style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Paragraph},
     Frame,
@@ -8,19 +8,43 @@ use ratatui::{
 
 use crate::tui::app::AppState;
 
-/// Render the prompt input area.
+/// Render the prompt input area with the live input buffer and cursor.
 pub fn draw(frame: &mut Frame, app: &AppState, area: Rect) {
-    let _ = app; // will be populated in M3
     let block = Block::default()
         .borders(Borders::TOP)
         .style(Style::default().fg(Color::DarkGray));
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
+    // Build spans: prefix, text-before-cursor, cursor char (highlighted), text-after-cursor
+    let buf = &app.input_buffer;
+    let cursor = app.cursor_pos.min(buf.len());
+
+    let before: String = buf[..cursor].iter().collect();
+    let cursor_char: String = if cursor < buf.len() {
+        buf[cursor..=cursor].iter().collect()
+    } else {
+        " ".to_string() // block cursor at end
+    };
+    let after: String = if cursor + 1 < buf.len() {
+        buf[cursor + 1..].iter().collect()
+    } else {
+        String::new()
+    };
+
     let line = Line::from(vec![
         Span::styled("> ", Style::default().fg(Color::Cyan)),
-        Span::raw(""),
+        Span::raw(before),
+        Span::styled(
+            cursor_char,
+            Style::default()
+                .fg(Color::Black)
+                .bg(Color::White)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::raw(after),
     ]);
+
     let para = Paragraph::new(line);
     frame.render_widget(para, inner);
 }
