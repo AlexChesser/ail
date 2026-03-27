@@ -16,7 +16,7 @@ use ratatui::{backend::CrosstermBackend, Terminal};
 use app::AppState;
 
 /// Launch the interactive TUI. Returns when the user quits.
-pub fn run() -> io::Result<()> {
+pub fn run(pipeline: Option<ail_core::config::domain::Pipeline>) -> io::Result<()> {
     // Set up terminal
     enable_raw_mode()?;
     let mut stdout = io::stdout();
@@ -24,7 +24,7 @@ pub fn run() -> io::Result<()> {
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
-    let result = run_app(&mut terminal);
+    let result = run_app(&mut terminal, pipeline);
 
     // Restore terminal on exit
     disable_raw_mode()?;
@@ -38,8 +38,11 @@ pub fn run() -> io::Result<()> {
     result
 }
 
-fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<()> {
-    let mut app = AppState::new();
+fn run_app(
+    terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+    pipeline: Option<ail_core::config::domain::Pipeline>,
+) -> io::Result<()> {
+    let mut app = AppState::new(pipeline);
 
     loop {
         terminal.draw(|f| ui::draw(f, &app))?;

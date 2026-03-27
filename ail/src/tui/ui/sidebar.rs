@@ -6,26 +6,67 @@ use ratatui::{
     Frame,
 };
 
-use crate::tui::app::AppState;
+use crate::tui::{
+    app::{AppState, StepGlyph},
+    theme::{colors, glyphs},
+};
+
+fn glyph_for(state: StepGlyph) -> &'static str {
+    match state {
+        StepGlyph::NotReached => glyphs::NOT_REACHED,
+        StepGlyph::Running => glyphs::RUNNING,
+        StepGlyph::Completed => glyphs::COMPLETED,
+        StepGlyph::Failed => glyphs::FAILED,
+        StepGlyph::Skipped => glyphs::SKIPPED,
+        StepGlyph::Disabled => glyphs::DISABLED,
+        StepGlyph::HitlPaused => glyphs::HITL,
+    }
+}
+
+fn color_for(state: StepGlyph) -> Color {
+    match state {
+        StepGlyph::NotReached => colors::NOT_REACHED,
+        StepGlyph::Running => colors::RUNNING,
+        StepGlyph::Completed => colors::COMPLETED,
+        StepGlyph::Failed => colors::FAILED,
+        StepGlyph::Skipped => colors::SKIPPED,
+        StepGlyph::Disabled => colors::DISABLED,
+        StepGlyph::HitlPaused => colors::HITL,
+    }
+}
 
 /// Render the pipeline sidebar.
 pub fn draw(frame: &mut Frame, app: &AppState, area: Rect, glyph_only: bool) {
-    let _ = app; // will be used in M2
     let block = Block::default()
         .borders(Borders::RIGHT)
         .style(Style::default().fg(Color::DarkGray));
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
-    let placeholder = if glyph_only {
-        "○\n○\n○"
+    let lines: Vec<Line> = if app.steps.is_empty() {
+        vec![Line::from(Span::styled(
+            "no pipeline",
+            Style::default().fg(Color::DarkGray),
+        ))]
     } else {
-        "○ (pipeline)\n○ (steps)\n○ (here)"
+        app.steps
+            .iter()
+            .map(|step| {
+                let glyph = glyph_for(step.glyph);
+                let color = color_for(step.glyph);
+                if glyph_only {
+                    Line::from(Span::styled(glyph, Style::default().fg(color)))
+                } else {
+                    Line::from(vec![
+                        Span::styled(glyph, Style::default().fg(color)),
+                        Span::raw(" "),
+                        Span::styled(&step.id, Style::default().fg(color)),
+                    ])
+                }
+            })
+            .collect()
     };
-    let lines: Vec<Line> = placeholder
-        .lines()
-        .map(|l| Line::from(Span::raw(l)))
-        .collect();
+
     let para = Paragraph::new(lines);
     frame.render_widget(para, inner);
 }

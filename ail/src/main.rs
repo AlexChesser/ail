@@ -156,7 +156,18 @@ fn main() {
                 }
             } else {
                 tracing::info!(event = "tui_launch");
-                if let Err(e) = tui::run() {
+                let pipeline_path = ail_core::config::discovery::discover(cli.pipeline);
+                let pipeline = match pipeline_path {
+                    Some(ref path) => match ail_core::config::load(path) {
+                        Ok(p) => Some(p),
+                        Err(e) => {
+                            eprintln!("{e}");
+                            std::process::exit(1);
+                        }
+                    },
+                    None => None,
+                };
+                if let Err(e) = tui::run(pipeline) {
                     eprintln!("TUI error: {e}");
                     std::process::exit(1);
                 }
