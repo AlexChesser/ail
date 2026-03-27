@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use ail_core::config::domain::Pipeline;
 use ail_core::executor::ExecutorEvent;
 
@@ -33,6 +35,13 @@ pub enum ExecutionPhase {
     Failed,
 }
 
+/// Which panel has keyboard focus (M7).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Focus {
+    Prompt,
+    Sidebar,
+}
+
 /// Application state for the TUI.
 pub struct AppState {
     pub running: bool,
@@ -40,6 +49,11 @@ pub struct AppState {
     pub pipeline: Option<Pipeline>,
     pub steps: Vec<StepDisplay>,
     pub phase: ExecutionPhase,
+
+    // Focus and sidebar navigation (M7)
+    pub focus: Focus,
+    pub sidebar_cursor: usize,
+    pub disabled_steps: HashSet<String>,
 
     // Prompt input state (M3)
     pub input_buffer: Vec<char>,
@@ -93,6 +107,9 @@ impl AppState {
             pipeline,
             steps,
             phase: ExecutionPhase::Idle,
+            focus: Focus::Prompt,
+            sidebar_cursor: 0,
+            disabled_steps: HashSet::new(),
             input_buffer: Vec::new(),
             cursor_pos: 0,
             prompt_history: Vec::new(),
@@ -207,6 +224,20 @@ impl AppState {
                 self.viewport_lines.push(format!("  [tool: {}]", tool_name));
                 self.viewport_scroll = 0;
             }
+            ExecutorEvent::HitlGateReached { ref step_id } => {
+                self.phase = ExecutionPhase::HitlGate;
+                for s in &mut self.steps {
+                    if s.id == *step_id {
+                        s.glyph = StepGlyph::HitlPaused;
+                    }
+                }
+                self.viewport_lines.push(String::new());
+                self.viewport_lines
+                    .push(format!("◉ pause_for_human — step: {step_id}"));
+                self.viewport_lines
+                    .push("  press Enter to continue, or type feedback first".to_string());
+                self.viewport_scroll = 0;
+            }
             ExecutorEvent::RunnerEvent(_) => {
                 // ToolResult, Error — no viewport update needed in M5.
             }
@@ -267,6 +298,49 @@ impl AppState {
         self.total_steps = 0;
         self.active_step_id = None;
         self.step_streamed = false;
+    }
+
+    // ── sidebar navigation (M7) ──────────────────────────────────────────────
+
+    pub fn sidebar_nav_up(&mut self) {
+        if self.sidebar_cursor > 0 {
+            self.sidebar_cursor -= 1;
+        }
+    }
+
+    pub fn sidebar_nav_down(&mut self) {
+        if !self.steps.is_empty() && self.sidebar_cursor + 1 < self.steps.len() {
+            self.sidebar_cursor += 1;
+        }
+    }
+
+    pub fn sidebar_toggle_disabled(&mut self) {
+        if let Some(step) = self.steps.get_mut(self.sidebar_cursor) {
+            match step.glyph {
+                StepGlyph::Disabled => {
+                    step.glyph = StepGlyph::NotReached;
+                    self.disabled_steps.remove(&step.id);
+                }
+                StepGlyph::NotReached => {
+                    step.glyph = StepGlyph::Disabled;
+                    self.disabled_steps.insert(step.id.clone());
+                }
+                // Cannot disable running/completed/failed/skipped/hitl steps
+                _ => {}
+            }
+        }
+    }
+
+    pub fn sidebar_enter_focus(&mut self) {
+        self.focus = Focus::Sidebar;
+        // Clamp cursor to valid range.
+        if !self.steps.is_empty() && self.sidebar_cursor >= self.steps.len() {
+            self.sidebar_cursor = self.steps.len() - 1;
+        }
+    }
+
+    pub fn sidebar_exit_focus(&mut self) {
+        self.focus = Focus::Prompt;
     }
 
     // ── viewport scrolling ────────────────────────────────────────────────────

@@ -24,13 +24,16 @@ pub enum ExecuteOutcome {
 
 /// Signals the executor can receive from the TUI while a pipeline is running.
 pub struct ExecutionControl {
-    /// Set to `true` to request that the executor kill the current step and stop.
+    /// Set to `true` to request a pause between steps. The executor spin-waits until cleared.
+    pub pause_requested: Arc<AtomicBool>,
+    /// Set to `true` to request that the executor stop immediately after the current step.
     pub kill_requested: Arc<AtomicBool>,
 }
 
 impl ExecutionControl {
     pub fn new() -> Self {
         ExecutionControl {
+            pause_requested: Arc::new(AtomicBool::new(false)),
             kill_requested: Arc::new(AtomicBool::new(false)),
         }
     }
@@ -60,6 +63,10 @@ pub enum ExecutorEvent {
     StepFailed {
         step_id: String,
         error: String,
+    },
+    /// A `pause_for_human` step was reached — executor is blocked until `hitl_rx` receives a value.
+    HitlGateReached {
+        step_id: String,
     },
     RunnerEvent(RunnerEvent),
     PipelineCompleted(ExecuteOutcome),
@@ -288,14 +295,16 @@ pub fn execute(session: &mut Session, runner: &dyn Runner) -> Result<ExecuteOutc
 /// Execute the pipeline with live control signals and event streaming for the TUI.
 ///
 /// Additive counterpart to `execute()` — the original function is unchanged.
-/// Sends `ExecutorEvent`s through `event_tx`; respects `control.kill_requested` between steps.
+/// Sends `ExecutorEvent`s through `event_tx`; respects kill/pause flags between steps.
 /// Steps listed in `disabled_steps` are skipped with a `StepSkipped` event.
+/// Blocks on `hitl_rx.recv()` when a `pause_for_human` step is reached (M10).
 pub fn execute_with_control(
     session: &mut Session,
     runner: &dyn Runner,
     control: &ExecutionControl,
     disabled_steps: &HashSet<String>,
     event_tx: mpsc::Sender<ExecutorEvent>,
+    hitl_rx: mpsc::Receiver<String>,
 ) -> Result<ExecuteOutcome, AilError> {
     let total_steps = session.pipeline.steps.len();
 
@@ -314,6 +323,17 @@ pub fn execute_with_control(
         // Check kill flag between steps.
         if control.kill_requested.load(Ordering::SeqCst) {
             tracing::info!(run_id = %session.run_id, step_id = %step_id, "kill requested — stopping pipeline");
+            break;
+        }
+
+        // Check pause flag — spin-sleep until cleared or kill is set.
+        while control.pause_requested.load(Ordering::SeqCst) {
+            if control.kill_requested.load(Ordering::SeqCst) {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+        if control.kill_requested.load(Ordering::SeqCst) {
             break;
         }
 
@@ -490,7 +510,13 @@ pub fn execute_with_control(
             }
 
             StepBody::Action(crate::config::domain::ActionKind::PauseForHuman) => {
-                tracing::info!(run_id = %session.run_id, step_id = %step_id, "pause_for_human (controlled, no-op v0.1)");
+                tracing::info!(run_id = %session.run_id, step_id = %step_id, "pause_for_human — waiting for HITL response");
+                let _ = event_tx.send(ExecutorEvent::HitlGateReached {
+                    step_id: step_id.clone(),
+                });
+                // Block until the TUI sends a response (or the channel is dropped).
+                let _response = hitl_rx.recv().unwrap_or_default();
+                tracing::info!(run_id = %session.run_id, step_id = %step_id, "HITL gate unblocked — resuming");
                 let _ = event_tx.send(ExecutorEvent::StepCompleted {
                     step_id: step_id.clone(),
                     cost_usd: None,

@@ -9,21 +9,24 @@ use ail_core::session::Session;
 
 /// Commands sent from the TUI to the backend thread.
 pub enum BackendCommand {
-    SubmitPrompt(String),
+    SubmitPrompt {
+        prompt: String,
+        disabled_steps: HashSet<String>,
+    },
 }
 
 /// Events sent from the backend thread back to the TUI event loop.
-#[derive(Debug)]
 pub enum BackendEvent {
     Executor(ExecutorEvent),
     /// A fatal error occurred in the backend (e.g. session setup failed).
     Error(String),
+    /// Provides the channel to unblock a HITL gate (M10).
+    HitlReady(mpsc::Sender<String>),
 }
 
 /// Spawn the background executor thread.
 ///
 /// Returns a command sender (TUI → backend) and an event receiver (backend → TUI).
-/// The backend thread owns the `Session` and `Runner` and loops on `BackendCommand`s.
 pub fn spawn_backend(
     pipeline: Option<Pipeline>,
     cli_provider: ProviderConfig,
@@ -38,12 +41,18 @@ pub fn spawn_backend(
 
         for cmd in cmd_rx {
             match cmd {
-                BackendCommand::SubmitPrompt(prompt) => {
+                BackendCommand::SubmitPrompt {
+                    prompt,
+                    disabled_steps,
+                } => {
                     let mut session = Session::new(resolved_pipeline.clone(), prompt.clone());
                     session.cli_provider = cli_provider.clone();
 
                     let control = ExecutionControl::new();
-                    let disabled: HashSet<String> = HashSet::new();
+
+                    // Create a hitl channel for this run; send the Sender to the TUI.
+                    let (hitl_tx, hitl_rx) = mpsc::channel::<String>();
+                    let _ = event_tx.send(BackendEvent::HitlReady(hitl_tx));
 
                     // Bridge: executor sends ExecutorEvents; we wrap them into BackendEvents.
                     let (exec_tx, exec_rx) = mpsc::channel::<ExecutorEvent>();
@@ -54,14 +63,13 @@ pub fn spawn_backend(
                         }
                     });
 
-                    // Run invocation step via the executor — the passthrough / declared pipeline
-                    // already has invocation as step[0] so execute_with_control handles it.
                     match executor::execute_with_control(
                         &mut session,
                         &runner,
                         &control,
-                        &disabled,
+                        &disabled_steps,
                         exec_tx,
+                        hitl_rx,
                     ) {
                         Ok(_) => {}
                         Err(e) => {

@@ -5,6 +5,7 @@ pub mod theme;
 mod ui;
 
 use std::io;
+use std::sync::mpsc;
 use std::time::Duration;
 
 use crossterm::{
@@ -14,7 +15,7 @@ use crossterm::{
 };
 use ratatui::{backend::CrosstermBackend, Terminal};
 
-use app::AppState;
+use app::{AppState, ExecutionPhase};
 use backend::{BackendCommand, BackendEvent};
 
 /// Launch the interactive TUI. Returns when the user quits.
@@ -51,6 +52,9 @@ fn run_app(
     let mut app = AppState::new(pipeline.clone());
     let (cmd_tx, event_rx) = backend::spawn_backend(pipeline, cli_provider, headless);
 
+    // HITL gate sender: received from backend when a run starts, used to unblock PauseForHuman.
+    let mut hitl_tx: Option<mpsc::Sender<String>> = None;
+
     loop {
         // Drain all pending backend events before drawing (non-blocking).
         loop {
@@ -58,7 +62,10 @@ fn run_app(
                 Ok(BackendEvent::Executor(ev)) => app.apply_executor_event(ev),
                 Ok(BackendEvent::Error(msg)) => {
                     app.viewport_lines.push(format!("[backend error: {msg}]"));
-                    app.phase = app::ExecutionPhase::Failed;
+                    app.phase = ExecutionPhase::Failed;
+                }
+                Ok(BackendEvent::HitlReady(tx)) => {
+                    hitl_tx = Some(tx);
                 }
                 Err(_) => break,
             }
@@ -71,12 +78,23 @@ fn run_app(
             input::handle_event(&mut app, ev);
         }
 
-        // Submit pending prompt to backend.
+        // Submit pending prompt to backend (or unblock HITL gate).
         if let Some(prompt) = app.pending_prompt.take() {
-            app.echo_prompt(&prompt);
-            app.reset_for_run();
-            app.phase = app::ExecutionPhase::Running;
-            let _ = cmd_tx.send(BackendCommand::SubmitPrompt(prompt));
+            if app.phase == ExecutionPhase::HitlGate {
+                // HITL gate: send the response (may be empty — means "continue")
+                if let Some(ref tx) = hitl_tx {
+                    let _ = tx.send(prompt);
+                }
+                app.phase = ExecutionPhase::Running;
+            } else {
+                app.echo_prompt(&prompt);
+                app.reset_for_run();
+                app.phase = ExecutionPhase::Running;
+                let _ = cmd_tx.send(BackendCommand::SubmitPrompt {
+                    prompt,
+                    disabled_steps: app.disabled_steps.clone(),
+                });
+            }
         }
 
         if !app.running {
