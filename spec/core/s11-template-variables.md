@@ -1,6 +1,6 @@
 ## 11. Template Variables
 
-Prompt strings and file-based prompts may reference runtime context using `{{ variable }}` syntax. Variables resolve at step execution time from the persisted pipeline run log, not from in-memory state.
+Prompt strings, file-based prompts, and `pipeline:` paths may reference runtime context using `{{ variable }}` syntax. Variables resolve at step execution time from the persisted pipeline run log, not from in-memory state.
 
 | Variable | Value |
 |---|---|
