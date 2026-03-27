@@ -47,6 +47,8 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
         // Poll for input with a short timeout so the loop stays responsive
         if event::poll(Duration::from_millis(50))? {
             let ev = event::read()?;
+            // Resize events require a redraw — ratatui handles this automatically
+            // on the next draw() call, so no special handling needed here.
             input::handle_event(&mut app, ev);
         }
 

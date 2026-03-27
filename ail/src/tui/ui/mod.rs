@@ -1,20 +1,31 @@
-use ratatui::{
-    layout::Alignment,
-    style::{Modifier, Style},
-    text::Text,
-    widgets::Paragraph,
-    Frame,
-};
+pub mod layout;
+pub mod prompt;
+pub mod sidebar;
+pub mod statusbar;
+pub mod viewport;
+
+use ratatui::Frame;
 
 use crate::tui::app::AppState;
+use layout::WidthTier;
 
 /// Render the entire TUI for a single frame.
-pub fn draw(frame: &mut Frame, _app: &AppState) {
-    let version = ail_core::version();
-    let text = Text::styled(
-        format!("ail v{version}\npress q to quit"),
-        Style::default().add_modifier(Modifier::BOLD),
-    );
-    let paragraph = Paragraph::new(text).alignment(Alignment::Center);
-    frame.render_widget(paragraph, frame.area());
+pub fn draw(frame: &mut Frame, app: &AppState) {
+    let area = frame.area();
+    let regions = layout::compute(area);
+    let tier = WidthTier::from_width(area.width);
+
+    // Sidebar (visible in Full and GlyphOnly tiers)
+    if let Some(sidebar_area) = regions.sidebar {
+        sidebar::draw(frame, app, sidebar_area, tier == WidthTier::GlyphOnly);
+    }
+
+    // Main viewport
+    viewport::draw(frame, app, regions.viewport);
+
+    // Status bar
+    statusbar::draw(frame, app, regions.status_bar);
+
+    // Prompt input
+    prompt::draw(frame, app, regions.prompt);
 }
