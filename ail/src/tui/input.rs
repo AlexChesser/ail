@@ -135,6 +135,14 @@ fn handle_prompt(app: &mut AppState, modifiers: KeyModifiers, code: KeyCode) {
             app.cursor_word_right();
         }
 
+        // Session navigation (M9)
+        (KeyModifiers::CONTROL, KeyCode::Char('p')) => {
+            app.session_prev();
+        }
+        (KeyModifiers::CONTROL, KeyCode::Char('n')) => {
+            app.session_next();
+        }
+
         // History navigation
         (KeyModifiers::NONE, KeyCode::Up) => {
             app.history_up();

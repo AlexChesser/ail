@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use ail_core::config::domain::Pipeline;
 use ail_core::executor::ExecutorEvent;
@@ -88,6 +88,14 @@ pub struct AppState {
     /// True once at least one StreamDelta has arrived for the current step.
     pub step_streamed: bool,
 
+    // Per-step output buffers and session navigation (M9)
+    /// Output lines keyed by step_id. Populated as steps run.
+    pub step_outputs: HashMap<String, Vec<String>>,
+    /// Ordered list of step IDs as they were started, for Ctrl+P/N navigation.
+    pub step_order: Vec<String>,
+    /// None = live view (auto-scroll to latest). Some(i) = viewing step_order[i].
+    pub viewing_step: Option<usize>,
+
     // Run statistics (M6)
     pub run_start: Option<std::time::Instant>,
     pub run_end: Option<std::time::Instant>,
@@ -134,6 +142,9 @@ impl AppState {
             viewport_height: 24,
             active_step_id: None,
             step_streamed: false,
+            step_outputs: HashMap::new(),
+            step_order: Vec::new(),
+            viewing_step: None,
             run_start: None,
             run_end: None,
             cumulative_cost_usd: 0.0,
@@ -158,6 +169,11 @@ impl AppState {
                 self.phase = ExecutionPhase::Running;
                 self.active_step_id = Some(step_id.clone());
                 self.step_streamed = false;
+                // Register step in per-step output buffers (M9).
+                if !self.step_outputs.contains_key(step_id.as_str()) {
+                    self.step_order.push(step_id.clone());
+                    self.step_outputs.insert(step_id.clone(), Vec::new());
+                }
                 self.current_step_index = step_index;
                 self.total_steps = total_steps;
                 if self.run_start.is_none() {
@@ -270,20 +286,29 @@ impl AppState {
         }
     }
 
-    /// Append `text` (which may contain `\n`) to `viewport_lines`.
+    /// Append `text` (which may contain `\n`) to `viewport_lines` and the active step buffer.
     fn append_text(&mut self, text: &str) {
+        Self::append_to(text, &mut self.viewport_lines);
+        if let Some(ref id) = self.active_step_id.clone() {
+            if let Some(buf) = self.step_outputs.get_mut(id) {
+                Self::append_to(text, buf);
+            }
+        }
+    }
+
+    fn append_to(text: &str, target: &mut Vec<String>) {
         let mut parts = text.split('\n');
         if let Some(first) = parts.next() {
             if !first.is_empty() {
-                if let Some(last) = self.viewport_lines.last_mut() {
+                if let Some(last) = target.last_mut() {
                     last.push_str(first);
                 } else {
-                    self.viewport_lines.push(first.to_string());
+                    target.push(first.to_string());
                 }
             }
         }
         for part in parts {
-            self.viewport_lines.push(part.to_string());
+            target.push(part.to_string());
         }
     }
 
@@ -312,6 +337,9 @@ impl AppState {
         self.total_steps = 0;
         self.active_step_id = None;
         self.step_streamed = false;
+        self.step_outputs.clear();
+        self.step_order.clear();
+        self.viewing_step = None;
     }
 
     // ── sidebar navigation (M7) ──────────────────────────────────────────────
@@ -375,6 +403,49 @@ impl AppState {
 
     pub fn sidebar_exit_focus(&mut self) {
         self.focus = Focus::Prompt;
+    }
+
+    // ── session navigation (M9) ───────────────────────────────────────────────
+
+    /// Navigate to the previous completed step's output (Ctrl+P).
+    pub fn session_prev(&mut self) {
+        if self.step_order.is_empty() {
+            return;
+        }
+        let new_idx = match self.viewing_step {
+            None => self.step_order.len().saturating_sub(1),
+            Some(i) if i > 0 => i - 1,
+            Some(i) => i,
+        };
+        self.viewing_step = Some(new_idx);
+        self.viewport_scroll = 0;
+    }
+
+    /// Navigate to the next step (or back to live view) with Ctrl+N.
+    pub fn session_next(&mut self) {
+        match self.viewing_step {
+            None => {}
+            Some(i) if i + 1 < self.step_order.len() => {
+                self.viewing_step = Some(i + 1);
+                self.viewport_scroll = 0;
+            }
+            Some(_) => {
+                self.viewing_step = None;
+                self.viewport_scroll = 0;
+            }
+        }
+    }
+
+    /// Lines to display in the viewport (live or a specific step's buffer).
+    pub fn active_viewport_lines(&self) -> &[String] {
+        if let Some(idx) = self.viewing_step {
+            if let Some(id) = self.step_order.get(idx) {
+                if let Some(lines) = self.step_outputs.get(id) {
+                    return lines;
+                }
+            }
+        }
+        &self.viewport_lines
     }
 
     // ── viewport scrolling ────────────────────────────────────────────────────

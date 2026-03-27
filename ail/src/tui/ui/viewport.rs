@@ -12,7 +12,9 @@ use crate::tui::app::{AppState, ExecutionPhase};
 pub fn draw(frame: &mut Frame, app: &mut AppState, area: Rect) {
     app.viewport_height = area.height;
 
-    let lines: Vec<Line> = if app.viewport_lines.is_empty() {
+    let source_lines = app.active_viewport_lines();
+
+    let lines: Vec<Line> = if source_lines.is_empty() {
         // Idle placeholder
         let hint = match app.phase {
             ExecutionPhase::Idle => {
@@ -27,7 +29,7 @@ pub fn draw(frame: &mut Frame, app: &mut AppState, area: Rect) {
             Style::default().add_modifier(Modifier::DIM),
         )]
     } else {
-        app.viewport_lines
+        source_lines
             .iter()
             .map(|l| {
                 // Step separators rendered in dim style.
@@ -59,6 +61,22 @@ pub fn draw(frame: &mut Frame, app: &mut AppState, area: Rect) {
     let max_from_top = total.saturating_sub(visible);
     let scroll_y = max_from_top.saturating_sub(app.viewport_scroll);
 
-    let para = Paragraph::new(lines).scroll((scroll_y, 0));
+    // Add viewing indicator when browsing a historical step (M9).
+    let para = if let Some(idx) = app.viewing_step {
+        let step_id = app.step_order.get(idx).map(|s| s.as_str()).unwrap_or("?");
+        let total_steps = app.step_order.len();
+        let indicator = format!(
+            " viewing: {step_id} ({}/{total_steps}) — Ctrl+N for next, Ctrl+N again for live ",
+            idx + 1
+        );
+        Paragraph::new(lines).scroll((scroll_y, 0)).block(
+            ratatui::widgets::Block::default()
+                .title(Span::styled(indicator, Style::default().fg(Color::Yellow)))
+                .borders(ratatui::widgets::Borders::NONE),
+        )
+    } else {
+        Paragraph::new(lines).scroll((scroll_y, 0))
+    };
+
     frame.render_widget(para, area);
 }
