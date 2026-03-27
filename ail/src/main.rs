@@ -1,4 +1,5 @@
 mod cli;
+mod tui;
 
 use ail_core::runner::{InvokeOptions, Runner};
 use clap::Parser;
@@ -154,8 +155,11 @@ fn main() {
                     }
                 }
             } else {
-                tracing::info!(event = "repl_stub");
-                eprintln!("ail: interactive REPL not yet implemented in v0.0.1");
+                tracing::info!(event = "tui_launch");
+                if let Err(e) = tui::run() {
+                    eprintln!("TUI error: {e}");
+                    std::process::exit(1);
+                }
             }
         }
     }
