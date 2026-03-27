@@ -6,7 +6,10 @@ use clap::Parser;
 use cli::{Cli, Commands};
 
 fn main() {
-    tracing_subscriber::fmt().json().init();
+    tracing_subscriber::fmt()
+        .json()
+        .with_writer(std::io::stderr)
+        .init();
 
     let cli = Cli::parse();
 
