@@ -15,7 +15,7 @@ use crossterm::{
 };
 use ratatui::{backend::CrosstermBackend, Terminal};
 
-use app::{AppState, ExecutionPhase, StepDisplay, StepGlyph};
+use app::{AppState, ExecutionPhase};
 use backend::{BackendCommand, BackendEvent};
 
 /// Launch the interactive TUI. Returns when the user quits.
@@ -102,14 +102,7 @@ fn run_app(
         if let Some(path) = app.pending_pipeline_switch.take() {
             match ail_core::config::load(&path) {
                 Ok(new_pipeline) => {
-                    app.steps = new_pipeline
-                        .steps
-                        .iter()
-                        .map(|s| StepDisplay {
-                            id: s.id.as_str().to_string(),
-                            glyph: StepGlyph::NotReached,
-                        })
-                        .collect();
+                    app.steps = AppState::steps_for_pipeline(&new_pipeline);
                     app.pipeline = Some(new_pipeline.clone());
                     app.sidebar_cursor = 0;
                     app.disabled_steps.clear();

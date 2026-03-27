@@ -135,18 +135,42 @@ pub struct AppState {
 }
 
 impl AppState {
+    /// Build the sidebar step list for a pipeline.
+    ///
+    /// If the pipeline's first step is not named "invocation", a virtual display entry is
+    /// prepended so the sidebar shows the full execution chain (SPEC §4.1).
+    pub fn steps_for_pipeline(pipeline: &Pipeline) -> Vec<StepDisplay> {
+        let has_invocation = pipeline
+            .steps
+            .first()
+            .map(|s| s.id.as_str() == "invocation")
+            .unwrap_or(false);
+
+        let mut steps: Vec<StepDisplay> = pipeline
+            .steps
+            .iter()
+            .map(|s| StepDisplay {
+                id: s.id.as_str().to_string(),
+                glyph: StepGlyph::NotReached,
+            })
+            .collect();
+
+        if !has_invocation {
+            steps.insert(
+                0,
+                StepDisplay {
+                    id: "invocation".to_string(),
+                    glyph: StepGlyph::NotReached,
+                },
+            );
+        }
+        steps
+    }
+
     pub fn new(pipeline: Option<Pipeline>) -> Self {
         let steps = pipeline
             .as_ref()
-            .map(|p| {
-                p.steps
-                    .iter()
-                    .map(|s| StepDisplay {
-                        id: s.id.as_str().to_string(),
-                        glyph: StepGlyph::NotReached,
-                    })
-                    .collect()
-            })
+            .map(Self::steps_for_pipeline)
             .unwrap_or_default();
 
         AppState {

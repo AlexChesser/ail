@@ -7,7 +7,8 @@ use std::thread;
 use ail_core::config::domain::{Pipeline, ProviderConfig};
 use ail_core::executor::{self, ExecutionControl, ExecutorEvent};
 use ail_core::runner::claude::ClaudeCliRunner;
-use ail_core::session::Session;
+use ail_core::runner::{InvokeOptions, Runner, RunnerEvent};
+use ail_core::session::{Session, TurnEntry};
 
 /// Commands sent from the TUI to the backend thread.
 pub enum BackendCommand {
@@ -71,6 +72,66 @@ pub fn spawn_backend(
                     // Create a hitl channel for this run; send the Sender to the TUI.
                     let (hitl_tx, hitl_rx) = mpsc::channel::<String>();
                     let _ = event_tx.send(BackendEvent::HitlReady(hitl_tx));
+
+                    // If the pipeline does not declare an invocation step, run the user's
+                    // prompt through the runner before handing off to the executor (SPEC §4.1).
+                    let has_invocation_step = resolved_pipeline
+                        .steps
+                        .first()
+                        .map(|s| s.id.as_str() == "invocation")
+                        .unwrap_or(false);
+
+                    if !has_invocation_step {
+                        let total_steps = resolved_pipeline.steps.len() + 1;
+                        let _ = event_tx.send(BackendEvent::Executor(ExecutorEvent::StepStarted {
+                            step_id: "invocation".to_string(),
+                            step_index: 0,
+                            total_steps,
+                        }));
+
+                        let invocation_options = InvokeOptions {
+                            model: session.cli_provider.model.clone(),
+                            base_url: session.cli_provider.base_url.clone(),
+                            auth_token: session.cli_provider.auth_token.clone(),
+                            ..InvokeOptions::default()
+                        };
+
+                        let (runner_tx, runner_rx) = mpsc::channel::<RunnerEvent>();
+                        let fwd_inv_tx = event_tx.clone();
+                        let fwd_inv_handle = thread::spawn(move || {
+                            for ev in runner_rx {
+                                let _ = fwd_inv_tx
+                                    .send(BackendEvent::Executor(ExecutorEvent::RunnerEvent(ev)));
+                            }
+                        });
+
+                        match runner.invoke_streaming(&prompt, invocation_options, runner_tx) {
+                            Ok(result) => {
+                                let _ = fwd_inv_handle.join();
+                                session.turn_log.append(TurnEntry {
+                                    step_id: "invocation".to_string(),
+                                    prompt: prompt.clone(),
+                                    response: Some(result.response),
+                                    timestamp: std::time::SystemTime::now(),
+                                    cost_usd: result.cost_usd,
+                                    runner_session_id: result.session_id,
+                                    stdout: None,
+                                    stderr: None,
+                                    exit_code: None,
+                                });
+                                let _ =
+                                    event_tx.send(BackendEvent::Executor(ExecutorEvent::StepCompleted {
+                                        step_id: "invocation".to_string(),
+                                        cost_usd: None,
+                                    }));
+                            }
+                            Err(e) => {
+                                let _ = fwd_inv_handle.join();
+                                let _ = event_tx.send(BackendEvent::Error(e.detail.clone()));
+                                continue;
+                            }
+                        }
+                    }
 
                     // Bridge: executor sends ExecutorEvents; we wrap them into BackendEvents.
                     let (exec_tx, exec_rx) = mpsc::channel::<ExecutorEvent>();
