@@ -253,6 +253,15 @@ impl Runner for ClaudeCliRunner {
                                         }
                                     }
                                 }
+                                "thinking" => {
+                                    if let Some(text) = item["thinking"].as_str() {
+                                        if !text.is_empty() {
+                                            let _ = tx.send(RunnerEvent::Thinking {
+                                                text: text.to_string(),
+                                            });
+                                        }
+                                    }
+                                }
                                 "tool_use" => {
                                     if let Some(name) = item["name"].as_str() {
                                         let _ = tx.send(RunnerEvent::ToolUse {

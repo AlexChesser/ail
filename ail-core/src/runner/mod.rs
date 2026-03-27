@@ -18,6 +18,8 @@ pub struct RunResult {
 pub enum RunnerEvent {
     /// A chunk of assistant text arrived.
     StreamDelta { text: String },
+    /// A reasoning/thinking block from the model (extended thinking).
+    Thinking { text: String },
     /// A tool call was started.
     ToolUse { tool_name: String },
     /// A tool call completed.

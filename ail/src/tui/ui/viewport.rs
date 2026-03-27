@@ -43,6 +43,11 @@ pub fn draw(frame: &mut Frame, app: &mut AppState, area: Rect) {
                         Style::default().fg(Color::DarkGray)
                     };
                     Line::from(Span::styled(l.clone(), style))
+                } else if l.starts_with("[thinking] ") {
+                    Line::from(Span::styled(
+                        l.clone(),
+                        Style::default().fg(Color::DarkGray),
+                    ))
                 } else if l.starts_with("  [tool: ") {
                     Line::from(Span::styled(l.clone(), Style::default().fg(Color::Magenta)))
                 } else if l.starts_with("[error") || l.starts_with("[pipeline error") {

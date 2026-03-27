@@ -290,6 +290,12 @@ impl AppState {
                 self.append_text(text);
                 // Do NOT reset viewport_scroll here — preserves user's scroll position.
             }
+            ExecutorEvent::RunnerEvent(ail_core::runner::RunnerEvent::Thinking { ref text }) => {
+                // Prefix thinking blocks so the viewport can render them in a distinct style.
+                for line in text.lines() {
+                    self.append_text(&format!("\n[thinking] {line}"));
+                }
+            }
             ExecutorEvent::RunnerEvent(ail_core::runner::RunnerEvent::Completed(ref result)) => {
                 if !self.step_streamed {
                     // Stub runner or no streaming — show full response text now.
