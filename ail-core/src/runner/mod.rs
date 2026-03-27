@@ -5,10 +5,33 @@ pub mod stub;
 
 use crate::error::AilError;
 
+/// Result of a single runner invocation.
+#[derive(Debug, Clone)]
 pub struct RunResult {
     pub response: String,
     pub cost_usd: Option<f64>,
     pub session_id: Option<String>,
+}
+
+/// Streaming events emitted by `invoke_streaming()`.
+#[derive(Debug, Clone)]
+pub enum RunnerEvent {
+    /// A chunk of assistant text arrived.
+    StreamDelta { text: String },
+    /// A tool call was started.
+    ToolUse { tool_name: String },
+    /// A tool call completed.
+    ToolResult { tool_name: String },
+    /// Cost / token update.
+    CostUpdate {
+        cost_usd: f64,
+        input_tokens: u64,
+        output_tokens: u64,
+    },
+    /// The invocation completed successfully.
+    Completed(RunResult),
+    /// The invocation failed.
+    Error(String),
 }
 
 /// Options passed to a runner invocation. Extensible without changing the trait signature.
@@ -31,4 +54,19 @@ pub struct InvokeOptions {
 
 pub trait Runner {
     fn invoke(&self, prompt: &str, options: InvokeOptions) -> Result<RunResult, AilError>;
+
+    /// Streaming variant — emits `RunnerEvent`s through `tx` as the invocation progresses.
+    ///
+    /// The default implementation calls `invoke()` and sends a single `Completed` event.
+    /// Runners that support real streaming (e.g. `ClaudeCliRunner`) should override this.
+    fn invoke_streaming(
+        &self,
+        prompt: &str,
+        options: InvokeOptions,
+        tx: std::sync::mpsc::Sender<RunnerEvent>,
+    ) -> Result<RunResult, AilError> {
+        let result = self.invoke(prompt, options)?;
+        let _ = tx.send(RunnerEvent::Completed(result.clone()));
+        Ok(result)
+    }
 }

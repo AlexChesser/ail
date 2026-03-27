@@ -167,7 +167,12 @@ fn main() {
                     },
                     None => None,
                 };
-                if let Err(e) = tui::run(pipeline) {
+                let cli_provider = ail_core::config::domain::ProviderConfig {
+                    model: cli.model.clone(),
+                    base_url: cli.provider_url.clone(),
+                    auth_token: cli.provider_token.clone(),
+                };
+                if let Err(e) = tui::run(pipeline, cli_provider, cli.headless) {
                     eprintln!("TUI error: {e}");
                     std::process::exit(1);
                 }

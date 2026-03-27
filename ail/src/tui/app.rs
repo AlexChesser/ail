@@ -1,4 +1,5 @@
 use ail_core::config::domain::Pipeline;
+use ail_core::executor::ExecutorEvent;
 
 /// State of a single pipeline step as displayed in the sidebar.
 #[derive(Debug, Clone)]
@@ -20,12 +21,22 @@ pub enum StepGlyph {
     HitlPaused, // ◉
 }
 
+/// High-level execution phase shown in the status bar.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExecutionPhase {
+    Idle,
+    Running,
+    Completed,
+    Failed,
+}
+
 /// Application state for the TUI.
 pub struct AppState {
     pub running: bool,
     #[allow(dead_code)]
     pub pipeline: Option<Pipeline>,
     pub steps: Vec<StepDisplay>,
+    pub phase: ExecutionPhase,
 
     // Prompt input state (M3)
     pub input_buffer: Vec<char>,
@@ -34,6 +45,8 @@ pub struct AppState {
     pub history_index: Option<usize>,
     /// Set when the user presses Enter; cleared by the backend once consumed.
     pub pending_prompt: Option<String>,
+    /// Last response text to show in the viewport.
+    pub last_response: Option<String>,
 }
 
 impl AppState {
@@ -55,11 +68,65 @@ impl AppState {
             running: true,
             pipeline,
             steps,
+            phase: ExecutionPhase::Idle,
             input_buffer: Vec::new(),
             cursor_pos: 0,
             prompt_history: Vec::new(),
             history_index: None,
             pending_prompt: None,
+            last_response: None,
+        }
+    }
+
+    /// Apply an `ExecutorEvent` from the backend thread to the UI state.
+    pub fn apply_executor_event(&mut self, ev: ExecutorEvent) {
+        match ev {
+            ExecutorEvent::StepStarted { ref step_id, .. } => {
+                self.phase = ExecutionPhase::Running;
+                for s in &mut self.steps {
+                    if s.id == *step_id {
+                        s.glyph = StepGlyph::Running;
+                    }
+                }
+            }
+            ExecutorEvent::StepCompleted { ref step_id, .. } => {
+                for s in &mut self.steps {
+                    if s.id == *step_id {
+                        s.glyph = StepGlyph::Completed;
+                    }
+                }
+            }
+            ExecutorEvent::StepFailed { ref step_id, .. } => {
+                self.phase = ExecutionPhase::Failed;
+                for s in &mut self.steps {
+                    if s.id == *step_id {
+                        s.glyph = StepGlyph::Failed;
+                    }
+                }
+            }
+            ExecutorEvent::StepSkipped { ref step_id } => {
+                for s in &mut self.steps {
+                    if s.id == *step_id {
+                        s.glyph = StepGlyph::Skipped;
+                    }
+                }
+            }
+            ExecutorEvent::RunnerEvent(ail_core::runner::RunnerEvent::StreamDelta { text }) => {
+                let resp = self.last_response.get_or_insert_with(String::new);
+                resp.push_str(&text);
+            }
+            ExecutorEvent::RunnerEvent(ail_core::runner::RunnerEvent::Completed(result)) => {
+                self.last_response = Some(result.response);
+            }
+            ExecutorEvent::PipelineCompleted(_) => {
+                self.phase = ExecutionPhase::Completed;
+            }
+            ExecutorEvent::PipelineError(msg) => {
+                self.phase = ExecutionPhase::Failed;
+                self.last_response = Some(format!("Error: {msg}"));
+            }
+            // Other RunnerEvent variants (ToolUse, ToolResult, CostUpdate, Error) — no-op for now
+            ExecutorEvent::RunnerEvent(_) => {}
         }
     }
 

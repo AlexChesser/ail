@@ -1,11 +1,15 @@
 #![allow(clippy::result_large_err)]
 
+use std::collections::HashSet;
 use std::process::{Command, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc;
+use std::sync::Arc;
 use std::time::SystemTime;
 
 use crate::config::domain::{ContextSource, ExitCodeMatch, ResultAction, ResultMatcher, StepBody};
 use crate::error::{error_types, AilError};
-use crate::runner::{InvokeOptions, Runner};
+use crate::runner::{InvokeOptions, Runner, RunnerEvent};
 use crate::session::{Session, TurnEntry};
 use crate::template;
 
@@ -16,6 +20,50 @@ pub enum ExecuteOutcome {
     Completed,
     /// A `break` action fired; remaining steps were skipped. This is not an error.
     Break { step_id: String },
+}
+
+/// Signals the executor can receive from the TUI while a pipeline is running.
+pub struct ExecutionControl {
+    /// Set to `true` to request that the executor kill the current step and stop.
+    pub kill_requested: Arc<AtomicBool>,
+}
+
+impl ExecutionControl {
+    pub fn new() -> Self {
+        ExecutionControl {
+            kill_requested: Arc::new(AtomicBool::new(false)),
+        }
+    }
+}
+
+impl Default for ExecutionControl {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Events emitted by `execute_with_control()` to the TUI.
+#[derive(Debug)]
+pub enum ExecutorEvent {
+    StepStarted {
+        step_id: String,
+        step_index: usize,
+        total_steps: usize,
+    },
+    StepCompleted {
+        step_id: String,
+        cost_usd: Option<f64>,
+    },
+    StepSkipped {
+        step_id: String,
+    },
+    StepFailed {
+        step_id: String,
+        error: String,
+    },
+    RunnerEvent(RunnerEvent),
+    PipelineCompleted(ExecuteOutcome),
+    PipelineError(String),
 }
 
 /// Execute all steps in `session.pipeline` in order.
@@ -234,6 +282,289 @@ pub fn execute(session: &mut Session, runner: &dyn Runner) -> Result<ExecuteOutc
         }
     }
 
+    Ok(ExecuteOutcome::Completed)
+}
+
+/// Execute the pipeline with live control signals and event streaming for the TUI.
+///
+/// Additive counterpart to `execute()` — the original function is unchanged.
+/// Sends `ExecutorEvent`s through `event_tx`; respects `control.kill_requested` between steps.
+/// Steps listed in `disabled_steps` are skipped with a `StepSkipped` event.
+pub fn execute_with_control(
+    session: &mut Session,
+    runner: &dyn Runner,
+    control: &ExecutionControl,
+    disabled_steps: &HashSet<String>,
+    event_tx: mpsc::Sender<ExecutorEvent>,
+) -> Result<ExecuteOutcome, AilError> {
+    let total_steps = session.pipeline.steps.len();
+
+    if total_steps == 0 {
+        tracing::info!(run_id = %session.run_id, "empty pipeline — no steps to execute");
+        let _ = event_tx.send(ExecutorEvent::PipelineCompleted(ExecuteOutcome::Completed));
+        return Ok(ExecuteOutcome::Completed);
+    }
+
+    // Clone to avoid borrow issues while mutating session inside the loop.
+    let steps: Vec<_> = session.pipeline.steps.clone();
+
+    for (step_index, step) in steps.iter().enumerate() {
+        let step_id = step.id.as_str().to_string();
+
+        // Check kill flag between steps.
+        if control.kill_requested.load(Ordering::SeqCst) {
+            tracing::info!(run_id = %session.run_id, step_id = %step_id, "kill requested — stopping pipeline");
+            break;
+        }
+
+        // Skip disabled steps.
+        if disabled_steps.contains(&step_id) {
+            let _ = event_tx.send(ExecutorEvent::StepSkipped {
+                step_id: step_id.clone(),
+            });
+            continue;
+        }
+
+        let _ = event_tx.send(ExecutorEvent::StepStarted {
+            step_id: step_id.clone(),
+            step_index,
+            total_steps,
+        });
+
+        tracing::info!(run_id = %session.run_id, step_id = %step_id, "executing step (controlled)");
+
+        let entry = match &step.body {
+            StepBody::Prompt(template_text) => {
+                let template_text = resolve_prompt_file(template_text, &step_id)?;
+                let resolved = template::resolve(&template_text, session).map_err(|mut e| {
+                    e.context = Some(crate::error::ErrorContext {
+                        pipeline_run_id: Some(session.run_id.clone()),
+                        step_id: Some(step_id.clone()),
+                        source: None,
+                    });
+                    e
+                })?;
+
+                let resume_id = session
+                    .turn_log
+                    .last_runner_session_id()
+                    .map(|s| s.to_string());
+
+                session.turn_log.record_step_started(&step_id, &resolved);
+
+                let resolved_provider = session
+                    .pipeline
+                    .defaults
+                    .clone()
+                    .merge(crate::config::domain::ProviderConfig {
+                        model: step.model.clone(),
+                        base_url: None,
+                        auth_token: None,
+                    })
+                    .merge(session.cli_provider.clone());
+
+                let options = InvokeOptions {
+                    resume_session_id: resume_id,
+                    allowed_tools: step
+                        .tools
+                        .as_ref()
+                        .map(|t| t.allow.clone())
+                        .unwrap_or_default(),
+                    denied_tools: step
+                        .tools
+                        .as_ref()
+                        .map(|t| t.deny.clone())
+                        .unwrap_or_default(),
+                    model: resolved_provider.model,
+                    base_url: resolved_provider.base_url,
+                    auth_token: resolved_provider.auth_token,
+                };
+
+                // Create a sub-channel for runner events.
+                let (runner_tx, runner_rx) = mpsc::channel::<RunnerEvent>();
+
+                let event_tx_clone = event_tx.clone();
+                // Forward runner events to the main event channel on a separate thread.
+                let fwd_handle = std::thread::spawn(move || {
+                    for ev in runner_rx {
+                        let _ = event_tx_clone.send(ExecutorEvent::RunnerEvent(ev));
+                    }
+                });
+
+                let invoke_result = runner.invoke_streaming(&resolved, options, runner_tx);
+                let _ = fwd_handle.join();
+
+                match invoke_result {
+                    Ok(result) => {
+                        tracing::info!(
+                            run_id = %session.run_id,
+                            step_id = %step_id,
+                            cost_usd = ?result.cost_usd,
+                            "step complete (controlled)"
+                        );
+                        let _ = event_tx.send(ExecutorEvent::StepCompleted {
+                            step_id: step_id.clone(),
+                            cost_usd: result.cost_usd,
+                        });
+
+                        TurnEntry {
+                            step_id: step_id.clone(),
+                            prompt: resolved,
+                            response: Some(result.response),
+                            timestamp: SystemTime::now(),
+                            cost_usd: result.cost_usd,
+                            runner_session_id: result.session_id,
+                            stdout: None,
+                            stderr: None,
+                            exit_code: None,
+                        }
+                    }
+                    Err(e) => {
+                        let detail = e.detail.clone();
+                        let _ = event_tx.send(ExecutorEvent::StepFailed {
+                            step_id: step_id.clone(),
+                            error: detail,
+                        });
+                        return Err(e);
+                    }
+                }
+            }
+
+            StepBody::Context(ContextSource::Shell(cmd)) => {
+                session.turn_log.record_step_started(&step_id, cmd);
+
+                let child = Command::new("/bin/sh")
+                    .args(["-c", cmd])
+                    .stdout(Stdio::piped())
+                    .stderr(Stdio::piped())
+                    .spawn()
+                    .map_err(|e| AilError {
+                        error_type: error_types::RUNNER_INVOCATION_FAILED,
+                        title: "Failed to spawn shell command",
+                        detail: format!("Could not run shell command for step '{step_id}': {e}"),
+                        context: Some(crate::error::ErrorContext {
+                            pipeline_run_id: Some(session.run_id.clone()),
+                            step_id: Some(step_id.clone()),
+                            source: None,
+                        }),
+                    })?;
+
+                let output = child.wait_with_output().map_err(|e| AilError {
+                    error_type: error_types::RUNNER_INVOCATION_FAILED,
+                    title: "Failed to wait for shell command",
+                    detail: format!("Step '{step_id}': {e}"),
+                    context: Some(crate::error::ErrorContext {
+                        pipeline_run_id: Some(session.run_id.clone()),
+                        step_id: Some(step_id.clone()),
+                        source: None,
+                    }),
+                })?;
+
+                let exit_code = output.status.code().unwrap_or(-1);
+                let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
+                let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+
+                tracing::info!(
+                    run_id = %session.run_id,
+                    step_id = %step_id,
+                    exit_code,
+                    "context shell step complete (controlled)"
+                );
+
+                let _ = event_tx.send(ExecutorEvent::StepCompleted {
+                    step_id: step_id.clone(),
+                    cost_usd: None,
+                });
+
+                TurnEntry {
+                    step_id: step_id.clone(),
+                    prompt: cmd.clone(),
+                    response: None,
+                    timestamp: SystemTime::now(),
+                    cost_usd: None,
+                    runner_session_id: None,
+                    stdout: Some(stdout),
+                    stderr: Some(stderr),
+                    exit_code: Some(exit_code),
+                }
+            }
+
+            StepBody::Action(crate::config::domain::ActionKind::PauseForHuman) => {
+                tracing::info!(run_id = %session.run_id, step_id = %step_id, "pause_for_human (controlled, no-op v0.1)");
+                let _ = event_tx.send(ExecutorEvent::StepCompleted {
+                    step_id: step_id.clone(),
+                    cost_usd: None,
+                });
+                continue;
+            }
+
+            StepBody::Skill(_) | StepBody::SubPipeline(_) => {
+                return Err(AilError {
+                    error_type: error_types::PIPELINE_ABORTED,
+                    title: "Unsupported step type",
+                    detail: format!(
+                        "Step '{step_id}' uses a step type not yet implemented in v0.1"
+                    ),
+                    context: Some(crate::error::ErrorContext {
+                        pipeline_run_id: Some(session.run_id.clone()),
+                        step_id: Some(step_id),
+                        source: None,
+                    }),
+                });
+            }
+        };
+
+        session.turn_log.append(entry);
+
+        // Evaluate on_result branches.
+        if let Some(branches) = &step.on_result {
+            let last_entry = session.turn_log.entries().last().expect("just appended");
+            if let Some(action) = evaluate_on_result(branches, last_entry) {
+                match action {
+                    ResultAction::Continue => {}
+                    ResultAction::Break => {
+                        tracing::info!(
+                            run_id = %session.run_id,
+                            step_id = %step_id,
+                            "on_result break (controlled)"
+                        );
+                        let outcome = ExecuteOutcome::Break {
+                            step_id: step_id.clone(),
+                        };
+                        let _ = event_tx.send(ExecutorEvent::PipelineCompleted(
+                            ExecuteOutcome::Break {
+                                step_id: step_id.clone(),
+                            },
+                        ));
+                        return Ok(outcome);
+                    }
+                    ResultAction::AbortPipeline => {
+                        let err = AilError {
+                            error_type: error_types::PIPELINE_ABORTED,
+                            title: "Pipeline aborted by on_result",
+                            detail: format!("Step '{step_id}' on_result fired abort_pipeline"),
+                            context: Some(crate::error::ErrorContext {
+                                pipeline_run_id: Some(session.run_id.clone()),
+                                step_id: Some(step_id),
+                                source: None,
+                            }),
+                        };
+                        let _ = event_tx.send(ExecutorEvent::PipelineError(err.detail.clone()));
+                        return Err(err);
+                    }
+                    ResultAction::PauseForHuman => {
+                        tracing::info!(
+                            run_id = %session.run_id,
+                            step_id = %step_id,
+                            "on_result pause_for_human (no-op in headless mode)"
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    let _ = event_tx.send(ExecutorEvent::PipelineCompleted(ExecuteOutcome::Completed));
     Ok(ExecuteOutcome::Completed)
 }
 

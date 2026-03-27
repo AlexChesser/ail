@@ -24,7 +24,7 @@ impl ProviderConfig {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Pipeline {
     pub steps: Vec<Step>,
     pub source: Option<PathBuf>,
@@ -51,7 +51,7 @@ impl Pipeline {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Step {
     pub id: StepId,
     pub body: StepBody,
@@ -64,13 +64,13 @@ pub struct Step {
     pub model: Option<String>,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct ToolPolicy {
     pub allow: Vec<String>,
     pub deny: Vec<String>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct StepId(pub String);
 
 impl StepId {
@@ -79,7 +79,7 @@ impl StepId {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum StepBody {
     Prompt(String),
     Skill(PathBuf),
@@ -88,24 +88,24 @@ pub enum StepBody {
     Context(ContextSource),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum ContextSource {
     Shell(String),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum ActionKind {
     PauseForHuman,
 }
 
 /// One branch in an `on_result` multi-branch array (SPEC §5.4).
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ResultBranch {
     pub matcher: ResultMatcher,
     pub action: ResultAction,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum ResultMatcher {
     Contains(String),
     ExitCode(ExitCodeMatch),
@@ -114,13 +114,13 @@ pub enum ResultMatcher {
 
 /// Matches process exit codes in `on_result` branches.
 /// `Any` matches any non-zero exit code. Does not match 0.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum ExitCodeMatch {
     Exact(i32),
     Any,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum ResultAction {
     Continue,
     Break,
