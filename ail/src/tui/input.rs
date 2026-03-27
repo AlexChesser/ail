@@ -1,6 +1,6 @@
 use crossterm::event::{Event, KeyCode, KeyModifiers};
 
-use super::app::{AppState, Focus, ViewMode};
+use super::app::{AppState, ExecutionPhase, Focus, ViewMode};
 
 /// Map a crossterm input event to a state change.
 pub fn handle_event(app: &mut AppState, event: Event) {
@@ -90,9 +90,14 @@ fn handle_prompt(app: &mut AppState, modifiers: KeyModifiers, code: KeyCode) {
             app.viewport_page_down();
         }
 
-        // Submit prompt
+        // Submit prompt (or unblock HITL gate — empty Enter is valid there)
         (KeyModifiers::NONE, KeyCode::Enter) => {
-            app.submit_input();
+            if app.phase == ExecutionPhase::HitlGate && app.input_buffer.is_empty() {
+                // Empty Enter = approve/continue
+                app.pending_prompt = Some(String::new());
+            } else {
+                app.submit_input();
+            }
         }
 
         // Shift+Enter inserts a newline in the buffer

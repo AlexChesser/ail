@@ -6,7 +6,7 @@ use ratatui::{
     Frame,
 };
 
-use crate::tui::app::AppState;
+use crate::tui::app::{AppState, ExecutionPhase};
 
 /// Render the prompt input area with the live input buffer and cursor.
 pub fn draw(frame: &mut Frame, app: &AppState, area: Rect) {
@@ -32,8 +32,14 @@ pub fn draw(frame: &mut Frame, app: &AppState, area: Rect) {
         String::new()
     };
 
+    let (prefix, prefix_color) = if app.phase == ExecutionPhase::HitlGate {
+        ("◉ ", Color::Yellow)
+    } else {
+        ("> ", Color::Cyan)
+    };
+
     let line = Line::from(vec![
-        Span::styled("> ", Style::default().fg(Color::Cyan)),
+        Span::styled(prefix, Style::default().fg(prefix_color)),
         Span::raw(before),
         Span::styled(
             cursor_char,
