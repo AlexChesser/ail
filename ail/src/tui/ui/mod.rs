@@ -1,5 +1,6 @@
 pub mod layout;
 pub mod modal;
+pub mod picker;
 pub mod prompt;
 pub mod sidebar;
 pub mod statusbar;
@@ -29,6 +30,9 @@ pub fn draw(frame: &mut Frame, app: &mut AppState) {
 
     // Prompt input
     prompt::draw(frame, app, regions.prompt);
+
+    // Pipeline picker dropdown (above prompt, below modal) — drawn after prompt
+    picker::draw(frame, app, regions.prompt);
 
     // Modal overlay (HITL gate, interrupt, HUD) — drawn last so it's on top
     modal::draw(frame, app, regions.viewport);

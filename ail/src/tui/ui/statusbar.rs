@@ -92,7 +92,19 @@ pub fn draw(frame: &mut Frame, app: &AppState, area: Rect) {
             spans.push(Span::styled(" | failed", Style::default().fg(Color::Red)));
         }
         ExecutionPhase::Idle => {
-            // ○ ail | idle | session: abc123
+            // ○ ail | pipeline: code-review | idle | session: abc123
+            // Show active pipeline name for context (i-1).
+            let pipeline_name = app
+                .pipeline
+                .as_ref()
+                .and_then(|p| p.source.as_ref())
+                .and_then(|s| s.file_stem())
+                .map(|s| s.to_string_lossy().to_string())
+                .unwrap_or_else(|| "passthrough".to_string());
+            spans.push(Span::styled(
+                format!(" | {pipeline_name}"),
+                Style::default().fg(Color::White),
+            ));
             spans.push(Span::styled(" | idle", dim));
             if let Some(ref sid) = app.last_session_id {
                 let short = &sid[..sid.len().min(8)];

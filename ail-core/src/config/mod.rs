@@ -2,6 +2,7 @@
 
 pub mod discovery;
 pub mod domain;
+pub use discovery::PipelineEntry;
 pub mod dto;
 pub mod validation;
 

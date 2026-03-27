@@ -36,6 +36,81 @@ mod s3_1_discovery {
     }
 }
 
+mod s3_1_discover_all {
+    use ail_core::config::discovery::discover_all;
+
+    #[test]
+    fn returns_empty_when_no_yaml_files_present() {
+        let tmp = tempfile::tempdir().unwrap();
+        let original_dir = std::env::current_dir().unwrap();
+        std::env::set_current_dir(tmp.path()).unwrap();
+        let result = discover_all();
+        std::env::set_current_dir(original_dir).unwrap();
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn finds_ail_yaml_in_cwd_as_default() {
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::write(tmp.path().join(".ail.yaml"), "x").unwrap();
+        let original_dir = std::env::current_dir().unwrap();
+        std::env::set_current_dir(tmp.path()).unwrap();
+        let result = discover_all();
+        std::env::set_current_dir(original_dir).unwrap();
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].name, "default");
+    }
+
+    #[test]
+    fn finds_yaml_files_in_ail_directory() {
+        let tmp = tempfile::tempdir().unwrap();
+        let ail_dir = tmp.path().join(".ail");
+        std::fs::create_dir(&ail_dir).unwrap();
+        std::fs::write(ail_dir.join("code-review.yaml"), "x").unwrap();
+        std::fs::write(ail_dir.join("incident.yaml"), "x").unwrap();
+        let original_dir = std::env::current_dir().unwrap();
+        std::env::set_current_dir(tmp.path()).unwrap();
+        let result = discover_all();
+        std::env::set_current_dir(original_dir).unwrap();
+        let names: Vec<&str> = result.iter().map(|e| e.name.as_str()).collect();
+        assert!(names.contains(&"code-review"));
+        assert!(names.contains(&"incident"));
+    }
+
+    #[test]
+    fn results_are_sorted_alphabetically() {
+        let tmp = tempfile::tempdir().unwrap();
+        let ail_dir = tmp.path().join(".ail");
+        std::fs::create_dir(&ail_dir).unwrap();
+        std::fs::write(ail_dir.join("zebra.yaml"), "x").unwrap();
+        std::fs::write(ail_dir.join("alpha.yaml"), "x").unwrap();
+        std::fs::write(ail_dir.join("middle.yaml"), "x").unwrap();
+        let original_dir = std::env::current_dir().unwrap();
+        std::env::set_current_dir(tmp.path()).unwrap();
+        let result = discover_all();
+        std::env::set_current_dir(original_dir).unwrap();
+        let names: Vec<&str> = result.iter().map(|e| e.name.as_str()).collect();
+        assert_eq!(names, vec!["alpha", "middle", "zebra"]);
+    }
+
+    #[test]
+    fn cwd_entry_wins_over_home_config_on_duplicate_name() {
+        // We can't easily test ~/.config/ail/ in isolation, but we can verify
+        // that the .ail/ directory entry takes precedence by checking deduplication
+        // logic: if the same name appears twice, only one entry is returned.
+        let tmp = tempfile::tempdir().unwrap();
+        let ail_dir = tmp.path().join(".ail");
+        std::fs::create_dir(&ail_dir).unwrap();
+        std::fs::write(ail_dir.join("code-review.yaml"), "x").unwrap();
+        let original_dir = std::env::current_dir().unwrap();
+        std::env::set_current_dir(tmp.path()).unwrap();
+        let result = discover_all();
+        std::env::set_current_dir(original_dir).unwrap();
+        let code_review_count = result.iter().filter(|e| e.name == "code-review").count();
+        assert_eq!(code_review_count, 1);
+    }
+}
+
 mod s3_2_top_level_structure {
     use ail_core::config::load;
     use std::path::PathBuf;

@@ -1,7 +1,9 @@
 use std::collections::{HashMap, HashSet};
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
+use ail_core::config::discovery::PipelineEntry;
 use ail_core::config::domain::Pipeline;
 use ail_core::executor::ExecutorEvent;
 
@@ -68,6 +70,19 @@ pub struct AppState {
     // Step detail HUD (M8)
     pub view_mode: ViewMode,
     pub hud_scroll: u16,
+
+    // Pipeline picker (i-1)
+    pub picker_open: bool,
+    /// Full list from `discover_all()`, populated at TUI startup.
+    pub picker_entries: Vec<PipelineEntry>,
+    /// Characters typed after `:` for prefix filtering.
+    pub picker_filter: String,
+    /// Indices into `picker_entries` that match the current filter.
+    pub picker_filtered: Vec<usize>,
+    /// Index into `picker_filtered` for the highlighted row.
+    pub picker_cursor: usize,
+    /// Set by `picker_select()`; consumed by the main loop to hot-reload.
+    pub pending_pipeline_switch: Option<PathBuf>,
 
     // Interrupt system (M11)
     /// Pause flag shared with the executor; TUI sets it to request pause between steps.
@@ -144,6 +159,12 @@ impl AppState {
             disabled_steps: HashSet::new(),
             view_mode: ViewMode::Normal,
             hud_scroll: 0,
+            picker_open: false,
+            picker_entries: Vec::new(),
+            picker_filter: String::new(),
+            picker_filtered: Vec::new(),
+            picker_cursor: 0,
+            pending_pipeline_switch: None,
             pause_flag: None,
             kill_flag: None,
             interrupt_modal_open: false,
@@ -403,6 +424,74 @@ impl AppState {
 
     pub fn hud_close(&mut self) {
         self.view_mode = ViewMode::Normal;
+    }
+
+    // ── pipeline picker (i-1) ─────────────────────────────────────────────────
+
+    /// Open the picker: populate filtered list and show all entries.
+    pub fn open_picker(&mut self) {
+        self.picker_open = true;
+        self.picker_filter.clear();
+        self.picker_cursor = 0;
+        self.picker_update_filter();
+    }
+
+    /// Close the picker without selecting.
+    pub fn close_picker(&mut self) {
+        self.picker_open = false;
+        self.picker_filter.clear();
+        self.picker_filtered.clear();
+        self.picker_cursor = 0;
+    }
+
+    /// Recompute `picker_filtered` from the current `picker_filter`.
+    /// Case-insensitive prefix match on entry name.
+    pub fn picker_update_filter(&mut self) {
+        let filter = self.picker_filter.to_lowercase();
+        self.picker_filtered = self
+            .picker_entries
+            .iter()
+            .enumerate()
+            .filter(|(_, e)| e.name.to_lowercase().starts_with(&filter))
+            .map(|(i, _)| i)
+            .collect();
+        self.picker_cursor = 0;
+    }
+
+    pub fn picker_type_char(&mut self, c: char) {
+        self.picker_filter.push(c);
+        self.picker_update_filter();
+    }
+
+    pub fn picker_backspace(&mut self) {
+        if self.picker_filter.is_empty() {
+            self.close_picker();
+        } else {
+            self.picker_filter.pop();
+            self.picker_update_filter();
+        }
+    }
+
+    pub fn picker_nav_up(&mut self) {
+        if self.picker_cursor > 0 {
+            self.picker_cursor -= 1;
+        }
+    }
+
+    pub fn picker_nav_down(&mut self) {
+        if !self.picker_filtered.is_empty() && self.picker_cursor + 1 < self.picker_filtered.len() {
+            self.picker_cursor += 1;
+        }
+    }
+
+    /// Return the path of the currently selected entry and close the picker.
+    /// Returns `None` if the filtered list is empty.
+    pub fn picker_select(&mut self) -> Option<PathBuf> {
+        let entry_idx = *self.picker_filtered.get(self.picker_cursor)?;
+        let path = self.picker_entries[entry_idx].path.clone();
+        self.close_picker();
+        self.pending_pipeline_switch = Some(path.clone());
+        Some(path)
     }
 
     pub fn hud_scroll_up(&mut self) {

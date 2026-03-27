@@ -1,0 +1,9 @@
+version: "0.0.1"
+defaults:
+  model: gemma3:1b
+  provider:
+    base_url: http://localhost:11434
+    auth_token: ollama
+pipeline:
+  - id: review
+    prompt: "Review the code"

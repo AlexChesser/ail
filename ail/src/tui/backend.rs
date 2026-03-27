@@ -15,6 +15,8 @@ pub enum BackendCommand {
         prompt: String,
         disabled_steps: HashSet<String>,
     },
+    /// Hot-reload: replace the active pipeline for subsequent runs (i-1).
+    SwitchPipeline(Pipeline),
 }
 
 /// Events sent from the backend thread back to the TUI event loop.
@@ -44,10 +46,13 @@ pub fn spawn_backend(
 
     thread::spawn(move || {
         let runner = ClaudeCliRunner::new(headless);
-        let resolved_pipeline = pipeline.unwrap_or_else(Pipeline::passthrough);
+        let mut resolved_pipeline = pipeline.unwrap_or_else(Pipeline::passthrough);
 
         for cmd in cmd_rx {
             match cmd {
+                BackendCommand::SwitchPipeline(new_pipeline) => {
+                    resolved_pipeline = new_pipeline;
+                }
                 BackendCommand::SubmitPrompt {
                     prompt,
                     disabled_steps,

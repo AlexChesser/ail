@@ -15,7 +15,7 @@ use crossterm::{
 };
 use ratatui::{backend::CrosstermBackend, Terminal};
 
-use app::{AppState, ExecutionPhase};
+use app::{AppState, ExecutionPhase, StepDisplay, StepGlyph};
 use backend::{BackendCommand, BackendEvent};
 
 /// Launch the interactive TUI. Returns when the user quits.
@@ -50,6 +50,7 @@ fn run_app(
     headless: bool,
 ) -> io::Result<()> {
     let mut app = AppState::new(pipeline.clone());
+    app.picker_entries = ail_core::config::discovery::discover_all();
     let (cmd_tx, event_rx) = backend::spawn_backend(pipeline, cli_provider, headless);
 
     // HITL gate sender: received from backend when a run starts, used to unblock PauseForHuman.
@@ -98,6 +99,38 @@ fn run_app(
                     prompt,
                     disabled_steps: app.disabled_steps.clone(),
                 });
+            }
+        }
+
+        // Hot-reload: apply a pending pipeline switch (i-1).
+        if let Some(path) = app.pending_pipeline_switch.take() {
+            match ail_core::config::load(&path) {
+                Ok(new_pipeline) => {
+                    app.steps = new_pipeline
+                        .steps
+                        .iter()
+                        .map(|s| StepDisplay {
+                            id: s.id.as_str().to_string(),
+                            glyph: StepGlyph::NotReached,
+                        })
+                        .collect();
+                    app.pipeline = Some(new_pipeline.clone());
+                    app.sidebar_cursor = 0;
+                    app.disabled_steps.clear();
+                    let _ = cmd_tx.send(BackendCommand::SwitchPipeline(new_pipeline));
+                    let name = path
+                        .file_stem()
+                        .map(|s| s.to_string_lossy().to_string())
+                        .unwrap_or_else(|| path.display().to_string());
+                    app.viewport_lines
+                        .push(format!("── switched to: {name} ──"));
+                    app.viewport_scroll = 0;
+                }
+                Err(e) => {
+                    app.viewport_lines
+                        .push(format!("[pipeline load error: {}]", e.detail));
+                    app.viewport_scroll = 0;
+                }
             }
         }
 

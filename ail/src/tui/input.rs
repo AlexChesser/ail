@@ -15,10 +15,43 @@ pub fn handle_event(app: &mut AppState, event: Event) {
             handle_interrupt_modal(app, key.modifiers, key.code);
             return;
         }
+        // Picker intercepts when open (i-1).
+        if app.picker_open {
+            handle_picker(app, key.modifiers, key.code);
+            return;
+        }
         match app.focus {
             Focus::Sidebar => handle_sidebar(app, key.modifiers, key.code),
             Focus::Prompt => handle_prompt(app, key.modifiers, key.code),
         }
+    }
+}
+
+fn handle_picker(app: &mut AppState, modifiers: KeyModifiers, code: KeyCode) {
+    match (modifiers, code) {
+        (KeyModifiers::CONTROL, KeyCode::Char('c')) => {
+            app.running = false;
+        }
+        (KeyModifiers::NONE, KeyCode::Esc) => {
+            app.close_picker();
+        }
+        (KeyModifiers::NONE, KeyCode::Enter) => {
+            // No-op if filter matches nothing.
+            app.picker_select();
+        }
+        (KeyModifiers::NONE, KeyCode::Up) | (KeyModifiers::NONE, KeyCode::Char('k')) => {
+            app.picker_nav_up();
+        }
+        (KeyModifiers::NONE, KeyCode::Down) | (KeyModifiers::NONE, KeyCode::Char('j')) => {
+            app.picker_nav_down();
+        }
+        (KeyModifiers::NONE, KeyCode::Backspace) => {
+            app.picker_backspace();
+        }
+        (KeyModifiers::NONE | KeyModifiers::SHIFT, KeyCode::Char(c)) => {
+            app.picker_type_char(c);
+        }
+        _ => {}
     }
 }
 
@@ -166,8 +199,20 @@ fn handle_prompt(app: &mut AppState, modifiers: KeyModifiers, code: KeyCode) {
         }
 
         // Printable characters
+        // `:` alone in empty buffer opens the pipeline picker (i-1).
         (KeyModifiers::NONE | KeyModifiers::SHIFT, KeyCode::Char(c)) => {
-            app.input_insert(c);
+            if c == ':'
+                && app.input_buffer.is_empty()
+                && !app.picker_entries.is_empty()
+                && matches!(
+                    app.phase,
+                    ExecutionPhase::Idle | ExecutionPhase::Completed | ExecutionPhase::Failed
+                )
+            {
+                app.open_picker();
+            } else {
+                app.input_insert(c);
+            }
         }
 
         // Editing
