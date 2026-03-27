@@ -2,7 +2,7 @@ use ratatui::{
     layout::Rect,
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::Paragraph,
+    widgets::{Paragraph, Wrap},
     Frame,
 };
 
@@ -69,13 +69,18 @@ pub fn draw(frame: &mut Frame, app: &mut AppState, area: Rect) {
             " viewing: {step_id} ({}/{total_steps}) — Ctrl+N for next, Ctrl+N again for live ",
             idx + 1
         );
-        Paragraph::new(lines).scroll((scroll_y, 0)).block(
-            ratatui::widgets::Block::default()
-                .title(Span::styled(indicator, Style::default().fg(Color::Yellow)))
-                .borders(ratatui::widgets::Borders::NONE),
-        )
+        Paragraph::new(lines)
+            .scroll((scroll_y, 0))
+            .wrap(Wrap { trim: false })
+            .block(
+                ratatui::widgets::Block::default()
+                    .title(Span::styled(indicator, Style::default().fg(Color::Yellow)))
+                    .borders(ratatui::widgets::Borders::NONE),
+            )
     } else {
-        Paragraph::new(lines).scroll((scroll_y, 0))
+        Paragraph::new(lines)
+            .scroll((scroll_y, 0))
+            .wrap(Wrap { trim: false })
     };
 
     frame.render_widget(para, area);
