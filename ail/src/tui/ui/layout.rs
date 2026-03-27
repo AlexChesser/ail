@@ -1,9 +1,9 @@
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 
-/// Width tier thresholds (§2.4 of tui-planning-prompt.md).
-const FULL_WIDTH: u16 = 120; // full sidebar with names
-const GLYPH_WIDTH: u16 = 100; // sidebar collapses to glyph-only
-const STATUS_WIDTH: u16 = 80; // sidebar hidden; step status in status bar
+/// Width tier thresholds.
+const FULL_WIDTH: u16 = 60; // full sidebar with names
+const GLYPH_WIDTH: u16 = 40; // sidebar collapses to glyph-only
+const STATUS_WIDTH: u16 = 30; // sidebar hidden; step status in status bar
 
 /// Width of the pipeline sidebar in full mode (step names visible).
 pub const SIDEBAR_FULL_WIDTH: u16 = 22;
@@ -53,8 +53,8 @@ pub struct Regions {
 pub fn compute(area: Rect) -> Regions {
     let tier = WidthTier::from_width(area.width);
     let sidebar_width = match tier {
-        WidthTier::Full => SIDEBAR_FULL_WIDTH,
-        WidthTier::GlyphOnly => SIDEBAR_GLYPH_WIDTH,
+        WidthTier::Full => SIDEBAR_FULL_WIDTH.min(area.width / 2),
+        WidthTier::GlyphOnly => SIDEBAR_GLYPH_WIDTH.min(area.width / 2),
         WidthTier::NoSidebar | WidthTier::Minimal => 0,
     };
 
