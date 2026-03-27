@@ -1,14 +1,34 @@
 use crossterm::event::{Event, KeyCode, KeyModifiers};
 
-use super::app::{AppState, Focus};
+use super::app::{AppState, Focus, ViewMode};
 
 /// Map a crossterm input event to a state change.
 pub fn handle_event(app: &mut AppState, event: Event) {
     if let Event::Key(key) = event {
+        // HUD overlay intercepts all input when open.
+        if app.view_mode != ViewMode::Normal {
+            handle_hud(app, key.modifiers, key.code);
+            return;
+        }
         match app.focus {
             Focus::Sidebar => handle_sidebar(app, key.modifiers, key.code),
             Focus::Prompt => handle_prompt(app, key.modifiers, key.code),
         }
+    }
+}
+
+fn handle_hud(app: &mut AppState, _modifiers: KeyModifiers, code: KeyCode) {
+    match code {
+        KeyCode::Esc | KeyCode::Char('q') => {
+            app.hud_close();
+        }
+        KeyCode::Up | KeyCode::Char('k') => {
+            app.hud_scroll_up();
+        }
+        KeyCode::Down | KeyCode::Char('j') => {
+            app.hud_scroll_down();
+        }
+        _ => {}
     }
 }
 
@@ -34,6 +54,10 @@ fn handle_sidebar(app: &mut AppState, modifiers: KeyModifiers, code: KeyCode) {
         // Toggle disabled
         (KeyModifiers::NONE, KeyCode::Char(' ')) => {
             app.sidebar_toggle_disabled();
+        }
+        // Open step-detail HUD
+        (KeyModifiers::NONE, KeyCode::Enter) => {
+            app.hud_open();
         }
         // Viewport scroll still available
         (KeyModifiers::NONE, KeyCode::PageUp) => {

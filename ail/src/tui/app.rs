@@ -42,6 +42,14 @@ pub enum Focus {
     Sidebar,
 }
 
+/// Whether a step-detail HUD overlay is open (M8).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ViewMode {
+    Normal,
+    /// HUD showing config for step at this sidebar index.
+    StepHud(usize),
+}
+
 /// Application state for the TUI.
 pub struct AppState {
     pub running: bool,
@@ -54,6 +62,10 @@ pub struct AppState {
     pub focus: Focus,
     pub sidebar_cursor: usize,
     pub disabled_steps: HashSet<String>,
+
+    // Step detail HUD (M8)
+    pub view_mode: ViewMode,
+    pub hud_scroll: u16,
 
     // Prompt input state (M3)
     pub input_buffer: Vec<char>,
@@ -110,6 +122,8 @@ impl AppState {
             focus: Focus::Prompt,
             sidebar_cursor: 0,
             disabled_steps: HashSet::new(),
+            view_mode: ViewMode::Normal,
+            hud_scroll: 0,
             input_buffer: Vec::new(),
             cursor_pos: 0,
             prompt_history: Vec::new(),
@@ -329,6 +343,26 @@ impl AppState {
                 _ => {}
             }
         }
+    }
+
+    /// Open the step-detail HUD for the currently focused sidebar step.
+    pub fn hud_open(&mut self) {
+        if !self.steps.is_empty() {
+            self.view_mode = ViewMode::StepHud(self.sidebar_cursor);
+            self.hud_scroll = 0;
+        }
+    }
+
+    pub fn hud_close(&mut self) {
+        self.view_mode = ViewMode::Normal;
+    }
+
+    pub fn hud_scroll_up(&mut self) {
+        self.hud_scroll = self.hud_scroll.saturating_add(1);
+    }
+
+    pub fn hud_scroll_down(&mut self) {
+        self.hud_scroll = self.hud_scroll.saturating_sub(1);
     }
 
     pub fn sidebar_enter_focus(&mut self) {
