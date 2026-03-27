@@ -9,6 +9,23 @@ use ratatui::{
 use crate::tui::app::{AppState, ExecutionPhase};
 use crate::tui::theme::{colors, glyphs};
 
+/// Format a token count with K/M/B suffix. One decimal when transitioning to a new magnitude.
+fn fmt_tokens(n: u64) -> String {
+    if n < 1_000 {
+        format!("{n}")
+    } else if n < 10_000 {
+        format!("{:.1}K", n as f64 / 1_000.0)
+    } else if n < 1_000_000 {
+        format!("{}K", n / 1_000)
+    } else if n < 10_000_000 {
+        format!("{:.1}M", n as f64 / 1_000_000.0)
+    } else if n < 1_000_000_000 {
+        format!("{}M", n / 1_000_000)
+    } else {
+        format!("{:.1}B", n as f64 / 1_000_000_000.0)
+    }
+}
+
 /// Render the status bar with live execution stats (M6).
 pub fn draw(frame: &mut Frame, app: &AppState, area: Rect) {
     let (glyph, glyph_color) = match app.phase {
@@ -43,15 +60,15 @@ pub fn draw(frame: &mut Frame, app: &AppState, area: Rect) {
                     hi,
                 ));
             }
-            if app.cumulative_cost_usd > 0.0 {
+            if app.cumulative_input_tokens > 0 || app.cumulative_output_tokens > 0 {
                 spans.push(Span::styled(
-                    format!(" | ${:.4}", app.cumulative_cost_usd),
+                    format!(
+                        " | [↑{} | ↓{}]",
+                        fmt_tokens(app.cumulative_input_tokens),
+                        fmt_tokens(app.cumulative_output_tokens)
+                    ),
                     dim,
                 ));
-            }
-            let total_tokens = app.cumulative_input_tokens + app.cumulative_output_tokens;
-            if total_tokens > 0 {
-                spans.push(Span::styled(format!(" | {} tok", total_tokens), dim));
             }
             if let Some(start) = app.run_start {
                 let secs = start.elapsed().as_secs_f32();
@@ -72,16 +89,16 @@ pub fn draw(frame: &mut Frame, app: &AppState, area: Rect) {
             ));
         }
         ExecutionPhase::Completed => {
-            // ✓ ail | done | $0.0123 | 1,847 tok | 12.4s
-            if app.cumulative_cost_usd > 0.0 {
+            // ✓ ail | [↑1.2K | ↓3.4K] | 12.4s
+            if app.cumulative_input_tokens > 0 || app.cumulative_output_tokens > 0 {
                 spans.push(Span::styled(
-                    format!(" | ${:.4}", app.cumulative_cost_usd),
+                    format!(
+                        " | [↑{} | ↓{}]",
+                        fmt_tokens(app.cumulative_input_tokens),
+                        fmt_tokens(app.cumulative_output_tokens)
+                    ),
                     dim,
                 ));
-            }
-            let total_tokens = app.cumulative_input_tokens + app.cumulative_output_tokens;
-            if total_tokens > 0 {
-                spans.push(Span::styled(format!(" | {} tok", total_tokens), dim));
             }
             if let (Some(start), Some(end)) = (app.run_start, app.run_end) {
                 let secs = (end - start).as_secs_f32();
