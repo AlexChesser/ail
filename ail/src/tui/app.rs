@@ -1,4 +1,6 @@
 use std::collections::{HashMap, HashSet};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
 use ail_core::config::domain::Pipeline;
 use ail_core::executor::ExecutorEvent;
@@ -67,6 +69,16 @@ pub struct AppState {
     pub view_mode: ViewMode,
     pub hud_scroll: u16,
 
+    // Interrupt system (M11)
+    /// Pause flag shared with the executor; TUI sets it to request pause between steps.
+    pub pause_flag: Option<Arc<AtomicBool>>,
+    /// Kill flag shared with the executor; TUI sets it to abort after current step.
+    pub kill_flag: Option<Arc<AtomicBool>>,
+    /// Whether the 3-option interrupt modal is currently showing.
+    pub interrupt_modal_open: bool,
+    /// Path B: guidance text typed during a pause, to be echoed in the viewport.
+    pub pending_injection: Option<String>,
+
     // Prompt input state (M3)
     pub input_buffer: Vec<char>,
     pub cursor_pos: usize,
@@ -132,6 +144,10 @@ impl AppState {
             disabled_steps: HashSet::new(),
             view_mode: ViewMode::Normal,
             hud_scroll: 0,
+            pause_flag: None,
+            kill_flag: None,
+            interrupt_modal_open: false,
+            pending_injection: None,
             input_buffer: Vec::new(),
             cursor_pos: 0,
             prompt_history: Vec::new(),
@@ -340,6 +356,10 @@ impl AppState {
         self.step_outputs.clear();
         self.step_order.clear();
         self.viewing_step = None;
+        self.interrupt_modal_open = false;
+        self.pending_injection = None;
+        self.pause_flag = None;
+        self.kill_flag = None;
     }
 
     // ── sidebar navigation (M7) ──────────────────────────────────────────────
@@ -403,6 +423,48 @@ impl AppState {
 
     pub fn sidebar_exit_focus(&mut self) {
         self.focus = Focus::Prompt;
+    }
+
+    // ── interrupt system (M11) ────────────────────────────────────────────────
+
+    /// Request a pause between steps (Escape during Running).
+    pub fn request_pause(&mut self) {
+        if let Some(ref flag) = self.pause_flag {
+            flag.store(true, Ordering::SeqCst);
+        }
+        self.phase = ExecutionPhase::Paused;
+        self.interrupt_modal_open = true;
+    }
+
+    /// Path A: resume — clear pause flag, dismiss modal.
+    pub fn request_resume(&mut self) {
+        if let Some(ref flag) = self.pause_flag {
+            flag.store(false, Ordering::SeqCst);
+        }
+        self.phase = ExecutionPhase::Running;
+        self.interrupt_modal_open = false;
+    }
+
+    /// Path B: inject guidance — echo marker in viewport, resume.
+    pub fn request_inject_guidance(&mut self, text: String) {
+        self.viewport_lines.push(String::new());
+        self.viewport_lines
+            .push(format!("── ✎ guidance: {} ──", text.trim()));
+        self.pending_injection = Some(text);
+        self.request_resume();
+    }
+
+    /// Path C: kill step — set kill flag, clear pause flag.
+    pub fn request_kill(&mut self) {
+        if let Some(ref flag) = self.kill_flag {
+            flag.store(true, Ordering::SeqCst);
+        }
+        // Clear pause so executor can proceed to check kill flag.
+        if let Some(ref flag) = self.pause_flag {
+            flag.store(false, Ordering::SeqCst);
+        }
+        self.interrupt_modal_open = false;
+        self.phase = ExecutionPhase::Running;
     }
 
     // ── session navigation (M9) ───────────────────────────────────────────────

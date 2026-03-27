@@ -67,6 +67,10 @@ fn run_app(
                 Ok(BackendEvent::HitlReady(tx)) => {
                     hitl_tx = Some(tx);
                 }
+                Ok(BackendEvent::ControlReady { pause, kill }) => {
+                    app.pause_flag = Some(pause);
+                    app.kill_flag = Some(kill);
+                }
                 Err(_) => break,
             }
         }

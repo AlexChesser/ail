@@ -10,10 +10,56 @@ pub fn handle_event(app: &mut AppState, event: Event) {
             handle_hud(app, key.modifiers, key.code);
             return;
         }
+        // Interrupt modal intercepts input when paused.
+        if app.interrupt_modal_open {
+            handle_interrupt_modal(app, key.modifiers, key.code);
+            return;
+        }
         match app.focus {
             Focus::Sidebar => handle_sidebar(app, key.modifiers, key.code),
             Focus::Prompt => handle_prompt(app, key.modifiers, key.code),
         }
+    }
+}
+
+fn handle_interrupt_modal(app: &mut AppState, modifiers: KeyModifiers, code: KeyCode) {
+    match (modifiers, code) {
+        // Path A: Escape = resume
+        (KeyModifiers::NONE, KeyCode::Esc) => {
+            app.request_resume();
+        }
+        // Path C: Ctrl+K = kill step
+        (KeyModifiers::CONTROL, KeyCode::Char('k')) => {
+            app.request_kill();
+        }
+        // Path B: type guidance then Enter to inject and resume
+        (KeyModifiers::NONE, KeyCode::Enter) => {
+            if !app.input_buffer.is_empty() {
+                let text: String = app.input_buffer.iter().collect();
+                app.input_buffer.clear();
+                app.cursor_pos = 0;
+                app.request_inject_guidance(text);
+            } else {
+                // Empty Enter = resume (same as Escape)
+                app.request_resume();
+            }
+        }
+        // Allow typing guidance while paused
+        (KeyModifiers::NONE | KeyModifiers::SHIFT, KeyCode::Char(c)) => {
+            app.input_insert(c);
+        }
+        (KeyModifiers::NONE, KeyCode::Backspace) => {
+            app.input_backspace();
+        }
+        (KeyModifiers::NONE, KeyCode::Delete) => {
+            app.input_delete();
+        }
+        (KeyModifiers::NONE, KeyCode::Left) => app.cursor_left(),
+        (KeyModifiers::NONE, KeyCode::Right) => app.cursor_right(),
+        (KeyModifiers::CONTROL, KeyCode::Char('c')) => {
+            app.running = false;
+        }
+        _ => {}
     }
 }
 
@@ -88,6 +134,20 @@ fn handle_prompt(app: &mut AppState, modifiers: KeyModifiers, code: KeyCode) {
         }
         (KeyModifiers::NONE, KeyCode::PageDown) => {
             app.viewport_page_down();
+        }
+
+        // Escape during Running: request pause and show interrupt modal (M11)
+        (KeyModifiers::NONE, KeyCode::Esc) => {
+            if app.phase == ExecutionPhase::Running {
+                app.request_pause();
+            }
+        }
+
+        // Ctrl+K: kill step directly (no pause first) (M11)
+        (KeyModifiers::CONTROL, KeyCode::Char('k')) => {
+            if app.phase == ExecutionPhase::Running {
+                app.request_kill();
+            }
         }
 
         // Submit prompt (or unblock HITL gate — empty Enter is valid there)

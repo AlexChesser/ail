@@ -1,5 +1,7 @@
 use std::collections::HashSet;
+use std::sync::atomic::AtomicBool;
 use std::sync::mpsc;
+use std::sync::Arc;
 use std::thread;
 
 use ail_core::config::domain::{Pipeline, ProviderConfig};
@@ -22,6 +24,11 @@ pub enum BackendEvent {
     Error(String),
     /// Provides the channel to unblock a HITL gate (M10).
     HitlReady(mpsc::Sender<String>),
+    /// Provides pause/kill Arcs so the TUI can flip them (M11).
+    ControlReady {
+        pause: Arc<AtomicBool>,
+        kill: Arc<AtomicBool>,
+    },
 }
 
 /// Spawn the background executor thread.
@@ -49,6 +56,12 @@ pub fn spawn_backend(
                     session.cli_provider = cli_provider.clone();
 
                     let control = ExecutionControl::new();
+
+                    // Send pause/kill Arc clones to the TUI so it can flip them (M11).
+                    let _ = event_tx.send(BackendEvent::ControlReady {
+                        pause: Arc::clone(&control.pause_requested),
+                        kill: Arc::clone(&control.kill_requested),
+                    });
 
                     // Create a hitl channel for this run; send the Sender to the TUI.
                     let (hitl_tx, hitl_rx) = mpsc::channel::<String>();
