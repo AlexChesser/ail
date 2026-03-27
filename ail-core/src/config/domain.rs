@@ -1,5 +1,9 @@
 use std::path::PathBuf;
 
+/// Maximum depth for nested sub-pipeline calls. Prevents infinite recursion
+/// when pipelines call each other in a cycle.
+pub const MAX_SUB_PIPELINE_DEPTH: usize = 16;
+
 /// Provider and model configuration resolved from pipeline defaults, per-step overrides,
 /// or CLI flags. All fields are optional — unset fields fall back to runner/environment defaults.
 #[derive(Debug, Clone, Default)]
@@ -83,7 +87,9 @@ impl StepId {
 pub enum StepBody {
     Prompt(String),
     Skill(PathBuf),
-    SubPipeline(PathBuf),
+    /// Path to a sub-pipeline YAML file. May contain `{{ variable }}` syntax;
+    /// the path is template-resolved at execution time (SPEC §11).
+    SubPipeline(String),
     Action(ActionKind),
     Context(ContextSource),
 }
@@ -126,4 +132,7 @@ pub enum ResultAction {
     Break,
     AbortPipeline,
     PauseForHuman,
+    /// Conditionally call another pipeline. Path may contain `{{ variable }}` syntax;
+    /// resolved at execution time. Follows the sub-pipeline isolation model (SPEC §9).
+    Pipeline(String),
 }

@@ -159,7 +159,7 @@ fn draw_step_hud(frame: &mut Frame, app: &AppState, area: Rect, step_idx: usize)
         StepBody::SubPipeline(path) => {
             lines.push(Line::from(vec![
                 Span::styled("file:   ", Style::default().fg(Color::DarkGray)),
-                Span::raw(path.display().to_string()),
+                Span::raw(path.clone()),
             ]));
         }
         StepBody::Action(ActionKind::PauseForHuman) => {
@@ -211,10 +211,11 @@ fn draw_step_hud(frame: &mut Frame, app: &AppState, area: Rect, step_idx: usize)
                 ResultMatcher::Always => "always".to_string(),
             };
             let action = match &b.action {
-                ResultAction::Continue => "continue",
-                ResultAction::Break => "break",
-                ResultAction::AbortPipeline => "abort_pipeline",
-                ResultAction::PauseForHuman => "pause_for_human",
+                ResultAction::Continue => "continue".to_string(),
+                ResultAction::Break => "break".to_string(),
+                ResultAction::AbortPipeline => "abort_pipeline".to_string(),
+                ResultAction::PauseForHuman => "pause_for_human".to_string(),
+                ResultAction::Pipeline(path) => format!("pipeline: {path}"),
             };
             lines.push(Line::from(vec![
                 Span::raw("  "),

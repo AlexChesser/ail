@@ -126,7 +126,7 @@ pub fn validate(dto: PipelineFileDto, source: PathBuf) -> Result<Pipeline, AilEr
         } else if let Some(skill) = step_dto.skill {
             StepBody::Skill(PathBuf::from(skill))
         } else if let Some(pipeline) = step_dto.pipeline {
-            StepBody::SubPipeline(PathBuf::from(pipeline))
+            StepBody::SubPipeline(pipeline)
         } else if let Some(action) = step_dto.action {
             match action.as_str() {
                 "pause_for_human" => StepBody::Action(ActionKind::PauseForHuman),
@@ -198,20 +198,36 @@ pub fn validate(dto: PipelineFileDto, source: PathBuf) -> Result<Pipeline, AilEr
                             context: None,
                         })?;
 
-                        let action = match action_str.as_str() {
-                            "continue" => ResultAction::Continue,
-                            "break" => ResultAction::Break,
-                            "abort_pipeline" => ResultAction::AbortPipeline,
-                            "pause_for_human" => ResultAction::PauseForHuman,
-                            other => {
+                        let action = if let Some(path) =
+                            action_str.strip_prefix("pipeline:").map(str::trim)
+                        {
+                            if path.is_empty() {
                                 return Err(AilError {
                                     error_type: error_types::CONFIG_VALIDATION_FAILED,
-                                    title: "Unknown on_result action",
+                                    title: "pipeline: action missing path",
                                     detail: format!(
-                                        "Step '{id_str}' on_result branch {i} specifies unknown action '{other}'"
+                                        "Step '{id_str}' on_result branch {i} action 'pipeline:' requires a path"
                                     ),
                                     context: None,
-                                })
+                                });
+                            }
+                            ResultAction::Pipeline(path.to_string())
+                        } else {
+                            match action_str.as_str() {
+                                "continue" => ResultAction::Continue,
+                                "break" => ResultAction::Break,
+                                "abort_pipeline" => ResultAction::AbortPipeline,
+                                "pause_for_human" => ResultAction::PauseForHuman,
+                                other => {
+                                    return Err(AilError {
+                                        error_type: error_types::CONFIG_VALIDATION_FAILED,
+                                        title: "Unknown on_result action",
+                                        detail: format!(
+                                            "Step '{id_str}' on_result branch {i} specifies unknown action '{other}'"
+                                        ),
+                                        context: None,
+                                    })
+                                }
                             }
                         };
 

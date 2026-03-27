@@ -1,5 +1,5 @@
 use crate::config::domain::{
-    ActionKind, ContextSource, ExitCodeMatch, Pipeline, ResultMatcher, StepBody,
+    ActionKind, ContextSource, ExitCodeMatch, Pipeline, ResultAction, ResultMatcher, StepBody,
 };
 
 /// Serialize a pipeline back to annotated YAML with origin comments per step.
@@ -28,7 +28,7 @@ pub fn materialize(pipeline: &Pipeline) -> String {
                 out.push_str(&format!("    skill: {}\n", path.display()));
             }
             StepBody::SubPipeline(path) => {
-                out.push_str(&format!("    pipeline: {}\n", path.display()));
+                out.push_str(&format!("    pipeline: {path}\n"));
             }
             StepBody::Action(ActionKind::PauseForHuman) => {
                 out.push_str("    action: pause_for_human\n");
@@ -53,11 +53,12 @@ pub fn materialize(pipeline: &Pipeline) -> String {
                     ResultMatcher::ExitCode(ExitCodeMatch::Any) => "exit_code: any".to_string(),
                     ResultMatcher::Always => "always: true".to_string(),
                 };
-                let action = match branch.action {
-                    crate::config::domain::ResultAction::Continue => "continue",
-                    crate::config::domain::ResultAction::Break => "break",
-                    crate::config::domain::ResultAction::AbortPipeline => "abort_pipeline",
-                    crate::config::domain::ResultAction::PauseForHuman => "pause_for_human",
+                let action = match &branch.action {
+                    ResultAction::Continue => "continue".to_string(),
+                    ResultAction::Break => "break".to_string(),
+                    ResultAction::AbortPipeline => "abort_pipeline".to_string(),
+                    ResultAction::PauseForHuman => "pause_for_human".to_string(),
+                    ResultAction::Pipeline(path) => format!("pipeline: {path}"),
                 };
                 out.push_str(&format!("      - {matcher}\n        action: {action}\n"));
             }

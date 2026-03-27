@@ -5,6 +5,7 @@ mod s05_5_context_steps;
 mod s05_step_specification;
 mod s06_pipeline_inheritance;
 mod s08_runner_adapter;
+mod s09_sub_pipeline;
 mod s09_tool_permissions;
 mod s10_model_config;
 mod s11_template_variables;

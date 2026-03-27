@@ -28,13 +28,16 @@ Consumed by `ail` (the binary) and future language-server / SDK targets.
 // Pipeline and its steps
 pub struct Pipeline { pub steps: Vec<Step>, pub source: Option<PathBuf> }
 pub struct Step    { pub id: StepId, pub body: StepBody, pub tools: Option<ToolPolicy>, pub on_result: Option<Vec<ResultBranch>>, pub model: Option<String> }
-pub enum StepBody  { Prompt(String), Skill(PathBuf), SubPipeline(PathBuf), Action(ActionKind), Context(ContextSource) }
+pub enum StepBody  { Prompt(String), Skill(PathBuf), SubPipeline(String), Action(ActionKind), Context(ContextSource) }
+// SubPipeline(String): path may contain {{ variable }} syntax — resolved at execution time (SPEC §11)
 pub enum ContextSource { Shell(String) }
 pub enum ActionKind { PauseForHuman }
 pub struct ResultBranch { pub matcher: ResultMatcher, pub action: ResultAction }
 pub enum ResultMatcher { Contains(String), ExitCode(ExitCodeMatch), Always }
 pub enum ExitCodeMatch { Exact(i32), Any }
-pub enum ResultAction { Continue, Break, AbortPipeline, PauseForHuman }
+pub enum ResultAction { Continue, Break, AbortPipeline, PauseForHuman, Pipeline(String) }
+// Pipeline(String): path may contain {{ variable }} syntax — resolved at execution time (SPEC §11)
+// const MAX_SUB_PIPELINE_DEPTH: usize = 16 — enforced by execute_inner depth counter
 
 // Provider/model config (SPEC §15) — resolved chain: defaults → per-step → cli_provider
 pub struct ProviderConfig { pub model: Option<String>, pub base_url: Option<String>, pub auth_token: Option<String> }
@@ -71,7 +74,8 @@ pub struct AilError { pub error_type: &'static str, pub title: &'static str, pub
 
 1. **SPEC §4.2 core invariant**: once `execute()` begins, all steps run in order. Early exit only via explicit declared outcomes — never silent failures.
 2. Template resolution failure **aborts the step before the runner is called** — no TurnEntry recorded for the failed step.
-3. Intent is recorded (`record_step_started`) before the runner is called — crash evidence.
+3. Template resolution applies to **both `pipeline:` paths and `on_result: pipeline:` action values** (SPEC §11) — resolved at execution time, not parse time.
+4. Intent is recorded (`record_step_started`) before the runner is called — crash evidence.
 4. `ClaudeCliRunner` must call `.env_remove("CLAUDECODE")` on `Command` to avoid nested-session guard.
 5. `--output-format stream-json` **requires** `--verbose` when combined with `-p`.
 6. **Context steps bypass the Runner** — `context: shell:` spawns `/bin/sh -c` directly; `Runner::invoke` is never called.
@@ -97,7 +101,8 @@ s05  — step specification (core fields)
 s05_3 — on_result multi-branch evaluation
 s05_5 — context:shell: steps + file path resolution
 s08  — runner adapter
-s09  — tool permissions
+s09  — sub-pipeline execution + template vars in pipeline: paths
+s09  — tool permissions (separate file: s09_tool_permissions)
 s11  — template variables
 s18  — materialize
 s21  — MVP scope

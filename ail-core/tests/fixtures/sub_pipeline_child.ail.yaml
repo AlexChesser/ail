@@ -1,0 +1,4 @@
+version: "0.0.1"
+pipeline:
+  - id: child_step
+    prompt: "child pipeline step"

@@ -7,7 +7,10 @@ use std::sync::mpsc;
 use std::sync::Arc;
 use std::time::SystemTime;
 
-use crate::config::domain::{ContextSource, ExitCodeMatch, ResultAction, ResultMatcher, StepBody};
+use crate::config::domain::{
+    ContextSource, ExitCodeMatch, ResultAction, ResultMatcher, StepBody,
+    MAX_SUB_PIPELINE_DEPTH,
+};
 use crate::error::{error_types, AilError};
 use crate::runner::{InvokeOptions, Runner, RunnerEvent};
 use crate::session::{Session, TurnEntry};
@@ -73,17 +76,108 @@ pub enum ExecutorEvent {
     PipelineError(String),
 }
 
-/// Execute all steps in `session.pipeline` in order.
+/// Load and run a sub-pipeline, returning a `TurnEntry` for the calling step.
 ///
-/// SPEC §4.2 core invariant: once execution begins, all steps run in order.
-/// Early exit only via explicit declared outcomes — never silent failures.
-pub fn execute(session: &mut Session, runner: &dyn Runner) -> Result<ExecuteOutcome, AilError> {
+/// The `path_template` may contain `{{ variable }}` syntax (SPEC §11); it is resolved
+/// against `session` before the file is loaded. The sub-pipeline runs in isolation:
+/// a fresh `Session` is created with the parent's `last_response` as its invocation prompt.
+/// The child's final step response becomes the returned entry's `response` field.
+///
+/// `depth` guards against infinite recursion; exceeding `MAX_SUB_PIPELINE_DEPTH` aborts.
+fn execute_sub_pipeline(
+    path_template: &str,
+    step_id: &str,
+    session: &mut Session,
+    runner: &dyn Runner,
+    depth: usize,
+) -> Result<TurnEntry, AilError> {
+    if depth >= MAX_SUB_PIPELINE_DEPTH {
+        return Err(AilError {
+            error_type: error_types::PIPELINE_ABORTED,
+            title: "Sub-pipeline depth limit exceeded",
+            detail: format!(
+                "Step '{step_id}' would exceed the maximum sub-pipeline nesting depth of {MAX_SUB_PIPELINE_DEPTH}"
+            ),
+            context: Some(crate::error::ErrorContext {
+                pipeline_run_id: Some(session.run_id.clone()),
+                step_id: Some(step_id.to_string()),
+                source: None,
+            }),
+        });
+    }
+
+    // Resolve template variables in the path (SPEC §11).
+    let resolved_path = template::resolve(path_template, session).map_err(|mut e| {
+        e.context = Some(crate::error::ErrorContext {
+            pipeline_run_id: Some(session.run_id.clone()),
+            step_id: Some(step_id.to_string()),
+            source: None,
+        });
+        e
+    })?;
+
+    let path = std::path::Path::new(&resolved_path);
+    let sub_pipeline = crate::config::load(path).map_err(|mut e| {
+        e.context = Some(crate::error::ErrorContext {
+            pipeline_run_id: Some(session.run_id.clone()),
+            step_id: Some(step_id.to_string()),
+            source: None,
+        });
+        e
+    })?;
+
+    // The sub-pipeline's invocation prompt is the parent's most recent response.
+    let invocation_prompt = session
+        .turn_log
+        .last_response()
+        .unwrap_or(&session.invocation_prompt)
+        .to_string();
+
+    let mut child_session = crate::session::Session::new(sub_pipeline, invocation_prompt);
+    child_session.cli_provider = session.cli_provider.clone();
+
+    tracing::info!(
+        run_id = %session.run_id,
+        step_id = %step_id,
+        sub_pipeline = %resolved_path,
+        depth,
+        "executing sub-pipeline"
+    );
+
+    execute_inner(&mut child_session, runner, depth + 1)?;
+
+    let response = child_session
+        .turn_log
+        .last_response()
+        .unwrap_or("")
+        .to_string();
+
+    Ok(TurnEntry {
+        step_id: step_id.to_string(),
+        prompt: resolved_path,
+        response: Some(response),
+        timestamp: SystemTime::now(),
+        cost_usd: None,
+        runner_session_id: child_session.turn_log.last_runner_session_id().map(str::to_string),
+        stdout: None,
+        stderr: None,
+        exit_code: None,
+    })
+}
+
+/// Inner recursive executor used by both `execute()` and sub-pipeline calls.
+/// `depth` tracks nesting level to enforce `MAX_SUB_PIPELINE_DEPTH`.
+fn execute_inner(session: &mut Session, runner: &dyn Runner, depth: usize) -> Result<ExecuteOutcome, AilError> {
     if session.pipeline.steps.is_empty() {
         tracing::info!(run_id = %session.run_id, "empty pipeline — no steps to execute");
         return Ok(ExecuteOutcome::Completed);
     }
 
-    for step in &session.pipeline.steps {
+    // Clone to avoid borrow conflict when calling execute_sub_pipeline (&mut session)
+    // while iterating step bodies.
+    let steps: Vec<_> = session.pipeline.steps.clone();
+
+    for step in &steps {
         let step_id = step.id.as_str().to_string();
 
         tracing::info!(run_id = %session.run_id, step_id = %step_id, "executing step");
@@ -101,18 +195,13 @@ pub fn execute(session: &mut Session, runner: &dyn Runner) -> Result<ExecuteOutc
                     e
                 })?;
 
-                // Resume the conversation from the last invocation so Claude
-                // has the conversation history (e.g. for "Review the above output").
                 let resume_id = session
                     .turn_log
                     .last_runner_session_id()
                     .map(|s| s.to_string());
 
-                // Record intent before calling the runner. If the runner crashes
-                // or hangs, this is the only evidence the step was attempted.
                 session.turn_log.record_step_started(&step_id, &resolved);
 
-                // Resolve model+provider: pipeline defaults → per-step model → CLI override.
                 let resolved_provider = session
                     .pipeline
                     .defaults
@@ -230,7 +319,12 @@ pub fn execute(session: &mut Session, runner: &dyn Runner) -> Result<ExecuteOutc
                 continue;
             }
 
-            StepBody::Skill(_) | StepBody::SubPipeline(_) => {
+            StepBody::SubPipeline(path_template) => {
+                session.turn_log.record_step_started(&step_id, path_template);
+                execute_sub_pipeline(path_template, &step_id, session, runner, depth)?
+            }
+
+            StepBody::Skill(_) => {
                 return Err(AilError {
                     error_type: error_types::PIPELINE_ABORTED,
                     title: "Unsupported step type",
@@ -277,12 +371,15 @@ pub fn execute(session: &mut Session, runner: &dyn Runner) -> Result<ExecuteOutc
                         });
                     }
                     ResultAction::PauseForHuman => {
-                        // v0.1: pause_for_human in on_result is a no-op in headless mode.
                         tracing::info!(
                             run_id = %session.run_id,
                             step_id = %step_id,
                             "on_result pause_for_human (no-op in headless mode)"
                         );
+                    }
+                    ResultAction::Pipeline(ref path_template) => {
+                        let entry = execute_sub_pipeline(path_template, &step_id, session, runner, depth)?;
+                        session.turn_log.append(entry);
                     }
                 }
             }
@@ -290,6 +387,14 @@ pub fn execute(session: &mut Session, runner: &dyn Runner) -> Result<ExecuteOutc
     }
 
     Ok(ExecuteOutcome::Completed)
+}
+
+/// Execute all steps in `session.pipeline` in order.
+///
+/// SPEC §4.2 core invariant: once execution begins, all steps run in order.
+/// Early exit only via explicit declared outcomes — never silent failures.
+pub fn execute(session: &mut Session, runner: &dyn Runner) -> Result<ExecuteOutcome, AilError> {
+    execute_inner(session, runner, 0)
 }
 
 /// Execute the pipeline with live control signals and event streaming for the TUI.
@@ -524,7 +629,27 @@ pub fn execute_with_control(
                 continue;
             }
 
-            StepBody::Skill(_) | StepBody::SubPipeline(_) => {
+            StepBody::SubPipeline(path_template) => {
+                session.turn_log.record_step_started(&step_id, path_template);
+                match execute_sub_pipeline(path_template, &step_id, session, runner, 0) {
+                    Ok(entry) => {
+                        let _ = event_tx.send(ExecutorEvent::StepCompleted {
+                            step_id: step_id.clone(),
+                            cost_usd: None,
+                        });
+                        entry
+                    }
+                    Err(e) => {
+                        let _ = event_tx.send(ExecutorEvent::StepFailed {
+                            step_id: step_id.clone(),
+                            error: e.detail.clone(),
+                        });
+                        return Err(e);
+                    }
+                }
+            }
+
+            StepBody::Skill(_) => {
                 return Err(AilError {
                     error_type: error_types::PIPELINE_ABORTED,
                     title: "Unsupported step type",
@@ -585,6 +710,17 @@ pub fn execute_with_control(
                             "on_result pause_for_human (no-op in headless mode)"
                         );
                     }
+                    ResultAction::Pipeline(ref path_template) => {
+                        match execute_sub_pipeline(path_template, &step_id, session, runner, 0) {
+                            Ok(entry) => {
+                                session.turn_log.append(entry);
+                            }
+                            Err(e) => {
+                                let _ = event_tx.send(ExecutorEvent::PipelineError(e.detail.clone()));
+                                return Err(e);
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -620,12 +756,7 @@ fn evaluate_on_result(
         };
 
         if matched {
-            return Some(match branch.action {
-                ResultAction::Continue => ResultAction::Continue,
-                ResultAction::Break => ResultAction::Break,
-                ResultAction::AbortPipeline => ResultAction::AbortPipeline,
-                ResultAction::PauseForHuman => ResultAction::PauseForHuman,
-            });
+            return Some(branch.action.clone());
         }
     }
     None
