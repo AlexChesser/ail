@@ -1,10 +1,15 @@
-use crossterm::event::{Event, KeyCode, KeyModifiers};
+use crossterm::event::{Event, KeyCode, KeyEventKind, KeyModifiers};
 
 use super::app::{AppState, ExecutionPhase, Focus, ViewMode};
 
 /// Map a crossterm input event to a state change.
 pub fn handle_event(app: &mut AppState, event: Event) {
     if let Event::Key(key) = event {
+        // With keyboard enhancement active the terminal emits Press, Repeat, and Release
+        // events. Only act on Press and Repeat; ignore Release to avoid double-fires.
+        if key.kind == KeyEventKind::Release {
+            return;
+        }
         // HUD overlay intercepts all input when open.
         if app.view_mode != ViewMode::Normal {
             handle_hud(app, key.modifiers, key.code);
@@ -193,8 +198,9 @@ fn handle_prompt(app: &mut AppState, modifiers: KeyModifiers, code: KeyCode) {
             }
         }
 
-        // Shift+Enter inserts a newline in the buffer
-        (KeyModifiers::SHIFT, KeyCode::Enter) => {
+        // Shift+Enter or Alt+Enter inserts a newline in the buffer.
+        // Alt+Enter is a reliable fallback for terminals that don't distinguish Shift+Enter.
+        (KeyModifiers::SHIFT | KeyModifiers::ALT, KeyCode::Enter) => {
             app.input_insert('\n');
         }
 
