@@ -9,7 +9,7 @@ use std::sync::mpsc;
 use std::time::Duration;
 
 use crossterm::{
-    event,
+    event::{self, KeyboardEnhancementFlags, PopKeyboardEnhancementFlags, PushKeyboardEnhancementFlags},
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
@@ -26,13 +26,23 @@ pub fn run(
 ) -> io::Result<()> {
     enable_raw_mode()?;
     let mut stdout = io::stdout();
-    execute!(stdout, EnterAlternateScreen)?;
+    // Request keyboard enhancement (Kitty protocol) so terminals that support it send
+    // distinguishable Shift+Enter, Ctrl+Enter, etc. Falls back gracefully on unsupported terminals.
+    let keyboard_enhanced = execute!(
+        stdout,
+        EnterAlternateScreen,
+        PushKeyboardEnhancementFlags(KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES)
+    )
+    .is_ok();
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
     let result = run_app(&mut terminal, pipeline, cli_provider, headless);
 
     disable_raw_mode()?;
+    if keyboard_enhanced {
+        let _ = execute!(terminal.backend_mut(), PopKeyboardEnhancementFlags);
+    }
     execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
     terminal.show_cursor()?;
 

@@ -18,15 +18,21 @@ const PROMPT_MAX_CONTENT_LINES: u16 = 8;
 
 /// Compute dynamic prompt height based on input content and available width.
 ///
-/// `input_chars` is the number of characters in the input buffer.
-/// `prefix_len` is the rendered prefix width (e.g. 2 for `"> "`).
+/// `buf` is the input buffer. The prefix (`"> "`, 2 chars) is only on the first line.
 /// Returns total area height including the top border row.
-pub fn prompt_height(input_chars: usize, prefix_len: u16, available_width: u16) -> u16 {
-    let usable = available_width.saturating_sub(prefix_len).max(1) as usize;
-    // Number of visual lines: ceil(max(1, input_chars) / usable)
-    let content_chars = input_chars.max(1);
-    let content_lines = content_chars.div_ceil(usable) as u16;
-    let clamped = content_lines.clamp(1, PROMPT_MAX_CONTENT_LINES);
+pub fn prompt_height(buf: &[char], available_width: u16) -> u16 {
+    let usable_first = available_width.saturating_sub(2).max(1) as usize;
+    let usable_rest = available_width.max(1) as usize;
+
+    // Split on newlines and compute wrapped visual lines per logical line.
+    let logical_lines: Vec<&[char]> = buf.split(|&c| c == '\n').collect();
+    let mut total_visual: u16 = 0;
+    for (i, seg) in logical_lines.iter().enumerate() {
+        let usable = if i == 0 { usable_first } else { usable_rest };
+        let chars = seg.len().max(1);
+        total_visual += chars.div_ceil(usable) as u16;
+    }
+    let clamped = total_visual.clamp(1, PROMPT_MAX_CONTENT_LINES);
     PROMPT_MIN_HEIGHT - 1 + clamped // border (1) + content lines
 }
 
@@ -67,9 +73,8 @@ pub struct Regions {
 
 /// Compute panel regions from the full terminal area.
 ///
-/// `input_chars` is the current number of characters in the prompt input buffer,
-/// used to compute a dynamic prompt height.
-pub fn compute(area: Rect, input_chars: usize) -> Regions {
+/// `buf` is the current prompt input buffer, used to compute a dynamic prompt height.
+pub fn compute(area: Rect, buf: &[char]) -> Regions {
     let tier = WidthTier::from_width(area.width);
     let sidebar_width = match tier {
         WidthTier::Full => SIDEBAR_FULL_WIDTH.min(area.width / 2),
@@ -77,8 +82,7 @@ pub fn compute(area: Rect, input_chars: usize) -> Regions {
         WidthTier::NoSidebar | WidthTier::Minimal => 0,
     };
 
-    // Prompt prefix is "> " (2 chars); compute height based on content length.
-    let ph = prompt_height(input_chars, 2, area.width);
+    let ph = prompt_height(buf, area.width);
 
     // Split vertically: [content area | status bar | prompt]
     let vertical = Layout::default()
