@@ -199,12 +199,7 @@ fn main() {
                     base_url: cli.provider_url.clone(),
                     auth_token: cli.provider_token.clone(),
                 };
-                let mode = if cli.inline {
-                    tui::TuiMode::Inline
-                } else {
-                    tui::TuiMode::Fullscreen
-                };
-                if let Err(e) = tui::run(pipeline, cli_provider, cli.headless, mode) {
+                if let Err(e) = tui::run(pipeline, cli_provider, cli.headless) {
                     eprintln!("TUI error: {e}");
                     std::process::exit(1);
                 }

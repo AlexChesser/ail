@@ -20,11 +20,6 @@ pub struct Cli {
     #[arg(long)]
     pub headless: bool,
 
-    /// Use inline viewport mode: renders status and prompt at the bottom of the primary buffer,
-    /// allowing LLM output to flow into native terminal scrollback.
-    #[arg(long)]
-    pub inline: bool,
-
     /// Override the model for all runner invocations (e.g. `gemma3:1b` for Ollama).
     /// Takes precedence over any model declared in the pipeline YAML.
     #[arg(long, value_name = "MODEL")]

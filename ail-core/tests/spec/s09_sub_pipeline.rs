@@ -1,5 +1,4 @@
 /// SPEC §9 — Sub-pipeline execution and §11 template variables in pipeline: paths.
-
 use ail_core::config::domain::{
     Pipeline, ResultAction, ResultBranch, ResultMatcher, Step, StepBody, StepId,
 };
@@ -141,7 +140,10 @@ fn unresolvable_pipeline_path_aborts_with_template_unresolved_error() {
     let result = execute(&mut session, &runner);
     assert!(result.is_err());
     let err = result.unwrap_err();
-    assert_eq!(err.error_type, ail_core::error::error_types::TEMPLATE_UNRESOLVED);
+    assert_eq!(
+        err.error_type,
+        ail_core::error::error_types::TEMPLATE_UNRESOLVED
+    );
 
     std::env::set_current_dir(orig).unwrap();
 }
@@ -159,7 +161,10 @@ fn missing_sub_pipeline_file_aborts_with_file_not_found_error() {
     let result = execute(&mut session, &runner);
     assert!(result.is_err());
     let err = result.unwrap_err();
-    assert_eq!(err.error_type, ail_core::error::error_types::CONFIG_FILE_NOT_FOUND);
+    assert_eq!(
+        err.error_type,
+        ail_core::error::error_types::CONFIG_FILE_NOT_FOUND
+    );
 
     std::env::set_current_dir(orig).unwrap();
 }
@@ -191,7 +196,11 @@ fn on_result_pipeline_action_executes_sub_pipeline_on_match() {
 
     // Expect entries: trigger step + sub-pipeline result appended to turn log
     let entries = session.turn_log.entries();
-    assert!(entries.len() >= 2, "Expected trigger + sub-pipeline entries, got {}", entries.len());
+    assert!(
+        entries.len() >= 2,
+        "Expected trigger + sub-pipeline entries, got {}",
+        entries.len()
+    );
     assert_eq!(entries[0].step_id, "trigger");
 
     std::env::set_current_dir(orig).unwrap();

@@ -11,9 +11,7 @@ use crossterm::{
         PopKeyboardEnhancementFlags, PushKeyboardEnhancementFlags,
     },
     execute,
-    terminal::{
-        disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen,
-    },
+    terminal::{disable_raw_mode, enable_raw_mode},
 };
 use ratatui::{
     backend::CrosstermBackend,
@@ -21,23 +19,20 @@ use ratatui::{
     Terminal, TerminalOptions, Viewport,
 };
 
-use super::app::{ActiveMode, AppState, ExecutionPhase};
+use super::app::{AppState, ExecutionPhase};
 use super::backend::{BackendCommand, BackendEvent};
 use super::ui::viewport::style_line;
 
 /// Height of the inline viewport in terminal rows.
 ///
-/// Accommodates: 1 status bar + 1 prompt border + up to 6 content lines = 8 rows.
-const INLINE_HEIGHT: u16 = 8;
+/// Accommodates: 1 status bar + 9 rows for sidebar/prompt.
+const INLINE_HEIGHT: u16 = 10;
 
-/// Launch the inline viewport TUI with Tab-to-fullscreen toggle. Returns when the user quits.
+/// Launch the primary-buffer TUI. Returns when the user quits.
 ///
-/// In inline mode, LLM output flows into the terminal's native primary-buffer scrollback via
-/// `terminal.insert_before()`. Only the status bar and prompt are rendered inside the fixed
-/// inline viewport at the bottom of the terminal.
-///
-/// Pressing Tab switches to a fullscreen alternate-screen view (sidebar + viewport widget).
-/// Pressing Tab again returns to inline mode.
+/// LLM output flows into the terminal's native primary-buffer scrollback via
+/// `terminal.insert_before()`. The status bar, pipeline sidebar, and prompt are
+/// rendered inside the fixed inline viewport at the bottom of the terminal.
 pub fn run(
     pipeline: Option<ail_core::config::domain::Pipeline>,
     cli_provider: ail_core::config::domain::ProviderConfig,
@@ -60,23 +55,16 @@ pub fn run(
         },
     )?;
 
-    let final_mode = run_app(&mut terminal, pipeline, cli_provider, headless)?;
+    run_app(&mut terminal, pipeline, cli_provider, headless)?;
 
     disable_raw_mode()?;
     if keyboard_enhanced {
         let _ = execute!(terminal.backend_mut(), PopKeyboardEnhancementFlags);
     }
-    // LeaveAlternateScreen is safe to call even in the primary buffer — it is a no-op there.
-    execute!(
-        terminal.backend_mut(),
-        DisableMouseCapture,
-        LeaveAlternateScreen
-    )?;
+    execute!(terminal.backend_mut(), DisableMouseCapture)?;
     terminal.show_cursor()?;
-    // If we exited from inline mode, print a newline so the shell prompt is on a fresh line.
-    if final_mode == ActiveMode::Inline {
-        println!();
-    }
+    // Print a newline so the shell prompt appears on a fresh line.
+    println!();
 
     Ok(())
 }
@@ -86,17 +74,13 @@ fn run_app(
     pipeline: Option<ail_core::config::domain::Pipeline>,
     cli_provider: ail_core::config::domain::ProviderConfig,
     headless: bool,
-) -> io::Result<ActiveMode> {
+) -> io::Result<()> {
     let mut app = AppState::new(pipeline.clone());
-    app.has_sidebar = false;
-    app.inline_capable = true;
-    app.active_mode = ActiveMode::Inline;
     app.picker_entries = ail_core::config::discovery::discover_all();
     let (cmd_tx, event_rx) = super::backend::spawn_backend(pipeline, cli_provider, headless);
 
     let mut hitl_tx: Option<mpsc::Sender<String>> = None;
     // Index into app.viewport_lines of the next line to flush to the scrollback.
-    // Only advances while in inline mode; skips lines added during fullscreen.
     let mut last_flushed: usize = 0;
 
     loop {
@@ -119,54 +103,16 @@ fn run_app(
             }
         }
 
-        // Handle a pending mode switch (Tab key).
-        if app.pending_mode_switch {
-            app.pending_mode_switch = false;
-            match app.active_mode {
-                ActiveMode::Inline => {
-                    // Switch to fullscreen: enter alternate screen and rebuild terminal.
-                    execute!(io::stdout(), EnterAlternateScreen)?;
-                    *terminal = Terminal::new(CrosstermBackend::new(io::stdout()))?;
-                    terminal.clear()?;
-                    app.active_mode = ActiveMode::Fullscreen;
-                    app.has_sidebar = true;
-                }
-                ActiveMode::Fullscreen => {
-                    // Switch back to inline: leave alternate screen and rebuild terminal.
-                    execute!(io::stdout(), LeaveAlternateScreen)?;
-                    *terminal = Terminal::with_options(
-                        CrosstermBackend::new(io::stdout()),
-                        TerminalOptions {
-                            viewport: Viewport::Inline(INLINE_HEIGHT),
-                        },
-                    )?;
-                    terminal.clear()?;
-                    app.active_mode = ActiveMode::Inline;
-                    app.has_sidebar = false;
-                    // Skip lines that were added while in fullscreen — they were
-                    // visible in the viewport widget and don't need re-flushing.
-                    last_flushed = app.viewport_lines.len();
-                }
-            }
+        // Flush new viewport lines into the primary-buffer scrollback.
+        let current = app.viewport_lines.len();
+        for i in last_flushed..current {
+            let line_text = app.viewport_lines[i].clone();
+            terminal.insert_before(1, |buf| {
+                Paragraph::new(style_line(&line_text)).render(buf.area, buf);
+            })?;
         }
-
-        match app.active_mode {
-            ActiveMode::Inline => {
-                // Flush new viewport lines into the primary-buffer scrollback.
-                let current = app.viewport_lines.len();
-                for i in last_flushed..current {
-                    let line_text = app.viewport_lines[i].clone();
-                    terminal.insert_before(1, |buf| {
-                        Paragraph::new(style_line(&line_text)).render(buf.area, buf);
-                    })?;
-                }
-                last_flushed = current;
-                terminal.draw(|f| draw::draw(f, &mut app))?;
-            }
-            ActiveMode::Fullscreen => {
-                terminal.draw(|f| super::ui::draw(f, &mut app))?;
-            }
-        }
+        last_flushed = current;
+        terminal.draw(|f| draw::draw(f, &mut app))?;
 
         if event::poll(Duration::from_millis(16))? {
             let ev = event::read()?;
@@ -219,5 +165,5 @@ fn run_app(
         }
     }
 
-    Ok(app.active_mode)
+    Ok(())
 }

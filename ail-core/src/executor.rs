@@ -8,8 +8,7 @@ use std::sync::Arc;
 use std::time::SystemTime;
 
 use crate::config::domain::{
-    ContextSource, ExitCodeMatch, ResultAction, ResultMatcher, StepBody,
-    MAX_SUB_PIPELINE_DEPTH,
+    ContextSource, ExitCodeMatch, ResultAction, ResultMatcher, StepBody, MAX_SUB_PIPELINE_DEPTH,
 };
 use crate::error::{error_types, AilError};
 use crate::runner::{InvokeOptions, Runner, RunnerEvent};
@@ -158,7 +157,10 @@ fn execute_sub_pipeline(
         response: Some(response),
         timestamp: SystemTime::now(),
         cost_usd: None,
-        runner_session_id: child_session.turn_log.last_runner_session_id().map(str::to_string),
+        runner_session_id: child_session
+            .turn_log
+            .last_runner_session_id()
+            .map(str::to_string),
         stdout: None,
         stderr: None,
         exit_code: None,
@@ -167,7 +169,11 @@ fn execute_sub_pipeline(
 
 /// Inner recursive executor used by both `execute()` and sub-pipeline calls.
 /// `depth` tracks nesting level to enforce `MAX_SUB_PIPELINE_DEPTH`.
-fn execute_inner(session: &mut Session, runner: &dyn Runner, depth: usize) -> Result<ExecuteOutcome, AilError> {
+fn execute_inner(
+    session: &mut Session,
+    runner: &dyn Runner,
+    depth: usize,
+) -> Result<ExecuteOutcome, AilError> {
     if session.pipeline.steps.is_empty() {
         tracing::info!(run_id = %session.run_id, "empty pipeline — no steps to execute");
         return Ok(ExecuteOutcome::Completed);
@@ -320,7 +326,9 @@ fn execute_inner(session: &mut Session, runner: &dyn Runner, depth: usize) -> Re
             }
 
             StepBody::SubPipeline(path_template) => {
-                session.turn_log.record_step_started(&step_id, path_template);
+                session
+                    .turn_log
+                    .record_step_started(&step_id, path_template);
                 execute_sub_pipeline(path_template, &step_id, session, runner, depth)?
             }
 
@@ -378,7 +386,8 @@ fn execute_inner(session: &mut Session, runner: &dyn Runner, depth: usize) -> Re
                         );
                     }
                     ResultAction::Pipeline(ref path_template) => {
-                        let entry = execute_sub_pipeline(path_template, &step_id, session, runner, depth)?;
+                        let entry =
+                            execute_sub_pipeline(path_template, &step_id, session, runner, depth)?;
                         session.turn_log.append(entry);
                     }
                 }
@@ -630,7 +639,9 @@ pub fn execute_with_control(
             }
 
             StepBody::SubPipeline(path_template) => {
-                session.turn_log.record_step_started(&step_id, path_template);
+                session
+                    .turn_log
+                    .record_step_started(&step_id, path_template);
                 match execute_sub_pipeline(path_template, &step_id, session, runner, 0) {
                     Ok(entry) => {
                         let _ = event_tx.send(ExecutorEvent::StepCompleted {
@@ -716,7 +727,8 @@ pub fn execute_with_control(
                                 session.turn_log.append(entry);
                             }
                             Err(e) => {
-                                let _ = event_tx.send(ExecutorEvent::PipelineError(e.detail.clone()));
+                                let _ =
+                                    event_tx.send(ExecutorEvent::PipelineError(e.detail.clone()));
                                 return Err(e);
                             }
                         }

@@ -1,13 +1,13 @@
 use ratatui::{
     layout::Rect,
-    style::{Color, Modifier, Style},
+    style::{Color, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Paragraph},
     Frame,
 };
 
 use crate::tui::{
-    app::{AppState, Focus, StepGlyph},
+    app::{AppState, StepGlyph},
     theme::{colors, glyphs},
 };
 
@@ -35,17 +35,11 @@ fn color_for(state: StepGlyph) -> Color {
     }
 }
 
-/// Render the pipeline sidebar.
+/// Render the pipeline sidebar (display-only, no interactive focus).
 pub fn draw(frame: &mut Frame, app: &AppState, area: Rect, glyph_only: bool) {
-    let focused = app.focus == Focus::Sidebar;
-    let border_color = if focused {
-        Color::White
-    } else {
-        Color::DarkGray
-    };
     let block = Block::default()
         .borders(Borders::RIGHT)
-        .style(Style::default().fg(border_color));
+        .style(Style::default().fg(Color::DarkGray));
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
@@ -57,16 +51,10 @@ pub fn draw(frame: &mut Frame, app: &AppState, area: Rect, glyph_only: bool) {
     } else {
         app.steps
             .iter()
-            .enumerate()
-            .map(|(i, step)| {
+            .map(|step| {
                 let glyph = glyph_for(step.glyph);
                 let color = color_for(step.glyph);
-                let cursor_active = focused && i == app.sidebar_cursor;
-                let base_style = if cursor_active {
-                    Style::default().fg(color).add_modifier(Modifier::REVERSED)
-                } else {
-                    Style::default().fg(color)
-                };
+                let base_style = Style::default().fg(color);
                 if glyph_only {
                     Line::from(Span::styled(glyph, base_style))
                 } else {

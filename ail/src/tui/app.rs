@@ -39,28 +39,6 @@ pub enum ExecutionPhase {
     Failed,
 }
 
-/// Which panel has keyboard focus (M7).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Focus {
-    Prompt,
-    Sidebar,
-}
-
-/// Whether the TUI is currently rendering in inline or fullscreen mode.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ActiveMode {
-    Inline,
-    Fullscreen,
-}
-
-/// Whether a step-detail HUD overlay is open (M8).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ViewMode {
-    Normal,
-    /// HUD showing config for step at this sidebar index.
-    StepHud(usize),
-}
-
 /// Application state for the TUI.
 pub struct AppState {
     pub running: bool,
@@ -69,14 +47,9 @@ pub struct AppState {
     pub steps: Vec<StepDisplay>,
     pub phase: ExecutionPhase,
 
-    // Focus and sidebar navigation (M7)
-    pub focus: Focus,
+    // Sidebar display (display-only, no interactive focus)
     pub sidebar_cursor: usize,
     pub disabled_steps: HashSet<String>,
-
-    // Step detail HUD (M8)
-    pub view_mode: ViewMode,
-    pub hud_scroll: u16,
 
     // Pipeline picker (i-1)
     pub picker_open: bool,
@@ -134,16 +107,6 @@ pub struct AppState {
     /// None = live view (auto-scroll to latest). Some(i) = viewing step_order[i].
     pub viewing_step: Option<usize>,
 
-    /// Whether the sidebar panel is available. False in inline viewport mode.
-    pub has_sidebar: bool,
-
-    /// Whether this session supports Tab-toggling between inline and fullscreen modes.
-    pub inline_capable: bool,
-    /// Current rendering mode. Mutated by the event loop when the user toggles.
-    pub active_mode: ActiveMode,
-    /// Set by the input handler; consumed by the event loop to rebuild the terminal.
-    pub pending_mode_switch: bool,
-
     // Run statistics (M6)
     pub run_start: Option<std::time::Instant>,
     pub run_end: Option<std::time::Instant>,
@@ -199,11 +162,8 @@ impl AppState {
             pipeline,
             steps,
             phase: ExecutionPhase::Idle,
-            focus: Focus::Prompt,
             sidebar_cursor: 0,
             disabled_steps: HashSet::new(),
-            view_mode: ViewMode::Normal,
-            hud_scroll: 0,
             picker_open: false,
             picker_entries: Vec::new(),
             picker_filter: String::new(),
@@ -237,10 +197,6 @@ impl AppState {
             current_step_index: 0,
             total_steps: 0,
             last_session_id: None,
-            has_sidebar: true,
-            inline_capable: false,
-            active_mode: ActiveMode::Fullscreen,
-            pending_mode_switch: false,
         }
     }
 
@@ -448,49 +404,6 @@ impl AppState {
         self.kill_flag = None;
     }
 
-    // ── sidebar navigation (M7) ──────────────────────────────────────────────
-
-    pub fn sidebar_nav_up(&mut self) {
-        if self.sidebar_cursor > 0 {
-            self.sidebar_cursor -= 1;
-        }
-    }
-
-    pub fn sidebar_nav_down(&mut self) {
-        if !self.steps.is_empty() && self.sidebar_cursor + 1 < self.steps.len() {
-            self.sidebar_cursor += 1;
-        }
-    }
-
-    pub fn sidebar_toggle_disabled(&mut self) {
-        if let Some(step) = self.steps.get_mut(self.sidebar_cursor) {
-            match step.glyph {
-                StepGlyph::Disabled => {
-                    step.glyph = StepGlyph::NotReached;
-                    self.disabled_steps.remove(&step.id);
-                }
-                StepGlyph::NotReached => {
-                    step.glyph = StepGlyph::Disabled;
-                    self.disabled_steps.insert(step.id.clone());
-                }
-                // Cannot disable running/completed/failed/skipped/hitl steps
-                _ => {}
-            }
-        }
-    }
-
-    /// Open the step-detail HUD for the currently focused sidebar step.
-    pub fn hud_open(&mut self) {
-        if !self.steps.is_empty() {
-            self.view_mode = ViewMode::StepHud(self.sidebar_cursor);
-            self.hud_scroll = 0;
-        }
-    }
-
-    pub fn hud_close(&mut self) {
-        self.view_mode = ViewMode::Normal;
-    }
-
     // ── pipeline picker (i-1) ─────────────────────────────────────────────────
 
     /// Open the picker: populate filtered list and show all entries.
@@ -559,36 +472,7 @@ impl AppState {
         Some(path)
     }
 
-    pub fn hud_scroll_up(&mut self) {
-        self.hud_scroll = self.hud_scroll.saturating_add(1);
-    }
-
-    pub fn hud_scroll_down(&mut self) {
-        self.hud_scroll = self.hud_scroll.saturating_sub(1);
-    }
-
-    pub fn sidebar_enter_focus(&mut self) {
-        self.focus = Focus::Sidebar;
-        // Clamp cursor to valid range.
-        if !self.steps.is_empty() && self.sidebar_cursor >= self.steps.len() {
-            self.sidebar_cursor = self.steps.len() - 1;
-        }
-    }
-
-    pub fn sidebar_exit_focus(&mut self) {
-        self.focus = Focus::Prompt;
-    }
-
     // ── interrupt system (M11) ────────────────────────────────────────────────
-
-    /// Request a pause between steps (Escape during Running).
-    pub fn request_pause(&mut self) {
-        if let Some(ref flag) = self.pause_flag {
-            flag.store(true, Ordering::SeqCst);
-        }
-        self.phase = ExecutionPhase::Paused;
-        self.interrupt_modal_open = true;
-    }
 
     /// Path A: resume — clear pause flag, dismiss modal.
     pub fn request_resume(&mut self) {
@@ -652,18 +536,6 @@ impl AppState {
         }
     }
 
-    /// Lines to display in the viewport (live or a specific step's buffer).
-    pub fn active_viewport_lines(&self) -> &[String] {
-        if let Some(idx) = self.viewing_step {
-            if let Some(id) = self.step_order.get(idx) {
-                if let Some(lines) = self.step_outputs.get(id) {
-                    return lines;
-                }
-            }
-        }
-        &self.viewport_lines
-    }
-
     // ── viewport scrolling ────────────────────────────────────────────────────
 
     /// Count total visual (wrapped) lines for the current viewport width.
@@ -673,24 +545,19 @@ impl AppState {
             .iter()
             .map(|l| {
                 let w = l.len();
-                if w == 0 { 1 } else { ((w - 1) / width + 1) as u16 }
+                if w == 0 {
+                    1
+                } else {
+                    ((w - 1) / width + 1) as u16
+                }
             })
             .sum()
     }
 
-    pub fn viewport_page_up(&mut self) {
-        let page = self.viewport_height.max(1);
-        let max_scroll = self.visual_line_count().saturating_sub(self.viewport_height);
-        self.viewport_scroll = (self.viewport_scroll + page).min(max_scroll);
-    }
-
-    pub fn viewport_page_down(&mut self) {
-        let page = self.viewport_height.max(1);
-        self.viewport_scroll = self.viewport_scroll.saturating_sub(page);
-    }
-
     pub fn viewport_scroll_up(&mut self, lines: u16) {
-        let max_scroll = self.visual_line_count().saturating_sub(self.viewport_height);
+        let max_scroll = self
+            .visual_line_count()
+            .saturating_sub(self.viewport_height);
         self.viewport_scroll = (self.viewport_scroll + lines).min(max_scroll);
     }
 

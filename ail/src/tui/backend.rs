@@ -119,11 +119,12 @@ pub fn spawn_backend(
                                     stderr: None,
                                     exit_code: None,
                                 });
-                                let _ =
-                                    event_tx.send(BackendEvent::Executor(ExecutorEvent::StepCompleted {
+                                let _ = event_tx.send(BackendEvent::Executor(
+                                    ExecutorEvent::StepCompleted {
                                         step_id: "invocation".to_string(),
                                         cost_usd: None,
-                                    }));
+                                    },
+                                ));
                             }
                             Err(e) => {
                                 let _ = fwd_inv_handle.join();

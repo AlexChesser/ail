@@ -1,6 +1,6 @@
 use crossterm::event::{Event, KeyCode, KeyEventKind, KeyModifiers, MouseEventKind};
 
-use super::app::{AppState, ExecutionPhase, Focus, ViewMode};
+use super::app::{AppState, ExecutionPhase};
 
 /// Map a crossterm input event to a state change.
 pub fn handle_event(app: &mut AppState, event: Event) {
@@ -18,11 +18,6 @@ pub fn handle_event(app: &mut AppState, event: Event) {
         if key.kind == KeyEventKind::Release {
             return;
         }
-        // HUD overlay intercepts all input when open.
-        if app.view_mode != ViewMode::Normal {
-            handle_hud(app, key.modifiers, key.code);
-            return;
-        }
         // Interrupt modal intercepts input when paused.
         if app.interrupt_modal_open {
             handle_interrupt_modal(app, key.modifiers, key.code);
@@ -33,10 +28,7 @@ pub fn handle_event(app: &mut AppState, event: Event) {
             handle_picker(app, key.modifiers, key.code);
             return;
         }
-        match app.focus {
-            Focus::Sidebar => handle_sidebar(app, key.modifiers, key.code),
-            Focus::Prompt => handle_prompt(app, key.modifiers, key.code),
-        }
+        handle_prompt(app, key.modifiers, key.code);
     }
 }
 
@@ -44,9 +36,6 @@ fn handle_picker(app: &mut AppState, modifiers: KeyModifiers, code: KeyCode) {
     match (modifiers, code) {
         (KeyModifiers::CONTROL, KeyCode::Char('c')) => {
             app.running = false;
-        }
-        (KeyModifiers::NONE, KeyCode::Esc) => {
-            app.close_picker();
         }
         (KeyModifiers::NONE, KeyCode::Enter) => {
             // No-op if filter matches nothing.
@@ -70,10 +59,6 @@ fn handle_picker(app: &mut AppState, modifiers: KeyModifiers, code: KeyCode) {
 
 fn handle_interrupt_modal(app: &mut AppState, modifiers: KeyModifiers, code: KeyCode) {
     match (modifiers, code) {
-        // Path A: Escape = resume
-        (KeyModifiers::NONE, KeyCode::Esc) => {
-            app.request_resume();
-        }
         // Path C: Ctrl+K = kill step
         (KeyModifiers::CONTROL, KeyCode::Char('k')) => {
             app.request_kill();
@@ -109,88 +94,11 @@ fn handle_interrupt_modal(app: &mut AppState, modifiers: KeyModifiers, code: Key
     }
 }
 
-fn handle_hud(app: &mut AppState, _modifiers: KeyModifiers, code: KeyCode) {
-    match code {
-        KeyCode::Esc | KeyCode::Char('q') => {
-            app.hud_close();
-        }
-        KeyCode::Up | KeyCode::Char('k') => {
-            app.hud_scroll_up();
-        }
-        KeyCode::Down | KeyCode::Char('j') => {
-            app.hud_scroll_down();
-        }
-        _ => {}
-    }
-}
-
-fn handle_sidebar(app: &mut AppState, modifiers: KeyModifiers, code: KeyCode) {
-    match (modifiers, code) {
-        // Global quit
-        (KeyModifiers::CONTROL, KeyCode::Char('c')) => {
-            app.running = false;
-        }
-        // Return focus to prompt
-        (KeyModifiers::NONE, KeyCode::Esc)
-        | (KeyModifiers::NONE, KeyCode::Tab)
-        | (KeyModifiers::NONE, KeyCode::Char('q')) => {
-            app.sidebar_exit_focus();
-        }
-        // Navigate
-        (KeyModifiers::NONE, KeyCode::Up) | (KeyModifiers::NONE, KeyCode::Char('k')) => {
-            app.sidebar_nav_up();
-        }
-        (KeyModifiers::NONE, KeyCode::Down) | (KeyModifiers::NONE, KeyCode::Char('j')) => {
-            app.sidebar_nav_down();
-        }
-        // Toggle disabled
-        (KeyModifiers::NONE, KeyCode::Char(' ')) => {
-            app.sidebar_toggle_disabled();
-        }
-        // Open step-detail HUD
-        (KeyModifiers::NONE, KeyCode::Enter) => {
-            app.hud_open();
-        }
-        // Viewport scroll still available
-        (KeyModifiers::NONE, KeyCode::PageUp) => {
-            app.viewport_page_up();
-        }
-        (KeyModifiers::NONE, KeyCode::PageDown) => {
-            app.viewport_page_down();
-        }
-        _ => {}
-    }
-}
-
 fn handle_prompt(app: &mut AppState, modifiers: KeyModifiers, code: KeyCode) {
     match (modifiers, code) {
         // Quit: Ctrl-C
         (KeyModifiers::CONTROL, KeyCode::Char('c')) => {
             app.running = false;
-        }
-
-        // Tab: move focus to sidebar (when available).
-        (KeyModifiers::NONE, KeyCode::Tab) => {
-            if app.has_sidebar {
-                app.sidebar_enter_focus();
-            }
-        }
-
-        // Viewport scroll (global — available regardless of focus)
-        (KeyModifiers::NONE, KeyCode::PageUp) => {
-            app.viewport_page_up();
-        }
-        (KeyModifiers::NONE, KeyCode::PageDown) => {
-            app.viewport_page_down();
-        }
-
-        // Escape: toggle inline/fullscreen when capable; otherwise request pause (M11).
-        (KeyModifiers::NONE, KeyCode::Esc) => {
-            if app.inline_capable {
-                app.pending_mode_switch = true;
-            } else if app.phase == ExecutionPhase::Running {
-                app.request_pause();
-            }
         }
 
         // Ctrl+K: kill step directly (no pause first) (M11)
