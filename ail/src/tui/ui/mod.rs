@@ -14,7 +14,7 @@ use layout::WidthTier;
 /// Render the entire TUI for a single frame.
 pub fn draw(frame: &mut Frame, app: &mut AppState) {
     let area = frame.area();
-    let regions = layout::compute(area);
+    let regions = layout::compute(area, app.input_buffer.len());
     let tier = WidthTier::from_width(area.width);
 
     // Sidebar (visible in Full and GlyphOnly tiers)

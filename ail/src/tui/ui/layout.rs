@@ -11,8 +11,24 @@ pub const SIDEBAR_FULL_WIDTH: u16 = 22;
 pub const SIDEBAR_GLYPH_WIDTH: u16 = 4;
 /// Height of the status bar.
 pub const STATUS_BAR_HEIGHT: u16 = 1;
-/// Height of the prompt input area.
-pub const PROMPT_HEIGHT: u16 = 3;
+/// Minimum prompt height (border + 1 content line).
+const PROMPT_MIN_HEIGHT: u16 = 2;
+/// Maximum prompt height in lines of content before it stops expanding.
+const PROMPT_MAX_CONTENT_LINES: u16 = 8;
+
+/// Compute dynamic prompt height based on input content and available width.
+///
+/// `input_chars` is the number of characters in the input buffer.
+/// `prefix_len` is the rendered prefix width (e.g. 2 for `"> "`).
+/// Returns total area height including the top border row.
+pub fn prompt_height(input_chars: usize, prefix_len: u16, available_width: u16) -> u16 {
+    let usable = available_width.saturating_sub(prefix_len).max(1) as usize;
+    // Number of visual lines: ceil(max(1, input_chars) / usable)
+    let content_chars = input_chars.max(1);
+    let content_lines = content_chars.div_ceil(usable) as u16;
+    let clamped = content_lines.clamp(1, PROMPT_MAX_CONTENT_LINES);
+    PROMPT_MIN_HEIGHT - 1 + clamped // border (1) + content lines
+}
 
 /// Terminal width tier.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -50,7 +66,10 @@ pub struct Regions {
 }
 
 /// Compute panel regions from the full terminal area.
-pub fn compute(area: Rect) -> Regions {
+///
+/// `input_chars` is the current number of characters in the prompt input buffer,
+/// used to compute a dynamic prompt height.
+pub fn compute(area: Rect, input_chars: usize) -> Regions {
     let tier = WidthTier::from_width(area.width);
     let sidebar_width = match tier {
         WidthTier::Full => SIDEBAR_FULL_WIDTH.min(area.width / 2),
@@ -58,13 +77,16 @@ pub fn compute(area: Rect) -> Regions {
         WidthTier::NoSidebar | WidthTier::Minimal => 0,
     };
 
+    // Prompt prefix is "> " (2 chars); compute height based on content length.
+    let ph = prompt_height(input_chars, 2, area.width);
+
     // Split vertically: [content area | status bar | prompt]
     let vertical = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
             Constraint::Min(1),
             Constraint::Length(STATUS_BAR_HEIGHT),
-            Constraint::Length(PROMPT_HEIGHT),
+            Constraint::Length(ph),
         ])
         .split(area);
 

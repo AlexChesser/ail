@@ -2,7 +2,7 @@ use ratatui::{
     layout::Rect,
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Paragraph},
+    widgets::{Block, Borders, Paragraph, Wrap},
     Frame,
 };
 
@@ -68,6 +68,6 @@ pub fn draw(frame: &mut Frame, app: &AppState, area: Rect) {
         ])
     };
 
-    let para = Paragraph::new(line);
+    let para = Paragraph::new(line).wrap(Wrap { trim: false });
     frame.render_widget(para, inner);
 }
