@@ -353,8 +353,16 @@ impl AppState {
     }
 
     /// Append `text` (which may contain `\n`) to `viewport_lines` and the active step buffer.
+    /// When the user has scrolled up (viewport_scroll > 0), compensates so the viewed
+    /// position stays fixed rather than drifting toward the new bottom.
     fn append_text(&mut self, text: &str) {
+        let before = self.viewport_lines.len();
         Self::append_to(text, &mut self.viewport_lines);
+        let added = self.viewport_lines.len().saturating_sub(before) as u16;
+        // Keep absolute scroll position stable when the user has scrolled up.
+        if self.viewport_scroll > 0 {
+            self.viewport_scroll = self.viewport_scroll.saturating_add(added);
+        }
         if let Some(ref id) = self.active_step_id.clone() {
             if let Some(buf) = self.step_outputs.get_mut(id) {
                 Self::append_to(text, buf);
@@ -362,6 +370,7 @@ impl AppState {
         }
     }
 
+    /// Returns the number of new lines pushed.
     fn append_to(text: &str, target: &mut Vec<String>) {
         let mut parts = text.split('\n');
         if let Some(first) = parts.next() {
