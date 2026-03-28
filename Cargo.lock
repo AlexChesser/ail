@@ -9,6 +9,7 @@ dependencies = [
  "ail-core",
  "clap",
  "crossterm",
+ "dirs",
  "ratatui",
  "tracing",
  "tracing-subscriber",
