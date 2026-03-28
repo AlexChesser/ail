@@ -198,9 +198,8 @@ fn handle_prompt(app: &mut AppState, modifiers: KeyModifiers, code: KeyCode) {
             }
         }
 
-        // Shift+Enter or Alt+Enter inserts a newline in the buffer.
-        // Alt+Enter is a reliable fallback for terminals that don't distinguish Shift+Enter.
-        (KeyModifiers::SHIFT | KeyModifiers::ALT, KeyCode::Enter) => {
+        // Shift+Enter inserts a newline in the buffer.
+        (KeyModifiers::SHIFT, KeyCode::Enter) => {
             app.input_insert('\n');
         }
 
@@ -259,12 +258,17 @@ fn handle_prompt(app: &mut AppState, modifiers: KeyModifiers, code: KeyCode) {
             app.session_next();
         }
 
-        // History navigation
+        // Up: navigate up within multiline prompt; fall through to history on first line.
         (KeyModifiers::NONE, KeyCode::Up) => {
-            app.history_up();
+            if !app.cursor_up_line() {
+                app.history_up();
+            }
         }
+        // Down: navigate down within multiline prompt; fall through to history on last line.
         (KeyModifiers::NONE, KeyCode::Down) => {
-            app.history_down();
+            if !app.cursor_down_line() {
+                app.history_down();
+            }
         }
 
         _ => {}

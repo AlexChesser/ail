@@ -724,6 +724,66 @@ impl AppState {
         self.cursor_pos = pos;
     }
 
+    /// Move the cursor up one logical line within the buffer, preserving column.
+    /// Returns `true` if the cursor moved, `false` if already on the first line
+    /// (caller should fall through to history navigation).
+    pub fn cursor_up_line(&mut self) -> bool {
+        let buf = &self.input_buffer;
+        let pos = self.cursor_pos;
+        // Find start of current logical line.
+        let line_start = buf[..pos]
+            .iter()
+            .rposition(|&c| c == '\n')
+            .map(|i| i + 1)
+            .unwrap_or(0);
+        if line_start == 0 {
+            return false; // already on first line
+        }
+        let col = pos - line_start;
+        // Find start of previous logical line.
+        let prev_line_end = line_start - 1; // the '\n' itself
+        let prev_line_start = buf[..prev_line_end]
+            .iter()
+            .rposition(|&c| c == '\n')
+            .map(|i| i + 1)
+            .unwrap_or(0);
+        let prev_line_len = prev_line_end - prev_line_start;
+        self.cursor_pos = prev_line_start + col.min(prev_line_len);
+        true
+    }
+
+    /// Move the cursor down one logical line within the buffer, preserving column.
+    /// Returns `true` if the cursor moved, `false` if already on the last line
+    /// (caller should fall through to history navigation).
+    pub fn cursor_down_line(&mut self) -> bool {
+        let buf = &self.input_buffer;
+        let pos = self.cursor_pos;
+        // Find start of current logical line.
+        let line_start = buf[..pos]
+            .iter()
+            .rposition(|&c| c == '\n')
+            .map(|i| i + 1)
+            .unwrap_or(0);
+        let col = pos - line_start;
+        // Find the next '\n' (end of current line).
+        let next_newline = buf[pos..].iter().position(|&c| c == '\n').map(|i| pos + i);
+        match next_newline {
+            None => false, // already on last line
+            Some(nl) => {
+                let next_line_start = nl + 1;
+                // Find end of next line.
+                let next_line_end = buf[next_line_start..]
+                    .iter()
+                    .position(|&c| c == '\n')
+                    .map(|i| next_line_start + i)
+                    .unwrap_or(buf.len());
+                let next_line_len = next_line_end - next_line_start;
+                self.cursor_pos = next_line_start + col.min(next_line_len);
+                true
+            }
+        }
+    }
+
     pub fn submit_input(&mut self) {
         let text: String = self.input_buffer.iter().collect();
         if text.trim().is_empty() {
