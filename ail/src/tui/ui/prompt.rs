@@ -90,6 +90,47 @@ pub fn draw(frame: &mut Frame, app: &AppState, area: Rect) {
         result
     };
 
-    let para = Paragraph::new(lines).wrap(Wrap { trim: false });
+    // Compute scroll offset so the cursor line is always visible.
+    // Paragraph renders from the top; if cursor is below the visible area we scroll down.
+    let scroll: u16 = if app.picker_open || inner.height == 0 {
+        0
+    } else {
+        let usable_first = (inner.width as usize).saturating_sub(2).max(1);
+        let usable_rest = (inner.width as usize).max(1);
+        let buf = &app.input_buffer;
+        let logical_lines: Vec<&[char]> = buf.split(|&c| c == '\n').collect();
+        let cursor = app.cursor_pos.min(buf.len());
+        // Recompute which logical line the cursor is on and the local col.
+        let mut char_offset = 0usize;
+        let mut c_logical = 0usize;
+        let mut c_local = 0usize;
+        for (i, seg) in logical_lines.iter().enumerate() {
+            let seg_start = char_offset;
+            let seg_end = char_offset + seg.len();
+            if cursor >= seg_start && cursor <= seg_end {
+                c_logical = i;
+                c_local = cursor - seg_start;
+                break;
+            }
+            char_offset = seg_end + 1;
+        }
+        // Count visual rows from top up to (and including) the cursor's visual row.
+        let mut vrow: u16 = 0;
+        for (i, seg) in logical_lines.iter().enumerate() {
+            let usable = if i == 0 { usable_first } else { usable_rest };
+            if i < c_logical {
+                vrow += (seg.len().max(1)).div_ceil(usable) as u16;
+            } else {
+                // Cursor's logical line: count only up to cursor column.
+                vrow += (c_local / usable) as u16;
+                break;
+            }
+        }
+        vrow.saturating_sub(inner.height.saturating_sub(1))
+    };
+
+    let para = Paragraph::new(lines)
+        .wrap(Wrap { trim: false })
+        .scroll((scroll, 0));
     frame.render_widget(para, inner);
 }

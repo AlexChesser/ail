@@ -6,4 +6,4 @@ defaults:
     auth_token: ollama
 pipeline:
   - id: review
-    prompt: "Review the code"
+    prompt: "this is a demo - say 'hello world'"

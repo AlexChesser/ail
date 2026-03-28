@@ -46,6 +46,13 @@ pub enum Focus {
     Sidebar,
 }
 
+/// Whether the TUI is currently rendering in inline or fullscreen mode.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ActiveMode {
+    Inline,
+    Fullscreen,
+}
+
 /// Whether a step-detail HUD overlay is open (M8).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ViewMode {
@@ -97,6 +104,8 @@ pub struct AppState {
     // Prompt input state (M3)
     pub input_buffer: Vec<char>,
     pub cursor_pos: usize,
+    /// Sticky column for Up/Down navigation; cleared by any horizontal or edit action.
+    pub prompt_preferred_col: Option<usize>,
     pub prompt_history: Vec<String>,
     pub history_index: Option<usize>,
     /// Set when the user presses Enter; cleared by the main loop once consumed.
@@ -109,6 +118,8 @@ pub struct AppState {
     pub viewport_scroll: u16,
     /// Updated each frame so scroll methods can compute page size.
     pub viewport_height: u16,
+    /// Updated each frame so scroll math can account for line wrapping.
+    pub viewport_width: u16,
 
     // Streaming tracking (M5)
     pub active_step_id: Option<String>,
@@ -122,6 +133,16 @@ pub struct AppState {
     pub step_order: Vec<String>,
     /// None = live view (auto-scroll to latest). Some(i) = viewing step_order[i].
     pub viewing_step: Option<usize>,
+
+    /// Whether the sidebar panel is available. False in inline viewport mode.
+    pub has_sidebar: bool,
+
+    /// Whether this session supports Tab-toggling between inline and fullscreen modes.
+    pub inline_capable: bool,
+    /// Current rendering mode. Mutated by the event loop when the user toggles.
+    pub active_mode: ActiveMode,
+    /// Set by the input handler; consumed by the event loop to rebuild the terminal.
+    pub pending_mode_switch: bool,
 
     // Run statistics (M6)
     pub run_start: Option<std::time::Instant>,
@@ -195,12 +216,14 @@ impl AppState {
             pending_injection: None,
             input_buffer: Vec::new(),
             cursor_pos: 0,
+            prompt_preferred_col: None,
             prompt_history: Vec::new(),
             history_index: None,
             pending_prompt: None,
             viewport_lines: Vec::new(),
             viewport_scroll: 0,
             viewport_height: 24,
+            viewport_width: 80,
             active_step_id: None,
             step_streamed: false,
             step_outputs: HashMap::new(),
@@ -214,6 +237,10 @@ impl AppState {
             current_step_index: 0,
             total_steps: 0,
             last_session_id: None,
+            has_sidebar: true,
+            inline_capable: false,
+            active_mode: ActiveMode::Fullscreen,
+            pending_mode_switch: false,
         }
     }
 
@@ -639,15 +666,36 @@ impl AppState {
 
     // ── viewport scrolling ────────────────────────────────────────────────────
 
+    /// Count total visual (wrapped) lines for the current viewport width.
+    fn visual_line_count(&self) -> u16 {
+        let width = self.viewport_width.max(1) as usize;
+        self.viewport_lines
+            .iter()
+            .map(|l| {
+                let w = l.len();
+                if w == 0 { 1 } else { ((w - 1) / width + 1) as u16 }
+            })
+            .sum()
+    }
+
     pub fn viewport_page_up(&mut self) {
         let page = self.viewport_height.max(1);
-        let max_scroll = (self.viewport_lines.len() as u16).saturating_sub(self.viewport_height);
+        let max_scroll = self.visual_line_count().saturating_sub(self.viewport_height);
         self.viewport_scroll = (self.viewport_scroll + page).min(max_scroll);
     }
 
     pub fn viewport_page_down(&mut self) {
         let page = self.viewport_height.max(1);
         self.viewport_scroll = self.viewport_scroll.saturating_sub(page);
+    }
+
+    pub fn viewport_scroll_up(&mut self, lines: u16) {
+        let max_scroll = self.visual_line_count().saturating_sub(self.viewport_height);
+        self.viewport_scroll = (self.viewport_scroll + lines).min(max_scroll);
+    }
+
+    pub fn viewport_scroll_down(&mut self, lines: u16) {
+        self.viewport_scroll = self.viewport_scroll.saturating_sub(lines);
     }
 
     // ── prompt input ──────────────────────────────────────────────────────────
@@ -658,11 +706,13 @@ impl AppState {
     }
 
     pub fn input_insert(&mut self, c: char) {
+        self.prompt_preferred_col = None;
         self.input_buffer.insert(self.cursor_pos, c);
         self.cursor_pos += 1;
     }
 
     pub fn input_backspace(&mut self) {
+        self.prompt_preferred_col = None;
         if self.cursor_pos > 0 {
             self.input_buffer.remove(self.cursor_pos - 1);
             self.cursor_pos -= 1;
@@ -670,32 +720,38 @@ impl AppState {
     }
 
     pub fn input_delete(&mut self) {
+        self.prompt_preferred_col = None;
         if self.cursor_pos < self.input_buffer.len() {
             self.input_buffer.remove(self.cursor_pos);
         }
     }
 
     pub fn cursor_left(&mut self) {
+        self.prompt_preferred_col = None;
         if self.cursor_pos > 0 {
             self.cursor_pos -= 1;
         }
     }
 
     pub fn cursor_right(&mut self) {
+        self.prompt_preferred_col = None;
         if self.cursor_pos < self.input_buffer.len() {
             self.cursor_pos += 1;
         }
     }
 
     pub fn cursor_home(&mut self) {
+        self.prompt_preferred_col = None;
         self.cursor_pos = 0;
     }
 
     pub fn cursor_end(&mut self) {
+        self.prompt_preferred_col = None;
         self.cursor_pos = self.input_buffer.len();
     }
 
     pub fn cursor_word_left(&mut self) {
+        self.prompt_preferred_col = None;
         if self.cursor_pos == 0 {
             return;
         }
@@ -710,6 +766,7 @@ impl AppState {
     }
 
     pub fn cursor_word_right(&mut self) {
+        self.prompt_preferred_col = None;
         let len = self.input_buffer.len();
         if self.cursor_pos >= len {
             return;
@@ -724,14 +781,13 @@ impl AppState {
         self.cursor_pos = pos;
     }
 
-    /// Move the cursor up one logical line within the buffer, preserving column.
+    /// Move the cursor up one logical line within the buffer, preserving preferred column.
     /// Returns `true` if the cursor moved, `false` if already on the first line
     /// (caller should fall through to history navigation).
     pub fn cursor_up_line(&mut self) -> bool {
-        let buf = &self.input_buffer;
         let pos = self.cursor_pos;
         // Find start of current logical line.
-        let line_start = buf[..pos]
+        let line_start = self.input_buffer[..pos]
             .iter()
             .rposition(|&c| c == '\n')
             .map(|i| i + 1)
@@ -740,45 +796,52 @@ impl AppState {
             return false; // already on first line
         }
         let col = pos - line_start;
+        // Latch preferred column on first vertical move; reuse on subsequent moves.
+        let preferred = *self.prompt_preferred_col.get_or_insert(col);
         // Find start of previous logical line.
         let prev_line_end = line_start - 1; // the '\n' itself
-        let prev_line_start = buf[..prev_line_end]
+        let prev_line_start = self.input_buffer[..prev_line_end]
             .iter()
             .rposition(|&c| c == '\n')
             .map(|i| i + 1)
             .unwrap_or(0);
         let prev_line_len = prev_line_end - prev_line_start;
-        self.cursor_pos = prev_line_start + col.min(prev_line_len);
+        self.cursor_pos = prev_line_start + preferred.min(prev_line_len);
         true
     }
 
-    /// Move the cursor down one logical line within the buffer, preserving column.
+    /// Move the cursor down one logical line within the buffer, preserving preferred column.
     /// Returns `true` if the cursor moved, `false` if already on the last line
     /// (caller should fall through to history navigation).
     pub fn cursor_down_line(&mut self) -> bool {
-        let buf = &self.input_buffer;
         let pos = self.cursor_pos;
         // Find start of current logical line.
-        let line_start = buf[..pos]
+        let line_start = self.input_buffer[..pos]
             .iter()
             .rposition(|&c| c == '\n')
             .map(|i| i + 1)
             .unwrap_or(0);
         let col = pos - line_start;
+        // Latch preferred column on first vertical move; reuse on subsequent moves.
+        let preferred = *self.prompt_preferred_col.get_or_insert(col);
         // Find the next '\n' (end of current line).
-        let next_newline = buf[pos..].iter().position(|&c| c == '\n').map(|i| pos + i);
+        let buf_len = self.input_buffer.len();
+        let next_newline = self.input_buffer[pos..]
+            .iter()
+            .position(|&c| c == '\n')
+            .map(|i| pos + i);
         match next_newline {
             None => false, // already on last line
             Some(nl) => {
                 let next_line_start = nl + 1;
                 // Find end of next line.
-                let next_line_end = buf[next_line_start..]
+                let next_line_end = self.input_buffer[next_line_start..]
                     .iter()
                     .position(|&c| c == '\n')
                     .map(|i| next_line_start + i)
-                    .unwrap_or(buf.len());
+                    .unwrap_or(buf_len);
                 let next_line_len = next_line_end - next_line_start;
-                self.cursor_pos = next_line_start + col.min(next_line_len);
+                self.cursor_pos = next_line_start + preferred.min(next_line_len);
                 true
             }
         }
@@ -792,6 +855,7 @@ impl AppState {
         self.prompt_history.push(text.clone());
         self.input_buffer.clear();
         self.cursor_pos = 0;
+        self.prompt_preferred_col = None;
         self.history_index = None;
         self.pending_prompt = Some(text);
     }
@@ -808,6 +872,7 @@ impl AppState {
         self.history_index = Some(new_index);
         let entry: Vec<char> = self.prompt_history[new_index].chars().collect();
         self.cursor_pos = entry.len();
+        self.prompt_preferred_col = None;
         self.input_buffer = entry;
     }
 
@@ -819,12 +884,14 @@ impl AppState {
                 self.history_index = Some(new_index);
                 let entry: Vec<char> = self.prompt_history[new_index].chars().collect();
                 self.cursor_pos = entry.len();
+                self.prompt_preferred_col = None;
                 self.input_buffer = entry;
             }
             Some(_) => {
                 self.history_index = None;
                 self.input_buffer.clear();
                 self.cursor_pos = 0;
+                self.prompt_preferred_col = None;
             }
         }
     }

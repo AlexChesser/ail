@@ -1,9 +1,17 @@
-use crossterm::event::{Event, KeyCode, KeyEventKind, KeyModifiers};
+use crossterm::event::{Event, KeyCode, KeyEventKind, KeyModifiers, MouseEventKind};
 
 use super::app::{AppState, ExecutionPhase, Focus, ViewMode};
 
 /// Map a crossterm input event to a state change.
 pub fn handle_event(app: &mut AppState, event: Event) {
+    if let Event::Mouse(mouse) = event {
+        match mouse.kind {
+            MouseEventKind::ScrollUp => app.viewport_scroll_up(3),
+            MouseEventKind::ScrollDown => app.viewport_scroll_down(3),
+            _ => {}
+        }
+        return;
+    }
     if let Event::Key(key) = event {
         // With keyboard enhancement active the terminal emits Press, Repeat, and Release
         // events. Only act on Press and Repeat; ignore Release to avoid double-fires.
@@ -161,9 +169,11 @@ fn handle_prompt(app: &mut AppState, modifiers: KeyModifiers, code: KeyCode) {
             app.running = false;
         }
 
-        // Tab: move focus to sidebar
+        // Tab: move focus to sidebar (when available).
         (KeyModifiers::NONE, KeyCode::Tab) => {
-            app.sidebar_enter_focus();
+            if app.has_sidebar {
+                app.sidebar_enter_focus();
+            }
         }
 
         // Viewport scroll (global — available regardless of focus)
@@ -174,9 +184,11 @@ fn handle_prompt(app: &mut AppState, modifiers: KeyModifiers, code: KeyCode) {
             app.viewport_page_down();
         }
 
-        // Escape during Running: request pause and show interrupt modal (M11)
+        // Escape: toggle inline/fullscreen when capable; otherwise request pause (M11).
         (KeyModifiers::NONE, KeyCode::Esc) => {
-            if app.phase == ExecutionPhase::Running {
+            if app.inline_capable {
+                app.pending_mode_switch = true;
+            } else if app.phase == ExecutionPhase::Running {
                 app.request_pause();
             }
         }
