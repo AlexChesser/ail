@@ -5,13 +5,37 @@ use ail_core::runner::{InvokeOptions, Runner};
 use clap::Parser;
 use cli::{Cli, Commands};
 
-fn main() {
-    tracing_subscriber::fmt()
-        .json()
-        .with_writer(std::io::stderr)
-        .init();
+/// Initialise tracing. In TUI mode, write to a log file so output doesn't corrupt the
+/// alternate screen. In all other modes, write to stderr.
+fn init_tracing(tui_mode: bool) {
+    if tui_mode {
+        let log_dir = dirs::home_dir()
+            .unwrap_or_else(|| std::path::PathBuf::from("."))
+            .join(".ail");
+        let _ = std::fs::create_dir_all(&log_dir);
+        let log_file = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(log_dir.join("tui.log"))
+            .expect("failed to open ~/.ail/tui.log");
+        tracing_subscriber::fmt()
+            .json()
+            .with_writer(std::sync::Mutex::new(log_file))
+            .init();
+    } else {
+        tracing_subscriber::fmt()
+            .json()
+            .with_writer(std::io::stderr)
+            .init();
+    }
+}
 
+fn main() {
     let cli = Cli::parse();
+
+    // Determine if we're launching the TUI (no subcommand, no --once).
+    let tui_mode = cli.command.is_none() && cli.once.is_none();
+    init_tracing(tui_mode);
 
     tracing::info!(event = "startup", version = ail_core::version());
 
