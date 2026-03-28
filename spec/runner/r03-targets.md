@@ -40,7 +40,7 @@ These questions must be answered before the contract can be considered stable.
   - `runner_error` — model/provider failure (context limit, rate limit, internal error); may be retried
   - `runner_permission_denied` — tool call blocked by permission check; retry is not useful
   The current implementation maps all three to a single `RUNNER_INVOCATION_FAILED` type. Differentiation is deferred to v0.1+.
-- **`--permission-prompt-tool stdio` in non-interactive mode** — verify that the HITL permission intercept works correctly when combined with `-p` (non-interactive prompt flag). The VSCode extension uses it in interactive mode; `ail`'s usage pattern may differ. **Blocked until HITL gates are implemented (v0.1+). Benchmarking runs bypass this entirely via `--dangerously-skip-permissions`.**
+- **Permission HITL in non-interactive mode (v0.1 implemented, validated)** — `--permission-prompt-tool stdio` does NOT work with `-p`. The correct approach is `--mcp-config <path> --permission-prompt-tool mcp__ail-permission__ail_check_permission`. This has been validated and implemented in v0.1. Headless runs bypass via `--dangerously-skip-permissions`.
 - **`--verbose` requirement stability** — `--output-format stream-json` requires `--verbose` when combined with `-p`. This is undocumented in Claude CLI's `--help`. A compatibility test should verify this requirement still holds before each Claude CLI version upgrade.
 
 ---

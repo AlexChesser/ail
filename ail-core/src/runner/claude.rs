@@ -1,6 +1,7 @@
 #![allow(clippy::result_large_err)]
 
-use std::io::{BufRead, BufReader};
+use std::io::{BufRead, BufReader, Read};
+use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::sync::mpsc;
 
@@ -35,12 +36,41 @@ impl ClaudeCliRunner {
         }
     }
 
+    /// Write a temporary MCP config file that points to `ail mcp-bridge` for permission handling.
+    ///
+    /// Returns the path to the config file; the caller is responsible for deleting it.
+    fn write_mcp_config(socket_path: &std::path::Path) -> Result<PathBuf, AilError> {
+        let ail_bin = std::env::current_exe()
+            .unwrap_or_else(|_| PathBuf::from("ail"))
+            .to_string_lossy()
+            .to_string();
+        let config_path =
+            std::env::temp_dir().join(format!("ail-mcp-config-{}.json", uuid::Uuid::new_v4()));
+        let config = serde_json::json!({
+            "mcpServers": {
+                "ail-permission": {
+                    "command": ail_bin,
+                    "args": ["mcp-bridge", "--socket", socket_path.to_string_lossy().as_ref()]
+                }
+            }
+        });
+        std::fs::write(&config_path, config.to_string()).map_err(|e| AilError {
+            error_type: error_types::RUNNER_INVOCATION_FAILED,
+            title: "Failed to write MCP config",
+            detail: format!("Could not write {}: {e}", config_path.display()),
+            context: None,
+        })?;
+        Ok(config_path)
+    }
+
     /// Spawn the claude CLI process. Shared by `invoke` and `invoke_streaming`.
+    ///
+    /// Returns `(Child, Option<mcp_config_path_to_clean_up>)`.
     fn spawn_process(
         &self,
         prompt: &str,
         options: &InvokeOptions,
-    ) -> Result<std::process::Child, AilError> {
+    ) -> Result<(std::process::Child, Option<PathBuf>), AilError> {
         let mut args: Vec<String> = vec![
             "--output-format".into(),
             "stream-json".into(),
@@ -65,6 +95,25 @@ impl ClaudeCliRunner {
             args.push("--model".into());
             args.push(model.clone());
         }
+
+        // Permission HITL: configure MCP bridge when a socket is provided and we're not headless.
+        let mcp_config_path = if let Some(ref socket) = options.permission_socket {
+            if !self.headless {
+                let config_path = Self::write_mcp_config(socket)?;
+                args.push("--mcp-config".into());
+                args.push(config_path.to_string_lossy().to_string());
+                args.push("--permission-prompt-tool".into());
+                // Claude CLI registers MCP tools as mcp__<server_name>__<tool_name>.
+                // Must use the fully qualified name, not the bare tool name.
+                args.push("mcp__ail-permission__ail_check_permission".into());
+                Some(config_path)
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
         args.push("-p".into());
         args.push(prompt.to_string());
 
@@ -76,15 +125,17 @@ impl ClaudeCliRunner {
         if let Some(ref token) = options.auth_token {
             cmd.env("ANTHROPIC_AUTH_TOKEN", token);
         }
-        cmd.stdout(Stdio::piped())
-            .stderr(Stdio::null())
+        let child = cmd
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
             .spawn()
             .map_err(|e| AilError {
                 error_type: error_types::RUNNER_INVOCATION_FAILED,
                 title: "Failed to spawn claude CLI",
                 detail: format!("Could not start '{}': {e}", self.claude_bin),
                 context: None,
-            })
+            })?;
+        Ok((child, mcp_config_path))
     }
 }
 
@@ -96,9 +147,10 @@ impl Default for ClaudeCliRunner {
 
 impl Runner for ClaudeCliRunner {
     fn invoke(&self, prompt: &str, options: InvokeOptions) -> Result<RunResult, AilError> {
-        let mut child = self.spawn_process(prompt, &options)?;
+        let (mut child, mcp_config) = self.spawn_process(prompt, &options)?;
 
         let stdout = child.stdout.take().expect("stdout was piped");
+        let stderr = child.stderr.take().expect("stderr was piped");
         let reader = BufReader::new(stdout);
 
         let mut result_response: Option<String> = None;
@@ -171,16 +223,22 @@ impl Runner for ClaudeCliRunner {
         }
 
         if !exit_status.success() {
+            let mut stderr_output = String::new();
+            let _ = BufReader::new(stderr).read_to_string(&mut stderr_output);
+            let code = exit_status
+                .code()
+                .map(|c| c.to_string())
+                .unwrap_or_else(|| "signal".to_string());
+            let detail = if stderr_output.trim().is_empty() {
+                format!("Process exited with {code}")
+            } else {
+                format!("Process exited with {code}: {}", stderr_output.trim())
+            };
+            tracing::error!(stderr = %stderr_output.trim(), "claude CLI exited non-zero");
             return Err(AilError {
                 error_type: error_types::RUNNER_INVOCATION_FAILED,
                 title: "claude CLI exited non-zero",
-                detail: format!(
-                    "Process exited with {}",
-                    exit_status
-                        .code()
-                        .map(|c| c.to_string())
-                        .unwrap_or_else(|| "signal".to_string())
-                ),
+                detail,
                 context: None,
             });
         }
@@ -192,6 +250,9 @@ impl Runner for ClaudeCliRunner {
             context: None,
         })?;
 
+        if let Some(path) = mcp_config {
+            let _ = std::fs::remove_file(path);
+        }
         Ok(RunResult {
             response,
             cost_usd: result_cost,
@@ -208,9 +269,10 @@ impl Runner for ClaudeCliRunner {
         options: InvokeOptions,
         tx: mpsc::Sender<RunnerEvent>,
     ) -> Result<RunResult, AilError> {
-        let mut child = self.spawn_process(prompt, &options)?;
+        let (mut child, mcp_config) = self.spawn_process(prompt, &options)?;
 
         let stdout = child.stdout.take().expect("stdout was piped");
+        let stderr = child.stderr.take().expect("stderr was piped");
         let reader = BufReader::new(stdout);
 
         let mut result_response: Option<String> = None;
@@ -343,13 +405,18 @@ impl Runner for ClaudeCliRunner {
         }
 
         if !exit_status.success() {
-            let detail = format!(
-                "Process exited with {}",
-                exit_status
-                    .code()
-                    .map(|c| c.to_string())
-                    .unwrap_or_else(|| "signal".to_string())
-            );
+            let mut stderr_output = String::new();
+            let _ = BufReader::new(stderr).read_to_string(&mut stderr_output);
+            let code = exit_status
+                .code()
+                .map(|c| c.to_string())
+                .unwrap_or_else(|| "signal".to_string());
+            let detail = if stderr_output.trim().is_empty() {
+                format!("Process exited with {code}")
+            } else {
+                format!("Process exited with {code}: {}", stderr_output.trim())
+            };
+            tracing::error!(stderr = %stderr_output.trim(), "claude CLI exited non-zero");
             let _ = tx.send(RunnerEvent::Error(detail.clone()));
             return Err(AilError {
                 error_type: error_types::RUNNER_INVOCATION_FAILED,
@@ -366,6 +433,9 @@ impl Runner for ClaudeCliRunner {
             context: None,
         })?;
 
+        if let Some(path) = mcp_config {
+            let _ = std::fs::remove_file(path);
+        }
         let result = RunResult {
             response,
             cost_usd: result_cost,

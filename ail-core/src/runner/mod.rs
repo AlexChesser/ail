@@ -13,6 +13,24 @@ pub struct RunResult {
     pub session_id: Option<String>,
 }
 
+/// A tool permission request intercepted from Claude CLI via the MCP permission bridge (SPEC §13.3).
+#[derive(Debug, Clone)]
+pub struct PermissionRequest {
+    /// The name of the tool Claude wants to use (e.g. `"Bash"`, `"Write"`).
+    pub tool_name: String,
+    /// The input arguments Claude would pass to the tool.
+    pub tool_input: serde_json::Value,
+}
+
+/// The user's decision on a `PermissionRequest`.
+#[derive(Debug, Clone)]
+pub enum PermissionResponse {
+    /// Allow the tool to run as-is.
+    Allow,
+    /// Deny the tool; optional reason shown to the model.
+    Deny(String),
+}
+
 /// Streaming events emitted by `invoke_streaming()`.
 #[derive(Debug, Clone)]
 pub enum RunnerEvent {
@@ -30,6 +48,8 @@ pub enum RunnerEvent {
         input_tokens: u64,
         output_tokens: u64,
     },
+    /// A tool permission request arrived via the MCP bridge (SPEC §13.3).
+    PermissionRequested(PermissionRequest),
     /// The invocation completed successfully.
     Completed(RunResult),
     /// The invocation failed.
@@ -52,6 +72,10 @@ pub struct InvokeOptions {
     pub base_url: Option<String>,
     /// Provider auth token — set as `ANTHROPIC_AUTH_TOKEN` in the runner subprocess env (SPEC §15).
     pub auth_token: Option<String>,
+    /// Unix socket path for bidirectional permission prompts via the MCP bridge (SPEC §13.3).
+    /// When set (non-headless), the runner writes an MCP config pointing to `ail mcp-bridge`
+    /// and passes `--permission-prompt-tool ail_check_permission` to Claude CLI.
+    pub permission_socket: Option<std::path::PathBuf>,
 }
 
 pub trait Runner {

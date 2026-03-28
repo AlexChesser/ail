@@ -64,7 +64,7 @@ An extended-compliant runner implements the structured bidirectional JSON interf
 Extended compliance requires:
 
 - **`--output-format stream-json`** — NDJSON event stream with typed events for tool calls, tool results, text, and completion
-- **`--permission-prompt-tool stdio`** — HITL tool permission intercept via stdin/stdout JSON protocol
+- **`--mcp-config` + `--permission-prompt-tool mcp__<server>__<tool>`** — HITL tool permission intercept via MCP bridge subprocess + Unix domain socket
 - **`--allowedTools` / `--disallowedTools`** — pre-approved and pre-denied tool patterns
 - **`--dangerously-skip-permissions`** — headless/automated mode bypass
 

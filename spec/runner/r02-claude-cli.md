@@ -47,46 +47,51 @@ The Claude CLI supports a structured bidirectional JSON interface that `ail` use
 
 ### Tool Permission Interface
 
+**Spike validated — v0.1 implemented.** `--permission-prompt-tool stdio` does NOT work with `-p` mode. The correct mechanism is `--permission-prompt-tool <mcp_tool_name>` where the tool name refers to an MCP tool exposed by a subprocess registered in a `--mcp-config` JSON file.
+
 When `ail` needs to intercept tool permissions (for tools not covered by `tools.allow` or `tools.deny`), it launches Claude CLI with:
 
 ```
---permission-prompt-tool stdio
+--mcp-config <tmp_config.json> --permission-prompt-tool mcp__ail-permission__ail_check_permission
 ```
 
-Claude emits a permission request event on the NDJSON stream when it wants to invoke a tool requiring authorisation. `ail` reads the event, presents the HITL UI, and writes one of these responses to the Claude CLI process stdin:
+The temporary MCP config registers `ail mcp-bridge --socket <path>` as an MCP server. Claude CLI spawns this subprocess and calls `ail_check_permission` (a tool exposed by the bridge) for each permission decision.
+
+The MCP bridge forwards requests to the main `ail` process via a Unix domain socket. The response is one of:
 
 ```json
 { "behavior": "allow" }
 
 { "behavior": "deny", "message": "User rejected" }
-
-{ "behavior": "allow", "updatedInput": { ...modified tool input... } }
 ```
 
-The `updatedInput` form allows `ail` to present an inline editor — the human corrects a file path, removes a sensitive argument, or adjusts a command — and Claude executes the corrected version rather than its original parameters.
+`{ "behavior": "allow", "updatedInput": { ...modified tool input... } }` is valid per the protocol but deferred to v0.2 (requires inline editor in TUI).
+
+**IPC topology:**
+```
+Claude CLI ──[MCP stdio]──► ail mcp-bridge ──[Unix socket]──► ail listener thread
+                                                                      ↕ mpsc channel
+                                                                  TUI permission modal
+```
+
+**Lifecycle:** For each non-headless run, `ail`:
+1. Creates a temporary Unix socket path (`/tmp/ail-perm-<uuid>.sock`)
+2. Writes a temporary MCP config file (`/tmp/ail-mcp-config-<uuid>.json`)
+3. Spawns a listener thread that accepts one connection per permission request
+4. Passes both paths to Claude CLI via `--mcp-config` and `--permission-prompt-tool`
+5. Cleans up both temp files after the run completes
+
+**Headless mode:** The MCP config and `--permission-prompt-tool` are omitted when `--headless` is active; `--dangerously-skip-permissions` is used instead.
 
 #### Permission Modes
 
-Claude CLI supports six permission modes via `--permission-mode`:
+`ail` does not pass `--permission-mode` to Claude CLI in v0.1. Claude CLI's default permission mode applies, and unresolved tool requests are delegated to `ail_check_permission` via the MCP bridge.
 
-| Mode | Behaviour |
-|---|---|
-| `default` | Checks `settings.json`, `--allowedTools`, `--disallowedTools`, then calls `--permission-prompt-tool` for anything unresolved |
-| `accept_edits` | Auto-accepts file edits; prompts for other tool types |
-| `plan` | Read-only; no file modifications or commands |
-| `bypass_permissions` | No permission checks at all (equivalent to `--dangerously-skip-permissions`) |
-| `delegate` | Delegates permission decisions to the MCP tool specified |
-| `dont_ask` | Auto-accepts everything without prompting |
-
-`ail` defaults to `default` mode. For headless/automated runs (Docker sandbox, CI), use `bypass_permissions` or `--dangerously-skip-permissions`. `ail` exposes this as a session-level CLI flag, never as a pipeline YAML option.
+Claude CLI supports `--permission-mode` values including `default`, `accept_edits`, `plan`, `bypass_permissions`, `delegate`, and `dont_ask`. Exposing these as session-level options is deferred to v0.2.
 
 #### `PreToolUse` Hook (Alternative Intercept)
 
-As an alternative to `--permission-prompt-tool`, Claude CLI supports a `PreToolUse` hook — a process `ail` registers that runs synchronously after Claude creates tool parameters but before the tool executes. The hook receives `tool_name`, `tool_input`, and `tool_use_id` and can allow, deny, or modify the call.
-
-This is more suitable for automated validation (schema checking, path sanitisation) than for interactive HITL — the hook runs as a subprocess without a human UI. It is noted here for completeness; `ail`'s primary HITL mechanism remains `--permission-prompt-tool stdio`.
-
-> **Spike validation required:** Confirm that `--permission-prompt-tool stdio` behaves correctly when combined with `-p` (non-interactive mode). The VSCode extension uses this combination in interactive mode; `ail`'s usage differs. Document actual permission event shapes from the NDJSON stream.
+As an alternative to `--permission-prompt-tool`, Claude CLI supports a `PreToolUse` hook — a process that runs synchronously after Claude creates tool parameters but before the tool executes. This is more suitable for automated validation than for interactive HITL; `ail`'s primary HITL mechanism is the MCP bridge.
 
 ### Headless Mode
 
@@ -131,7 +136,8 @@ The `--resume` flag is not documented in the Claude CLI `--help` output but is f
 | `--output-format stream-json` | Structured NDJSON event stream | Always |
 | `--input-format stream-json` | Accept NDJSON messages on stdin | When session continuation needed |
 | `-p / --print` | Non-interactive prompt | Single-turn steps |
-| `--permission-prompt-tool stdio` | HITL tool permission intercept | When step has unspecified tools |
+| `--mcp-config <path>` | Register MCP bridge for permission intercept | Written per-run to `/tmp/ail-mcp-config-<uuid>.json` |
+| `--permission-prompt-tool mcp__ail-permission__ail_check_permission` | Delegate permission decisions to MCP tool | When non-headless and step has unspecified tools |
 | `--allowedTools` | Pre-approve tools | From `tools.allow` |
 | `--disallowedTools` | Pre-deny tools | From `tools.deny` |
 | `--permission-mode` | Set permission enforcement level | Session-level; `default` unless overridden |
@@ -147,6 +153,6 @@ The `--resume` flag is not documented in the Claude CLI `--help` output but is f
 
 **Note:** The Claude CLI respects `ANTHROPIC_BASE_URL` and `ANTHROPIC_AUTH_TOKEN` environment variables, allowing `ail` to redirect API calls to alternative providers (e.g. local Ollama at `http://localhost:11434`). These are set **per subprocess** via `Command::env()` — they are never exported to the parent process environment. Set via pipeline `defaults.provider.base_url`/`defaults.provider.auth_token` in the YAML, or overridden via `--provider-url`/`--provider-token` CLI flags.
 
-*Spike validation status: resolved for Claude CLI v0.0.1. Flags above reflect verified behaviour.*
+*Spike validation status: resolved for Claude CLI v0.0.1. Flags above reflect verified behaviour. Permission HITL mechanism (MCP bridge) validated and implemented in v0.1.*
 
 ---

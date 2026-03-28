@@ -1,4 +1,5 @@
 mod cli;
+mod mcp_bridge;
 mod tui;
 
 use ail_core::runner::{InvokeOptions, Runner};
@@ -40,6 +41,11 @@ fn main() {
     tracing::info!(event = "startup", version = ail_core::version());
 
     match cli.command {
+        Some(Commands::McpBridge { socket }) => {
+            // Spawned by Claude CLI to handle tool permission checks.
+            // Does not initialise tracing — only stdout must be used for MCP protocol.
+            mcp_bridge::run(&socket);
+        }
         Some(Commands::Materialize { pipeline, out }) => {
             let pipeline_path = ail_core::config::discovery::discover(pipeline);
             let p = match pipeline_path {

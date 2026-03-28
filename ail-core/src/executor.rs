@@ -30,6 +30,9 @@ pub struct ExecutionControl {
     pub pause_requested: Arc<AtomicBool>,
     /// Set to `true` to request that the executor stop immediately after the current step.
     pub kill_requested: Arc<AtomicBool>,
+    /// Unix socket path for tool permission HITL via the MCP bridge (SPEC §13.3).
+    /// Propagated into `InvokeOptions::permission_socket` for each runner invocation.
+    pub permission_socket: Option<std::path::PathBuf>,
 }
 
 impl ExecutionControl {
@@ -37,6 +40,7 @@ impl ExecutionControl {
         ExecutionControl {
             pause_requested: Arc::new(AtomicBool::new(false)),
             kill_requested: Arc::new(AtomicBool::new(false)),
+            permission_socket: None,
         }
     }
 }
@@ -234,6 +238,7 @@ fn execute_inner(
                     model: resolved_provider.model,
                     base_url: resolved_provider.base_url,
                     auth_token: resolved_provider.auth_token,
+                    permission_socket: None,
                 };
 
                 let result = runner.invoke(&resolved, options).map_err(|mut e| {
@@ -512,6 +517,7 @@ pub fn execute_with_control(
                     model: resolved_provider.model,
                     base_url: resolved_provider.base_url,
                     auth_token: resolved_provider.auth_token,
+                    permission_socket: control.permission_socket.clone(),
                 };
 
                 // Create a sub-channel for runner events.

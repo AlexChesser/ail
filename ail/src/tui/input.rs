@@ -18,6 +18,11 @@ pub fn handle_event(app: &mut AppState, event: Event) {
         if key.kind == KeyEventKind::Release {
             return;
         }
+        // Permission modal intercepts all input when a tool permission check is pending.
+        if app.perm_modal_open {
+            handle_permission_modal(app, key.modifiers, key.code);
+            return;
+        }
         // Interrupt modal intercepts input when paused.
         if app.interrupt_modal_open {
             handle_interrupt_modal(app, key.modifiers, key.code);
@@ -52,6 +57,19 @@ fn handle_picker(app: &mut AppState, modifiers: KeyModifiers, code: KeyCode) {
         }
         (KeyModifiers::NONE | KeyModifiers::SHIFT, KeyCode::Char(c)) => {
             app.picker_type_char(c);
+        }
+        _ => {}
+    }
+}
+
+fn handle_permission_modal(app: &mut AppState, modifiers: KeyModifiers, code: KeyCode) {
+    match (modifiers, code) {
+        (KeyModifiers::NONE, KeyCode::Char('y')) => app.perm_approve_once(),
+        (KeyModifiers::NONE, KeyCode::Char('a')) => app.perm_approve_session(),
+        (KeyModifiers::NONE, KeyCode::Char('n')) => app.perm_deny(),
+        (KeyModifiers::CONTROL, KeyCode::Char('c')) => {
+            app.perm_deny();
+            app.running = false;
         }
         _ => {}
     }

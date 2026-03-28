@@ -1,11 +1,13 @@
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc;
 use std::sync::Arc;
 
 use ail_core::config::discovery::PipelineEntry;
 use ail_core::config::domain::Pipeline;
 use ail_core::executor::ExecutorEvent;
+use ail_core::runner::{PermissionRequest, PermissionResponse};
 
 /// State of a single pipeline step as displayed in the sidebar.
 #[derive(Debug, Clone)]
@@ -116,6 +118,16 @@ pub struct AppState {
     pub current_step_index: usize,
     pub total_steps: usize,
     pub last_session_id: Option<String>,
+
+    // Tool permission HITL (SPEC §13.3)
+    /// Channel to send permission decisions back to the listener thread.
+    pub perm_tx: Option<mpsc::Sender<PermissionResponse>>,
+    /// The pending permission request being shown in the modal.
+    pub perm_request: Option<PermissionRequest>,
+    /// Whether the permission modal is visible.
+    pub perm_modal_open: bool,
+    /// Tools approved for the rest of this session (auto-approved without prompting).
+    pub perm_session_allowlist: HashSet<String>,
 }
 
 impl AppState {
@@ -197,6 +209,10 @@ impl AppState {
             current_step_index: 0,
             total_steps: 0,
             last_session_id: None,
+            perm_tx: None,
+            perm_request: None,
+            perm_modal_open: false,
+            perm_session_allowlist: HashSet::new(),
         }
     }
 
@@ -402,6 +418,52 @@ impl AppState {
         self.pending_injection = None;
         self.pause_flag = None;
         self.kill_flag = None;
+        self.perm_modal_open = false;
+        self.perm_request = None;
+        // Note: perm_session_allowlist persists across runs within the same TUI session.
+        // perm_tx is set fresh each run via BackendEvent::PermReady.
+    }
+
+    // ── tool permission HITL (SPEC §13.3) ────────────────────────────────────
+
+    /// Handle an incoming permission request from the MCP bridge.
+    ///
+    /// If the tool is in the session allowlist, auto-approve without showing the modal.
+    pub fn handle_permission_request(&mut self, req: PermissionRequest) {
+        if self.perm_session_allowlist.contains(&req.tool_name) {
+            if let Some(ref tx) = self.perm_tx {
+                let _ = tx.send(PermissionResponse::Allow);
+            }
+            return;
+        }
+        self.perm_request = Some(req);
+        self.perm_modal_open = true;
+    }
+
+    /// Approve the pending permission request for this tool call only.
+    pub fn perm_approve_once(&mut self) {
+        if let Some(ref tx) = self.perm_tx {
+            let _ = tx.send(PermissionResponse::Allow);
+        }
+        self.perm_modal_open = false;
+        self.perm_request = None;
+    }
+
+    /// Approve the pending permission request and add the tool to the session allowlist.
+    pub fn perm_approve_session(&mut self) {
+        if let Some(ref req) = self.perm_request {
+            self.perm_session_allowlist.insert(req.tool_name.clone());
+        }
+        self.perm_approve_once();
+    }
+
+    /// Deny the pending permission request.
+    pub fn perm_deny(&mut self) {
+        if let Some(ref tx) = self.perm_tx {
+            let _ = tx.send(PermissionResponse::Deny("User denied".to_string()));
+        }
+        self.perm_modal_open = false;
+        self.perm_request = None;
     }
 
     // ── pipeline picker (i-1) ─────────────────────────────────────────────────

@@ -11,8 +11,10 @@ dependencies = [
  "crossterm",
  "dirs",
  "ratatui",
+ "serde_json",
  "tracing",
  "tracing-subscriber",
+ "uuid",
 ]
 
 [[package]]

@@ -58,6 +58,14 @@ pub enum Commands {
         #[arg(long, value_name = "PATH")]
         pipeline: Option<PathBuf>,
     },
+    /// Internal: MCP permission bridge. Spawned by Claude CLI to handle tool permission checks.
+    /// Not intended for direct use.
+    #[command(name = "mcp-bridge", hide = true)]
+    McpBridge {
+        /// Path to the Unix domain socket where the main ail process is listening.
+        #[arg(long)]
+        socket: String,
+    },
 }
 
 #[cfg(test)]

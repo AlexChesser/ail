@@ -99,6 +99,12 @@ fn run_app(
                     app.pause_flag = Some(pause);
                     app.kill_flag = Some(kill);
                 }
+                Ok(BackendEvent::PermReady(tx)) => {
+                    app.perm_tx = Some(tx);
+                }
+                Ok(BackendEvent::PermissionRequest(req)) => {
+                    app.handle_permission_request(req);
+                }
                 Err(_) => break,
             }
         }
