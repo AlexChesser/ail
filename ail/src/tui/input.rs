@@ -198,8 +198,8 @@ fn handle_prompt(app: &mut AppState, modifiers: KeyModifiers, code: KeyCode) {
             }
         }
 
-        // Shift+Enter inserts a newline in the buffer.
-        (KeyModifiers::SHIFT, KeyCode::Enter) => {
+        // Shift+Enter or Alt+Enter inserts a newline in the buffer.
+        (KeyModifiers::SHIFT | KeyModifiers::ALT, KeyCode::Enter) => {
             app.input_insert('\n');
         }
 
