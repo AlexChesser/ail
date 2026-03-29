@@ -80,9 +80,14 @@ impl ClaudeCliRunner {
         if self.headless {
             args.push("--dangerously-skip-permissions".into());
         }
+        // Only pass --resume for the default Claude API endpoint. Custom providers
+        // (Ollama, Bedrock, etc.) have no knowledge of Claude session IDs and will
+        // hang waiting to resolve them, causing the pipeline step to time out.
         if let Some(sid) = &options.resume_session_id {
-            args.push("--resume".into());
-            args.push(sid.clone());
+            if options.base_url.is_none() {
+                args.push("--resume".into());
+                args.push(sid.clone());
+            }
         }
         if !options.allowed_tools.is_empty() {
             args.push("--allowedTools".into());
