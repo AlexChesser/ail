@@ -4,6 +4,7 @@ use std::io::{BufRead, BufReader, Read};
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::sync::mpsc;
+use std::thread;
 
 use super::{InvokeOptions, RunResult, Runner, RunnerEvent};
 use crate::error::{error_types, AilError};
@@ -96,9 +97,12 @@ impl ClaudeCliRunner {
             args.push(model.clone());
         }
 
-        // Permission HITL: configure MCP bridge when a socket is provided and we're not headless.
+        // Permission HITL: configure MCP bridge only for the default Claude API endpoint.
+        // Custom providers (Ollama, Bedrock, etc.) don't use Claude's permission model and
+        // small models will spuriously call whatever MCP tools they see in their context,
+        // causing the pipeline to block indefinitely waiting for TUI input.
         let mcp_config_path = if let Some(ref socket) = options.permission_socket {
-            if !self.headless {
+            if !self.headless && options.base_url.is_none() {
                 let config_path = Self::write_mcp_config(socket)?;
                 args.push("--mcp-config".into());
                 args.push(config_path.to_string_lossy().to_string());
@@ -151,6 +155,12 @@ impl Runner for ClaudeCliRunner {
 
         let stdout = child.stdout.take().expect("stdout was piped");
         let stderr = child.stderr.take().expect("stderr was piped");
+        // Drain stderr concurrently to prevent pipe-buffer deadlock.
+        let stderr_reader = thread::spawn(move || {
+            let mut s = String::new();
+            let _ = BufReader::new(stderr).read_to_string(&mut s);
+            s
+        });
         let reader = BufReader::new(stdout);
 
         let mut result_response: Option<String> = None;
@@ -213,6 +223,9 @@ impl Runner for ClaudeCliRunner {
             context: None,
         })?;
 
+        // Wait for the stderr drain thread now that stdout is exhausted.
+        let stderr_output = stderr_reader.join().unwrap_or_default();
+
         if let Some(detail) = error_detail {
             return Err(AilError {
                 error_type: error_types::RUNNER_INVOCATION_FAILED,
@@ -223,8 +236,6 @@ impl Runner for ClaudeCliRunner {
         }
 
         if !exit_status.success() {
-            let mut stderr_output = String::new();
-            let _ = BufReader::new(stderr).read_to_string(&mut stderr_output);
             let code = exit_status
                 .code()
                 .map(|c| c.to_string())
@@ -273,6 +284,12 @@ impl Runner for ClaudeCliRunner {
 
         let stdout = child.stdout.take().expect("stdout was piped");
         let stderr = child.stderr.take().expect("stderr was piped");
+        // Drain stderr concurrently to prevent pipe-buffer deadlock.
+        let stderr_reader = thread::spawn(move || {
+            let mut s = String::new();
+            let _ = BufReader::new(stderr).read_to_string(&mut s);
+            s
+        });
         let reader = BufReader::new(stdout);
 
         let mut result_response: Option<String> = None;
@@ -394,6 +411,9 @@ impl Runner for ClaudeCliRunner {
             context: None,
         })?;
 
+        // Wait for the stderr drain thread now that stdout is exhausted.
+        let stderr_output = stderr_reader.join().unwrap_or_default();
+
         if let Some(detail) = error_detail {
             let _ = tx.send(RunnerEvent::Error(detail.clone()));
             return Err(AilError {
@@ -405,8 +425,6 @@ impl Runner for ClaudeCliRunner {
         }
 
         if !exit_status.success() {
-            let mut stderr_output = String::new();
-            let _ = BufReader::new(stderr).read_to_string(&mut stderr_output);
             let code = exit_status
                 .code()
                 .map(|c| c.to_string())

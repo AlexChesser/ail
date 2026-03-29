@@ -49,6 +49,8 @@ The MCP tool result text contains one of:
 
 **Headless mode:** When `--headless` is passed, the MCP bridge is not configured and `--dangerously-skip-permissions` is used instead. No permission prompts occur.
 
+**Custom providers (Ollama, Bedrock, etc.):** When a pipeline step overrides `provider.base_url`, the MCP bridge is NOT configured for that step. Third-party providers do not implement Claude's permission model, and small local models will spuriously call any MCP tool visible in their context, causing the pipeline to block indefinitely. Permission HITL applies only to steps that use the default Claude API endpoint.
+
 #### Permission Mode
 
 `ail` uses Claude CLI's `--permission-prompt-tool` flag to delegate all permission decisions to the MCP bridge. The `--permission-mode` flag is not used in v0.1; a future version may expose it as a session-level option.
