@@ -15,7 +15,8 @@ use crossterm::{
 };
 use ratatui::{
     backend::CrosstermBackend,
-    widgets::{Paragraph, Widget},
+    layout::Rect,
+    widgets::{Paragraph, Widget, Wrap},
     Terminal, TerminalOptions, Viewport,
 };
 
@@ -109,11 +110,23 @@ fn run_app(
         }
 
         // Flush new viewport lines into the primary-buffer scrollback.
+        // Wrap 4 columns short of the terminal's right edge to leave a visual gutter.
         let current = app.viewport_lines.len();
+        let term_width = terminal.size()?.width;
+        let wrap_width = term_width.saturating_sub(4).max(1);
         for i in last_flushed..current {
             let line_text = app.viewport_lines[i].clone();
-            terminal.insert_before(1, |buf| {
-                Paragraph::new(style_line(&line_text)).render(buf.area, buf);
+            let char_count = line_text.chars().count() as u16;
+            let rows = if char_count == 0 {
+                1
+            } else {
+                (char_count + wrap_width - 1) / wrap_width
+            };
+            terminal.insert_before(rows, |buf| {
+                let render_area = Rect { width: wrap_width.min(buf.area.width), ..buf.area };
+                Paragraph::new(style_line(&line_text))
+                    .wrap(Wrap { trim: false })
+                    .render(render_area, buf);
             })?;
         }
         last_flushed = current;
