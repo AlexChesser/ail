@@ -1,0 +1,309 @@
+{
+  "metadata": {
+    "subject": "AIL TUI & Core Architecture",
+    "analyst": "Claude Sonnet 4.6",
+    "date": "2026-03-28",
+    "scope": [
+      "ail/src/tui/",
+      "ail/src/main.rs",
+      "ail/src/cli.rs",
+      "ail-core/src/executor.rs",
+      "ail-core/src/runner/",
+      "ail-core/src/session/"
+    ]
+  },
+  "findings": [
+    {
+      "id": "SRP-001",
+      "principle": "Single Responsibility",
+      "category": "God Object",
+      "severity": "high",
+      "component": "tui/app.rs :: AppState",
+      "location": "ail/src/tui/app.rs",
+      "lines": "~873",
+      "summary": "AppState is a god object with at least 7 distinct responsibilities",
+      "detail": "AppState manages: (1) pipeline metadata and step display, (2) execution phase state machine, (3) picker/hot-reload UI state, (4) interrupt/pause/kill modal state, (5) multi-line prompt input and history, (6) viewport scrollback and streaming tracking, (7) run statistics and cost accumulation, (8) tool permission HITL modal and session allowlist. Each of these is a cohesive domain that could be a separate struct. The single struct makes testing any one concern impossible without constructing the whole app, and makes every feature addition a modification of the same 873-line file.",
+      "recommendation": "Extract into focused sub-structs: PromptState, ViewportState, ExecutionState, PickerState, PermissionState, RunStats. AppState becomes a thin coordinator holding these."
+    },
+    {
+      "id": "SRP-002",
+      "principle": "Single Responsibility",
+      "category": "Mixed Concerns",
+      "severity": "medium",
+      "component": "tui/backend.rs :: spawn_backend()",
+      "location": "ail/src/tui/backend.rs",
+      "lines": "1-269",
+      "summary": "spawn_backend() owns thread spawning, runner construction, session setup, permission socket lifecycle, event bridging, and HITL coordination",
+      "detail": "The function is responsible for: creating the ClaudeCliRunner, creating Sessions, binding and accepting on a Unix socket, encoding/decoding the MCP permission wire protocol (JSON), forwarding executor events, managing the HITL channel, and cleaning up the socket on exit. The permission socket protocol (tool_name, tool_input, behavior, updatedInput) is Claude MCP-specific business logic embedded in what should be a generic event bridge.",
+      "recommendation": "Permission socket lifecycle and protocol encoding belong inside the runner implementation (or a RunnerPermissionBridge trait). spawn_backend() should receive a Box<dyn Runner> and know nothing about how permissions are transported."
+    },
+    {
+      "id": "SRP-003",
+      "principle": "Single Responsibility",
+      "category": "Mixed Concerns",
+      "severity": "low",
+      "component": "tui/inline/mod.rs",
+      "location": "ail/src/tui/inline/mod.rs",
+      "summary": "Inline event loop mixes terminal lifecycle, event polling, scrollback flushing, drawing coordination, and backend submission",
+      "detail": "The run() function handles raw terminal setup/teardown, draining backend events, flushing scrollback via insert_before(), rendering chrome via draw(), polling for crossterm input, submitting prompts to the backend, and applying hot-reload pipeline switches. These are at least four separable concerns.",
+      "recommendation": "Extract a dedicated EventLoop driver that owns the poll-drain-draw cycle, leaving terminal setup and teardown in a separate scope."
+    },
+    {
+      "id": "OCP-001",
+      "principle": "Open/Closed",
+      "category": "Closed to Extension",
+      "severity": "medium",
+      "component": "BackendEvent enum",
+      "location": "ail/src/tui/backend.rs:27-42",
+      "summary": "Adding a new backend event type requires editing the enum and every match arm that consumes it",
+      "detail": "BackendEvent is a closed enum. Any new runner capability (e.g., a new runner type that emits progress ticks, or a new HITL mechanism) requires: (1) adding a variant, (2) updating apply_executor_event() in app.rs, (3) updating inline/mod.rs drain loop. The event system is not extensible without modification.",
+      "recommendation": "Consider a trait-object approach for events, or at minimum group the runner-specific events behind a single BackendEvent::RunnerSpecific(Box<dyn Any>) escape hatch so new runners can emit events without touching core enum."
+    },
+    {
+      "id": "OCP-002",
+      "principle": "Open/Closed",
+      "category": "Closed to Extension",
+      "severity": "low",
+      "component": "ExecutorEvent enum",
+      "location": "ail-core/src/executor.rs",
+      "summary": "ExecutorEvent is closed; adding step types or execution events requires modifying all consumers",
+      "detail": "ExecutorEvent is matched exhaustively in app.rs apply_executor_event() and in the inline event drain. Adding RunnerEvent variants or new step lifecycle events touches multiple files.",
+      "recommendation": "Acceptable at current scale. Flag for when executor gets a third consumer."
+    },
+    {
+      "id": "DIP-001",
+      "principle": "Dependency Inversion",
+      "category": "Hardcoded Concrete",
+      "severity": "critical",
+      "component": "tui/backend.rs :: ClaudeCliRunner",
+      "location": "ail/src/tui/backend.rs:12,56",
+      "summary": "backend.rs directly imports and constructs ClaudeCliRunner — the TUI is hardwired to Claude",
+      "detail": "Line 12: `use ail_core::runner::claude::ClaudeCliRunner;`. Line 56: `let runner = ClaudeCliRunner::new(headless);`. The backend thread does not accept a runner — it creates one. This means the TUI cannot be used with any other runner without modifying backend.rs. The headless flag is also Claude-specific (maps to --dangerously-skip-permissions). There is no seam at which to inject a different runner at the TUI layer.",
+      "recommendation": "spawn_backend() should accept a Box<dyn Runner> (or a factory closure). The caller (main.rs) should be the only place that decides which runner to construct. This is already done correctly in executor.rs — the same discipline needs to extend to the TUI backend."
+    },
+    {
+      "id": "DIP-002",
+      "principle": "Dependency Inversion",
+      "category": "Leaking Concrete",
+      "severity": "high",
+      "component": "tui/backend.rs :: Permission Socket Protocol",
+      "location": "ail/src/tui/backend.rs:85-161",
+      "summary": "The Claude MCP permission wire protocol (Unix socket + JSON fields) is encoded directly in the TUI backend, not in the runner",
+      "detail": "The backend creates a Unix socket, reads JSON with fields `tool_name` and `tool_input`, encodes responses as `{behavior: 'allow', updatedInput: ...}` or `{behavior: 'deny', message: ...}`. These are Claude MCP-specific wire format details. A different runner (e.g., OpenAI, Gemini, a local model) would not use this protocol. The backend is now permanently coupled to Claude's permission transport mechanism.",
+      "recommendation": "The permission socket should be owned and bound by ClaudeCliRunner itself (or a trait method like `permission_bridge_path() -> Option<PathBuf>`). The runner returns a socket path it is already listening on. Backend passes the path into InvokeOptions, but does not interpret the protocol."
+    },
+    {
+      "id": "DIP-003",
+      "principle": "Dependency Inversion",
+      "category": "Leaking Concrete",
+      "severity": "medium",
+      "component": "tui/app.rs :: PermissionRequest fields",
+      "location": "ail/src/tui/app.rs",
+      "summary": "AppState and modal UI directly reference PermissionRequest.tool_name and PermissionRequest.tool_input — runner-specific concepts in the UI layer",
+      "detail": "The permission modal renders tool_name and tool_input, which are Claude MCP concepts. If a different runner emits a permission request with a different shape (e.g., 'function_call', 'capability_request'), the modal cannot accommodate it without changing UI code. PermissionRequest is defined in ail_core::runner — it is presented as generic but is actually Claude-specific.",
+      "recommendation": "Define PermissionRequest as a generic human-readable display struct: { display_name: String, display_detail: String }. Each runner maps its native format to this. The UI only renders display_name and display_detail."
+    },
+    {
+      "id": "ISP-001",
+      "principle": "Interface Segregation",
+      "category": "Fat Interface",
+      "severity": "low",
+      "component": "Runner trait",
+      "location": "ail-core/src/runner/mod.rs",
+      "summary": "Runner trait bundles both non-streaming and streaming invocation; StubRunner must implement both even if only one is tested",
+      "detail": "The Runner trait declares both invoke() and invoke_streaming(). Any implementor must provide both, even if the use case only needs streaming. For testing purposes this is a minor burden, but it prevents composing a streaming-only runner wrapper cleanly.",
+      "recommendation": "Consider a StreamingRunner: Runner supertrait split, or a default impl for invoke() that collects streaming chunks. Low priority at current scale."
+    },
+    {
+      "id": "LSP-001",
+      "principle": "Liskov Substitution",
+      "category": "Concrete Leak",
+      "severity": "medium",
+      "component": "ClaudeCliRunner::new(headless: bool)",
+      "location": "ail-core/src/runner/claude.rs",
+      "summary": "The headless flag is a Claude CLI concept (--dangerously-skip-permissions) leaking into the construction contract",
+      "detail": "ClaudeCliRunner::new(headless: bool) is not part of the Runner trait. The headless flag controls whether --dangerously-skip-permissions is passed to the claude CLI. This concept has no meaning for other runners. Because the flag is baked into construction, the backend must know it is creating a ClaudeCliRunner to pass it — reinforcing the coupling in DIP-001.",
+      "recommendation": "Make headless a ClaudeCliRunnerConfig builder field, not a constructor parameter. The Runner trait should have no headless concept. Configuration that is runner-specific stays inside the runner's own config type."
+    },
+    {
+      "id": "COUPLING-001",
+      "principle": "Loose Coupling",
+      "category": "Tight Coupling — Runner Selection",
+      "severity": "critical",
+      "component": "Full TUI stack",
+      "location": "ail/src/tui/backend.rs:12,56 and ail/src/main.rs",
+      "summary": "The entire TUI is coupled to Claude: runner selection is not a plug point anywhere in the TUI call stack",
+      "detail": "main.rs calls tui::run(), which calls inline::run(), which calls backend::spawn_backend(). At no point does any of these functions accept a runner parameter. ClaudeCliRunner is constructed inside spawn_backend(), invisible to the caller. Switching to a different runner (for a non-Claude agent) would require forking backend.rs. The runner abstraction that exists in ail-core (the Runner trait, the executor taking &dyn Runner) is fully bypassed at the TUI entry point.",
+      "recommendation": "Refactor the call chain: main.rs constructs the runner (Box<dyn Runner>), passes it through tui::run() → inline::run() → spawn_backend(). This makes the seam explicit and consistent with how the --once headless path would handle multiple runners."
+    },
+    {
+      "id": "COUPLING-002",
+      "principle": "Loose Coupling",
+      "category": "Tight Coupling — Session Resumption",
+      "severity": "medium",
+      "component": "TurnEntry.runner_session_id",
+      "location": "ail-core/src/session/",
+      "summary": "session_id / runner_session_id is a Claude CLI concept — session resumption is assumed to be universally available",
+      "detail": "TurnEntry.runner_session_id holds a Claude-assigned session UUID used in --resume <id>. The executor logic assumes that subsequent steps can resume a prior runner session by passing the last session ID. This is a Claude-specific capability. Other runners (OpenAI Responses API, local models) may not support stateful session resumption and would need a different continuation strategy (e.g., replaying message history).",
+      "recommendation": "Treat runner_session_id as an opaque Option<String> continuation token. The Runner trait's invoke_streaming() already accepts it via InvokeOptions — this is correct. Ensure the executor never assumes the token is meaningful to all runners; a runner that ignores it should still work."
+    },
+    {
+      "id": "COUPLING-003",
+      "principle": "Loose Coupling",
+      "category": "Tight Coupling — Tool Allowlist Format",
+      "severity": "medium",
+      "component": "InvokeOptions.allowed_tools / disallowed_tools",
+      "location": "ail-core/src/runner/mod.rs",
+      "summary": "Tool allowlists/denylists use Claude CLI FQN format (mcp__server__tool) embedded in generic InvokeOptions",
+      "detail": "InvokeOptions carries allowed_tools and disallowed_tools as Vec<String> using Claude CLI's fully-qualified-name format (e.g., mcp__filesystem__read_file). This format is passed directly through to --allowedTools / --disallowedTools flags. A different runner (OpenAI function calling, Gemini tool use) would use a completely different tool permission mechanism. The field name and format are Claude-specific concepts in a supposedly generic struct.",
+      "recommendation": "InvokeOptions should carry an opaque tool_policy: Option<ToolPolicy> where ToolPolicy is runner-agnostic (AllowAll, DenyAll, Allowlist(Vec<ToolId>)). Each runner translates ToolPolicy to its own wire format internally."
+    },
+    {
+      "id": "COUPLING-004",
+      "principle": "Loose Coupling",
+      "category": "Tight Coupling — MCP Bridge",
+      "severity": "high",
+      "component": "runner/claude.rs :: mcp_config handling",
+      "location": "ail-core/src/runner/claude.rs",
+      "summary": "MCP server config and mcp_bridge FQN tool references are Claude-specific capabilities wired into InvokeOptions",
+      "detail": "InvokeOptions includes mcp_config (serialized to a temp JSON file passed via --mcp-config) and mcp_bridge_tool_fqn (the FQN string for the permission bridge tool). These are Claude CLI-specific extensions. Other runners do not have an MCP protocol layer. These fields would be ignored silently (or cause errors) with any non-Claude runner.",
+      "recommendation": "Move MCP config into a ClaudeInvokeExtensions struct that is carried as an opaque extension blob: InvokeOptions.runner_extensions: Option<Box<dyn Any>>. The ClaudeCliRunner casts it; other runners ignore it."
+    },
+    {
+      "id": "DI-001",
+      "principle": "Dependency Injection",
+      "category": "Missing Injection Point",
+      "severity": "high",
+      "component": "tui/backend.rs :: spawn_backend signature",
+      "location": "ail/src/tui/backend.rs:47-51",
+      "summary": "spawn_backend() accepts pipeline and cli_provider but not the runner — the most variable dependency is hardcoded",
+      "detail": "fn spawn_backend(pipeline: Option<Pipeline>, cli_provider: ProviderConfig, headless: bool). The runner is the primary variable dependency (the whole point of the Runner trait abstraction), yet it is the one dependency NOT injected. The cli_provider (base_url, auth_token) being injected but the runner itself not being injected is an inversion of what should be parameterized.",
+      "recommendation": "Signature should be: fn spawn_backend(runner: Box<dyn Runner>, pipeline: Option<Pipeline>). Runner-specific config (base_url, auth_token, headless) should be baked into the runner at construction time before being passed in."
+    },
+    {
+      "id": "DI-002",
+      "principle": "Dependency Injection",
+      "category": "Missing Injection Point",
+      "severity": "low",
+      "component": "Session construction in backend.rs",
+      "location": "ail/src/tui/backend.rs:68-69",
+      "summary": "Session is constructed inside the backend thread with no factory abstraction",
+      "detail": "Session::new() is called directly inside the spawn_backend closure. This makes it impossible to substitute a different session implementation (e.g., one backed by a remote store, or a no-op session for testing) without changing backend.rs.",
+      "recommendation": "Low priority. Acceptable for v0.x. Flag for when server mode lands and session persistence becomes a real concern."
+    },
+    {
+      "id": "CYCLIC-001",
+      "principle": "Acyclic Dependencies",
+      "category": "No Cycles Detected",
+      "severity": "none",
+      "component": "ail / ail-core crate boundary",
+      "location": "Cargo.toml",
+      "summary": "The crate-level dependency graph is acyclic and compiler-enforced",
+      "detail": "ail depends on ail-core. ail-core does not depend on ail. This boundary is enforced by the compiler and is the strongest architectural guarantee in the project. No cycles exist at this level.",
+      "recommendation": "Maintain this boundary. Resist any temptation to add callbacks from ail-core into ail — use events/channels as the decoupling mechanism."
+    },
+    {
+      "id": "CYCLIC-002",
+      "principle": "Acyclic Dependencies",
+      "category": "Logical Cycle Risk",
+      "severity": "low",
+      "component": "app.rs ↔ backend.rs",
+      "location": "ail/src/tui/",
+      "summary": "app.rs and backend.rs share types (BackendCommand, BackendEvent, PermissionRequest) creating logical bi-directional coupling within the same crate",
+      "detail": "app.rs consumes BackendEvent and produces BackendCommand. backend.rs produces BackendEvent and consumes BackendCommand. Both reference PermissionRequest from ail_core::runner. No actual cyclic import, but logically they are each other's primary consumer/producer, making them tightly coupled despite being separate files.",
+      "recommendation": "Acceptable at current scale. If the TUI grows a second backend (e.g., a WebSocket backend for server mode), extract BackendCommand/BackendEvent into a tui/protocol.rs module so both backend implementations share the type definition without either owning it."
+    },
+    {
+      "id": "RUNNER-001",
+      "principle": "Runner Interface Integrity",
+      "category": "Runner Abstraction Leakage",
+      "severity": "critical",
+      "component": "Runner trait vs. Claude-specific surface area",
+      "location": "ail-core/src/runner/mod.rs, ail/src/tui/backend.rs",
+      "summary": "The Runner trait is sound but the surrounding infrastructure (InvokeOptions, permission socket, session ID) carries so much Claude-specific surface area that substituting a different runner is practically impossible without code changes",
+      "detail": "The Runner trait itself (invoke, invoke_streaming) is well-defined. But a new runner implementor would encounter: (1) InvokeOptions fields that are Claude-only (mcp_config, mcp_bridge_tool_fqn, allowed_tools FQN format), (2) A permission socket protocol hard-coded in backend.rs that only Claude MCP can speak, (3) session resumption via runner_session_id that only Claude supports, (4) The headless constructor flag with no equivalent concept, (5) Direct ClaudeCliRunner construction making the seam unreachable at the TUI level. The Runner trait is necessary but not sufficient — it does not form a complete interface layer.",
+      "recommendation": "Treat the runner as a module boundary, not just a trait. The complete interface layer requires: (1) Runner trait for invocation, (2) PermissionBridge trait (or fn) for tool approval transport, (3) ContinuationToken type alias (opaque, runner-owned), (4) ToolPolicy enum replacing FQN strings in InvokeOptions, (5) Runner factory injection from main.rs all the way to spawn_backend. With these five elements, swapping the runner becomes a one-line change in main.rs."
+    },
+    {
+      "id": "RUNNER-002",
+      "principle": "Runner Interface Integrity",
+      "category": "Interface Gap",
+      "severity": "high",
+      "component": "Permission bridge ownership",
+      "location": "ail/src/tui/backend.rs:85-161",
+      "summary": "The permission bridge (Unix socket listener + MCP JSON protocol) has no home in the Runner trait — it is a runner-level concern stranded in the TUI backend",
+      "detail": "When Claude receives a tool call, it contacts the MCP bridge socket to ask for approval. This socket is bound by the TUI backend, not by ClaudeCliRunner. The backend encodes and decodes the MCP wire format (tool_name, tool_input, behavior, updatedInput). This means: (a) ClaudeCliRunner is incomplete — it delegates its own permission concern to its caller, (b) backend.rs contains Claude protocol logic, (c) a second runner that needs a different permission transport (HTTP callback, in-process channel) would require backend.rs to grow a second protocol branch.",
+      "recommendation": "Add to the Runner trait: `fn permission_bridge() -> Option<Box<dyn PermissionBridge>>`. ClaudeCliRunner returns a MCP Unix socket bridge. Other runners return None or their own bridge. The backend calls bridge.bind(), gets back a socket path (or None), passes it through InvokeOptions, and forwards PermissionRequest events from the bridge without knowing the transport."
+    },
+    {
+      "id": "QUALITY-001",
+      "principle": "Code Quality",
+      "category": "Testability",
+      "severity": "medium",
+      "component": "tui/ — untestable state machine",
+      "location": "ail/src/tui/app.rs, ail/src/tui/inline/mod.rs",
+      "summary": "AppState and the inline event loop have no unit tests and are structurally resistant to testing",
+      "detail": "AppState accumulates state through side-effectful methods (apply_executor_event, handle_permission_request, etc.) with no way to construct a minimal instance for testing a single concern. The inline event loop mixes I/O (crossterm, ratatui terminal) with state transitions, making it impossible to test the state machine without a real terminal. No test files exist for the tui/ module.",
+      "recommendation": "Extract pure state transition functions that take current state + event → new state. These can be unit tested with no I/O. The event loop becomes a thin shell that calls these functions and handles I/O side effects."
+    },
+    {
+      "id": "QUALITY-002",
+      "principle": "Code Quality",
+      "category": "Error Handling",
+      "severity": "low",
+      "component": "backend.rs permission socket listener",
+      "location": "ail/src/tui/backend.rs:141-143",
+      "summary": "perm_rx.recv() fallback to Deny silently swallows channel-closed errors",
+      "detail": "Line 141-143: `.unwrap_or(PermissionResponse::Deny(\"channel closed\".into()))`. If the TUI channel closes unexpectedly (e.g., TUI panics), tool calls are silently denied with no observable error. The user has no indication the permission system failed.",
+      "recommendation": "Propagate the channel-closed error as a BackendEvent::Error and abort the current run. Silent deny is worse than a visible error."
+    },
+    {
+      "id": "QUALITY-003",
+      "principle": "Code Quality",
+      "category": "Inline Magic",
+      "severity": "low",
+      "component": "tui/inline/layout.rs",
+      "location": "ail/src/tui/inline/layout.rs",
+      "summary": "Viewport height (10 rows, 9 chrome rows, 1 status) are magic numbers likely duplicated across inline/mod.rs and draw.rs",
+      "detail": "The fixed 10-row inline viewport is a fundamental layout constant. If it is repeated in multiple places without a single named constant, changing the chrome height will require hunting down all occurrences.",
+      "recommendation": "Define INLINE_VIEWPORT_ROWS: u16 = 10 in layout.rs and reference it everywhere. Already low risk but worth noting."
+    }
+  ],
+  "summary": {
+    "total_findings": 21,
+    "by_severity": {
+      "critical": 3,
+      "high": 5,
+      "medium": 7,
+      "low": 5,
+      "none": 1
+    },
+    "by_principle": {
+      "Single Responsibility": 3,
+      "Open/Closed": 2,
+      "Liskov Substitution": 1,
+      "Interface Segregation": 1,
+      "Dependency Inversion": 3,
+      "Dependency Injection": 2,
+      "Loose Coupling": 4,
+      "Acyclic Dependencies": 2,
+      "Runner Interface Integrity": 2,
+      "Code Quality": 3
+    },
+    "top_risks": [
+      "DIP-001 / COUPLING-001 / DI-001: ClaudeCliRunner is hardcoded in spawn_backend — there is no injection seam at the TUI level. The Runner trait abstraction that exists in ail-core is completely bypassed by the TUI.",
+      "DIP-002 / RUNNER-002: The Claude MCP permission wire protocol lives in the TUI backend, not in the runner. This is a runner-level concern stranded in the wrong layer.",
+      "RUNNER-001: The surrounding infrastructure (InvokeOptions, permission socket, session ID) carries so much Claude-specific surface area that swapping the runner requires changes to backend.rs, app.rs, and InvokeOptions — not just the runner implementation.",
+      "SRP-001: AppState is an 873-line god object. Every new TUI feature accretes here, making the module a perpetual merge conflict magnet."
+    ],
+    "what_is_working_well": [
+      "The ail / ail-core crate boundary is hard and compiler-enforced — the strongest guarantee in the system.",
+      "executor.rs takes &dyn Runner — the core execution path is correctly dependency-inverted.",
+      "The DTO→Domain boundary in config/ is clean — serde never leaks into domain types.",
+      "Event streaming via channels (RunnerEvent → ExecutorEvent → BackendEvent) is a sound decoupling pattern.",
+      "Atomic pause/kill flags are a clean, non-blocking control mechanism.",
+      "The Runner trait itself (invoke + invoke_streaming) is well-scoped and implementable.",
+      "StubRunner exists and provides the right test seam at the executor level."
+    ]
+  }
+}
