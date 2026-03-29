@@ -87,11 +87,13 @@ fn handle_request(method: &str, request: &Value, socket_path: &str, id: Value) -
         }),
 
         "tools/call" => {
+            // Claude CLI sends: {tool_name, input, tool_use_id}
+            // Note: the field is "input", not "tool_input".
             let args = &request["params"]["arguments"];
             let tool_name = args["tool_name"].as_str().unwrap_or("").to_string();
-            let tool_input = args["tool_input"].clone();
+            let input = args["input"].clone();
 
-            match forward_to_socket(socket_path, &tool_name, &tool_input) {
+            match forward_to_socket(socket_path, &tool_name, &input) {
                 Ok(resp_json) => {
                     // MCP tool result: content is a text block containing the JSON response.
                     json!({

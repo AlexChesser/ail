@@ -33,39 +33,30 @@ fn draw_permission_modal(frame: &mut Frame, app: &AppState, area: Rect) {
         .split(area);
     let modal_area = horiz[1];
 
+    // Compact header — details already written to primary buffer scrollback above.
+    let tool_name = app
+        .perm_request
+        .as_ref()
+        .map(|r| r.tool_name.as_str())
+        .unwrap_or("?");
     let mut lines: Vec<Line> = vec![
-        Line::from(Span::styled(
-            "⚠ permission required",
-            Style::default()
-                .fg(Color::Yellow)
-                .add_modifier(Modifier::BOLD),
-        )),
-        Line::raw(""),
-    ];
-
-    if let Some(ref req) = app.perm_request {
-        lines.push(Line::from(vec![
-            Span::styled("  tool: ", Style::default().fg(Color::DarkGray)),
+        Line::from(vec![
+            Span::styled("⚠ ", Style::default().fg(Color::Yellow)),
             Span::styled(
-                req.tool_name.clone(),
+                tool_name.to_string(),
                 Style::default()
                     .fg(Color::Cyan)
                     .add_modifier(Modifier::BOLD),
             ),
-        ]));
-        // Show a truncated JSON snippet of the tool input.
-        let input_str = serde_json::to_string(&req.tool_input).unwrap_or_default();
-        let truncated = if input_str.len() > 60 {
-            format!("{}…", &input_str[..60])
-        } else {
-            input_str
-        };
-        lines.push(Line::from(vec![
-            Span::styled("  input: ", Style::default().fg(Color::DarkGray)),
-            Span::raw(truncated),
-        ]));
-        lines.push(Line::raw(""));
-    }
+            Span::styled(
+                " — permission required",
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
+            ),
+        ]),
+        Line::raw(""),
+    ];
 
     // Render the three options; highlight the one at perm_cursor.
     let options: &[(usize, &str, &str, Color)] = &[

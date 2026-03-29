@@ -1,17 +1,9 @@
-use crossterm::event::{Event, KeyCode, KeyEventKind, KeyModifiers, MouseEventKind};
+use crossterm::event::{Event, KeyCode, KeyEventKind, KeyModifiers};
 
 use super::app::{AppState, ExecutionPhase};
 
 /// Map a crossterm input event to a state change.
 pub fn handle_event(app: &mut AppState, event: Event) {
-    if let Event::Mouse(mouse) = event {
-        match mouse.kind {
-            MouseEventKind::ScrollUp => app.viewport_scroll_up(3),
-            MouseEventKind::ScrollDown => app.viewport_scroll_down(3),
-            _ => {}
-        }
-        return;
-    }
     if let Event::Key(key) = event {
         // With keyboard enhancement active the terminal emits Press, Repeat, and Release
         // events. Only act on Press and Repeat; ignore Release to avoid double-fires.

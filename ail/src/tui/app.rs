@@ -91,10 +91,6 @@ pub struct AppState {
     pub viewport_lines: Vec<String>,
     /// Lines scrolled up from the bottom (0 = auto-scroll to latest output).
     pub viewport_scroll: u16,
-    /// Updated each frame so scroll methods can compute page size.
-    pub viewport_height: u16,
-    /// Updated each frame so scroll math can account for line wrapping.
-    pub viewport_width: u16,
 
     // Streaming tracking (M5)
     pub active_step_id: Option<String>,
@@ -196,8 +192,7 @@ impl AppState {
             pending_prompt: None,
             viewport_lines: Vec::new(),
             viewport_scroll: 0,
-            viewport_height: 24,
-            viewport_width: 80,
+
             active_step_id: None,
             step_streamed: false,
             step_outputs: HashMap::new(),
@@ -443,19 +438,33 @@ impl AppState {
             }
             return;
         }
-        // Log the request so the user can see what's waiting in the scrollback.
-        let input_preview = {
-            let s = req.tool_input.to_string();
-            if s.len() > 80 {
-                format!("{}…", &s[..80])
-            } else {
-                s
+        // Log the request to scrollback with human-readable field breakdown.
+        let mut detail = format!("\n  [permission: {} — waiting for approval]", req.tool_name);
+        if let Some(obj) = req.tool_input.as_object() {
+            for (k, v) in obj {
+                let val_str = match v {
+                    serde_json::Value::String(s) => {
+                        // For multi-line strings (file content, scripts) show first line + indicator
+                        let lines: Vec<&str> = s.lines().collect();
+                        if lines.len() > 1 {
+                            format!("{} … ({} lines)", lines[0], lines.len())
+                        } else if s.len() > 100 {
+                            format!("{}…", &s[..100])
+                        } else {
+                            s.clone()
+                        }
+                    }
+                    other => {
+                        let s = other.to_string();
+                        if s.len() > 100 { format!("{}…", &s[..100]) } else { s }
+                    }
+                };
+                detail.push_str(&format!("\n    {k}: {val_str}"));
             }
-        };
-        self.append_text(&format!(
-            "\n  [permission: {} — waiting for approval]\n  input: {}",
-            req.tool_name, input_preview
-        ));
+        } else if !req.tool_input.is_null() {
+            detail.push_str(&format!("\n    {}", req.tool_input));
+        }
+        self.append_text(&detail);
         self.perm_request = Some(req);
         self.perm_cursor = 0;
         self.perm_modal_open = true;
@@ -663,33 +672,6 @@ impl AppState {
     }
 
     // ── viewport scrolling ────────────────────────────────────────────────────
-
-    /// Count total visual (wrapped) lines for the current viewport width.
-    fn visual_line_count(&self) -> u16 {
-        let width = self.viewport_width.max(1) as usize;
-        self.viewport_lines
-            .iter()
-            .map(|l| {
-                let w = l.len();
-                if w == 0 {
-                    1
-                } else {
-                    ((w - 1) / width + 1) as u16
-                }
-            })
-            .sum()
-    }
-
-    pub fn viewport_scroll_up(&mut self, lines: u16) {
-        let max_scroll = self
-            .visual_line_count()
-            .saturating_sub(self.viewport_height);
-        self.viewport_scroll = (self.viewport_scroll + lines).min(max_scroll);
-    }
-
-    pub fn viewport_scroll_down(&mut self, lines: u16) {
-        self.viewport_scroll = self.viewport_scroll.saturating_sub(lines);
-    }
 
     // ── prompt input ──────────────────────────────────────────────────────────
 

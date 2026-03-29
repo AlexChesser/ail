@@ -7,8 +7,8 @@ use std::time::Duration;
 
 use crossterm::{
     event::{
-        self, DisableMouseCapture, EnableMouseCapture, KeyboardEnhancementFlags,
-        PopKeyboardEnhancementFlags, PushKeyboardEnhancementFlags,
+        self, KeyboardEnhancementFlags, PopKeyboardEnhancementFlags,
+        PushKeyboardEnhancementFlags,
     },
     execute,
     terminal::{disable_raw_mode, enable_raw_mode},
@@ -40,8 +40,8 @@ pub fn run(
 ) -> io::Result<()> {
     enable_raw_mode()?;
     let mut stdout = io::stdout();
-    // Start in the primary buffer — no EnterAlternateScreen.
-    execute!(stdout, EnableMouseCapture)?;
+    // Start in the primary buffer — no EnterAlternateScreen, no mouse capture.
+    // Not capturing mouse events lets the terminal handle text selection natively.
     let keyboard_enhanced = execute!(
         stdout,
         PushKeyboardEnhancementFlags(KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES)
@@ -61,7 +61,6 @@ pub fn run(
     if keyboard_enhanced {
         let _ = execute!(terminal.backend_mut(), PopKeyboardEnhancementFlags);
     }
-    execute!(terminal.backend_mut(), DisableMouseCapture)?;
     terminal.show_cursor()?;
     // Print a newline so the shell prompt appears on a fresh line.
     println!();
