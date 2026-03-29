@@ -21,23 +21,17 @@ pub fn draw(frame: &mut Frame, app: &AppState, area: Rect) {
 }
 
 fn draw_permission_modal(frame: &mut Frame, app: &AppState, area: Rect) {
+    // In the inline 10-row TUI there are no vertical margins — we need the full height to
+    // show all options without clipping. Horizontal margins are kept for aesthetics.
     let horiz = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([
-            Constraint::Percentage(10),
-            Constraint::Percentage(80),
-            Constraint::Percentage(10),
+            Constraint::Percentage(5),
+            Constraint::Fill(1),
+            Constraint::Percentage(5),
         ])
         .split(area);
-    let vert = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Percentage(20),
-            Constraint::Min(8),
-            Constraint::Percentage(20),
-        ])
-        .split(horiz[1]);
-    let modal_area = vert[1];
+    let modal_area = horiz[1];
 
     let mut lines: Vec<Line> = vec![
         Line::from(Span::styled(
@@ -73,18 +67,49 @@ fn draw_permission_modal(frame: &mut Frame, app: &AppState, area: Rect) {
         lines.push(Line::raw(""));
     }
 
-    lines.push(Line::from(vec![
-        Span::styled("  y  ", Style::default().fg(Color::Green)),
-        Span::raw("approve once"),
-    ]));
-    lines.push(Line::from(vec![
-        Span::styled("  a  ", Style::default().fg(Color::Cyan)),
-        Span::raw("allow for session"),
-    ]));
-    lines.push(Line::from(vec![
-        Span::styled("  n  ", Style::default().fg(Color::Red)),
-        Span::raw("deny"),
-    ]));
+    // Render the three options; highlight the one at perm_cursor.
+    let options: &[(usize, &str, &str, Color)] = &[
+        (0, "y", "approve once", Color::Green),
+        (1, "a", "allow for session", Color::Cyan),
+        (2, "n", "deny", Color::Red),
+    ];
+    for &(idx, key, label, color) in options {
+        let selected = idx == app.perm_cursor;
+        let prefix = if selected { "▶ " } else { "  " };
+        let row_style = if selected {
+            Style::default().fg(Color::White).add_modifier(Modifier::BOLD)
+        } else {
+            Style::default()
+        };
+        lines.push(Line::styled(
+            format!("{prefix}{key}  {label}"),
+            row_style,
+        ));
+        // Overlay the key letter in its color regardless of selection highlight.
+        let last = lines.last_mut().unwrap();
+        *last = Line::from(vec![
+            Span::styled(
+                prefix.to_string(),
+                if selected {
+                    Style::default().fg(Color::White).add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default()
+                },
+            ),
+            Span::styled(
+                key.to_string(),
+                Style::default().fg(color).add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(
+                format!("  {label}"),
+                if selected {
+                    Style::default().fg(Color::White).add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default().fg(Color::DarkGray)
+                },
+            ),
+        ]);
+    }
 
     let block = Block::default()
         .title(" permission check ")

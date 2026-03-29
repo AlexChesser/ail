@@ -126,6 +126,8 @@ pub struct AppState {
     pub perm_request: Option<PermissionRequest>,
     /// Whether the permission modal is visible.
     pub perm_modal_open: bool,
+    /// Cursor position in the permission modal (0=approve once, 1=allow session, 2=deny).
+    pub perm_cursor: usize,
     /// Tools approved for the rest of this session (auto-approved without prompting).
     pub perm_session_allowlist: HashSet<String>,
 }
@@ -212,6 +214,7 @@ impl AppState {
             perm_tx: None,
             perm_request: None,
             perm_modal_open: false,
+            perm_cursor: 0,
             perm_session_allowlist: HashSet::new(),
         }
     }
@@ -431,17 +434,60 @@ impl AppState {
     /// If the tool is in the session allowlist, auto-approve without showing the modal.
     pub fn handle_permission_request(&mut self, req: PermissionRequest) {
         if self.perm_session_allowlist.contains(&req.tool_name) {
+            self.append_text(&format!(
+                "\n  [permission: {} — auto-allowed (session)]",
+                req.tool_name
+            ));
             if let Some(ref tx) = self.perm_tx {
                 let _ = tx.send(PermissionResponse::Allow);
             }
             return;
         }
+        // Log the request so the user can see what's waiting in the scrollback.
+        let input_preview = {
+            let s = req.tool_input.to_string();
+            if s.len() > 80 {
+                format!("{}…", &s[..80])
+            } else {
+                s
+            }
+        };
+        self.append_text(&format!(
+            "\n  [permission: {} — waiting for approval]\n  input: {}",
+            req.tool_name, input_preview
+        ));
         self.perm_request = Some(req);
+        self.perm_cursor = 0;
         self.perm_modal_open = true;
+    }
+
+    /// Move the permission modal cursor up (wraps).
+    pub fn perm_nav_up(&mut self) {
+        self.perm_cursor = self.perm_cursor.saturating_sub(1);
+    }
+
+    /// Move the permission modal cursor down (wraps).
+    pub fn perm_nav_down(&mut self) {
+        self.perm_cursor = (self.perm_cursor + 1).min(2);
+    }
+
+    /// Confirm the currently highlighted permission option.
+    pub fn perm_confirm(&mut self) {
+        match self.perm_cursor {
+            0 => self.perm_approve_once(),
+            1 => self.perm_approve_session(),
+            _ => self.perm_deny(),
+        }
     }
 
     /// Approve the pending permission request for this tool call only.
     pub fn perm_approve_once(&mut self) {
+        let tool = self
+            .perm_request
+            .as_ref()
+            .map(|r| r.tool_name.as_str())
+            .unwrap_or("?");
+        self.append_text(&format!("\n  [permission: {tool} — approved once]"));
         if let Some(ref tx) = self.perm_tx {
             let _ = tx.send(PermissionResponse::Allow);
         }
@@ -454,11 +500,29 @@ impl AppState {
         if let Some(ref req) = self.perm_request {
             self.perm_session_allowlist.insert(req.tool_name.clone());
         }
-        self.perm_approve_once();
+        let tool = self
+            .perm_request
+            .as_ref()
+            .map(|r| r.tool_name.as_str())
+            .unwrap_or("?");
+        self.append_text(&format!(
+            "\n  [permission: {tool} — approved for session]"
+        ));
+        if let Some(ref tx) = self.perm_tx {
+            let _ = tx.send(PermissionResponse::Allow);
+        }
+        self.perm_modal_open = false;
+        self.perm_request = None;
     }
 
     /// Deny the pending permission request.
     pub fn perm_deny(&mut self) {
+        let tool = self
+            .perm_request
+            .as_ref()
+            .map(|r| r.tool_name.as_str())
+            .unwrap_or("?");
+        self.append_text(&format!("\n  [permission: {tool} — denied]"));
         if let Some(ref tx) = self.perm_tx {
             let _ = tx.send(PermissionResponse::Deny("User denied".to_string()));
         }

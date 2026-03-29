@@ -64,9 +64,19 @@ fn handle_picker(app: &mut AppState, modifiers: KeyModifiers, code: KeyCode) {
 
 fn handle_permission_modal(app: &mut AppState, modifiers: KeyModifiers, code: KeyCode) {
     match (modifiers, code) {
+        // Letter shortcuts (unchanged)
         (KeyModifiers::NONE, KeyCode::Char('y')) => app.perm_approve_once(),
         (KeyModifiers::NONE, KeyCode::Char('a')) => app.perm_approve_session(),
         (KeyModifiers::NONE, KeyCode::Char('n')) => app.perm_deny(),
+        // Arrow navigation
+        (KeyModifiers::NONE, KeyCode::Up) | (KeyModifiers::NONE, KeyCode::Char('k')) => {
+            app.perm_nav_up();
+        }
+        (KeyModifiers::NONE, KeyCode::Down) | (KeyModifiers::NONE, KeyCode::Char('j')) => {
+            app.perm_nav_down();
+        }
+        // Enter confirms the highlighted option
+        (KeyModifiers::NONE, KeyCode::Enter) => app.perm_confirm(),
         (KeyModifiers::CONTROL, KeyCode::Char('c')) => {
             app.perm_deny();
             app.running = false;

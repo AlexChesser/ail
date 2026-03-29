@@ -127,12 +127,13 @@ pub fn spawn_backend(
                                         Ok(v) => v,
                                         Err(_) => continue,
                                     };
+                                let tool_input = req_val["tool_input"].clone();
                                 let perm_req = PermissionRequest {
                                     tool_name: req_val["tool_name"]
                                         .as_str()
                                         .unwrap_or("")
                                         .to_string(),
-                                    tool_input: req_val["tool_input"].clone(),
+                                    tool_input: tool_input.clone(),
                                 };
                                 let _ = etx.send(BackendEvent::PermissionRequest(perm_req));
 
@@ -140,9 +141,12 @@ pub fn spawn_backend(
                                 let response = perm_rx
                                     .recv()
                                     .unwrap_or(PermissionResponse::Deny("channel closed".into()));
+                                // Claude CLI requires a discriminated union:
+                                //   allow → {"behavior":"allow","updatedInput":<original_input>}
+                                //   deny  → {"behavior":"deny","message":"<reason>"}
                                 let resp_json = match response {
                                     PermissionResponse::Allow => {
-                                        serde_json::json!({"behavior": "allow"})
+                                        serde_json::json!({"behavior": "allow", "updatedInput": tool_input})
                                     }
                                     PermissionResponse::Deny(reason) => {
                                         serde_json::json!({"behavior": "deny", "message": reason})
