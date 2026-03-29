@@ -1,4 +1,9 @@
 version: "0.0.1"
+defaults:
+  model: qwen3.5:0.8b
+  provider:
+    base_url: http://172.30.16.1:11434
+    auth_token: ollama
 pipeline:
   - id: invocation
     prompt: "{{ session.invocation_prompt }}"
