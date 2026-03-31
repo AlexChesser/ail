@@ -24,8 +24,8 @@ fn stub_runner_result_has_cost_and_session_id() {
 #[test]
 #[ignore]
 fn claude_cli_runner_returns_non_empty_response() {
-    use ail_core::runner::claude::ClaudeCliRunner;
-    let runner = ClaudeCliRunner::new(false);
+    use ail_core::runner::claude::ClaudeCliRunnerConfig;
+    let runner = ClaudeCliRunnerConfig::default().build();
     let result = runner
         .invoke(
             "Reply with exactly the word: hello",

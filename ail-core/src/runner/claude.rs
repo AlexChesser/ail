@@ -41,12 +41,57 @@ impl ClaudeInvokeExtensions {
     }
 }
 
+/// Builder for [`ClaudeCliRunner`]. Encapsulates all Claude-specific construction parameters.
+///
+/// # Example
+/// ```ignore
+/// let runner = ClaudeCliRunnerConfig::default().headless(true).build();
+/// ```
+#[derive(Debug, Clone)]
+pub struct ClaudeCliRunnerConfig {
+    pub claude_bin: String,
+    pub headless: bool,
+}
+
+impl Default for ClaudeCliRunnerConfig {
+    fn default() -> Self {
+        Self {
+            claude_bin: "claude".to_string(),
+            headless: false,
+        }
+    }
+}
+
+impl ClaudeCliRunnerConfig {
+    pub fn headless(mut self, headless: bool) -> Self {
+        self.headless = headless;
+        self
+    }
+
+    pub fn claude_bin(mut self, bin: impl Into<String>) -> Self {
+        self.claude_bin = bin.into();
+        self
+    }
+
+    pub fn build(self) -> ClaudeCliRunner {
+        ClaudeCliRunner {
+            claude_bin: self.claude_bin,
+            headless: self.headless,
+        }
+    }
+}
+
 /// Drives the `claude` CLI in `--output-format stream-json --verbose -p` mode.
 ///
 /// Spike findings (see LEARNINGS.md Phase 8):
 /// - `--verbose` is required alongside `--output-format stream-json` when using `-p`.
 /// - `CLAUDECODE` must be removed from the child process environment to prevent
 ///   the nested-session guard from blocking the invocation.
+///
+/// Construct via [`ClaudeCliRunnerConfig`]:
+/// ```ignore
+/// let runner = ClaudeCliRunnerConfig::default().headless(true).build();
+/// ```
 pub struct ClaudeCliRunner {
     pub claude_bin: String,
     /// When true, passes `--dangerously-skip-permissions` to the claude CLI.
@@ -55,6 +100,14 @@ pub struct ClaudeCliRunner {
 }
 
 impl ClaudeCliRunner {
+    pub fn from_config(config: ClaudeCliRunnerConfig) -> Self {
+        Self {
+            claude_bin: config.claude_bin,
+            headless: config.headless,
+        }
+    }
+
+    #[deprecated(note = "Use ClaudeCliRunnerConfig::default().headless(headless).build()")]
     pub fn new(headless: bool) -> Self {
         ClaudeCliRunner {
             claude_bin: "claude".to_string(),
@@ -62,6 +115,9 @@ impl ClaudeCliRunner {
         }
     }
 
+    #[deprecated(
+        note = "Use ClaudeCliRunnerConfig::default().claude_bin(bin).headless(headless).build()"
+    )]
     pub fn with_bin(bin: impl Into<String>, headless: bool) -> Self {
         ClaudeCliRunner {
             claude_bin: bin.into(),
@@ -299,7 +355,7 @@ impl ClaudeCliRunner {
 
 impl Default for ClaudeCliRunner {
     fn default() -> Self {
-        Self::new(false)
+        ClaudeCliRunnerConfig::default().build()
     }
 }
 
@@ -656,7 +712,7 @@ mod tests {
     #[test]
     #[ignore]
     fn claude_cli_runner_returns_non_empty_response() {
-        let runner = ClaudeCliRunner::new(false);
+        let runner = ClaudeCliRunnerConfig::default().build();
         let result = runner
             .invoke(
                 "Reply with exactly the word: hello",
@@ -671,7 +727,7 @@ mod tests {
     #[test]
     #[ignore]
     fn claude_cli_runner_response_contains_expected_text() {
-        let runner = ClaudeCliRunner::new(false);
+        let runner = ClaudeCliRunnerConfig::default().build();
         let result = runner
             .invoke(
                 "Reply with exactly one word: banana",

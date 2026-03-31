@@ -61,19 +61,21 @@ A minimum-compliant runner works with all text-based `ail` pipeline features: `p
 
 An extended-compliant runner implements the structured bidirectional JSON interface, unlocking the full `ail` feature set. The Claude CLI is the reference implementation.
 
-Extended compliance requires:
+Extended compliance requires the following **capabilities** (each runner exposes them through its own native interface):
 
-- **`--output-format stream-json`** — NDJSON event stream with typed events for tool calls, tool results, text, and completion
-- **`--mcp-config` + `--permission-prompt-tool mcp__<server>__<tool>`** — HITL tool permission intercept via MCP bridge subprocess + Unix domain socket
-- **`--allowedTools` / `--disallowedTools`** — pre-approved and pre-denied tool patterns
-- **`--dangerously-skip-permissions`** — headless/automated mode bypass
+| Capability | What it means | Claude CLI mapping |
+|---|---|---|
+| **Structured streaming output** | Runner emits typed events (text, tool use, tool result, cost, completion) as a machine-readable stream during execution | `--output-format stream-json --verbose` |
+| **Tool permission delegation** | Runner intercepts tool calls not covered by pre-approved/denied lists and invokes a provided callback before proceeding | `--permission-prompt-tool mcp__ail-permission__ail_check_permission` via MCP bridge |
+| **Pre-approved/denied tool lists** | Runner accepts sets of tool names (or patterns) to allow or deny without prompting | `--allowedTools` / `--disallowedTools` |
+| **Session continuity** | Runner returns a session identifier with each result that can be passed back to resume a prior conversation | `--resume <session_id>` |
+| **Headless bypass** | Runner accepts a flag to skip all permission checks for automated/CI environments | `--dangerously-skip-permissions` |
 
-> **Session continuity:** `ail` uses `--resume <session_id>` per step rather than `--input-format stream-json`. The `--resume` approach spawns one subprocess per pipeline step and passes the session ID from the previous step's `result` event. `--input-format stream-json` is not a compliance requirement — `ail` does not use it. It may become relevant for real-time HITL injection in a future version.
+A runner implements extended compliance by supporting these capabilities through whatever native interface it exposes. The Claude CLI reference implementation maps these capabilities to the specific flags documented in `spec/runner/r02-claude-cli.md`.
 
 Optional extended capabilities (declare via `--ail-capabilities` — mechanism to be defined):
 
 - **Extended thinking** — exposes reasoning traces as typed events in the stream
 - **Structured output** — constrains final response to a JSON schema (`--json-schema`)
-- **Session resumption** — `session_id` from result events can be passed back to resume a prior session
 
 ---

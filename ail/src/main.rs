@@ -2,7 +2,7 @@ mod cli;
 mod mcp_bridge;
 mod tui;
 
-use ail_core::runner::claude::ClaudeInvokeExtensions;
+use ail_core::runner::claude::{ClaudeCliRunnerConfig, ClaudeInvokeExtensions};
 use ail_core::runner::{InvokeOptions, Runner};
 use clap::Parser;
 use cli::{Cli, Commands};
@@ -110,7 +110,9 @@ fn main() {
                     base_url: cli.provider_url.clone(),
                     auth_token: cli.provider_token.clone(),
                 };
-                let runner = ail_core::runner::claude::ClaudeCliRunner::new(cli.headless);
+                let runner = ClaudeCliRunnerConfig::default()
+                    .headless(cli.headless)
+                    .build();
 
                 // If the pipeline does not declare an invocation step, the host runs it
                 // with default settings before handing off to the executor (SPEC §4.1).
@@ -209,7 +211,11 @@ fn main() {
                     base_url: cli.provider_url.clone(),
                     auth_token: cli.provider_token.clone(),
                 };
-                let runner = Box::new(ail_core::runner::claude::ClaudeCliRunner::new(cli.headless));
+                let runner = Box::new(
+                    ClaudeCliRunnerConfig::default()
+                        .headless(cli.headless)
+                        .build(),
+                );
                 if let Err(e) = tui::run(pipeline, cli_provider, runner) {
                     eprintln!("TUI error: {e}");
                     std::process::exit(1);

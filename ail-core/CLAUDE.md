@@ -56,6 +56,12 @@ pub struct InvokeOptions { pub resume_session_id: Option<String>, pub tool_polic
 // permission_responder: when set, the runner intercepts tool permission requests and calls this callback.
 // ClaudeCliRunner encapsulates the Unix socket lifecycle internally; the TUI never manages socket paths.
 
+// Claude CLI runner config (runner/claude.rs) — builder for ClaudeCliRunner
+pub struct ClaudeCliRunnerConfig { pub claude_bin: String, pub headless: bool }
+// impl Default: claude_bin="claude", headless=false
+// Builder: .headless(bool), .claude_bin(str), .build() -> ClaudeCliRunner
+// ClaudeCliRunner::from_config(config) is the preferred constructor
+
 // Claude CLI runner extensions (runner/claude.rs)
 pub struct ClaudeInvokeExtensions { pub base_url: Option<String>, pub auth_token: Option<String>, pub permission_socket: Option<PathBuf> }
 
