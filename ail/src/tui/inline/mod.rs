@@ -75,11 +75,11 @@ fn run_app(
     runner: Box<dyn ail_core::runner::Runner + Send>,
 ) -> io::Result<()> {
     let mut app = AppState::new(pipeline.clone());
-    app.picker_entries = ail_core::config::discovery::discover_all();
+    app.picker.entries = ail_core::config::discovery::discover_all();
     let (cmd_tx, event_rx) = super::backend::spawn_backend(pipeline, cli_provider, runner);
 
     let mut hitl_tx: Option<mpsc::Sender<String>> = None;
-    // Index into app.viewport_lines of the next line to flush to the scrollback.
+    // Index into app.viewport.lines of the next line to flush to the scrollback.
     let mut last_flushed: usize = 0;
 
     loop {
@@ -88,18 +88,18 @@ fn run_app(
             match event_rx.try_recv() {
                 Ok(BackendEvent::Executor(ev)) => app.apply_executor_event(ev),
                 Ok(BackendEvent::Error(msg)) => {
-                    app.viewport_lines.push(format!("[backend error: {msg}]"));
+                    app.viewport.lines.push(format!("[backend error: {msg}]"));
                     app.phase = ExecutionPhase::Failed;
                 }
                 Ok(BackendEvent::HitlReady(tx)) => {
                     hitl_tx = Some(tx);
                 }
                 Ok(BackendEvent::ControlReady { pause, kill }) => {
-                    app.pause_flag = Some(pause);
-                    app.kill_flag = Some(kill);
+                    app.interrupt.pause_flag = Some(pause);
+                    app.interrupt.kill_flag = Some(kill);
                 }
                 Ok(BackendEvent::PermReady(tx)) => {
-                    app.perm_tx = Some(tx);
+                    app.permissions.tx = Some(tx);
                 }
                 Ok(BackendEvent::PermissionRequest(req)) => {
                     app.handle_permission_request(req);
@@ -110,11 +110,11 @@ fn run_app(
 
         // Flush new viewport lines into the primary-buffer scrollback.
         // Wrap 4 columns short of the terminal's right edge to leave a visual gutter.
-        let current = app.viewport_lines.len();
+        let current = app.viewport.lines.len();
         let term_width = terminal.size()?.width;
         let wrap_width = term_width.saturating_sub(4).max(1);
         for i in last_flushed..current {
-            let line_text = app.viewport_lines[i].clone();
+            let line_text = app.viewport.lines[i].clone();
             let char_count = line_text.chars().count() as u16;
             let rows = if char_count == 0 {
                 1
@@ -140,41 +140,43 @@ fn run_app(
         }
 
         // Submit pending prompt to backend (or unblock HITL gate).
-        if let Some(prompt) = app.pending_prompt.take() {
+        if let Some(prompt) = app.prompt.pending_prompt.take() {
             if app.phase == ExecutionPhase::HitlGate {
                 if let Some(ref tx) = hitl_tx {
                     let _ = tx.send(prompt);
                 }
                 app.phase = ExecutionPhase::Running;
             } else {
-                app.echo_prompt(&prompt);
+                app.viewport.echo_prompt(&prompt);
                 app.reset_for_run();
                 app.phase = ExecutionPhase::Running;
                 let _ = cmd_tx.send(BackendCommand::SubmitPrompt {
                     prompt,
-                    disabled_steps: app.disabled_steps.clone(),
+                    disabled_steps: app.sidebar.disabled_steps.clone(),
                 });
             }
         }
 
         // Hot-reload: apply a pending pipeline switch.
-        if let Some(path) = app.pending_pipeline_switch.take() {
+        if let Some(path) = app.picker.pending_pipeline_switch.take() {
             match ail_core::config::load(&path) {
                 Ok(new_pipeline) => {
                     app.steps = AppState::steps_for_pipeline(&new_pipeline);
                     app.pipeline = Some(new_pipeline.clone());
-                    app.sidebar_cursor = 0;
-                    app.disabled_steps.clear();
+                    app.sidebar.cursor = 0;
+                    app.sidebar.disabled_steps.clear();
                     let _ = cmd_tx.send(BackendCommand::SwitchPipeline(new_pipeline));
                     let name = path
                         .file_stem()
                         .map(|s| s.to_string_lossy().to_string())
                         .unwrap_or_else(|| path.display().to_string());
-                    app.viewport_lines
+                    app.viewport
+                        .lines
                         .push(format!("── switched to: {name} ──"));
                 }
                 Err(e) => {
-                    app.viewport_lines
+                    app.viewport
+                        .lines
                         .push(format!("[pipeline load error: {}]", e.detail));
                 }
             }

@@ -11,11 +11,11 @@ use crate::tui::app::AppState;
 /// Render the pipeline-picker dropdown above the prompt area (i-1).
 /// No-op when the picker is not open.
 pub fn draw(frame: &mut Frame, app: &AppState, prompt_area: Rect) {
-    if !app.picker_open {
+    if !app.picker.open {
         return;
     }
 
-    let visible_count = app.picker_filtered.len().min(8);
+    let visible_count = app.picker.filtered.len().min(8);
     // +2 for top/bottom borders; at least 3 lines tall (borders + 1 content line).
     let height = (visible_count as u16 + 2).max(3);
     let width = (40u16).min(prompt_area.width.saturating_sub(4));
@@ -32,7 +32,7 @@ pub fn draw(frame: &mut Frame, app: &AppState, prompt_area: Rect) {
     };
 
     // Build content lines.
-    let lines: Vec<Line> = if app.picker_filtered.is_empty() {
+    let lines: Vec<Line> = if app.picker.filtered.is_empty() {
         vec![Line::from(Span::styled(
             "  (no matches)",
             Style::default()
@@ -40,12 +40,13 @@ pub fn draw(frame: &mut Frame, app: &AppState, prompt_area: Rect) {
                 .add_modifier(Modifier::DIM),
         ))]
     } else {
-        app.picker_filtered
+        app.picker
+            .filtered
             .iter()
             .enumerate()
             .map(|(i, &entry_idx)| {
-                let entry = &app.picker_entries[entry_idx];
-                let cursor = i == app.picker_cursor;
+                let entry = &app.picker.entries[entry_idx];
+                let cursor = i == app.picker.cursor;
                 let bullet = if cursor { "• " } else { "  " };
                 let style = if cursor {
                     Style::default()
@@ -62,10 +63,10 @@ pub fn draw(frame: &mut Frame, app: &AppState, prompt_area: Rect) {
             .collect()
     };
 
-    let title = if app.picker_filter.is_empty() {
+    let title = if app.picker.filter.is_empty() {
         " Pipelines ".to_string()
     } else {
-        format!(" :{} ", app.picker_filter)
+        format!(" :{} ", app.picker.filter)
     };
 
     let block = Block::default()

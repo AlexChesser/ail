@@ -48,29 +48,29 @@ pub fn draw(frame: &mut Frame, app: &AppState, area: Rect) {
     match app.phase {
         ExecutionPhase::Running | ExecutionPhase::Paused => {
             // ▶ ail | step 2/4: review | $0.0032 | 1,847 tok | 12.4s
-            if app.total_steps > 0 {
-                let step_name = app.active_step_id.as_deref().unwrap_or("?");
+            if app.stats.total_steps > 0 {
+                let step_name = app.viewport.active_step_id.as_deref().unwrap_or("?");
                 spans.push(Span::styled(
                     format!(
                         " | step {}/{}: {}",
-                        app.current_step_index + 1,
-                        app.total_steps,
+                        app.stats.current_step_index + 1,
+                        app.stats.total_steps,
                         step_name
                     ),
                     hi,
                 ));
             }
-            if app.cumulative_input_tokens > 0 || app.cumulative_output_tokens > 0 {
+            if app.stats.cumulative_input_tokens > 0 || app.stats.cumulative_output_tokens > 0 {
                 spans.push(Span::styled(
                     format!(
                         " | [↑{} | ↓{}]",
-                        fmt_tokens(app.cumulative_input_tokens),
-                        fmt_tokens(app.cumulative_output_tokens)
+                        fmt_tokens(app.stats.cumulative_input_tokens),
+                        fmt_tokens(app.stats.cumulative_output_tokens)
                     ),
                     dim,
                 ));
             }
-            if let Some(start) = app.run_start {
+            if let Some(start) = app.stats.run_start {
                 let secs = start.elapsed().as_secs_f32();
                 spans.push(Span::styled(format!(" | {secs:.1}s"), dim));
             }
@@ -82,7 +82,7 @@ pub fn draw(frame: &mut Frame, app: &AppState, area: Rect) {
             }
         }
         ExecutionPhase::HitlGate => {
-            let step = app.active_step_id.as_deref().unwrap_or("?");
+            let step = app.viewport.active_step_id.as_deref().unwrap_or("?");
             spans.push(Span::styled(
                 format!(" | HITL — step: {step}"),
                 Style::default().fg(Color::Yellow),
@@ -90,17 +90,17 @@ pub fn draw(frame: &mut Frame, app: &AppState, area: Rect) {
         }
         ExecutionPhase::Completed => {
             // ✓ ail | [↑1.2K | ↓3.4K] | 12.4s
-            if app.cumulative_input_tokens > 0 || app.cumulative_output_tokens > 0 {
+            if app.stats.cumulative_input_tokens > 0 || app.stats.cumulative_output_tokens > 0 {
                 spans.push(Span::styled(
                     format!(
                         " | [↑{} | ↓{}]",
-                        fmt_tokens(app.cumulative_input_tokens),
-                        fmt_tokens(app.cumulative_output_tokens)
+                        fmt_tokens(app.stats.cumulative_input_tokens),
+                        fmt_tokens(app.stats.cumulative_output_tokens)
                     ),
                     dim,
                 ));
             }
-            if let (Some(start), Some(end)) = (app.run_start, app.run_end) {
+            if let (Some(start), Some(end)) = (app.stats.run_start, app.stats.run_end) {
                 let secs = (end - start).as_secs_f32();
                 spans.push(Span::styled(format!(" | {secs:.1}s"), dim));
             }
@@ -123,12 +123,15 @@ pub fn draw(frame: &mut Frame, app: &AppState, area: Rect) {
                 Style::default().fg(Color::White),
             ));
             spans.push(Span::styled(" | idle", dim));
-            if let Some(ref sid) = app.last_session_id {
+            if let Some(ref sid) = app.stats.last_session_id {
                 let short = &sid[..sid.len().min(8)];
                 spans.push(Span::styled(format!(" | session: {short}"), dim));
             }
-            if app.total_steps > 0 {
-                spans.push(Span::styled(format!(" | {} steps", app.total_steps), dim));
+            if app.stats.total_steps > 0 {
+                spans.push(Span::styled(
+                    format!(" | {} steps", app.stats.total_steps),
+                    dim,
+                ));
             }
         }
     }

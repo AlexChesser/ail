@@ -22,16 +22,16 @@ pub fn draw(frame: &mut Frame, app: &AppState, area: Rect) {
         .add_modifier(Modifier::BOLD);
 
     // While the picker is open, show `:filter` with a trailing block cursor (i-1).
-    let lines: Vec<Line> = if app.picker_open {
-        let filter = &app.picker_filter;
+    let lines: Vec<Line> = if app.picker.open {
+        let filter = &app.picker.filter;
         vec![Line::from(vec![
             Span::styled(": ", Style::default().fg(Color::Cyan)),
             Span::raw(filter.clone()),
             Span::styled(" ", cursor_style),
         ])]
     } else {
-        let buf = &app.input_buffer;
-        let cursor = app.cursor_pos.min(buf.len());
+        let buf = &app.prompt.input_buffer;
+        let cursor = app.prompt.cursor_pos.min(buf.len());
 
         let (prefix, prefix_color) = if app.phase == ExecutionPhase::HitlGate {
             ("◉ ", Color::Yellow)
@@ -92,14 +92,14 @@ pub fn draw(frame: &mut Frame, app: &AppState, area: Rect) {
 
     // Compute scroll offset so the cursor line is always visible.
     // Paragraph renders from the top; if cursor is below the visible area we scroll down.
-    let scroll: u16 = if app.picker_open || inner.height == 0 {
+    let scroll: u16 = if app.picker.open || inner.height == 0 {
         0
     } else {
         let usable_first = (inner.width as usize).saturating_sub(2).max(1);
         let usable_rest = (inner.width as usize).max(1);
-        let buf = &app.input_buffer;
+        let buf = &app.prompt.input_buffer;
         let logical_lines: Vec<&[char]> = buf.split(|&c| c == '\n').collect();
-        let cursor = app.cursor_pos.min(buf.len());
+        let cursor = app.prompt.cursor_pos.min(buf.len());
         // Recompute which logical line the cursor is on and the local col.
         let mut char_offset = 0usize;
         let mut c_logical = 0usize;

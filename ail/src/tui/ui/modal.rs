@@ -11,11 +11,11 @@ use crate::tui::app::AppState;
 /// Render any active modal overlay. Called after all other panels so it renders on top.
 pub fn draw(frame: &mut Frame, app: &AppState, area: Rect) {
     // Permission modal has highest priority.
-    if app.perm_modal_open {
+    if app.permissions.modal_open {
         draw_permission_modal(frame, app, area);
         return;
     }
-    if app.interrupt_modal_open {
+    if app.interrupt.modal_open {
         draw_interrupt_modal(frame, app, area);
     }
 }
@@ -35,7 +35,8 @@ fn draw_permission_modal(frame: &mut Frame, app: &AppState, area: Rect) {
 
     // Compact header — details already written to primary buffer scrollback above.
     let tool_name = app
-        .perm_request
+        .permissions
+        .request
         .as_ref()
         .map(|r| r.display_name.as_str())
         .unwrap_or("?");
@@ -58,14 +59,14 @@ fn draw_permission_modal(frame: &mut Frame, app: &AppState, area: Rect) {
         Line::raw(""),
     ];
 
-    // Render the three options; highlight the one at perm_cursor.
+    // Render the three options; highlight the one at permissions.cursor.
     let options: &[(usize, &str, &str, Color)] = &[
         (0, "y", "approve once", Color::Green),
         (1, "a", "allow for session", Color::Cyan),
         (2, "n", "deny", Color::Red),
     ];
     for &(idx, key, label, color) in options {
-        let selected = idx == app.perm_cursor;
+        let selected = idx == app.permissions.cursor;
         let prefix = if selected { "▶ " } else { "  " };
         let row_style = if selected {
             Style::default()
@@ -134,7 +135,7 @@ fn draw_interrupt_modal(frame: &mut Frame, app: &AppState, area: Rect) {
         .split(horiz[1]);
     let modal_area = vert[1];
 
-    let buf_text: String = app.input_buffer.iter().collect();
+    let buf_text: String = app.prompt.input_buffer.iter().collect();
     let mut lines: Vec<Line> = vec![
         Line::from(Span::styled(
             "⏸ PAUSED",
