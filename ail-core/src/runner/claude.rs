@@ -50,11 +50,7 @@ fn parse_stream_event(
                     .iter()
                     .map(|item| item["type"].as_str().unwrap_or("unknown"))
                     .collect();
-                tracing::debug!(
-                    event_type,
-                    ?block_types,
-                    "stream-json assistant event"
-                );
+                tracing::debug!(event_type, ?block_types, "stream-json assistant event");
                 for item in content {
                     let block_type = item["type"].as_str().unwrap_or("");
                     match block_type {
@@ -469,13 +465,15 @@ impl ClaudeCliRunner {
             args.push(model.clone());
         }
 
-        // Permission HITL: configure MCP bridge only for the default Claude API endpoint.
-        // Custom providers (Ollama, Bedrock, etc.) don't use Claude's permission model and
-        // small models will spuriously call whatever MCP tools they see in their context,
-        // causing the pipeline to block indefinitely waiting for TUI input.
+        // Permission HITL: configure MCP bridge when a permission socket is provided and we
+        // are not in headless mode. The --permission-prompt-tool mechanism is internal to
+        // Claude CLI — the model never sees the bridge tool in its tool list — so this works
+        // with both the default Anthropic API and custom providers (Ollama, Bedrock, etc.).
+        // The bridge's socket-failure fallback (auto-deny in mcp_bridge.rs) provides a
+        // safety net if the connection fails.
         let mcp_config_path = if let Some(socket) = permission_socket {
-            if !self.headless && base_url.is_none() {
-                let config_path = Self::write_mcp_config(socket)?;  // socket is &str
+            if !self.headless {
+                let config_path = Self::write_mcp_config(socket)?; // socket is &str
                 args.push("--mcp-config".into());
                 args.push(config_path.to_string_lossy().to_string());
                 args.push("--permission-prompt-tool".into());
@@ -692,20 +690,18 @@ impl Runner for ClaudeCliRunner {
             let token = Arc::clone(token);
             let done_w = Arc::clone(&done);
             let child_w = Arc::clone(&child);
-            thread::spawn(move || {
-                loop {
-                    if done_w.load(Ordering::SeqCst) {
-                        return;
-                    }
-                    if token.load(Ordering::SeqCst) {
-                        tracing::info!("cancel_token set — killing runner subprocess");
-                        if let Ok(mut c) = child_w.lock() {
-                            let _ = c.kill();
-                        }
-                        return;
-                    }
-                    thread::sleep(Duration::from_millis(50));
+            thread::spawn(move || loop {
+                if done_w.load(Ordering::SeqCst) {
+                    return;
                 }
+                if token.load(Ordering::SeqCst) {
+                    tracing::info!("cancel_token set — killing runner subprocess");
+                    if let Ok(mut c) = child_w.lock() {
+                        let _ = c.kill();
+                    }
+                    return;
+                }
+                thread::sleep(Duration::from_millis(50));
             })
         });
 

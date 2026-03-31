@@ -30,7 +30,7 @@ When a pipeline step encounters a tool not covered by its `tools.allow`/`tools.d
 3. Calling the `PermissionResponder` callback, which blocks until the human decides.
 4. Serialising the `PermissionResponse` (Allow / Deny) back to its native protocol.
 
-Runners that do not support tool permissions ignore the `permission_responder` field. Runners in headless mode bypass permission HITL entirely.
+Runners that do not support tool permissions ignore the `permission_responder` field. Runners in headless mode bypass permission HITL entirely. Custom providers (Ollama, Bedrock, etc.) support interactive permission HITL via the MCP bridge — `--permission-prompt-tool` is internal to Claude CLI and works regardless of backend.
 
 **Allow for session** is managed in `ail`'s session state. When the user selects this option, `ail` records the `display_name` in an in-memory allowlist. Subsequent matching permission requests receive an automatic Allow without prompting.
 
@@ -69,5 +69,7 @@ Preferred over explicit gates — interrupts only when something genuinely requi
 ### 13.6 Headless / Automated Mode
 
 For automated runs (CI, the autonomous agent use case, Docker sandbox), HITL prompts are not viable. Pass `--dangerously-skip-permissions` to the Claude CLI invocation to bypass all tool permission checks. This is only appropriate in a fully trusted, sandboxed environment. `ail` will expose this as a session-level flag — not a pipeline YAML option — to prevent it from being accidentally committed to a shared pipeline file.
+
+**`--once` mode:** The `--once` flow never sets a `permission_responder`, so no MCP bridge is created and interactive permission HITL is not available. Tools in `--once` mode require either `--headless` (bypass all permissions) or `tools: allow:` in the pipeline YAML (pre-approve specific tools).
 
 ---

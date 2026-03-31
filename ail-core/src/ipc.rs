@@ -14,7 +14,11 @@ use std::io;
 #[allow(unused_imports)] // GenericNamespaced/ToNsName used only on non-Unix
 use interprocess::local_socket::{
     prelude::*, // brings LocalSocketListener, LocalSocketStream, Stream, ListenerExt into scope
-    GenericFilePath, GenericNamespaced, ListenerOptions, ToFsName, ToNsName,
+    GenericFilePath,
+    GenericNamespaced,
+    ListenerOptions,
+    ToFsName,
+    ToNsName,
 };
 
 // Re-export so callers in this crate can annotate types without depending on

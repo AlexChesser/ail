@@ -4,8 +4,8 @@ use std::sync::atomic::AtomicBool;
 use std::sync::mpsc;
 use std::sync::Arc;
 
-use ail_core::config::domain::Pipeline;
 use ail_core::config::discovery::PipelineEntry;
+use ail_core::config::domain::Pipeline;
 use ail_core::executor::ExecutorEvent;
 use ail_core::runner::{PermissionRequest, PermissionResponse};
 
@@ -693,7 +693,9 @@ impl AppState {
                 // Register step in per-step output buffers (M9).
                 if !self.viewport.step_outputs.contains_key(step_id.as_str()) {
                     self.viewport.step_order.push(step_id.clone());
-                    self.viewport.step_outputs.insert(step_id.clone(), Vec::new());
+                    self.viewport
+                        .step_outputs
+                        .insert(step_id.clone(), Vec::new());
                 }
                 self.stats.current_step_index = step_index;
                 self.stats.total_steps = total_steps;
@@ -811,7 +813,8 @@ impl AppState {
             ExecutorEvent::PipelineError(ref msg) => {
                 self.phase = ExecutionPhase::Failed;
                 self.stats.run_end = Some(std::time::Instant::now());
-                self.viewport.append_text(&format!("\n[pipeline error: {msg}]"));
+                self.viewport
+                    .append_text(&format!("\n[pipeline error: {msg}]"));
             }
         }
     }
@@ -859,7 +862,9 @@ impl AppState {
         self.pipeline = Some(new_pipeline.clone());
         self.sidebar.cursor = 0;
         self.sidebar.disabled_steps.clear();
-        self.viewport.lines.push(format!("── switched to: {name} ──"));
+        self.viewport
+            .lines
+            .push(format!("── switched to: {name} ──"));
         new_pipeline
     }
 
@@ -877,12 +882,18 @@ impl AppState {
     /// If the tool is in the session allowlist, auto-approves and returns
     /// `[SendPermissionResponse(Allow)]`. Otherwise opens the modal and returns `[]`.
     pub fn handle_permission_request(&mut self, req: PermissionRequest) -> Vec<SideEffect> {
-        if self.permissions.session_allowlist.contains(&req.display_name) {
+        if self
+            .permissions
+            .session_allowlist
+            .contains(&req.display_name)
+        {
             self.viewport.append_text(&format!(
                 "\n  [permission: {} — auto-allowed (session)]",
                 req.display_name
             ));
-            return vec![SideEffect::SendPermissionResponse(PermissionResponse::Allow)];
+            return vec![SideEffect::SendPermissionResponse(
+                PermissionResponse::Allow,
+            )];
         }
         let detail = format!(
             "\n  [permission: {} — waiting for approval]{}",
@@ -917,13 +928,17 @@ impl AppState {
             .append_text(&format!("\n  [permission: {tool} — approved once]"));
         self.permissions.modal_open = false;
         self.permissions.request = None;
-        vec![SideEffect::SendPermissionResponse(PermissionResponse::Allow)]
+        vec![SideEffect::SendPermissionResponse(
+            PermissionResponse::Allow,
+        )]
     }
 
     /// Approve the pending permission request and add the tool to the session allowlist.
     pub fn perm_approve_session(&mut self) -> Vec<SideEffect> {
         if let Some(ref req) = self.permissions.request {
-            self.permissions.session_allowlist.insert(req.display_name.clone());
+            self.permissions
+                .session_allowlist
+                .insert(req.display_name.clone());
         }
         let tool = self
             .permissions
@@ -936,7 +951,9 @@ impl AppState {
             .append_text(&format!("\n  [permission: {tool} — approved for session]"));
         self.permissions.modal_open = false;
         self.permissions.request = None;
-        vec![SideEffect::SendPermissionResponse(PermissionResponse::Allow)]
+        vec![SideEffect::SendPermissionResponse(
+            PermissionResponse::Allow,
+        )]
     }
 
     /// Deny the pending permission request.
@@ -952,9 +969,9 @@ impl AppState {
             .append_text(&format!("\n  [permission: {tool} — denied]"));
         self.permissions.modal_open = false;
         self.permissions.request = None;
-        vec![SideEffect::SendPermissionResponse(PermissionResponse::Deny(
-            "User denied".to_string(),
-        ))]
+        vec![SideEffect::SendPermissionResponse(
+            PermissionResponse::Deny("User denied".to_string()),
+        )]
     }
 
     // ── interrupt system (M11) ────────────────────────────────────────────────
@@ -1166,7 +1183,10 @@ mod tests {
         a.prompt.submit_input();
         assert!(a.prompt.input_buffer.is_empty());
         assert_eq!(a.prompt.pending_prompt.as_deref(), Some("hello"));
-        assert_eq!(a.prompt.prompt_history.last().map(|s| s.as_str()), Some("hello"));
+        assert_eq!(
+            a.prompt.prompt_history.last().map(|s| s.as_str()),
+            Some("hello")
+        );
     }
 
     #[test]
@@ -1327,16 +1347,16 @@ mod tests {
     #[test]
     fn handle_permission_request_auto_allows_allowlisted_tool() {
         let mut a = app();
-        a.permissions
-            .session_allowlist
-            .insert("Bash".to_string());
+        a.permissions.session_allowlist.insert("Bash".to_string());
         let effects = a.handle_permission_request(PermissionRequest {
             display_name: "Bash".to_string(),
             display_detail: String::new(),
         });
         assert_eq!(
             effects,
-            vec![SideEffect::SendPermissionResponse(PermissionResponse::Allow)]
+            vec![SideEffect::SendPermissionResponse(
+                PermissionResponse::Allow
+            )]
         );
         assert!(!a.permissions.modal_open);
     }
@@ -1364,7 +1384,9 @@ mod tests {
         let effects = a.perm_approve_once();
         assert_eq!(
             effects,
-            vec![SideEffect::SendPermissionResponse(PermissionResponse::Allow)]
+            vec![SideEffect::SendPermissionResponse(
+                PermissionResponse::Allow
+            )]
         );
         assert!(!a.permissions.modal_open);
         assert!(a.permissions.request.is_none());
@@ -1381,7 +1403,9 @@ mod tests {
         let effects = a.perm_approve_session();
         assert_eq!(
             effects,
-            vec![SideEffect::SendPermissionResponse(PermissionResponse::Allow)]
+            vec![SideEffect::SendPermissionResponse(
+                PermissionResponse::Allow
+            )]
         );
         assert!(a.permissions.session_allowlist.contains("Bash"));
     }
@@ -1397,7 +1421,9 @@ mod tests {
         let effects = a.perm_deny();
         assert!(matches!(
             effects.as_slice(),
-            [SideEffect::SendPermissionResponse(PermissionResponse::Deny(_))]
+            [SideEffect::SendPermissionResponse(
+                PermissionResponse::Deny(_)
+            )]
         ));
         assert!(!a.permissions.modal_open);
     }
@@ -1467,11 +1493,7 @@ mod tests {
         a.apply_pipeline_switch(pipeline, "test-pipe".to_string());
         assert_eq!(a.sidebar.cursor, 0);
         assert!(a.sidebar.disabled_steps.is_empty());
-        assert!(a
-            .viewport
-            .lines
-            .iter()
-            .any(|l| l.contains("test-pipe")));
+        assert!(a.viewport.lines.iter().any(|l| l.contains("test-pipe")));
     }
 
     #[test]

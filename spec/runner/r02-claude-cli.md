@@ -86,6 +86,8 @@ The socket lifecycle is entirely encapsulated in `ClaudeCliRunner::invoke_stream
 
 **Headless mode:** The MCP config and `--permission-prompt-tool` are omitted when `--headless` is active; `--dangerously-skip-permissions` is used instead.
 
+**Custom providers:** The MCP bridge works with custom providers (Ollama, Bedrock, etc.) because `--permission-prompt-tool` is internal to Claude CLI — the model never sees the bridge tool in its tool list. Claude CLI intercepts tool calls before execution regardless of the backend API.
+
 #### Permission Modes
 
 `ail` does not pass `--permission-mode` to Claude CLI in v0.1. Claude CLI's default permission mode applies, and unresolved tool requests are delegated to `ail_check_permission` via the MCP bridge.
