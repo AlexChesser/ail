@@ -1,8 +1,9 @@
 #![allow(clippy::result_large_err)]
 
 use std::io::{BufRead, BufReader, Read, Write};
-use std::os::unix::net::UnixListener;
 use std::path::PathBuf;
+
+use interprocess::local_socket::traits::ListenerExt; // for .incoming() on LocalSocketListener
 use std::process::{Command, Stdio};
 use std::sync::{mpsc, Arc};
 use std::thread;
@@ -27,9 +28,10 @@ pub struct ClaudeInvokeExtensions {
     pub base_url: Option<String>,
     /// Provider auth token — set as `ANTHROPIC_AUTH_TOKEN` in the runner subprocess env.
     pub auth_token: Option<String>,
-    /// Path to the Unix socket created by `invoke_streaming` for permission HITL.
+    /// Address of the local socket created by `invoke_streaming` for permission HITL.
+    /// Opaque string — a filesystem path on Unix, a pipe name on Windows.
     /// Set internally by `invoke_streaming`; callers should leave this as `None`.
-    pub permission_socket: Option<PathBuf>,
+    pub permission_socket: Option<String>,
 }
 
 impl ClaudeInvokeExtensions {
@@ -128,7 +130,7 @@ impl ClaudeCliRunner {
     /// Write a temporary MCP config file that points to `ail mcp-bridge` for permission handling.
     ///
     /// Returns the path to the config file; the caller is responsible for deleting it.
-    fn write_mcp_config(socket_path: &std::path::Path) -> Result<PathBuf, AilError> {
+    fn write_mcp_config(socket_address: &str) -> Result<PathBuf, AilError> {
         let ail_bin = std::env::current_exe()
             .unwrap_or_else(|_| PathBuf::from("ail"))
             .to_string_lossy()
@@ -139,7 +141,7 @@ impl ClaudeCliRunner {
             "mcpServers": {
                 "ail-permission": {
                     "command": ail_bin,
-                    "args": ["mcp-bridge", "--socket", socket_path.to_string_lossy().as_ref()]
+                    "args": ["mcp-bridge", "--socket", socket_address]
                 }
             }
         });
@@ -188,22 +190,24 @@ impl ClaudeCliRunner {
         detail
     }
 
-    /// Bind a Unix socket, spawn an accept-loop thread, and return the socket path plus a
+    /// Bind a local socket, spawn an accept-loop thread, and return the socket address plus a
     /// ready-signal receiver. The thread calls `responder` for each permission request from
     /// Claude CLI and writes the serialised response back over the same connection.
     ///
     /// The caller must wait on the returned `Receiver<()>` before spawning Claude CLI to
     /// avoid a race where the MCP bridge tries to connect before the socket exists.
+    ///
+    /// Uses `crate::ipc` for cross-platform transport (Unix domain sockets on Unix,
+    /// named pipes on Windows).
     fn spawn_permission_listener(
         responder: PermissionResponder,
         event_tx: mpsc::Sender<RunnerEvent>,
-    ) -> Result<(PathBuf, thread::JoinHandle<()>, mpsc::Receiver<()>), AilError> {
-        let socket_path =
-            std::env::temp_dir().join(format!("ail-perm-{}.sock", uuid::Uuid::new_v4()));
+    ) -> Result<(String, thread::JoinHandle<()>, mpsc::Receiver<()>), AilError> {
+        let address = crate::ipc::generate_address();
         let (ready_tx, ready_rx) = mpsc::channel::<()>();
-        let path = socket_path.clone();
+        let addr = address.clone();
         let handle = thread::spawn(move || {
-            let listener = match UnixListener::bind(&path) {
+            let listener = match crate::ipc::bind_local(&addr) {
                 Ok(l) => l,
                 Err(e) => {
                     tracing::error!(error = %e, "permission: failed to bind socket");
@@ -212,7 +216,7 @@ impl ClaudeCliRunner {
             };
             let _ = ready_tx.send(());
             for stream in listener.incoming() {
-                let mut conn = match stream {
+                let mut conn: crate::ipc::IpcStream = match stream {
                     Ok(s) => s,
                     Err(_) => break,
                 };
@@ -247,8 +251,9 @@ impl ClaudeCliRunner {
                 resp_line.push('\n');
                 let _ = conn.write_all(resp_line.as_bytes());
             }
+            crate::ipc::cleanup_address(&addr);
         });
-        Ok((socket_path, handle, ready_rx))
+        Ok((address, handle, ready_rx))
     }
 
     /// Spawn the claude CLI process. Shared by `invoke` and `invoke_streaming`.
@@ -266,7 +271,7 @@ impl ClaudeCliRunner {
         let exts = ClaudeInvokeExtensions::from_options(options);
         let base_url = exts.and_then(|e| e.base_url.as_deref());
         let auth_token = exts.and_then(|e| e.auth_token.as_deref());
-        let permission_socket = exts.and_then(|e| e.permission_socket.as_deref());
+        let permission_socket: Option<&str> = exts.and_then(|e| e.permission_socket.as_deref());
 
         let mut args: Vec<String> = vec![
             "--output-format".into(),
@@ -313,7 +318,7 @@ impl ClaudeCliRunner {
         // causing the pipeline to block indefinitely waiting for TUI input.
         let mcp_config_path = if let Some(socket) = permission_socket {
             if !self.headless && base_url.is_none() {
-                let config_path = Self::write_mcp_config(socket)?;
+                let config_path = Self::write_mcp_config(socket)?;  // socket is &str
                 args.push("--mcp-config".into());
                 args.push(config_path.to_string_lossy().to_string());
                 args.push("--permission-prompt-tool".into());
@@ -505,7 +510,7 @@ impl Runner for ClaudeCliRunner {
                     .and_then(|e| e.downcast_ref::<ClaudeInvokeExtensions>())
                     .cloned()
                     .unwrap_or_default();
-                exts.permission_socket = Some(sock_path);
+                exts.permission_socket = Some(sock_path); // sock_path is now String
                 options.extensions = Some(Box::new(exts));
             }
         }
@@ -687,8 +692,8 @@ impl Runner for ClaudeCliRunner {
         if let Some(path) = mcp_config {
             let _ = std::fs::remove_file(path);
         }
-        if let Some(ref path) = permission_socket_path {
-            let _ = std::fs::remove_file(path);
+        if let Some(ref addr) = permission_socket_path {
+            crate::ipc::cleanup_address(addr);
         }
         let result = RunResult {
             response,

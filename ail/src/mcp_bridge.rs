@@ -10,7 +10,6 @@
 //! 4. Returns the decision to Claude CLI as an MCP tool result.
 
 use std::io::{self, BufRead, BufReader, Write};
-use std::os::unix::net::UnixStream;
 
 use serde_json::{json, Value};
 
@@ -135,7 +134,7 @@ fn handle_request(method: &str, request: &Value, socket_path: &str, id: Value) -
 /// Open a connection to the main ail process's Unix socket, send the permission request,
 /// and read back the response.
 fn forward_to_socket(socket_path: &str, tool_name: &str, tool_input: &Value) -> io::Result<Value> {
-    let mut stream = UnixStream::connect(socket_path)?;
+    let mut stream = ail_core::ipc::connect_local(socket_path)?;
 
     // Write the request as a single JSON line.
     let request = json!({
