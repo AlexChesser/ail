@@ -88,8 +88,22 @@ pub fn spawn_backend(
                     let responder: PermissionResponder = Arc::new(move |req: PermissionRequest| {
                         let _ = perm_event_tx.send(BackendEvent::PermissionRequest(req));
                         let rx = perm_rx.lock().unwrap();
-                        rx.recv()
-                            .unwrap_or(PermissionResponse::Deny("channel closed".into()))
+                        match rx.recv() {
+                            Ok(r) => r,
+                            Err(_) => {
+                                tracing::error!(
+                                    "permission: response channel closed unexpectedly; aborting run"
+                                );
+                                let _ = perm_event_tx.send(BackendEvent::Error(
+                                    "Permission response channel closed unexpectedly. \
+                                     The current run has been aborted."
+                                        .to_string(),
+                                ));
+                                PermissionResponse::Deny(
+                                    "Permission channel closed; run aborted".to_string(),
+                                )
+                            }
+                        }
                     });
 
                     control.permission_responder = Some(Arc::clone(&responder));
