@@ -1,11 +1,11 @@
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::AtomicBool;
 use std::sync::mpsc;
 use std::sync::Arc;
 
-use ail_core::config::discovery::PipelineEntry;
 use ail_core::config::domain::Pipeline;
+use ail_core::config::discovery::PipelineEntry;
 use ail_core::executor::ExecutorEvent;
 use ail_core::runner::{PermissionRequest, PermissionResponse};
 
@@ -39,6 +39,28 @@ pub enum ExecutionPhase {
     HitlGate,
     Completed,
     Failed,
+}
+
+/// A description of a side effect to be executed by the event loop.
+///
+/// Methods that previously performed side effects directly (channel sends, atomic writes)
+/// now return `Vec<SideEffect>` so they can be tested without real channels or flags.
+/// The event loop calls `execute_effects` to apply them.
+#[derive(Debug, Clone, PartialEq)]
+pub enum SideEffect {
+    SendPermissionResponse(PermissionResponse),
+    SetPauseFlag(bool),
+    SetKillFlag,
+}
+
+/// Action to take on a pending prompt, returned by `resolve_pending_prompt`.
+pub enum PromptAction {
+    SendHitl(String),
+    SubmitToBackend {
+        prompt: String,
+        disabled_steps: HashSet<String>,
+    },
+    None,
 }
 
 // ── Sub-structs ────────────────────────────────────────────────────────────────
@@ -805,22 +827,60 @@ impl AppState {
         self.permissions.reset();
     }
 
+    // ── pending-prompt dispatch (loop logic) ──────────────────────────────────
+
+    /// Consume `pending_prompt` and return what the event loop should do with it.
+    pub fn resolve_pending_prompt(&mut self) -> PromptAction {
+        match self.prompt.pending_prompt.take() {
+            None => PromptAction::None,
+            Some(prompt) => {
+                if self.phase == ExecutionPhase::HitlGate {
+                    self.phase = ExecutionPhase::Running;
+                    PromptAction::SendHitl(prompt)
+                } else {
+                    self.viewport.echo_prompt(&prompt);
+                    self.reset_for_run();
+                    self.phase = ExecutionPhase::Running;
+                    let disabled_steps = self.sidebar.disabled_steps.clone();
+                    PromptAction::SubmitToBackend {
+                        prompt,
+                        disabled_steps,
+                    }
+                }
+            }
+        }
+    }
+
+    /// Apply a successful pipeline hot-reload. Returns the pipeline for the backend command.
+    pub fn apply_pipeline_switch(&mut self, new_pipeline: Pipeline, name: String) -> Pipeline {
+        self.steps = AppState::steps_for_pipeline(&new_pipeline);
+        self.pipeline = Some(new_pipeline.clone());
+        self.sidebar.cursor = 0;
+        self.sidebar.disabled_steps.clear();
+        self.viewport.lines.push(format!("── switched to: {name} ──"));
+        new_pipeline
+    }
+
+    /// Append a pipeline load error to the viewport.
+    pub fn apply_pipeline_switch_error(&mut self, detail: &str) {
+        self.viewport
+            .lines
+            .push(format!("[pipeline load error: {detail}]"));
+    }
+
     // ── tool permission HITL (SPEC §13.3) ────────────────────────────────────
 
     /// Handle an incoming permission request from the runner.
     ///
-    /// If the tool is in the session allowlist, auto-approve without showing the modal.
-    /// The human-readable detail string is pre-formatted by the runner.
-    pub fn handle_permission_request(&mut self, req: PermissionRequest) {
+    /// If the tool is in the session allowlist, auto-approves and returns
+    /// `[SendPermissionResponse(Allow)]`. Otherwise opens the modal and returns `[]`.
+    pub fn handle_permission_request(&mut self, req: PermissionRequest) -> Vec<SideEffect> {
         if self.permissions.session_allowlist.contains(&req.display_name) {
             self.viewport.append_text(&format!(
                 "\n  [permission: {} — auto-allowed (session)]",
                 req.display_name
             ));
-            if let Some(ref tx) = self.permissions.tx {
-                let _ = tx.send(PermissionResponse::Allow);
-            }
-            return;
+            return vec![SideEffect::SendPermissionResponse(PermissionResponse::Allow)];
         }
         let detail = format!(
             "\n  [permission: {} — waiting for approval]{}",
@@ -830,10 +890,11 @@ impl AppState {
         self.permissions.request = Some(req);
         self.permissions.cursor = 0;
         self.permissions.modal_open = true;
+        vec![]
     }
 
     /// Confirm the currently highlighted permission option.
-    pub fn perm_confirm(&mut self) {
+    pub fn perm_confirm(&mut self) -> Vec<SideEffect> {
         match self.permissions.cursor {
             0 => self.perm_approve_once(),
             1 => self.perm_approve_session(),
@@ -842,7 +903,7 @@ impl AppState {
     }
 
     /// Approve the pending permission request for this tool call only.
-    pub fn perm_approve_once(&mut self) {
+    pub fn perm_approve_once(&mut self) -> Vec<SideEffect> {
         let tool = self
             .permissions
             .request
@@ -852,15 +913,13 @@ impl AppState {
             .to_owned();
         self.viewport
             .append_text(&format!("\n  [permission: {tool} — approved once]"));
-        if let Some(ref tx) = self.permissions.tx {
-            let _ = tx.send(PermissionResponse::Allow);
-        }
         self.permissions.modal_open = false;
         self.permissions.request = None;
+        vec![SideEffect::SendPermissionResponse(PermissionResponse::Allow)]
     }
 
     /// Approve the pending permission request and add the tool to the session allowlist.
-    pub fn perm_approve_session(&mut self) {
+    pub fn perm_approve_session(&mut self) -> Vec<SideEffect> {
         if let Some(ref req) = self.permissions.request {
             self.permissions.session_allowlist.insert(req.display_name.clone());
         }
@@ -873,15 +932,13 @@ impl AppState {
             .to_owned();
         self.viewport
             .append_text(&format!("\n  [permission: {tool} — approved for session]"));
-        if let Some(ref tx) = self.permissions.tx {
-            let _ = tx.send(PermissionResponse::Allow);
-        }
         self.permissions.modal_open = false;
         self.permissions.request = None;
+        vec![SideEffect::SendPermissionResponse(PermissionResponse::Allow)]
     }
 
     /// Deny the pending permission request.
-    pub fn perm_deny(&mut self) {
+    pub fn perm_deny(&mut self) -> Vec<SideEffect> {
         let tool = self
             .permissions
             .request
@@ -891,44 +948,538 @@ impl AppState {
             .to_owned();
         self.viewport
             .append_text(&format!("\n  [permission: {tool} — denied]"));
-        if let Some(ref tx) = self.permissions.tx {
-            let _ = tx.send(PermissionResponse::Deny("User denied".to_string()));
-        }
         self.permissions.modal_open = false;
         self.permissions.request = None;
+        vec![SideEffect::SendPermissionResponse(PermissionResponse::Deny(
+            "User denied".to_string(),
+        ))]
     }
 
     // ── interrupt system (M11) ────────────────────────────────────────────────
 
-    /// Path A: resume — clear pause flag, dismiss modal.
-    pub fn request_resume(&mut self) {
-        if let Some(ref flag) = self.interrupt.pause_flag {
-            flag.store(false, Ordering::SeqCst);
-        }
+    /// Path A: resume — dismiss modal, change phase. Returns `[SetPauseFlag(false)]`.
+    pub fn request_resume(&mut self) -> Vec<SideEffect> {
         self.phase = ExecutionPhase::Running;
         self.interrupt.modal_open = false;
+        vec![SideEffect::SetPauseFlag(false)]
     }
 
     /// Path B: inject guidance — echo marker in viewport, resume.
-    pub fn request_inject_guidance(&mut self, text: String) {
+    pub fn request_inject_guidance(&mut self, text: String) -> Vec<SideEffect> {
         self.viewport.lines.push(String::new());
         self.viewport
             .lines
             .push(format!("── ✎ guidance: {} ──", text.trim()));
         self.interrupt.pending_injection = Some(text);
-        self.request_resume();
+        self.request_resume()
     }
 
     /// Path C: kill step — set kill flag, clear pause flag.
-    pub fn request_kill(&mut self) {
-        if let Some(ref flag) = self.interrupt.kill_flag {
-            flag.store(true, Ordering::SeqCst);
-        }
-        // Clear pause so executor can proceed to check kill flag.
-        if let Some(ref flag) = self.interrupt.pause_flag {
-            flag.store(false, Ordering::SeqCst);
-        }
+    /// Returns `[SetKillFlag, SetPauseFlag(false)]`.
+    pub fn request_kill(&mut self) -> Vec<SideEffect> {
         self.interrupt.modal_open = false;
         self.phase = ExecutionPhase::Running;
+        vec![SideEffect::SetKillFlag, SideEffect::SetPauseFlag(false)]
+    }
+}
+
+// ── Tests ──────────────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ail_core::executor::ExecutorEvent;
+    use ail_core::runner::{RunResult, RunnerEvent};
+
+    fn app() -> AppState {
+        AppState::new(None)
+    }
+
+    // ── apply_executor_event ──────────────────────────────────────────────────
+
+    #[test]
+    fn step_started_registers_step_and_sets_phase() {
+        let mut a = app();
+        a.apply_executor_event(ExecutorEvent::StepStarted {
+            step_id: "review".to_string(),
+            step_index: 0,
+            total_steps: 2,
+        });
+        assert_eq!(a.phase, ExecutionPhase::Running);
+        assert_eq!(a.viewport.active_step_id.as_deref(), Some("review"));
+        assert!(!a.viewport.step_streamed);
+        assert!(a.viewport.step_outputs.contains_key("review"));
+        assert_eq!(a.stats.current_step_index, 0);
+        assert_eq!(a.stats.total_steps, 2);
+        assert!(a.stats.run_start.is_some());
+    }
+
+    #[test]
+    fn step_started_pushes_separator_line() {
+        let mut a = app();
+        a.viewport.lines.push("existing".to_string());
+        a.apply_executor_event(ExecutorEvent::StepStarted {
+            step_id: "s1".to_string(),
+            step_index: 0,
+            total_steps: 1,
+        });
+        assert!(a.viewport.lines.iter().any(|l| l.contains("s1")));
+        // A blank separator line was inserted before the step header.
+        assert!(a.viewport.lines.iter().any(|l| l.is_empty()));
+    }
+
+    #[test]
+    fn step_completed_updates_glyph_and_accumulates_cost() {
+        let mut a = app();
+        a.steps.push(StepDisplay {
+            id: "s1".to_string(),
+            glyph: StepGlyph::Running,
+        });
+        a.apply_executor_event(ExecutorEvent::StepCompleted {
+            step_id: "s1".to_string(),
+            cost_usd: Some(0.005),
+        });
+        assert_eq!(a.steps[0].glyph, StepGlyph::Completed);
+        assert!((a.stats.cumulative_cost_usd - 0.005).abs() < 1e-9);
+    }
+
+    #[test]
+    fn step_failed_sets_phase_and_glyph() {
+        let mut a = app();
+        a.steps.push(StepDisplay {
+            id: "s1".to_string(),
+            glyph: StepGlyph::Running,
+        });
+        a.apply_executor_event(ExecutorEvent::StepFailed {
+            step_id: "s1".to_string(),
+            error: "oops".to_string(),
+        });
+        assert_eq!(a.phase, ExecutionPhase::Failed);
+        assert_eq!(a.steps[0].glyph, StepGlyph::Failed);
+        assert!(a.stats.run_end.is_some());
+        assert!(a.viewport.lines.iter().any(|l| l.contains("oops")));
+    }
+
+    #[test]
+    fn step_skipped_updates_glyph() {
+        let mut a = app();
+        a.steps.push(StepDisplay {
+            id: "s1".to_string(),
+            glyph: StepGlyph::NotReached,
+        });
+        a.apply_executor_event(ExecutorEvent::StepSkipped {
+            step_id: "s1".to_string(),
+        });
+        assert_eq!(a.steps[0].glyph, StepGlyph::Skipped);
+    }
+
+    #[test]
+    fn stream_delta_appends_text_and_sets_streamed() {
+        let mut a = app();
+        a.apply_executor_event(ExecutorEvent::RunnerEvent(RunnerEvent::StreamDelta {
+            text: "hello".to_string(),
+        }));
+        assert!(a.viewport.step_streamed);
+        assert!(a.viewport.lines.iter().any(|l| l.contains("hello")));
+    }
+
+    #[test]
+    fn cost_update_accumulates_tokens() {
+        let mut a = app();
+        a.apply_executor_event(ExecutorEvent::RunnerEvent(RunnerEvent::CostUpdate {
+            cost_usd: 0.01,
+            input_tokens: 100,
+            output_tokens: 50,
+        }));
+        assert!((a.stats.cumulative_cost_usd - 0.01).abs() < 1e-9);
+        assert_eq!(a.stats.cumulative_input_tokens, 100);
+        assert_eq!(a.stats.cumulative_output_tokens, 50);
+    }
+
+    #[test]
+    fn pipeline_completed_sets_phase_and_run_end() {
+        let mut a = app();
+        a.apply_executor_event(ExecutorEvent::PipelineCompleted(
+            ail_core::executor::ExecuteOutcome::Completed,
+        ));
+        assert_eq!(a.phase, ExecutionPhase::Completed);
+        assert!(a.stats.run_end.is_some());
+        assert!(a.viewport.lines.iter().any(|l| l.contains("done")));
+    }
+
+    #[test]
+    fn hitl_gate_sets_phase_and_glyph() {
+        let mut a = app();
+        a.steps.push(StepDisplay {
+            id: "gate".to_string(),
+            glyph: StepGlyph::Running,
+        });
+        a.apply_executor_event(ExecutorEvent::HitlGateReached {
+            step_id: "gate".to_string(),
+        });
+        assert_eq!(a.phase, ExecutionPhase::HitlGate);
+        assert_eq!(a.steps[0].glyph, StepGlyph::HitlPaused);
+    }
+
+    #[test]
+    fn completed_runner_event_stores_session_id() {
+        let mut a = app();
+        a.apply_executor_event(ExecutorEvent::RunnerEvent(RunnerEvent::Completed(
+            RunResult {
+                response: "done".to_string(),
+                cost_usd: None,
+                session_id: Some("abc123".to_string()),
+            },
+        )));
+        assert_eq!(a.stats.last_session_id.as_deref(), Some("abc123"));
+    }
+
+    // ── prompt input ──────────────────────────────────────────────────────────
+
+    #[test]
+    fn input_insert_adds_char_and_advances_cursor() {
+        let mut a = app();
+        a.prompt.input_insert('h');
+        a.prompt.input_insert('i');
+        assert_eq!(a.prompt.input_str(), "hi");
+        assert_eq!(a.prompt.cursor_pos, 2);
+    }
+
+    #[test]
+    fn input_backspace_removes_char() {
+        let mut a = app();
+        a.prompt.input_insert('h');
+        a.prompt.input_insert('i');
+        a.prompt.input_backspace();
+        assert_eq!(a.prompt.input_str(), "h");
+        assert_eq!(a.prompt.cursor_pos, 1);
+    }
+
+    #[test]
+    fn submit_input_clears_buffer_and_sets_pending_prompt() {
+        let mut a = app();
+        for c in "hello".chars() {
+            a.prompt.input_insert(c);
+        }
+        a.prompt.submit_input();
+        assert!(a.prompt.input_buffer.is_empty());
+        assert_eq!(a.prompt.pending_prompt.as_deref(), Some("hello"));
+        assert_eq!(a.prompt.prompt_history.last().map(|s| s.as_str()), Some("hello"));
+    }
+
+    #[test]
+    fn submit_input_empty_is_no_op() {
+        let mut a = app();
+        a.prompt.submit_input();
+        assert!(a.prompt.pending_prompt.is_none());
+    }
+
+    #[test]
+    fn history_up_loads_previous_entry() {
+        let mut a = app();
+        a.prompt.prompt_history.push("first".to_string());
+        a.prompt.history_up();
+        assert_eq!(a.prompt.input_str(), "first");
+        assert_eq!(a.prompt.history_index, Some(0));
+    }
+
+    #[test]
+    fn history_down_clears_on_past_end() {
+        let mut a = app();
+        a.prompt.prompt_history.push("first".to_string());
+        a.prompt.history_up();
+        a.prompt.history_down();
+        assert!(a.prompt.input_buffer.is_empty());
+        assert_eq!(a.prompt.history_index, None);
+    }
+
+    #[test]
+    fn cursor_up_line_returns_false_on_single_line() {
+        let mut a = app();
+        for c in "hello".chars() {
+            a.prompt.input_insert(c);
+        }
+        assert!(!a.prompt.cursor_up_line());
+    }
+
+    #[test]
+    fn cursor_down_line_returns_false_on_last_line() {
+        let mut a = app();
+        for c in "hello".chars() {
+            a.prompt.input_insert(c);
+        }
+        assert!(!a.prompt.cursor_down_line());
+    }
+
+    #[test]
+    fn cursor_up_line_moves_to_previous_line() {
+        let mut a = app();
+        a.prompt.input_buffer = "ab\ncd".chars().collect();
+        a.prompt.cursor_pos = 4; // on 'cd', col 1
+        let moved = a.prompt.cursor_up_line();
+        assert!(moved);
+        assert_eq!(a.prompt.cursor_pos, 1); // col 1 of "ab"
+    }
+
+    // ── picker ────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn open_picker_populates_filtered_with_all_entries() {
+        let mut a = app();
+        a.picker.entries = vec![
+            PipelineEntry {
+                name: "alpha".to_string(),
+                path: PathBuf::from("alpha.yaml"),
+            },
+            PipelineEntry {
+                name: "beta".to_string(),
+                path: PathBuf::from("beta.yaml"),
+            },
+        ];
+        a.picker.open_picker();
+        assert!(a.picker.open);
+        assert_eq!(a.picker.filtered.len(), 2);
+    }
+
+    #[test]
+    fn picker_type_char_filters_entries() {
+        let mut a = app();
+        a.picker.entries = vec![
+            PipelineEntry {
+                name: "alpha".to_string(),
+                path: PathBuf::from("alpha.yaml"),
+            },
+            PipelineEntry {
+                name: "beta".to_string(),
+                path: PathBuf::from("beta.yaml"),
+            },
+        ];
+        a.picker.open_picker();
+        a.picker.type_char('b');
+        assert_eq!(a.picker.filtered.len(), 1);
+        assert_eq!(a.picker.entries[a.picker.filtered[0]].name, "beta");
+    }
+
+    #[test]
+    fn picker_backspace_on_empty_filter_closes_picker() {
+        let mut a = app();
+        a.picker.open = true;
+        a.picker.backspace();
+        assert!(!a.picker.open);
+    }
+
+    #[test]
+    fn picker_select_sets_pending_switch_and_closes() {
+        let mut a = app();
+        a.picker.entries = vec![PipelineEntry {
+            name: "alpha".to_string(),
+            path: PathBuf::from("alpha.yaml"),
+        }];
+        a.picker.open_picker();
+        let result = a.picker.select();
+        assert_eq!(result, Some(PathBuf::from("alpha.yaml")));
+        assert!(!a.picker.open);
+        assert_eq!(
+            a.picker.pending_pipeline_switch,
+            Some(PathBuf::from("alpha.yaml"))
+        );
+    }
+
+    // ── session navigation ────────────────────────────────────────────────────
+
+    #[test]
+    fn session_prev_on_empty_is_no_op() {
+        let mut a = app();
+        a.viewport.session_prev();
+        assert_eq!(a.viewport.viewing_step, None);
+    }
+
+    #[test]
+    fn session_prev_from_live_goes_to_last() {
+        let mut a = app();
+        a.viewport.step_order = vec!["s1".to_string(), "s2".to_string()];
+        a.viewport.session_prev();
+        assert_eq!(a.viewport.viewing_step, Some(1));
+    }
+
+    #[test]
+    fn session_next_from_last_returns_to_live() {
+        let mut a = app();
+        a.viewport.step_order = vec!["s1".to_string(), "s2".to_string()];
+        a.viewport.viewing_step = Some(1);
+        a.viewport.session_next();
+        assert_eq!(a.viewport.viewing_step, None);
+    }
+
+    #[test]
+    fn session_next_advances_index() {
+        let mut a = app();
+        a.viewport.step_order = vec!["s1".to_string(), "s2".to_string()];
+        a.viewport.viewing_step = Some(0);
+        a.viewport.session_next();
+        assert_eq!(a.viewport.viewing_step, Some(1));
+    }
+
+    // ── side effects: permission ──────────────────────────────────────────────
+
+    #[test]
+    fn handle_permission_request_auto_allows_allowlisted_tool() {
+        let mut a = app();
+        a.permissions
+            .session_allowlist
+            .insert("Bash".to_string());
+        let effects = a.handle_permission_request(PermissionRequest {
+            display_name: "Bash".to_string(),
+            display_detail: String::new(),
+        });
+        assert_eq!(
+            effects,
+            vec![SideEffect::SendPermissionResponse(PermissionResponse::Allow)]
+        );
+        assert!(!a.permissions.modal_open);
+    }
+
+    #[test]
+    fn handle_permission_request_unknown_tool_opens_modal() {
+        let mut a = app();
+        let effects = a.handle_permission_request(PermissionRequest {
+            display_name: "Write".to_string(),
+            display_detail: " path=/foo".to_string(),
+        });
+        assert!(effects.is_empty());
+        assert!(a.permissions.modal_open);
+        assert!(a.permissions.request.is_some());
+    }
+
+    #[test]
+    fn perm_approve_once_returns_allow_effect() {
+        let mut a = app();
+        a.permissions.request = Some(PermissionRequest {
+            display_name: "Bash".to_string(),
+            display_detail: String::new(),
+        });
+        a.permissions.modal_open = true;
+        let effects = a.perm_approve_once();
+        assert_eq!(
+            effects,
+            vec![SideEffect::SendPermissionResponse(PermissionResponse::Allow)]
+        );
+        assert!(!a.permissions.modal_open);
+        assert!(a.permissions.request.is_none());
+    }
+
+    #[test]
+    fn perm_approve_session_adds_to_allowlist() {
+        let mut a = app();
+        a.permissions.request = Some(PermissionRequest {
+            display_name: "Bash".to_string(),
+            display_detail: String::new(),
+        });
+        a.permissions.modal_open = true;
+        let effects = a.perm_approve_session();
+        assert_eq!(
+            effects,
+            vec![SideEffect::SendPermissionResponse(PermissionResponse::Allow)]
+        );
+        assert!(a.permissions.session_allowlist.contains("Bash"));
+    }
+
+    #[test]
+    fn perm_deny_returns_deny_effect() {
+        let mut a = app();
+        a.permissions.request = Some(PermissionRequest {
+            display_name: "Bash".to_string(),
+            display_detail: String::new(),
+        });
+        a.permissions.modal_open = true;
+        let effects = a.perm_deny();
+        assert!(matches!(
+            effects.as_slice(),
+            [SideEffect::SendPermissionResponse(PermissionResponse::Deny(_))]
+        ));
+        assert!(!a.permissions.modal_open);
+    }
+
+    // ── side effects: interrupt ───────────────────────────────────────────────
+
+    #[test]
+    fn request_resume_returns_set_pause_false_and_sets_phase() {
+        let mut a = app();
+        a.phase = ExecutionPhase::Paused;
+        a.interrupt.modal_open = true;
+        let effects = a.request_resume();
+        assert_eq!(effects, vec![SideEffect::SetPauseFlag(false)]);
+        assert_eq!(a.phase, ExecutionPhase::Running);
+        assert!(!a.interrupt.modal_open);
+    }
+
+    #[test]
+    fn request_kill_returns_both_effects() {
+        let mut a = app();
+        let effects = a.request_kill();
+        assert_eq!(
+            effects,
+            vec![SideEffect::SetKillFlag, SideEffect::SetPauseFlag(false)]
+        );
+        assert!(!a.interrupt.modal_open);
+        assert_eq!(a.phase, ExecutionPhase::Running);
+    }
+
+    // ── loop logic ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn resolve_pending_prompt_none_returns_none() {
+        let mut a = app();
+        assert!(matches!(a.resolve_pending_prompt(), PromptAction::None));
+    }
+
+    #[test]
+    fn resolve_pending_prompt_hitl_gate_returns_send_hitl() {
+        let mut a = app();
+        a.phase = ExecutionPhase::HitlGate;
+        a.prompt.pending_prompt = Some("continue".to_string());
+        let action = a.resolve_pending_prompt();
+        assert!(matches!(action, PromptAction::SendHitl(_)));
+        assert_eq!(a.phase, ExecutionPhase::Running);
+        assert!(a.prompt.pending_prompt.is_none());
+    }
+
+    #[test]
+    fn resolve_pending_prompt_normal_returns_submit_to_backend() {
+        let mut a = app();
+        a.prompt.pending_prompt = Some("hello".to_string());
+        let action = a.resolve_pending_prompt();
+        assert!(matches!(
+            action,
+            PromptAction::SubmitToBackend { prompt, .. } if prompt == "hello"
+        ));
+        assert_eq!(a.phase, ExecutionPhase::Running);
+    }
+
+    #[test]
+    fn apply_pipeline_switch_rebuilds_steps_and_resets_sidebar() {
+        let mut a = app();
+        a.sidebar.cursor = 3;
+        a.sidebar.disabled_steps.insert("s1".to_string());
+        let pipeline = Pipeline::passthrough();
+        a.apply_pipeline_switch(pipeline, "test-pipe".to_string());
+        assert_eq!(a.sidebar.cursor, 0);
+        assert!(a.sidebar.disabled_steps.is_empty());
+        assert!(a
+            .viewport
+            .lines
+            .iter()
+            .any(|l| l.contains("test-pipe")));
+    }
+
+    #[test]
+    fn apply_pipeline_switch_error_appends_to_viewport() {
+        let mut a = app();
+        a.apply_pipeline_switch_error("file not found");
+        assert!(a
+            .viewport
+            .lines
+            .iter()
+            .any(|l| l.contains("file not found")));
     }
 }

@@ -26,7 +26,7 @@ pub struct PermissionRequest {
 }
 
 /// The user's decision on a `PermissionRequest`.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum PermissionResponse {
     /// Allow the tool to run as-is.
     Allow,

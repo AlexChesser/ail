@@ -2,6 +2,7 @@ mod draw;
 mod layout;
 
 use std::io;
+use std::sync::atomic::Ordering;
 use std::sync::mpsc;
 use std::time::Duration;
 
@@ -19,7 +20,7 @@ use ratatui::{
     Terminal, TerminalOptions, Viewport,
 };
 
-use super::app::{AppState, ExecutionPhase};
+use super::app::{AppState, ExecutionPhase, PromptAction, SideEffect};
 use super::backend::{BackendCommand, BackendEvent};
 use super::ui::viewport::style_line;
 
@@ -27,6 +28,29 @@ use super::ui::viewport::style_line;
 ///
 /// Accommodates: 1 status bar + 9 rows for sidebar/prompt.
 const INLINE_HEIGHT: u16 = 10;
+
+/// Execute side effects returned by pure state-mutation methods.
+fn execute_effects(effects: &[SideEffect], app: &AppState) {
+    for effect in effects {
+        match effect {
+            SideEffect::SendPermissionResponse(resp) => {
+                if let Some(ref tx) = app.permissions.tx {
+                    let _ = tx.send(resp.clone());
+                }
+            }
+            SideEffect::SetPauseFlag(val) => {
+                if let Some(ref f) = app.interrupt.pause_flag {
+                    f.store(*val, Ordering::SeqCst);
+                }
+            }
+            SideEffect::SetKillFlag => {
+                if let Some(ref f) = app.interrupt.kill_flag {
+                    f.store(true, Ordering::SeqCst);
+                }
+            }
+        }
+    }
+}
 
 /// Launch the primary-buffer TUI. Returns when the user quits.
 ///
@@ -102,7 +126,8 @@ fn run_app(
                     app.permissions.tx = Some(tx);
                 }
                 Ok(BackendEvent::PermissionRequest(req)) => {
-                    app.handle_permission_request(req);
+                    let effects = app.handle_permission_request(req);
+                    execute_effects(&effects, &app);
                 }
                 Err(_) => break,
             }
@@ -136,48 +161,42 @@ fn run_app(
 
         if event::poll(Duration::from_millis(16))? {
             let ev = event::read()?;
-            super::input::handle_event(&mut app, ev);
+            let effects = super::input::handle_event(&mut app, ev);
+            execute_effects(&effects, &app);
         }
 
         // Submit pending prompt to backend (or unblock HITL gate).
-        if let Some(prompt) = app.prompt.pending_prompt.take() {
-            if app.phase == ExecutionPhase::HitlGate {
+        match app.resolve_pending_prompt() {
+            PromptAction::SendHitl(prompt) => {
                 if let Some(ref tx) = hitl_tx {
                     let _ = tx.send(prompt);
                 }
-                app.phase = ExecutionPhase::Running;
-            } else {
-                app.viewport.echo_prompt(&prompt);
-                app.reset_for_run();
-                app.phase = ExecutionPhase::Running;
+            }
+            PromptAction::SubmitToBackend {
+                prompt,
+                disabled_steps,
+            } => {
                 let _ = cmd_tx.send(BackendCommand::SubmitPrompt {
                     prompt,
-                    disabled_steps: app.sidebar.disabled_steps.clone(),
+                    disabled_steps,
                 });
             }
+            PromptAction::None => {}
         }
 
         // Hot-reload: apply a pending pipeline switch.
         if let Some(path) = app.picker.pending_pipeline_switch.take() {
             match ail_core::config::load(&path) {
                 Ok(new_pipeline) => {
-                    app.steps = AppState::steps_for_pipeline(&new_pipeline);
-                    app.pipeline = Some(new_pipeline.clone());
-                    app.sidebar.cursor = 0;
-                    app.sidebar.disabled_steps.clear();
-                    let _ = cmd_tx.send(BackendCommand::SwitchPipeline(new_pipeline));
                     let name = path
                         .file_stem()
                         .map(|s| s.to_string_lossy().to_string())
                         .unwrap_or_else(|| path.display().to_string());
-                    app.viewport
-                        .lines
-                        .push(format!("── switched to: {name} ──"));
+                    let cmd_pipeline = app.apply_pipeline_switch(new_pipeline, name);
+                    let _ = cmd_tx.send(BackendCommand::SwitchPipeline(cmd_pipeline));
                 }
                 Err(e) => {
-                    app.viewport
-                        .lines
-                        .push(format!("[pipeline load error: {}]", e.detail));
+                    app.apply_pipeline_switch_error(&e.detail);
                 }
             }
         }
