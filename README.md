@@ -324,6 +324,21 @@ cargo nextest run
 cargo nextest run --no-fail-fast --run-ignored all
 ```
 
+**Debugging runner/provider issues:**
+
+Enable structured NDJSON trace logging to see every event the claude CLI emits:
+
+```bash
+# --once mode: logs to stderr
+RUST_LOG=ail_core::runner::claude=trace cargo run -- --once "hello" --pipeline demo/.include-review.yaml
+
+# TUI mode: logs to ~/.ail/tui.log
+RUST_LOG=ail_core::runner::claude=debug cargo run -- --pipeline demo/.include-review.yaml
+tail -f ~/.ail/tui.log | jq .
+```
+
+The `debug` level logs event types, content block types, and `result` event fields. The `trace` level adds every raw NDJSON line. This is the primary tool for diagnosing why a provider's responses aren't appearing or why a pipeline step isn't continuing.
+
 **Contributing a new feature:**
 1. Check [`spec/README.md`](spec/README.md) to find the relevant section and its implementation status
 2. Open an issue referencing the relevant spec section before beginning implementation work
