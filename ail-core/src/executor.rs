@@ -472,15 +472,31 @@ pub fn execute_with_control(
 
         let entry = match &step.body {
             StepBody::Prompt(template_text) => {
-                let template_text = resolve_prompt_file(template_text, &step_id)?;
-                let resolved = template::resolve(&template_text, session).map_err(|mut e| {
-                    e.context = Some(crate::error::ErrorContext {
-                        pipeline_run_id: Some(session.run_id.clone()),
-                        step_id: Some(step_id.clone()),
-                        source: None,
-                    });
-                    e
-                })?;
+                let template_text = match resolve_prompt_file(template_text, &step_id) {
+                    Ok(t) => t,
+                    Err(e) => {
+                        let _ = event_tx.send(ExecutorEvent::StepFailed {
+                            step_id: step_id.clone(),
+                            error: e.detail.clone(),
+                        });
+                        return Err(e);
+                    }
+                };
+                let resolved = match template::resolve(&template_text, session) {
+                    Ok(r) => r,
+                    Err(mut e) => {
+                        e.context = Some(crate::error::ErrorContext {
+                            pipeline_run_id: Some(session.run_id.clone()),
+                            step_id: Some(step_id.clone()),
+                            source: None,
+                        });
+                        let _ = event_tx.send(ExecutorEvent::StepFailed {
+                            step_id: step_id.clone(),
+                            error: e.detail.clone(),
+                        });
+                        return Err(e);
+                    }
+                };
 
                 let resume_id = session
                     .turn_log

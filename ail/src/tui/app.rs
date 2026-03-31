@@ -757,9 +757,11 @@ impl AppState {
                 }
             }
             ExecutorEvent::RunnerEvent(ail_core::runner::RunnerEvent::Completed(ref result)) => {
-                if !self.viewport.step_streamed {
+                if !self.viewport.step_streamed && !result.response.is_empty() {
                     // Stub runner or no streaming — show full response text now.
-                    self.viewport.append_text(&result.response);
+                    // Prepend a newline so the response starts on its own line,
+                    // not concatenated with the last [thinking] line.
+                    self.viewport.append_text(&format!("\n{}", result.response));
                 }
                 if let Some(ref sid) = result.session_id {
                     self.stats.last_session_id = Some(sid.clone());

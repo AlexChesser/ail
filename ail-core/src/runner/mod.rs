@@ -1,3 +1,22 @@
+//! Runner adapters — the seam between the executor and underlying agent processes.
+//!
+//! # Architecture
+//!
+//! The [`Runner`] trait is the single interface the executor sees. Each **agent CLI**
+//! (e.g. `claude`, `codex`, `opencode`) gets its own `Runner` implementation that handles
+//! its own subprocess lifecycle and stream format:
+//!
+//! - [`claude::ClaudeCliRunner`] — drives `claude --output-format stream-json --verbose -p`.
+//!   Handles Anthropic API, Ollama, Bedrock, and any provider the `claude` CLI supports,
+//!   because the CLI normalises upstream differences into one `stream-json` format.
+//! - Future runners would live here (e.g. `codex::CodexRunner`, `opencode::OpenCodeRunner`).
+//!
+//! Provider config (base URL, auth token, model) flows through [`InvokeOptions`] so the
+//! executor never names a specific provider. Model-specific output quirks — XML tool calls
+//! vs JSON, thinking block structures — are each runner's responsibility.
+//!
+//! [`stub::StubRunner`] and [`stub::CountingStubRunner`] are deterministic test doubles.
+
 #![allow(clippy::result_large_err)]
 
 pub mod claude;

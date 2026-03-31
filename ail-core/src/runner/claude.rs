@@ -14,6 +14,161 @@ use super::{
 };
 use crate::error::{error_types, AilError};
 
+/// Terminal outcome of parsing a single `stream-json` NDJSON event.
+enum StreamParseAction {
+    /// Non-terminal event — any `RunnerEvent`s were already sent through `tx`.
+    Continue,
+    /// The `result` event arrived with a successful response.
+    ResultReceived {
+        response: Option<String>,
+        cost_usd: Option<f64>,
+        session_id: Option<String>,
+    },
+    /// The `result` event arrived indicating an error.
+    ResultError(String),
+}
+
+/// Parse a single `stream-json` NDJSON event from the claude CLI.
+///
+/// Sends appropriate `RunnerEvent`s through `tx` (when provided) for streaming display,
+/// and returns the terminal `StreamParseAction` to the caller.
+///
+/// Both `invoke` (pass `None`) and `invoke_streaming` (pass `Some(&tx)`) use this function
+/// so the parsing logic stays in one place and is unit-testable without spawning a process.
+fn parse_stream_event(
+    event: &serde_json::Value,
+    tx: Option<&mpsc::Sender<RunnerEvent>>,
+) -> StreamParseAction {
+    let event_type = event["type"].as_str().unwrap_or("");
+
+    match event_type {
+        "assistant" => {
+            if let Some(content) = event["message"]["content"].as_array() {
+                let block_types: Vec<&str> = content
+                    .iter()
+                    .map(|item| item["type"].as_str().unwrap_or("unknown"))
+                    .collect();
+                tracing::debug!(
+                    event_type,
+                    ?block_types,
+                    "stream-json assistant event"
+                );
+                for item in content {
+                    let block_type = item["type"].as_str().unwrap_or("");
+                    match block_type {
+                        "text" => {
+                            if let Some(text) = item["text"].as_str() {
+                                if !text.is_empty() {
+                                    if let Some(tx) = tx {
+                                        let _ = tx.send(RunnerEvent::StreamDelta {
+                                            text: text.to_string(),
+                                        });
+                                    }
+                                }
+                            }
+                        }
+                        "thinking" => {
+                            if let Some(text) = item["thinking"].as_str() {
+                                if !text.is_empty() {
+                                    if let Some(tx) = tx {
+                                        let _ = tx.send(RunnerEvent::Thinking {
+                                            text: text.to_string(),
+                                        });
+                                    }
+                                }
+                            }
+                        }
+                        "tool_use" => {
+                            if let Some(name) = item["name"].as_str() {
+                                if let Some(tx) = tx {
+                                    let _ = tx.send(RunnerEvent::ToolUse {
+                                        tool_name: name.to_string(),
+                                    });
+                                }
+                            }
+                        }
+                        other => {
+                            tracing::debug!(
+                                block_type = other,
+                                "stream-json: unrecognized assistant content block type"
+                            );
+                        }
+                    }
+                }
+            } else {
+                tracing::debug!(
+                    event_type,
+                    "stream-json assistant event: message.content is not an array"
+                );
+            }
+            StreamParseAction::Continue
+        }
+        "user" => {
+            if let Some(content) = event["message"]["content"].as_array() {
+                for item in content {
+                    if item["type"].as_str() == Some("tool_result") {
+                        if let Some(tx) = tx {
+                            let _ = tx.send(RunnerEvent::ToolResult {
+                                tool_name: String::new(),
+                            });
+                        }
+                    }
+                }
+            }
+            tracing::debug!(event_type, "stream-json user event");
+            StreamParseAction::Continue
+        }
+        "result" => {
+            let subtype = event["subtype"].as_str().unwrap_or("");
+            let is_error = subtype == "error" || event["is_error"].as_bool().unwrap_or(false);
+            let result_len = event["result"].as_str().map(|s| s.len());
+            let cost = event["total_cost_usd"].as_f64();
+            let session_id = event["session_id"].as_str();
+            tracing::debug!(
+                event_type,
+                subtype,
+                is_error,
+                result_len,
+                has_cost = cost.is_some(),
+                has_session_id = session_id.is_some(),
+                "stream-json result event"
+            );
+            if is_error {
+                StreamParseAction::ResultError(
+                    event["result"]
+                        .as_str()
+                        .unwrap_or("unknown error from claude CLI")
+                        .to_string(),
+                )
+            } else {
+                let input_tokens = event["input_tokens"].as_u64().unwrap_or(0);
+                let output_tokens = event["output_tokens"].as_u64().unwrap_or(0);
+                // Emit a cost update so the status bar can show live cost/token data.
+                if let (Some(cost), Some(tx)) = (cost, tx) {
+                    let _ = tx.send(RunnerEvent::CostUpdate {
+                        cost_usd: cost,
+                        input_tokens,
+                        output_tokens,
+                    });
+                }
+                StreamParseAction::ResultReceived {
+                    response: event["result"].as_str().map(str::to_string),
+                    cost_usd: cost,
+                    session_id: session_id.map(str::to_string),
+                }
+            }
+        }
+        "system" => {
+            tracing::debug!(event_type, "stream-json system event");
+            StreamParseAction::Continue
+        }
+        other => {
+            tracing::warn!(event_type = other, "unexpected stream-json event type");
+            StreamParseAction::Continue
+        }
+    }
+}
+
 /// Runner-specific extensions for `ClaudeCliRunner`, carried in `InvokeOptions::extensions`.
 ///
 /// The executor packs provider config (`base_url`, `auth_token`) here. `ClaudeCliRunner`
@@ -402,31 +557,23 @@ impl Runner for ClaudeCliRunner {
                 context: None,
             })?;
 
-            let event_type = event["type"].as_str().unwrap_or("");
+            tracing::trace!(line = %line, "stream-json raw line");
 
-            match event_type {
-                "result" => {
-                    let subtype = event["subtype"].as_str().unwrap_or("");
-                    if subtype == "error" || event["is_error"].as_bool().unwrap_or(false) {
-                        error_detail = Some(
-                            event["result"]
-                                .as_str()
-                                .unwrap_or("unknown error from claude CLI")
-                                .to_string(),
-                        );
-                    } else {
-                        result_response = event["result"].as_str().map(|s| s.to_string());
-                        result_cost = event["total_cost_usd"].as_f64();
-                        result_session_id = event["session_id"].as_str().map(|s| s.to_string());
-                    }
+            match parse_stream_event(&event, None) {
+                StreamParseAction::Continue => {}
+                StreamParseAction::ResultReceived {
+                    response,
+                    cost_usd,
+                    session_id,
+                } => {
+                    result_response = response;
+                    result_cost = cost_usd;
+                    result_session_id = session_id;
                     break;
                 }
-                "system" | "assistant" | "user" => {
-                    // Streaming events — not needed for basic invocation.
-                    tracing::debug!(event_type, "stream-json event");
-                }
-                other => {
-                    tracing::warn!(event_type = other, "unexpected stream-json event type");
+                StreamParseAction::ResultError(detail) => {
+                    error_detail = Some(detail);
+                    break;
                 }
             }
         }
@@ -554,90 +701,23 @@ impl Runner for ClaudeCliRunner {
                 context: None,
             })?;
 
-            let event_type = event["type"].as_str().unwrap_or("");
+            tracing::trace!(line = %line, "stream-json raw line");
 
-            match event_type {
-                "assistant" => {
-                    if let Some(content) = event["message"]["content"].as_array() {
-                        for item in content {
-                            match item["type"].as_str().unwrap_or("") {
-                                "text" => {
-                                    if let Some(text) = item["text"].as_str() {
-                                        if !text.is_empty() {
-                                            let _ = tx.send(RunnerEvent::StreamDelta {
-                                                text: text.to_string(),
-                                            });
-                                        }
-                                    }
-                                }
-                                "thinking" => {
-                                    if let Some(text) = item["thinking"].as_str() {
-                                        if !text.is_empty() {
-                                            let _ = tx.send(RunnerEvent::Thinking {
-                                                text: text.to_string(),
-                                            });
-                                        }
-                                    }
-                                }
-                                "tool_use" => {
-                                    if let Some(name) = item["name"].as_str() {
-                                        let _ = tx.send(RunnerEvent::ToolUse {
-                                            tool_name: name.to_string(),
-                                        });
-                                    }
-                                }
-                                _ => {}
-                            }
-                        }
-                    }
-                    tracing::debug!(event_type, "stream-json assistant event");
-                }
-                "user" => {
-                    // Tool results from the agent feedback loop.
-                    if let Some(content) = event["message"]["content"].as_array() {
-                        for item in content {
-                            if item["type"].as_str() == Some("tool_result") {
-                                // tool_use_id could be used to correlate — not needed in MVP.
-                                let _ = tx.send(RunnerEvent::ToolResult {
-                                    tool_name: String::new(),
-                                });
-                            }
-                        }
-                    }
-                    tracing::debug!(event_type, "stream-json user event");
-                }
-                "result" => {
-                    let subtype = event["subtype"].as_str().unwrap_or("");
-                    if subtype == "error" || event["is_error"].as_bool().unwrap_or(false) {
-                        error_detail = Some(
-                            event["result"]
-                                .as_str()
-                                .unwrap_or("unknown error from claude CLI")
-                                .to_string(),
-                        );
-                    } else {
-                        result_response = event["result"].as_str().map(|s| s.to_string());
-                        result_cost = event["total_cost_usd"].as_f64();
-                        result_session_id = event["session_id"].as_str().map(|s| s.to_string());
-
-                        // Emit a cost update so the status bar can show live cost/token data.
-                        if let Some(cost) = result_cost {
-                            let input_tokens = event["input_tokens"].as_u64().unwrap_or(0);
-                            let output_tokens = event["output_tokens"].as_u64().unwrap_or(0);
-                            let _ = tx.send(RunnerEvent::CostUpdate {
-                                cost_usd: cost,
-                                input_tokens,
-                                output_tokens,
-                            });
-                        }
-                    }
+            match parse_stream_event(&event, Some(&tx)) {
+                StreamParseAction::Continue => {}
+                StreamParseAction::ResultReceived {
+                    response,
+                    cost_usd,
+                    session_id,
+                } => {
+                    result_response = response;
+                    result_cost = cost_usd;
+                    result_session_id = session_id;
                     break;
                 }
-                "system" => {
-                    tracing::debug!(event_type, "stream-json system event");
-                }
-                other => {
-                    tracing::warn!(event_type = other, "unexpected stream-json event type");
+                StreamParseAction::ResultError(detail) => {
+                    error_detail = Some(detail);
+                    break;
                 }
             }
         }
