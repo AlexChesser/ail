@@ -11,7 +11,10 @@ use crate::config::domain::{
     ContextSource, ExitCodeMatch, ResultAction, ResultMatcher, StepBody, MAX_SUB_PIPELINE_DEPTH,
 };
 use crate::error::{error_types, AilError};
-use crate::runner::{InvokeOptions, PermissionResponder, Runner, RunnerEvent};
+use crate::runner::claude::ClaudeInvokeExtensions;
+use crate::runner::{
+    InvokeOptions, PermissionResponder, Runner, RunnerEvent, ToolPermissionPolicy,
+};
 use crate::session::{Session, TurnEntry};
 use crate::template;
 
@@ -223,21 +226,16 @@ fn execute_inner(
                     })
                     .merge(session.cli_provider.clone());
 
+                let tool_policy = build_tool_policy(step.tools.as_ref());
                 let options = InvokeOptions {
                     resume_session_id: resume_id,
-                    allowed_tools: step
-                        .tools
-                        .as_ref()
-                        .map(|t| t.allow.clone())
-                        .unwrap_or_default(),
-                    denied_tools: step
-                        .tools
-                        .as_ref()
-                        .map(|t| t.deny.clone())
-                        .unwrap_or_default(),
+                    tool_policy,
                     model: resolved_provider.model,
-                    base_url: resolved_provider.base_url,
-                    auth_token: resolved_provider.auth_token,
+                    extensions: Some(Box::new(ClaudeInvokeExtensions {
+                        base_url: resolved_provider.base_url,
+                        auth_token: resolved_provider.auth_token,
+                        permission_socket: None,
+                    })),
                     permission_responder: None,
                 };
 
@@ -502,21 +500,16 @@ pub fn execute_with_control(
                     })
                     .merge(session.cli_provider.clone());
 
+                let tool_policy = build_tool_policy(step.tools.as_ref());
                 let options = InvokeOptions {
                     resume_session_id: resume_id,
-                    allowed_tools: step
-                        .tools
-                        .as_ref()
-                        .map(|t| t.allow.clone())
-                        .unwrap_or_default(),
-                    denied_tools: step
-                        .tools
-                        .as_ref()
-                        .map(|t| t.deny.clone())
-                        .unwrap_or_default(),
+                    tool_policy,
                     model: resolved_provider.model,
-                    base_url: resolved_provider.base_url,
-                    auth_token: resolved_provider.auth_token,
+                    extensions: Some(Box::new(ClaudeInvokeExtensions {
+                        base_url: resolved_provider.base_url,
+                        auth_token: resolved_provider.auth_token,
+                        permission_socket: None,
+                    })),
                     permission_responder: control.permission_responder.clone(),
                 };
 
@@ -778,6 +771,19 @@ fn evaluate_on_result(
         }
     }
     None
+}
+
+/// Build a `ToolPermissionPolicy` from an optional `ToolPolicy` domain value.
+fn build_tool_policy(tools: Option<&crate::config::domain::ToolPolicy>) -> ToolPermissionPolicy {
+    match tools {
+        Some(t) if !t.allow.is_empty() && !t.deny.is_empty() => ToolPermissionPolicy::Mixed {
+            allow: t.allow.clone(),
+            deny: t.deny.clone(),
+        },
+        Some(t) if !t.allow.is_empty() => ToolPermissionPolicy::Allowlist(t.allow.clone()),
+        Some(t) if !t.deny.is_empty() => ToolPermissionPolicy::Denylist(t.deny.clone()),
+        _ => ToolPermissionPolicy::RunnerDefault,
+    }
 }
 
 /// If `prompt_text` starts with a path prefix (`./`, `../`, `~/`, `/`), read the file

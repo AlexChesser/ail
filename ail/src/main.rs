@@ -2,6 +2,7 @@ mod cli;
 mod mcp_bridge;
 mod tui;
 
+use ail_core::runner::claude::ClaudeInvokeExtensions;
 use ail_core::runner::{InvokeOptions, Runner};
 use clap::Parser;
 use cli::{Cli, Commands};
@@ -123,8 +124,11 @@ fn main() {
                 if !has_invocation_step {
                     let invocation_options = InvokeOptions {
                         model: session.cli_provider.model.clone(),
-                        base_url: session.cli_provider.base_url.clone(),
-                        auth_token: session.cli_provider.auth_token.clone(),
+                        extensions: Some(Box::new(ClaudeInvokeExtensions {
+                            base_url: session.cli_provider.base_url.clone(),
+                            auth_token: session.cli_provider.auth_token.clone(),
+                            permission_socket: None,
+                        })),
                         ..InvokeOptions::default()
                     };
                     match runner.invoke(&prompt, invocation_options) {

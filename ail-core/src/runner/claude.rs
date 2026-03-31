@@ -9,8 +9,37 @@ use std::thread;
 
 use super::{
     InvokeOptions, PermissionRequest, PermissionResponder, RunResult, Runner, RunnerEvent,
+    ToolPermissionPolicy,
 };
 use crate::error::{error_types, AilError};
+
+/// Runner-specific extensions for `ClaudeCliRunner`, carried in `InvokeOptions::extensions`.
+///
+/// The executor packs provider config (`base_url`, `auth_token`) here. `ClaudeCliRunner`
+/// unpacks them in `spawn_process`. The `permission_socket` field is set by
+/// `invoke_streaming` after the Unix socket is created.
+///
+/// To be cleaned up in task 04 when runner config is fully injected via a dedicated
+/// config struct rather than through the generic extensions mechanism.
+#[derive(Debug, Clone, Default)]
+pub struct ClaudeInvokeExtensions {
+    /// Provider base URL — set as `ANTHROPIC_BASE_URL` in the runner subprocess env.
+    pub base_url: Option<String>,
+    /// Provider auth token — set as `ANTHROPIC_AUTH_TOKEN` in the runner subprocess env.
+    pub auth_token: Option<String>,
+    /// Path to the Unix socket created by `invoke_streaming` for permission HITL.
+    /// Set internally by `invoke_streaming`; callers should leave this as `None`.
+    pub permission_socket: Option<PathBuf>,
+}
+
+impl ClaudeInvokeExtensions {
+    /// Extract a reference to `ClaudeInvokeExtensions` from `options.extensions`, if present.
+    pub fn from_options(opts: &InvokeOptions) -> Option<&Self> {
+        opts.extensions
+            .as_ref()?
+            .downcast_ref::<ClaudeInvokeExtensions>()
+    }
+}
 
 /// Drives the `claude` CLI in `--output-format stream-json --verbose -p` mode.
 ///
@@ -67,6 +96,42 @@ impl ClaudeCliRunner {
         Ok(config_path)
     }
 
+    /// Format Claude's `tool_input` JSON into a human-readable detail string for display
+    /// in the permission modal. Truncates long values and shows line counts for multi-line
+    /// strings. This is Claude-specific formatting; the abstract `PermissionRequest` carries
+    /// the result as `display_detail`.
+    fn format_tool_input_for_display(tool_input: &serde_json::Value) -> String {
+        let mut detail = String::new();
+        if let Some(obj) = tool_input.as_object() {
+            for (k, v) in obj {
+                let val_str = match v {
+                    serde_json::Value::String(s) => {
+                        let lines: Vec<&str> = s.lines().collect();
+                        if lines.len() > 1 {
+                            format!("{} … ({} lines)", lines[0], lines.len())
+                        } else if s.len() > 100 {
+                            format!("{}…", &s[..100])
+                        } else {
+                            s.clone()
+                        }
+                    }
+                    other => {
+                        let s = other.to_string();
+                        if s.len() > 100 {
+                            format!("{}…", &s[..100])
+                        } else {
+                            s
+                        }
+                    }
+                };
+                detail.push_str(&format!("\n    {k}: {val_str}"));
+            }
+        } else if !tool_input.is_null() {
+            detail.push_str(&format!("\n    {}", tool_input));
+        }
+        detail
+    }
+
     /// Bind a Unix socket, spawn an accept-loop thread, and return the socket path plus a
     /// ready-signal receiver. The thread calls `responder` for each permission request from
     /// Claude CLI and writes the serialised response back over the same connection.
@@ -104,10 +169,13 @@ impl ClaudeCliRunner {
                     Ok(v) => v,
                     Err(_) => continue,
                 };
+                // Retain tool_input for the MCP response; translate to generic display fields.
                 let tool_input = req_val["tool_input"].clone();
+                let display_name = req_val["tool_name"].as_str().unwrap_or("").to_string();
+                let display_detail = Self::format_tool_input_for_display(&tool_input);
                 let perm_req = PermissionRequest {
-                    tool_name: req_val["tool_name"].as_str().unwrap_or("").to_string(),
-                    tool_input: tool_input.clone(),
+                    display_name,
+                    display_detail,
                 };
                 let _ = event_tx.send(RunnerEvent::PermissionRequested(perm_req.clone()));
                 let response = responder(perm_req);
@@ -129,16 +197,21 @@ impl ClaudeCliRunner {
 
     /// Spawn the claude CLI process. Shared by `invoke` and `invoke_streaming`.
     ///
-    /// `permission_socket` is passed explicitly (not via `options`) so that the socket
-    /// lifecycle is managed by the caller; `InvokeOptions` carries only the responder callback.
+    /// Claude-specific config (`base_url`, `auth_token`, `permission_socket`) is extracted
+    /// from `options.extensions` as `ClaudeInvokeExtensions`. `invoke_streaming` sets
+    /// `permission_socket` in the extensions before calling this method.
     ///
     /// Returns `(Child, Option<mcp_config_path_to_clean_up>)`.
     fn spawn_process(
         &self,
         prompt: &str,
         options: &InvokeOptions,
-        permission_socket: Option<&std::path::Path>,
     ) -> Result<(std::process::Child, Option<PathBuf>), AilError> {
+        let exts = ClaudeInvokeExtensions::from_options(options);
+        let base_url = exts.and_then(|e| e.base_url.as_deref());
+        let auth_token = exts.and_then(|e| e.auth_token.as_deref());
+        let permission_socket = exts.and_then(|e| e.permission_socket.as_deref());
+
         let mut args: Vec<String> = vec![
             "--output-format".into(),
             "stream-json".into(),
@@ -151,18 +224,27 @@ impl ClaudeCliRunner {
         // (Ollama, Bedrock, etc.) have no knowledge of Claude session IDs and will
         // hang waiting to resolve them, causing the pipeline step to time out.
         if let Some(sid) = &options.resume_session_id {
-            if options.base_url.is_none() {
+            if base_url.is_none() {
                 args.push("--resume".into());
                 args.push(sid.clone());
             }
         }
-        if !options.allowed_tools.is_empty() {
-            args.push("--allowedTools".into());
-            args.push(options.allowed_tools.join(","));
-        }
-        if !options.denied_tools.is_empty() {
-            args.push("--disallowedTools".into());
-            args.push(options.denied_tools.join(","));
+        match &options.tool_policy {
+            ToolPermissionPolicy::RunnerDefault => {}
+            ToolPermissionPolicy::Allowlist(tools) => {
+                args.push("--allowedTools".into());
+                args.push(tools.join(","));
+            }
+            ToolPermissionPolicy::Denylist(tools) => {
+                args.push("--disallowedTools".into());
+                args.push(tools.join(","));
+            }
+            ToolPermissionPolicy::Mixed { allow, deny } => {
+                args.push("--allowedTools".into());
+                args.push(allow.join(","));
+                args.push("--disallowedTools".into());
+                args.push(deny.join(","));
+            }
         }
         if let Some(ref model) = options.model {
             args.push("--model".into());
@@ -174,7 +256,7 @@ impl ClaudeCliRunner {
         // small models will spuriously call whatever MCP tools they see in their context,
         // causing the pipeline to block indefinitely waiting for TUI input.
         let mcp_config_path = if let Some(socket) = permission_socket {
-            if !self.headless && options.base_url.is_none() {
+            if !self.headless && base_url.is_none() {
                 let config_path = Self::write_mcp_config(socket)?;
                 args.push("--mcp-config".into());
                 args.push(config_path.to_string_lossy().to_string());
@@ -195,10 +277,10 @@ impl ClaudeCliRunner {
 
         let mut cmd = Command::new(&self.claude_bin);
         cmd.args(&args).env_remove("CLAUDECODE");
-        if let Some(ref url) = options.base_url {
+        if let Some(url) = base_url {
             cmd.env("ANTHROPIC_BASE_URL", url);
         }
-        if let Some(ref token) = options.auth_token {
+        if let Some(token) = auth_token {
             cmd.env("ANTHROPIC_AUTH_TOKEN", token);
         }
         let child = cmd
@@ -223,7 +305,7 @@ impl Default for ClaudeCliRunner {
 
 impl Runner for ClaudeCliRunner {
     fn invoke(&self, prompt: &str, options: InvokeOptions) -> Result<RunResult, AilError> {
-        let (mut child, mcp_config) = self.spawn_process(prompt, &options, None)?;
+        let (mut child, mcp_config) = self.spawn_process(prompt, &options)?;
 
         let stdout = child.stdout.take().expect("stdout was piped");
         let stderr = child.stderr.take().expect("stderr was piped");
@@ -349,24 +431,33 @@ impl Runner for ClaudeCliRunner {
     fn invoke_streaming(
         &self,
         prompt: &str,
-        options: InvokeOptions,
+        mut options: InvokeOptions,
         tx: mpsc::Sender<RunnerEvent>,
     ) -> Result<RunResult, AilError> {
-        let permission_socket = if let Some(ref responder) = options.permission_responder {
+        // If a permission responder is provided and we are not headless, create a Unix socket
+        // and set its path in ClaudeInvokeExtensions so spawn_process can configure the
+        // MCP bridge. The socket lifecycle is fully encapsulated here.
+        if let Some(ref responder) = options.permission_responder {
             if !self.headless {
                 let (sock_path, _listener_handle, ready_rx) =
                     Self::spawn_permission_listener(Arc::clone(responder), tx.clone())?;
                 let _ = ready_rx.recv();
-                Some(sock_path)
-            } else {
-                None
+                // Extract existing extensions (or create defaults) and set the socket.
+                let mut exts = options
+                    .extensions
+                    .as_ref()
+                    .and_then(|e| e.downcast_ref::<ClaudeInvokeExtensions>())
+                    .cloned()
+                    .unwrap_or_default();
+                exts.permission_socket = Some(sock_path);
+                options.extensions = Some(Box::new(exts));
             }
-        } else {
-            None
-        };
+        }
 
-        let (mut child, mcp_config) =
-            self.spawn_process(prompt, &options, permission_socket.as_deref())?;
+        let permission_socket_path = ClaudeInvokeExtensions::from_options(&options)
+            .and_then(|e| e.permission_socket.clone());
+
+        let (mut child, mcp_config) = self.spawn_process(prompt, &options)?;
 
         let stdout = child.stdout.take().expect("stdout was piped");
         let stderr = child.stderr.take().expect("stderr was piped");
@@ -540,7 +631,7 @@ impl Runner for ClaudeCliRunner {
         if let Some(path) = mcp_config {
             let _ = std::fs::remove_file(path);
         }
-        if let Some(ref path) = permission_socket {
+        if let Some(ref path) = permission_socket_path {
             let _ = std::fs::remove_file(path);
         }
         let result = RunResult {

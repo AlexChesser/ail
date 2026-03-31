@@ -424,50 +424,25 @@ impl AppState {
 
     // ── tool permission HITL (SPEC §13.3) ────────────────────────────────────
 
-    /// Handle an incoming permission request from the MCP bridge.
+    /// Handle an incoming permission request from the runner.
     ///
     /// If the tool is in the session allowlist, auto-approve without showing the modal.
+    /// The human-readable detail string is pre-formatted by the runner.
     pub fn handle_permission_request(&mut self, req: PermissionRequest) {
-        if self.perm_session_allowlist.contains(&req.tool_name) {
+        if self.perm_session_allowlist.contains(&req.display_name) {
             self.append_text(&format!(
                 "\n  [permission: {} — auto-allowed (session)]",
-                req.tool_name
+                req.display_name
             ));
             if let Some(ref tx) = self.perm_tx {
                 let _ = tx.send(PermissionResponse::Allow);
             }
             return;
         }
-        // Log the request to scrollback with human-readable field breakdown.
-        let mut detail = format!("\n  [permission: {} — waiting for approval]", req.tool_name);
-        if let Some(obj) = req.tool_input.as_object() {
-            for (k, v) in obj {
-                let val_str = match v {
-                    serde_json::Value::String(s) => {
-                        // For multi-line strings (file content, scripts) show first line + indicator
-                        let lines: Vec<&str> = s.lines().collect();
-                        if lines.len() > 1 {
-                            format!("{} … ({} lines)", lines[0], lines.len())
-                        } else if s.len() > 100 {
-                            format!("{}…", &s[..100])
-                        } else {
-                            s.clone()
-                        }
-                    }
-                    other => {
-                        let s = other.to_string();
-                        if s.len() > 100 {
-                            format!("{}…", &s[..100])
-                        } else {
-                            s
-                        }
-                    }
-                };
-                detail.push_str(&format!("\n    {k}: {val_str}"));
-            }
-        } else if !req.tool_input.is_null() {
-            detail.push_str(&format!("\n    {}", req.tool_input));
-        }
+        let detail = format!(
+            "\n  [permission: {} — waiting for approval]{}",
+            req.display_name, req.display_detail
+        );
         self.append_text(&detail);
         self.perm_request = Some(req);
         self.perm_cursor = 0;
@@ -498,7 +473,7 @@ impl AppState {
         let tool = self
             .perm_request
             .as_ref()
-            .map(|r| r.tool_name.as_str())
+            .map(|r| r.display_name.as_str())
             .unwrap_or("?");
         self.append_text(&format!("\n  [permission: {tool} — approved once]"));
         if let Some(ref tx) = self.perm_tx {
@@ -511,12 +486,12 @@ impl AppState {
     /// Approve the pending permission request and add the tool to the session allowlist.
     pub fn perm_approve_session(&mut self) {
         if let Some(ref req) = self.perm_request {
-            self.perm_session_allowlist.insert(req.tool_name.clone());
+            self.perm_session_allowlist.insert(req.display_name.clone());
         }
         let tool = self
             .perm_request
             .as_ref()
-            .map(|r| r.tool_name.as_str())
+            .map(|r| r.display_name.as_str())
             .unwrap_or("?");
         self.append_text(&format!("\n  [permission: {tool} — approved for session]"));
         if let Some(ref tx) = self.perm_tx {
@@ -531,7 +506,7 @@ impl AppState {
         let tool = self
             .perm_request
             .as_ref()
-            .map(|r| r.tool_name.as_str())
+            .map(|r| r.display_name.as_str())
             .unwrap_or("?");
         self.append_text(&format!("\n  [permission: {tool} — denied]"));
         if let Some(ref tx) = self.perm_tx {

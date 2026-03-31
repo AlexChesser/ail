@@ -1,4 +1,4 @@
-# Task 03: InvokeOptions and PermissionRequest Cleanup
+# Task 03: InvokeOptions and PermissionRequest Cleanup ✓ DONE
 
 ## Prerequisites
 - Task 01 (runner injection) and Task 02 (permission bridge extraction)

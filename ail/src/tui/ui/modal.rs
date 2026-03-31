@@ -37,7 +37,7 @@ fn draw_permission_modal(frame: &mut Frame, app: &AppState, area: Rect) {
     let tool_name = app
         .perm_request
         .as_ref()
-        .map(|r| r.tool_name.as_str())
+        .map(|r| r.display_name.as_str())
         .unwrap_or("?");
     let mut lines: Vec<Line> = vec![
         Line::from(vec![

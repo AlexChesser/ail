@@ -15,13 +15,14 @@ pub struct RunResult {
     pub session_id: Option<String>,
 }
 
-/// A tool permission request intercepted from Claude CLI via the MCP permission bridge (SPEC §13.3).
+/// A tool permission request emitted by the runner when it requires a human decision before
+/// executing a tool.
 #[derive(Debug, Clone)]
 pub struct PermissionRequest {
-    /// The name of the tool Claude wants to use (e.g. `"Bash"`, `"Write"`).
-    pub tool_name: String,
-    /// The input arguments Claude would pass to the tool.
-    pub tool_input: serde_json::Value,
+    /// Human-readable name of the tool being invoked (e.g. `"Bash"`, `"Write"`).
+    pub display_name: String,
+    /// Human-readable summary of the tool's arguments, pre-formatted by the runner.
+    pub display_detail: String,
 }
 
 /// The user's decision on a `PermissionRequest`.
@@ -33,10 +34,9 @@ pub enum PermissionResponse {
     Deny(String),
 }
 
-/// Callback invoked by the runner when Claude CLI requests tool permission.
-///
-/// The caller blocks until the implementation returns a decision. The runner
-/// owns the Unix socket lifecycle; the callback only sees abstract types (SPEC §13.3).
+/// Callback provided to the runner to resolve tool permission requests. The runner owns its
+/// transport (MCP, stdio, HTTP, etc.). The callback blocks until the human decides. Runners
+/// that do not support tool permissions ignore this field.
 pub type PermissionResponder = Arc<dyn Fn(PermissionRequest) -> PermissionResponse + Send + Sync>;
 
 /// Streaming events emitted by `invoke_streaming()`.
@@ -56,7 +56,7 @@ pub enum RunnerEvent {
         input_tokens: u64,
         output_tokens: u64,
     },
-    /// A tool permission request arrived via the MCP bridge (SPEC §13.3).
+    /// A tool permission request arrived from the runner.
     PermissionRequested(PermissionRequest),
     /// The invocation completed successfully.
     Completed(RunResult),
@@ -64,25 +64,40 @@ pub enum RunnerEvent {
     Error(String),
 }
 
+/// Tool permission policy for a runner invocation (SPEC §5.8).
+#[derive(Debug, Clone, Default)]
+pub enum ToolPermissionPolicy {
+    /// Defer to the runner's default permission behaviour.
+    #[default]
+    RunnerDefault,
+    /// Pre-approve only these tools; all others require a permission decision.
+    Allowlist(Vec<String>),
+    /// Pre-deny these tools; all others proceed normally.
+    Denylist(Vec<String>),
+    /// Combine an allowlist and a denylist.
+    Mixed {
+        allow: Vec<String>,
+        deny: Vec<String>,
+    },
+}
+
 /// Options passed to a runner invocation. Extensible without changing the trait signature.
 #[derive(Default)]
 pub struct InvokeOptions {
-    /// Resumes an existing conversation by session ID (passed as `--resume <id>`).
+    /// Resumes an existing conversation by session ID. Runners that do not support session
+    /// continuity ignore this.
     pub resume_session_id: Option<String>,
-    /// Tools pre-approved for this step — passed as `--allowedTools` (SPEC §5.8).
-    pub allowed_tools: Vec<String>,
-    /// Tools pre-denied for this step — passed as `--disallowedTools` (SPEC §5.8).
-    pub denied_tools: Vec<String>,
-    /// Model to use for this invocation — passed as `--model` to the runner (SPEC §15).
+    /// Tool permission policy for this invocation (SPEC §5.8).
+    pub tool_policy: ToolPermissionPolicy,
+    /// Model to use for this invocation (SPEC §15).
     /// Resolved from: pipeline defaults → per-step override → CLI flag (highest priority).
     pub model: Option<String>,
-    /// Provider base URL — set as `ANTHROPIC_BASE_URL` in the runner subprocess env (SPEC §15).
-    pub base_url: Option<String>,
-    /// Provider auth token — set as `ANTHROPIC_AUTH_TOKEN` in the runner subprocess env (SPEC §15).
-    pub auth_token: Option<String>,
-    /// Callback for bidirectional permission prompts via the MCP bridge (SPEC §13.3).
-    /// When set (non-headless), `ClaudeCliRunner` creates a Unix socket, runs an accept loop,
-    /// and calls this callback for each permission request from Claude CLI.
+    /// Runner-specific extension data. Callers box a runner-native struct and runners
+    /// downcast it. Runners that do not recognise the extension type ignore this field.
+    pub extensions: Option<Box<dyn std::any::Any + Send>>,
+    /// Callback for bidirectional tool permission prompts. When set, the runner should
+    /// intercept permission requests and call this to obtain a decision before proceeding.
+    /// Runners that do not support tool permissions ignore this field.
     pub permission_responder: Option<PermissionResponder>,
 }
 
@@ -92,7 +107,7 @@ pub trait Runner {
     /// Streaming variant — emits `RunnerEvent`s through `tx` as the invocation progresses.
     ///
     /// The default implementation calls `invoke()` and sends a single `Completed` event.
-    /// Runners that support real streaming (e.g. `ClaudeCliRunner`) should override this.
+    /// Runners that support real streaming should override this.
     fn invoke_streaming(
         &self,
         prompt: &str,

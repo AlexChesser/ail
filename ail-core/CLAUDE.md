@@ -47,10 +47,17 @@ pub struct ProviderConfig { pub model: Option<String>, pub base_url: Option<Stri
 pub trait Runner { fn invoke(&self, prompt: &str, options: InvokeOptions) -> Result<RunResult, AilError>; }
 pub struct RunResult { pub response: String, pub cost_usd: Option<f64>, pub session_id: Option<String> }
 pub type PermissionResponder = Arc<dyn Fn(PermissionRequest) -> PermissionResponse + Send + Sync>;
-pub struct InvokeOptions { pub resume_session_id: Option<String>, pub allowed_tools: Vec<String>, pub denied_tools: Vec<String>, pub model: Option<String>, pub base_url: Option<String>, pub auth_token: Option<String>, pub permission_responder: Option<PermissionResponder> }
-// permission_responder: when set, ClaudeCliRunner::invoke_streaming creates a Unix socket, runs the
-// accept loop internally, and calls this callback for each permission request from Claude CLI.
-// The caller never manages socket paths — the socket lifecycle is encapsulated in ClaudeCliRunner.
+pub struct PermissionRequest { pub display_name: String, pub display_detail: String }
+// display_detail is pre-formatted by the runner from its native tool input format.
+pub enum ToolPermissionPolicy { RunnerDefault, Allowlist(Vec<String>), Denylist(Vec<String>), Mixed { allow: Vec<String>, deny: Vec<String> } }
+pub struct InvokeOptions { pub resume_session_id: Option<String>, pub tool_policy: ToolPermissionPolicy, pub model: Option<String>, pub extensions: Option<Box<dyn Any + Send>>, pub permission_responder: Option<PermissionResponder> }
+// extensions: runners downcast to their own type (e.g. ClaudeInvokeExtensions { base_url, auth_token, permission_socket }).
+// Executor packs ClaudeInvokeExtensions pragmatically; to be injected via runner config in task 04.
+// permission_responder: when set, the runner intercepts tool permission requests and calls this callback.
+// ClaudeCliRunner encapsulates the Unix socket lifecycle internally; the TUI never manages socket paths.
+
+// Claude CLI runner extensions (runner/claude.rs)
+pub struct ClaudeInvokeExtensions { pub base_url: Option<String>, pub auth_token: Option<String>, pub permission_socket: Option<PathBuf> }
 
 // Executor outcome
 pub enum ExecuteOutcome { Completed, Break { step_id: String } }

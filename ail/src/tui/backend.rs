@@ -6,6 +6,7 @@ use std::thread;
 
 use ail_core::config::domain::{Pipeline, ProviderConfig};
 use ail_core::executor::{self, ExecutionControl, ExecutorEvent};
+use ail_core::runner::claude::ClaudeInvokeExtensions;
 use ail_core::runner::{
     InvokeOptions, PermissionRequest, PermissionResponder, PermissionResponse, Runner, RunnerEvent,
 };
@@ -111,8 +112,11 @@ pub fn spawn_backend(
 
                         let invocation_options = InvokeOptions {
                             model: session.cli_provider.model.clone(),
-                            base_url: session.cli_provider.base_url.clone(),
-                            auth_token: session.cli_provider.auth_token.clone(),
+                            extensions: Some(Box::new(ClaudeInvokeExtensions {
+                                base_url: session.cli_provider.base_url.clone(),
+                                auth_token: session.cli_provider.auth_token.clone(),
+                                permission_socket: None,
+                            })),
                             permission_responder: Some(Arc::clone(&responder)),
                             ..InvokeOptions::default()
                         };

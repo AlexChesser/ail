@@ -23,69 +23,44 @@ HITL gates are intentional checkpoints, not error states.
 
 ### 13.3 Tool Permission HITL
 
-When a pipeline step invokes a tool not covered by `tools.allow` or `tools.deny` (see §5.8), `ail` intercepts the permission callback via an MCP bridge subprocess and presents it to the human before the tool executes.
+When a pipeline step encounters a tool not covered by its `tools.allow`/`tools.deny` policy (see §5.8), the executor passes a `PermissionResponder` callback to the runner via `InvokeOptions`. The runner is responsible for:
 
-**Implementation (v0.1 — validated):** `ail` uses Claude CLI's `--permission-prompt-tool <mcp_tool_name>` flag, not `--permission-prompt-tool stdio`. The actual mechanism is:
+1. Intercepting the permission decision point in its native protocol.
+2. Constructing a `PermissionRequest { display_name, display_detail }` with human-readable fields pre-formatted by the runner.
+3. Calling the `PermissionResponder` callback, which blocks until the human decides.
+4. Serialising the `PermissionResponse` (Allow / Deny) back to its native protocol.
 
-1. The TUI (or caller) provides a `PermissionResponder` callback — an `Arc<dyn Fn(PermissionRequest) -> PermissionResponse + Send + Sync>` — in `InvokeOptions`.
-2. `ClaudeCliRunner::invoke_streaming` detects this callback, creates a temporary Unix socket, and spawns a listener thread that owns the socket accept loop. The socket is ready before Claude CLI is spawned.
-3. `ClaudeCliRunner` writes a temporary MCP config file registering `ail mcp-bridge --socket <path>` as an MCP server and passes `--mcp-config` and `--permission-prompt-tool mcp__ail-permission__ail_check_permission` to Claude CLI.
-4. Claude CLI spawns `ail mcp-bridge` as a subprocess and communicates with it via JSON-RPC 2.0 over stdio.
-5. For each permission request, the MCP bridge connects to the Unix domain socket, sends a JSON line with `{tool_name, tool_input}`, and blocks until the listener thread replies.
-6. The listener thread calls the `PermissionResponder` callback (which may block waiting for TUI input), then serialises the response and writes it back to the socket.
-7. After Claude CLI exits, `ClaudeCliRunner` deletes both temp files. The socket lifecycle is fully encapsulated inside `invoke_streaming` — the TUI never sees a socket path.
+Runners that do not support tool permissions ignore the `permission_responder` field. Runners in headless mode bypass permission HITL entirely.
 
-The MCP tool result text contains one of:
+**Allow for session** is managed in `ail`'s session state. When the user selects this option, `ail` records the `display_name` in an in-memory allowlist. Subsequent matching permission requests receive an automatic Allow without prompting.
 
-```json
-// Allow this tool call once
-{ "behavior": "allow" }
-
-// Deny this tool call
-{ "behavior": "deny", "message": "User rejected this action" }
-```
-
-**`updatedInput`** support (Modify response) is deferred to v0.2. It requires `{ "behavior": "allow", "updatedInput": { ...corrected parameters... } }` in the MCP tool result.
-
-**Allow for session** is managed entirely in `ail`'s session state, not in the Claude CLI. When the user selects this option, `ail` records the tool name in an in-memory allowlist. For the remainder of the session, matching permission requests receive an automatic `{"behavior": "allow"}` without prompting.
-
-**Headless mode:** When `--headless` is passed, the MCP bridge is not configured and `--dangerously-skip-permissions` is used instead. No permission prompts occur.
-
-**Custom providers (Ollama, Bedrock, etc.):** When a pipeline step overrides `provider.base_url`, the MCP bridge is NOT configured for that step. Third-party providers do not implement Claude's permission model, and small local models will spuriously call any MCP tool visible in their context, causing the pipeline to block indefinitely. Permission HITL applies only to steps that use the default Claude API endpoint.
-
-#### Permission Mode
-
-`ail` uses Claude CLI's `--permission-prompt-tool` flag to delegate all permission decisions to the MCP bridge. The `--permission-mode` flag is not used in v0.1; a future version may expose it as a session-level option.
+The Claude CLI reference implementation uses an MCP bridge subprocess and Unix domain socket — see `spec/runner/r02-claude-cli.md §Tool Permission Interface`.
 
 ### 13.4 Tool Permission Flow
 
 ```
-Claude CLI wants to invoke a tool
+Runner wants to invoke a tool
   ↓
-Is tool in step's tools.allow? (--allowedTools)
-  YES → tool executes — no MCP bridge involved
-  ↓ NO
-Is tool in step's tools.deny? (--disallowedTools)
-  YES → tool denied — no MCP bridge involved
-  ↓ NO
-Claude CLI calls ail_check_permission MCP tool
+Runner checks InvokeOptions.tool_policy
+  → Pre-approved (Allowlist)?  YES → tool executes
+  → Pre-denied  (Denylist)?    YES → tool denied
+  ↓ UNKNOWN
+Runner calls PermissionResponder(PermissionRequest { display_name, display_detail })
   ↓
-ail mcp-bridge receives tools/call, forwards to Unix socket
-  ↓
-ail listener thread receives request, checks session allowlist
-  → In allowlist? YES → { "behavior": "allow" } — silent, no prompt
+TUI checks session allowlist
+  → In allowlist? YES → Allow — silent, no prompt
   ↓ NO
-TUI shows permission modal (tool name + truncated input JSON)
-  → y (Approve once)       → { "behavior": "allow" }
-  → a (Allow for session)  → { "behavior": "allow" } + add tool to session allowlist
-  → n (Deny)               → { "behavior": "deny", "message": "User rejected" }
+TUI shows permission modal (display_name + display_detail)
+  → y (Approve once)       → PermissionResponse::Allow
+  → a (Allow for session)  → PermissionResponse::Allow + add display_name to session allowlist
+  → n (Deny)               → PermissionResponse::Deny("User rejected")
   [Modify deferred to v0.2]
   ↓
-Response written to Unix socket → MCP bridge → MCP tool result → Claude CLI
+Runner serialises response to its native protocol
 ```
 
 **v0.1 supported responses:** approve once, allow for session, deny.
-**v0.2 deferred:** modify (edit tool input before allowing — requires `updatedInput` in MCP response).
+**v0.2 deferred:** modify (edit tool input before allowing).
 
 ### 13.5 Implicit HITL via `on_result`
 
