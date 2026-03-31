@@ -22,6 +22,7 @@
 pub mod claude;
 pub mod stub;
 
+use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
 use crate::error::AilError;
@@ -118,6 +119,11 @@ pub struct InvokeOptions {
     /// intercept permission requests and call this to obtain a decision before proceeding.
     /// Runners that do not support tool permissions ignore this field.
     pub permission_responder: Option<PermissionResponder>,
+    /// When set, the runner should abort the in-flight subprocess if this flag becomes `true`.
+    /// Callers share the same `Arc<AtomicBool>` used for the kill signal so that CTRL-C and
+    /// Ctrl+K both cancel mid-invocation requests. Runners that do not support cancellation
+    /// ignore this field.
+    pub cancel_token: Option<Arc<AtomicBool>>,
 }
 
 pub trait Runner {

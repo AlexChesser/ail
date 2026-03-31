@@ -2,11 +2,13 @@
 
 use std::io::{BufRead, BufReader, Read, Write};
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{mpsc, Arc, Mutex};
+use std::thread;
+use std::time::Duration;
 
 use interprocess::local_socket::traits::ListenerExt; // for .incoming() on LocalSocketListener
 use std::process::{Command, Stdio};
-use std::sync::{mpsc, Arc};
-use std::thread;
 
 use super::{
     InvokeOptions, PermissionRequest, PermissionResponder, RunResult, Runner, RunnerEvent,
@@ -636,6 +638,10 @@ impl Runner for ClaudeCliRunner {
     /// Streaming variant — parses `assistant` NDJSON events and emits `RunnerEvent`s.
     /// Sends `StreamDelta` for each text content block, `ToolUse`/`ToolResult` for tool turns,
     /// `CostUpdate` from the final `result` event, then `Completed`.
+    ///
+    /// If `options.cancel_token` is set, a watchdog thread polls it at 50 ms intervals. When
+    /// the flag becomes `true`, the child subprocess is killed and the invocation returns
+    /// `RUNNER_CANCELLED`. This is used by CTRL-C and Ctrl+K in the TUI.
     fn invoke_streaming(
         &self,
         prompt: &str,
@@ -657,7 +663,7 @@ impl Runner for ClaudeCliRunner {
                     .and_then(|e| e.downcast_ref::<ClaudeInvokeExtensions>())
                     .cloned()
                     .unwrap_or_default();
-                exts.permission_socket = Some(sock_path); // sock_path is now String
+                exts.permission_socket = Some(sock_path);
                 options.extensions = Some(Box::new(exts));
             }
         }
@@ -675,6 +681,34 @@ impl Runner for ClaudeCliRunner {
             let _ = BufReader::new(stderr).read_to_string(&mut s);
             s
         });
+
+        // Wrap child in Arc<Mutex> so the watchdog thread can call kill() concurrently.
+        let child = Arc::new(Mutex::new(child));
+
+        // Watchdog: polls cancel_token at 50 ms intervals and kills the child if set.
+        // The `done` flag signals the watchdog to exit after a normal invocation completes.
+        let done = Arc::new(AtomicBool::new(false));
+        let watchdog_handle = options.cancel_token.as_ref().map(|token| {
+            let token = Arc::clone(token);
+            let done_w = Arc::clone(&done);
+            let child_w = Arc::clone(&child);
+            thread::spawn(move || {
+                loop {
+                    if done_w.load(Ordering::SeqCst) {
+                        return;
+                    }
+                    if token.load(Ordering::SeqCst) {
+                        tracing::info!("cancel_token set — killing runner subprocess");
+                        if let Ok(mut c) = child_w.lock() {
+                            let _ = c.kill();
+                        }
+                        return;
+                    }
+                    thread::sleep(Duration::from_millis(50));
+                }
+            })
+        });
+
         let reader = BufReader::new(stdout);
 
         let mut result_response: Option<String> = None;
@@ -682,24 +716,28 @@ impl Runner for ClaudeCliRunner {
         let mut result_session_id: Option<String> = None;
         let mut error_detail: Option<String> = None;
 
+        // Use match-and-break rather than `?` so the done flag is always set before return.
         for line in reader.lines() {
-            let line = line.map_err(|e| AilError {
-                error_type: error_types::RUNNER_INVOCATION_FAILED,
-                title: "Failed to read claude CLI output",
-                detail: e.to_string(),
-                context: None,
-            })?;
+            let line = match line {
+                Ok(l) => l,
+                Err(e) => {
+                    error_detail = Some(e.to_string());
+                    break;
+                }
+            };
 
             if line.is_empty() {
                 continue;
             }
 
-            let event: serde_json::Value = serde_json::from_str(&line).map_err(|e| AilError {
-                error_type: error_types::RUNNER_INVOCATION_FAILED,
-                title: "Malformed JSON from claude CLI",
-                detail: format!("Could not parse line: {e}\nLine: {line}"),
-                context: None,
-            })?;
+            let event: serde_json::Value = match serde_json::from_str(&line) {
+                Ok(v) => v,
+                Err(e) => {
+                    error_detail =
+                        Some(format!("Malformed JSON from claude CLI: {e}\nLine: {line}"));
+                    break;
+                }
+            };
 
             tracing::trace!(line = %line, "stream-json raw line");
 
@@ -722,15 +760,50 @@ impl Runner for ClaudeCliRunner {
             }
         }
 
-        let exit_status = child.wait().map_err(|e| AilError {
-            error_type: error_types::RUNNER_INVOCATION_FAILED,
-            title: "Failed to wait for claude CLI",
-            detail: e.to_string(),
-            context: None,
-        })?;
+        // Signal watchdog to exit and join it (max 50 ms extra latency on normal completion).
+        done.store(true, Ordering::SeqCst);
+        if let Some(h) = watchdog_handle {
+            let _ = h.join();
+        }
+
+        // Check for cancellation before interpreting exit status — a killed child exits
+        // non-zero, which would otherwise look like an unexpected failure.
+        let was_cancelled = options
+            .cancel_token
+            .as_ref()
+            .map(|t| t.load(Ordering::SeqCst))
+            .unwrap_or(false);
+
+        let exit_status = child
+            .lock()
+            .expect("child mutex not poisoned")
+            .wait()
+            .map_err(|e| AilError {
+                error_type: error_types::RUNNER_INVOCATION_FAILED,
+                title: "Failed to wait for claude CLI",
+                detail: e.to_string(),
+                context: None,
+            })?;
 
         // Wait for the stderr drain thread now that stdout is exhausted.
         let stderr_output = stderr_reader.join().unwrap_or_default();
+
+        if was_cancelled {
+            tracing::info!("runner invocation cancelled by user");
+            let _ = tx.send(RunnerEvent::Error("cancelled".to_string()));
+            if let Some(path) = mcp_config {
+                let _ = std::fs::remove_file(path);
+            }
+            if let Some(ref addr) = permission_socket_path {
+                crate::ipc::cleanup_address(addr);
+            }
+            return Err(AilError {
+                error_type: error_types::RUNNER_CANCELLED,
+                title: "Invocation cancelled",
+                detail: "Runner subprocess was cancelled by user request".to_string(),
+                context: None,
+            });
+        }
 
         if let Some(detail) = error_detail {
             let _ = tx.send(RunnerEvent::Error(detail.clone()));

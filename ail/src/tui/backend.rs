@@ -132,6 +132,7 @@ pub fn spawn_backend(
                                 permission_socket: None,
                             })),
                             permission_responder: Some(Arc::clone(&responder)),
+                            cancel_token: Some(Arc::clone(&control.kill_requested)),
                             ..InvokeOptions::default()
                         };
 

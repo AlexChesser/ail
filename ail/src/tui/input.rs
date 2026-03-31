@@ -127,7 +127,7 @@ fn handle_interrupt_modal(
         }
         (KeyModifiers::CONTROL, KeyCode::Char('c')) => {
             app.running = false;
-            vec![]
+            vec![SideEffect::SetKillFlag]
         }
         _ => vec![],
     }
@@ -135,10 +135,10 @@ fn handle_interrupt_modal(
 
 fn handle_prompt(app: &mut AppState, modifiers: KeyModifiers, code: KeyCode) -> Vec<SideEffect> {
     match (modifiers, code) {
-        // Quit: Ctrl-C
+        // Quit: Ctrl-C — also fire kill so any in-flight runner subprocess is cancelled.
         (KeyModifiers::CONTROL, KeyCode::Char('c')) => {
             app.running = false;
-            vec![]
+            vec![SideEffect::SetKillFlag]
         }
 
         // Ctrl+K: kill step directly (no pause first) (M11)

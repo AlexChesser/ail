@@ -237,6 +237,7 @@ fn execute_inner(
                         permission_socket: None,
                     })),
                     permission_responder: None,
+                    cancel_token: None,
                 };
 
                 let result = runner.invoke(&resolved, options).map_err(|mut e| {
@@ -527,6 +528,7 @@ pub fn execute_with_control(
                         permission_socket: None,
                     })),
                     permission_responder: control.permission_responder.clone(),
+                    cancel_token: Some(Arc::clone(&control.kill_requested)),
                 };
 
                 // Create a sub-channel for runner events.
