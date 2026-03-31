@@ -403,5 +403,9 @@ Either outcome is useful. The experiment can be designed. If you work in model e
 **Contributor License Agreement (CLA):** All contributors must sign the `ail` CLA before their pull requests can be merged. The CLA assigns copyright in your contributions to the project maintainer, preserving the ability to relicense any part of the project in the future.
 
 ---
+## Star History
+
+[![Star History Chart](https://api.star-history.com/image?repos=alexchesser/ail&type=date&legend=top-left)](https://www.star-history.com/?repos=alexchesser%2Fail&type=date&legend=top-left)
+
 
 *`ail` is built in public. The spec is the product. The implementation follows.*
