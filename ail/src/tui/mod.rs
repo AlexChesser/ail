@@ -11,7 +11,7 @@ use std::io;
 pub fn run(
     pipeline: Option<ail_core::config::domain::Pipeline>,
     cli_provider: ail_core::config::domain::ProviderConfig,
-    headless: bool,
+    runner: Box<dyn ail_core::runner::Runner + Send>,
 ) -> io::Result<()> {
-    inline::run(pipeline, cli_provider, headless)
+    inline::run(pipeline, cli_provider, runner)
 }

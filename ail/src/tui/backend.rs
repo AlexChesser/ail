@@ -9,7 +9,6 @@ use std::thread;
 
 use ail_core::config::domain::{Pipeline, ProviderConfig};
 use ail_core::executor::{self, ExecutionControl, ExecutorEvent};
-use ail_core::runner::claude::ClaudeCliRunner;
 use ail_core::runner::{InvokeOptions, PermissionRequest, PermissionResponse, Runner, RunnerEvent};
 use ail_core::session::{Session, TurnEntry};
 
@@ -47,13 +46,12 @@ pub enum BackendEvent {
 pub fn spawn_backend(
     pipeline: Option<Pipeline>,
     cli_provider: ProviderConfig,
-    headless: bool,
+    runner: Box<dyn Runner + Send>,
 ) -> (mpsc::Sender<BackendCommand>, mpsc::Receiver<BackendEvent>) {
     let (cmd_tx, cmd_rx) = mpsc::channel::<BackendCommand>();
     let (event_tx, event_rx) = mpsc::channel::<BackendEvent>();
 
     thread::spawn(move || {
-        let runner = ClaudeCliRunner::new(headless);
         let mut resolved_pipeline = pipeline.unwrap_or_else(Pipeline::passthrough);
 
         for cmd in cmd_rx {
@@ -82,7 +80,7 @@ pub fn spawn_backend(
 
                     // Set up permission HITL (non-headless only): bind a Unix socket,
                     // spawn a listener thread, and send the response channel to the TUI.
-                    let perm_socket_path: Option<PathBuf> = if !headless {
+                    let perm_socket_path: Option<PathBuf> = if runner.needs_permission_socket() {
                         let path = std::env::temp_dir()
                             .join(format!("ail-perm-{}.sock", uuid::Uuid::new_v4()));
                         Some(path)
@@ -243,7 +241,7 @@ pub fn spawn_backend(
 
                     match executor::execute_with_control(
                         &mut session,
-                        &runner,
+                        &*runner,
                         &control,
                         &disabled_steps,
                         exec_tx,

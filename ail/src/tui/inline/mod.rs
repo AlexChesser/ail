@@ -37,7 +37,7 @@ const INLINE_HEIGHT: u16 = 10;
 pub fn run(
     pipeline: Option<ail_core::config::domain::Pipeline>,
     cli_provider: ail_core::config::domain::ProviderConfig,
-    headless: bool,
+    runner: Box<dyn ail_core::runner::Runner + Send>,
 ) -> io::Result<()> {
     enable_raw_mode()?;
     let mut stdout = io::stdout();
@@ -56,7 +56,7 @@ pub fn run(
         },
     )?;
 
-    run_app(&mut terminal, pipeline, cli_provider, headless)?;
+    run_app(&mut terminal, pipeline, cli_provider, runner)?;
 
     disable_raw_mode()?;
     if keyboard_enhanced {
@@ -73,11 +73,11 @@ fn run_app(
     terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
     pipeline: Option<ail_core::config::domain::Pipeline>,
     cli_provider: ail_core::config::domain::ProviderConfig,
-    headless: bool,
+    runner: Box<dyn ail_core::runner::Runner + Send>,
 ) -> io::Result<()> {
     let mut app = AppState::new(pipeline.clone());
     app.picker_entries = ail_core::config::discovery::discover_all();
-    let (cmd_tx, event_rx) = super::backend::spawn_backend(pipeline, cli_provider, headless);
+    let (cmd_tx, event_rx) = super::backend::spawn_backend(pipeline, cli_provider, runner);
 
     let mut hitl_tx: Option<mpsc::Sender<String>> = None;
     // Index into app.viewport_lines of the next line to flush to the scrollback.

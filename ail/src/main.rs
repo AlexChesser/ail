@@ -205,7 +205,8 @@ fn main() {
                     base_url: cli.provider_url.clone(),
                     auth_token: cli.provider_token.clone(),
                 };
-                if let Err(e) = tui::run(pipeline, cli_provider, cli.headless) {
+                let runner = Box::new(ail_core::runner::claude::ClaudeCliRunner::new(cli.headless));
+                if let Err(e) = tui::run(pipeline, cli_provider, runner) {
                     eprintln!("TUI error: {e}");
                     std::process::exit(1);
                 }

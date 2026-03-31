@@ -155,6 +155,10 @@ impl Default for ClaudeCliRunner {
 }
 
 impl Runner for ClaudeCliRunner {
+    fn needs_permission_socket(&self) -> bool {
+        !self.headless
+    }
+
     fn invoke(&self, prompt: &str, options: InvokeOptions) -> Result<RunResult, AilError> {
         let (mut child, mcp_config) = self.spawn_process(prompt, &options)?;
 

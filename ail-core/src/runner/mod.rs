@@ -81,6 +81,13 @@ pub struct InvokeOptions {
 pub trait Runner {
     fn invoke(&self, prompt: &str, options: InvokeOptions) -> Result<RunResult, AilError>;
 
+    /// Whether this runner requires a Unix permission socket for HITL permission prompts.
+    ///
+    /// Returns `false` by default. `ClaudeCliRunner` overrides this based on `headless`.
+    fn needs_permission_socket(&self) -> bool {
+        false
+    }
+
     /// Streaming variant — emits `RunnerEvent`s through `tx` as the invocation progresses.
     ///
     /// The default implementation calls `invoke()` and sends a single `Completed` event.
