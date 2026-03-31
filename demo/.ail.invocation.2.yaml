@@ -2,7 +2,11 @@ version: "0.0.1"
 defaults:
   model: qwen3.5:0.8b
   provider:
-    base_url: http://172.30.16.1:11434
+    # note to use localhost in WSL you must first create a file called
+    # .wslconfig in your windows home directory and include the lines
+    #    [wsl2]
+    #    networkingMode=mirrored
+    base_url: http://localhost:11434
     auth_token: ollama
 pipeline:
   - id: invocation

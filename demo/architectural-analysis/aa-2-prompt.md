@@ -1,6 +1,6 @@
 # TASK: Structural and Architectural Audit of the "ail" TUI
 
-You are to perform a rigorous architectural analysis of the current TUI implementation within the "ail" (Alexander's Impressive Loops) repository. Base your evaluation on the current codebase and the standards defined in `ARCHITECTURE.md`.
+You are to perform a rigorous architectural analysis of the current TUI implementation within the "ail" (Alexander's Impressive Loops) repository. Base your evaluation on the current codebase and the standards defined in `ARCHITECTURE.md`.  Read CLAUDE.md in the root to get an overview of the current applicaiton before reading individual files to verify the architecture. 
 
 ## CONTEXT & REFERENCE MATERIAL
 1. **Primary Document:** Read `ARCHITECTURE.md` to establish the ground-truth principles of the project.
@@ -18,7 +18,7 @@ Evaluate the codebase against the following technical benchmarks:
 ## OUTPUT SPECIFICATION
 Generate a valid JSON object that could serve as the data source for a frontend table. 
 
-* **File Name:** `qwen-architectural-analysis.json`
+* **File Name:** `qwen-architectural-analysis-2.json`
 * **Location:** `/demo` folder.
 * **Schema Requirements:** Each entry must include:
 {
