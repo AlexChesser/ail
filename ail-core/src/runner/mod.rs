@@ -3,6 +3,8 @@
 pub mod claude;
 pub mod stub;
 
+use std::sync::Arc;
+
 use crate::error::AilError;
 
 /// Result of a single runner invocation.
@@ -30,6 +32,12 @@ pub enum PermissionResponse {
     /// Deny the tool; optional reason shown to the model.
     Deny(String),
 }
+
+/// Callback invoked by the runner when Claude CLI requests tool permission.
+///
+/// The caller blocks until the implementation returns a decision. The runner
+/// owns the Unix socket lifecycle; the callback only sees abstract types (SPEC §13.3).
+pub type PermissionResponder = Arc<dyn Fn(PermissionRequest) -> PermissionResponse + Send + Sync>;
 
 /// Streaming events emitted by `invoke_streaming()`.
 #[derive(Debug, Clone)]
@@ -72,21 +80,14 @@ pub struct InvokeOptions {
     pub base_url: Option<String>,
     /// Provider auth token — set as `ANTHROPIC_AUTH_TOKEN` in the runner subprocess env (SPEC §15).
     pub auth_token: Option<String>,
-    /// Unix socket path for bidirectional permission prompts via the MCP bridge (SPEC §13.3).
-    /// When set (non-headless), the runner writes an MCP config pointing to `ail mcp-bridge`
-    /// and passes `--permission-prompt-tool ail_check_permission` to Claude CLI.
-    pub permission_socket: Option<std::path::PathBuf>,
+    /// Callback for bidirectional permission prompts via the MCP bridge (SPEC §13.3).
+    /// When set (non-headless), `ClaudeCliRunner` creates a Unix socket, runs an accept loop,
+    /// and calls this callback for each permission request from Claude CLI.
+    pub permission_responder: Option<PermissionResponder>,
 }
 
 pub trait Runner {
     fn invoke(&self, prompt: &str, options: InvokeOptions) -> Result<RunResult, AilError>;
-
-    /// Whether this runner requires a Unix permission socket for HITL permission prompts.
-    ///
-    /// Returns `false` by default. `ClaudeCliRunner` overrides this based on `headless`.
-    fn needs_permission_socket(&self) -> bool {
-        false
-    }
 
     /// Streaming variant — emits `RunnerEvent`s through `tx` as the invocation progresses.
     ///

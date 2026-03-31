@@ -46,9 +46,11 @@ pub struct ProviderConfig { pub model: Option<String>, pub base_url: Option<Stri
 // Runner contract
 pub trait Runner { fn invoke(&self, prompt: &str, options: InvokeOptions) -> Result<RunResult, AilError>; }
 pub struct RunResult { pub response: String, pub cost_usd: Option<f64>, pub session_id: Option<String> }
-pub struct InvokeOptions { pub resume_session_id: Option<String>, pub allowed_tools: Vec<String>, pub denied_tools: Vec<String>, pub model: Option<String>, pub base_url: Option<String>, pub auth_token: Option<String>, pub permission_socket: Option<std::path::PathBuf> }
-// permission_socket: when set (non-headless TUI runs), ClaudeCliRunner writes a temp MCP config and
-// passes --mcp-config + --permission-prompt-tool ail_check_permission to Claude CLI.
+pub type PermissionResponder = Arc<dyn Fn(PermissionRequest) -> PermissionResponse + Send + Sync>;
+pub struct InvokeOptions { pub resume_session_id: Option<String>, pub allowed_tools: Vec<String>, pub denied_tools: Vec<String>, pub model: Option<String>, pub base_url: Option<String>, pub auth_token: Option<String>, pub permission_responder: Option<PermissionResponder> }
+// permission_responder: when set, ClaudeCliRunner::invoke_streaming creates a Unix socket, runs the
+// accept loop internally, and calls this callback for each permission request from Claude CLI.
+// The caller never manages socket paths — the socket lifecycle is encapsulated in ClaudeCliRunner.
 
 // Executor outcome
 pub enum ExecuteOutcome { Completed, Break { step_id: String } }

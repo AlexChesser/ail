@@ -7,8 +7,7 @@ use std::time::Duration;
 
 use crossterm::{
     event::{
-        self, KeyboardEnhancementFlags, PopKeyboardEnhancementFlags,
-        PushKeyboardEnhancementFlags,
+        self, KeyboardEnhancementFlags, PopKeyboardEnhancementFlags, PushKeyboardEnhancementFlags,
     },
     execute,
     terminal::{disable_raw_mode, enable_raw_mode},
@@ -120,10 +119,13 @@ fn run_app(
             let rows = if char_count == 0 {
                 1
             } else {
-                (char_count + wrap_width - 1) / wrap_width
+                char_count.div_ceil(wrap_width)
             };
             terminal.insert_before(rows, |buf| {
-                let render_area = Rect { width: wrap_width.min(buf.area.width), ..buf.area };
+                let render_area = Rect {
+                    width: wrap_width.min(buf.area.width),
+                    ..buf.area
+                };
                 Paragraph::new(style_line(&line_text))
                     .wrap(Wrap { trim: false })
                     .render(render_area, buf);

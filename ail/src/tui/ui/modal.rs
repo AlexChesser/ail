@@ -68,21 +68,22 @@ fn draw_permission_modal(frame: &mut Frame, app: &AppState, area: Rect) {
         let selected = idx == app.perm_cursor;
         let prefix = if selected { "▶ " } else { "  " };
         let row_style = if selected {
-            Style::default().fg(Color::White).add_modifier(Modifier::BOLD)
+            Style::default()
+                .fg(Color::White)
+                .add_modifier(Modifier::BOLD)
         } else {
             Style::default()
         };
-        lines.push(Line::styled(
-            format!("{prefix}{key}  {label}"),
-            row_style,
-        ));
+        lines.push(Line::styled(format!("{prefix}{key}  {label}"), row_style));
         // Overlay the key letter in its color regardless of selection highlight.
         let last = lines.last_mut().unwrap();
         *last = Line::from(vec![
             Span::styled(
                 prefix.to_string(),
                 if selected {
-                    Style::default().fg(Color::White).add_modifier(Modifier::BOLD)
+                    Style::default()
+                        .fg(Color::White)
+                        .add_modifier(Modifier::BOLD)
                 } else {
                     Style::default()
                 },
@@ -94,7 +95,9 @@ fn draw_permission_modal(frame: &mut Frame, app: &AppState, area: Rect) {
             Span::styled(
                 format!("  {label}"),
                 if selected {
-                    Style::default().fg(Color::White).add_modifier(Modifier::BOLD)
+                    Style::default()
+                        .fg(Color::White)
+                        .add_modifier(Modifier::BOLD)
                 } else {
                     Style::default().fg(Color::DarkGray)
                 },

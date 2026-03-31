@@ -1,12 +1,15 @@
 #![allow(clippy::result_large_err)]
 
-use std::io::{BufRead, BufReader, Read};
+use std::io::{BufRead, BufReader, Read, Write};
+use std::os::unix::net::UnixListener;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
-use std::sync::mpsc;
+use std::sync::{mpsc, Arc};
 use std::thread;
 
-use super::{InvokeOptions, RunResult, Runner, RunnerEvent};
+use super::{
+    InvokeOptions, PermissionRequest, PermissionResponder, RunResult, Runner, RunnerEvent,
+};
 use crate::error::{error_types, AilError};
 
 /// Drives the `claude` CLI in `--output-format stream-json --verbose -p` mode.
@@ -64,13 +67,77 @@ impl ClaudeCliRunner {
         Ok(config_path)
     }
 
+    /// Bind a Unix socket, spawn an accept-loop thread, and return the socket path plus a
+    /// ready-signal receiver. The thread calls `responder` for each permission request from
+    /// Claude CLI and writes the serialised response back over the same connection.
+    ///
+    /// The caller must wait on the returned `Receiver<()>` before spawning Claude CLI to
+    /// avoid a race where the MCP bridge tries to connect before the socket exists.
+    fn spawn_permission_listener(
+        responder: PermissionResponder,
+        event_tx: mpsc::Sender<RunnerEvent>,
+    ) -> Result<(PathBuf, thread::JoinHandle<()>, mpsc::Receiver<()>), AilError> {
+        let socket_path =
+            std::env::temp_dir().join(format!("ail-perm-{}.sock", uuid::Uuid::new_v4()));
+        let (ready_tx, ready_rx) = mpsc::channel::<()>();
+        let path = socket_path.clone();
+        let handle = thread::spawn(move || {
+            let listener = match UnixListener::bind(&path) {
+                Ok(l) => l,
+                Err(e) => {
+                    tracing::error!(error = %e, "permission: failed to bind socket");
+                    return;
+                }
+            };
+            let _ = ready_tx.send(());
+            for stream in listener.incoming() {
+                let mut conn = match stream {
+                    Ok(s) => s,
+                    Err(_) => break,
+                };
+                let mut reader = BufReader::new(&conn);
+                let mut line = String::new();
+                if reader.read_line(&mut line).is_err() {
+                    continue;
+                }
+                let req_val: serde_json::Value = match serde_json::from_str(line.trim()) {
+                    Ok(v) => v,
+                    Err(_) => continue,
+                };
+                let tool_input = req_val["tool_input"].clone();
+                let perm_req = PermissionRequest {
+                    tool_name: req_val["tool_name"].as_str().unwrap_or("").to_string(),
+                    tool_input: tool_input.clone(),
+                };
+                let _ = event_tx.send(RunnerEvent::PermissionRequested(perm_req.clone()));
+                let response = responder(perm_req);
+                let resp_json = match response {
+                    super::PermissionResponse::Allow => {
+                        serde_json::json!({"behavior": "allow", "updatedInput": tool_input})
+                    }
+                    super::PermissionResponse::Deny(reason) => {
+                        serde_json::json!({"behavior": "deny", "message": reason})
+                    }
+                };
+                let mut resp_line = serde_json::to_string(&resp_json).unwrap_or_default();
+                resp_line.push('\n');
+                let _ = conn.write_all(resp_line.as_bytes());
+            }
+        });
+        Ok((socket_path, handle, ready_rx))
+    }
+
     /// Spawn the claude CLI process. Shared by `invoke` and `invoke_streaming`.
+    ///
+    /// `permission_socket` is passed explicitly (not via `options`) so that the socket
+    /// lifecycle is managed by the caller; `InvokeOptions` carries only the responder callback.
     ///
     /// Returns `(Child, Option<mcp_config_path_to_clean_up>)`.
     fn spawn_process(
         &self,
         prompt: &str,
         options: &InvokeOptions,
+        permission_socket: Option<&std::path::Path>,
     ) -> Result<(std::process::Child, Option<PathBuf>), AilError> {
         let mut args: Vec<String> = vec![
             "--output-format".into(),
@@ -106,7 +173,7 @@ impl ClaudeCliRunner {
         // Custom providers (Ollama, Bedrock, etc.) don't use Claude's permission model and
         // small models will spuriously call whatever MCP tools they see in their context,
         // causing the pipeline to block indefinitely waiting for TUI input.
-        let mcp_config_path = if let Some(ref socket) = options.permission_socket {
+        let mcp_config_path = if let Some(socket) = permission_socket {
             if !self.headless && options.base_url.is_none() {
                 let config_path = Self::write_mcp_config(socket)?;
                 args.push("--mcp-config".into());
@@ -155,12 +222,8 @@ impl Default for ClaudeCliRunner {
 }
 
 impl Runner for ClaudeCliRunner {
-    fn needs_permission_socket(&self) -> bool {
-        !self.headless
-    }
-
     fn invoke(&self, prompt: &str, options: InvokeOptions) -> Result<RunResult, AilError> {
-        let (mut child, mcp_config) = self.spawn_process(prompt, &options)?;
+        let (mut child, mcp_config) = self.spawn_process(prompt, &options, None)?;
 
         let stdout = child.stdout.take().expect("stdout was piped");
         let stderr = child.stderr.take().expect("stderr was piped");
@@ -289,7 +352,21 @@ impl Runner for ClaudeCliRunner {
         options: InvokeOptions,
         tx: mpsc::Sender<RunnerEvent>,
     ) -> Result<RunResult, AilError> {
-        let (mut child, mcp_config) = self.spawn_process(prompt, &options)?;
+        let permission_socket = if let Some(ref responder) = options.permission_responder {
+            if !self.headless {
+                let (sock_path, _listener_handle, ready_rx) =
+                    Self::spawn_permission_listener(Arc::clone(responder), tx.clone())?;
+                let _ = ready_rx.recv();
+                Some(sock_path)
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        let (mut child, mcp_config) =
+            self.spawn_process(prompt, &options, permission_socket.as_deref())?;
 
         let stdout = child.stdout.take().expect("stdout was piped");
         let stderr = child.stderr.take().expect("stderr was piped");
@@ -461,6 +538,9 @@ impl Runner for ClaudeCliRunner {
         })?;
 
         if let Some(path) = mcp_config {
+            let _ = std::fs::remove_file(path);
+        }
+        if let Some(ref path) = permission_socket {
             let _ = std::fs::remove_file(path);
         }
         let result = RunResult {

@@ -70,16 +70,19 @@ The MCP bridge forwards requests to the main `ail` process via a Unix domain soc
 **IPC topology:**
 ```
 Claude CLI ──[MCP stdio]──► ail mcp-bridge ──[Unix socket]──► ail listener thread
-                                                                      ↕ mpsc channel
+                                                                      ↕ PermissionResponder callback
                                                                   TUI permission modal
 ```
 
-**Lifecycle:** For each non-headless run, `ail`:
+**Lifecycle:** For each `invoke_streaming` call with a `permission_responder` set in `InvokeOptions`, `ClaudeCliRunner`:
 1. Creates a temporary Unix socket path (`/tmp/ail-perm-<uuid>.sock`)
-2. Writes a temporary MCP config file (`/tmp/ail-mcp-config-<uuid>.json`)
-3. Spawns a listener thread that accepts one connection per permission request
-4. Passes both paths to Claude CLI via `--mcp-config` and `--permission-prompt-tool`
-5. Cleans up both temp files after the run completes
+2. Spawns a listener thread that binds the socket and signals readiness
+3. Waits for the ready signal before proceeding (avoids a race with MCP bridge connect)
+4. Writes a temporary MCP config file (`/tmp/ail-mcp-config-<uuid>.json`)
+5. Passes both paths to Claude CLI via `--mcp-config` and `--permission-prompt-tool`
+6. Cleans up both temp files after Claude CLI exits
+
+The socket lifecycle is entirely encapsulated in `ClaudeCliRunner::invoke_streaming`. The caller (TUI or executor) only provides a `PermissionResponder` callback — it never handles socket paths or raw JSON.
 
 **Headless mode:** The MCP config and `--permission-prompt-tool` are omitted when `--headless` is active; `--dangerously-skip-permissions` is used instead.
 

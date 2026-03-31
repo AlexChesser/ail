@@ -1,15 +1,14 @@
 use std::collections::HashSet;
-use std::io::{BufRead, BufReader, Write};
-use std::os::unix::net::UnixListener;
-use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
 use std::sync::mpsc;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::thread;
 
 use ail_core::config::domain::{Pipeline, ProviderConfig};
 use ail_core::executor::{self, ExecutionControl, ExecutorEvent};
-use ail_core::runner::{InvokeOptions, PermissionRequest, PermissionResponse, Runner, RunnerEvent};
+use ail_core::runner::{
+    InvokeOptions, PermissionRequest, PermissionResponder, PermissionResponse, Runner, RunnerEvent,
+};
 use ail_core::session::{Session, TurnEntry};
 
 /// Commands sent from the TUI to the backend thread.
@@ -78,92 +77,21 @@ pub fn spawn_backend(
                     let (hitl_tx, hitl_rx) = mpsc::channel::<String>();
                     let _ = event_tx.send(BackendEvent::HitlReady(hitl_tx));
 
-                    // Set up permission HITL (non-headless only): bind a Unix socket,
-                    // spawn a listener thread, and send the response channel to the TUI.
-                    let perm_socket_path: Option<PathBuf> = if runner.needs_permission_socket() {
-                        let path = std::env::temp_dir()
-                            .join(format!("ail-perm-{}.sock", uuid::Uuid::new_v4()));
-                        Some(path)
-                    } else {
-                        None
-                    };
-
+                    // Set up permission HITL: send the response channel to the TUI and create
+                    // a responder callback. The runner owns the Unix socket lifecycle.
                     let (perm_tx, perm_rx) = mpsc::channel::<PermissionResponse>();
                     let _ = event_tx.send(BackendEvent::PermReady(perm_tx));
 
-                    // Signal sent by the listener thread once the socket is bound and ready.
-                    // We wait for this before spawning Claude CLI to avoid a race where the
-                    // MCP bridge tries to connect before the socket exists.
-                    let (sock_ready_tx, sock_ready_rx) = mpsc::channel::<()>();
-
-                    let _listener_handle = perm_socket_path.as_ref().map(|path| {
-                        let p = path.clone();
-                        let etx = event_tx.clone();
-                        thread::spawn(move || {
-                            let listener = match UnixListener::bind(&p) {
-                                Ok(l) => l,
-                                Err(e) => {
-                                    tracing::error!(error = %e, "permission: failed to bind socket");
-                                    return;
-                                }
-                            };
-                            // Signal that the socket is ready before entering the accept loop.
-                            let _ = sock_ready_tx.send(());
-                            for stream in listener.incoming() {
-                                let mut conn = match stream {
-                                    Ok(s) => s,
-                                    Err(_) => break,
-                                };
-                                // Read one JSON line — the permission request.
-                                let mut reader = BufReader::new(&conn);
-                                let mut line = String::new();
-                                if reader.read_line(&mut line).is_err() {
-                                    continue;
-                                }
-                                let req_val: serde_json::Value =
-                                    match serde_json::from_str(line.trim()) {
-                                        Ok(v) => v,
-                                        Err(_) => continue,
-                                    };
-                                let tool_input = req_val["tool_input"].clone();
-                                let perm_req = PermissionRequest {
-                                    tool_name: req_val["tool_name"]
-                                        .as_str()
-                                        .unwrap_or("")
-                                        .to_string(),
-                                    tool_input: tool_input.clone(),
-                                };
-                                let _ = etx.send(BackendEvent::PermissionRequest(perm_req));
-
-                                // Block until the TUI sends a decision.
-                                let response = perm_rx
-                                    .recv()
-                                    .unwrap_or(PermissionResponse::Deny("channel closed".into()));
-                                // Claude CLI requires a discriminated union:
-                                //   allow → {"behavior":"allow","updatedInput":<original_input>}
-                                //   deny  → {"behavior":"deny","message":"<reason>"}
-                                let resp_json = match response {
-                                    PermissionResponse::Allow => {
-                                        serde_json::json!({"behavior": "allow", "updatedInput": tool_input})
-                                    }
-                                    PermissionResponse::Deny(reason) => {
-                                        serde_json::json!({"behavior": "deny", "message": reason})
-                                    }
-                                };
-                                let mut resp_line =
-                                    serde_json::to_string(&resp_json).unwrap_or_default();
-                                resp_line.push('\n');
-                                let _ = conn.write_all(resp_line.as_bytes());
-                            }
-                        })
+                    let perm_event_tx = event_tx.clone();
+                    let perm_rx = Arc::new(Mutex::new(perm_rx));
+                    let responder: PermissionResponder = Arc::new(move |req: PermissionRequest| {
+                        let _ = perm_event_tx.send(BackendEvent::PermissionRequest(req));
+                        let rx = perm_rx.lock().unwrap();
+                        rx.recv()
+                            .unwrap_or(PermissionResponse::Deny("channel closed".into()))
                     });
 
-                    // Wait until the socket is bound (or the listener failed and dropped the sender).
-                    if perm_socket_path.is_some() {
-                        let _ = sock_ready_rx.recv();
-                    }
-
-                    control.permission_socket = perm_socket_path.clone();
+                    control.permission_responder = Some(Arc::clone(&responder));
 
                     // If the pipeline does not declare an invocation step, run the user's
                     // prompt through the runner before handing off to the executor (SPEC §4.1).
@@ -185,7 +113,7 @@ pub fn spawn_backend(
                             model: session.cli_provider.model.clone(),
                             base_url: session.cli_provider.base_url.clone(),
                             auth_token: session.cli_provider.auth_token.clone(),
-                            permission_socket: perm_socket_path.clone(),
+                            permission_responder: Some(Arc::clone(&responder)),
                             ..InvokeOptions::default()
                         };
 
@@ -222,9 +150,6 @@ pub fn spawn_backend(
                             Err(e) => {
                                 let _ = fwd_inv_handle.join();
                                 let _ = event_tx.send(BackendEvent::Error(e.detail.clone()));
-                                if let Some(path) = perm_socket_path {
-                                    let _ = std::fs::remove_file(path);
-                                }
                                 continue;
                             }
                         }
@@ -253,11 +178,6 @@ pub fn spawn_backend(
                         }
                     }
                     let _ = fwd_handle.join();
-
-                    // Clean up the permission socket.
-                    if let Some(path) = perm_socket_path {
-                        let _ = std::fs::remove_file(path);
-                    }
                 }
             }
         }

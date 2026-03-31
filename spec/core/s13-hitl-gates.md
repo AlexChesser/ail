@@ -27,11 +27,13 @@ When a pipeline step invokes a tool not covered by `tools.allow` or `tools.deny`
 
 **Implementation (v0.1 — validated):** `ail` uses Claude CLI's `--permission-prompt-tool <mcp_tool_name>` flag, not `--permission-prompt-tool stdio`. The actual mechanism is:
 
-1. Before spawning Claude CLI, `ail` writes a temporary MCP config file registering `ail mcp-bridge --socket <path>` as an MCP server.
-2. Claude CLI spawns `ail mcp-bridge` as a subprocess and communicates with it via JSON-RPC 2.0 over stdio.
-3. For each permission request, the MCP bridge connects to the Unix domain socket, sends a JSON line with `{tool_name, tool_input}`, and blocks until `ail`'s listener thread replies.
-4. The main `ail` process runs a Unix socket listener thread that forwards requests to the TUI and blocks until the user responds.
-5. The response flows back: listener thread → socket → MCP bridge → MCP response to Claude CLI.
+1. The TUI (or caller) provides a `PermissionResponder` callback — an `Arc<dyn Fn(PermissionRequest) -> PermissionResponse + Send + Sync>` — in `InvokeOptions`.
+2. `ClaudeCliRunner::invoke_streaming` detects this callback, creates a temporary Unix socket, and spawns a listener thread that owns the socket accept loop. The socket is ready before Claude CLI is spawned.
+3. `ClaudeCliRunner` writes a temporary MCP config file registering `ail mcp-bridge --socket <path>` as an MCP server and passes `--mcp-config` and `--permission-prompt-tool mcp__ail-permission__ail_check_permission` to Claude CLI.
+4. Claude CLI spawns `ail mcp-bridge` as a subprocess and communicates with it via JSON-RPC 2.0 over stdio.
+5. For each permission request, the MCP bridge connects to the Unix domain socket, sends a JSON line with `{tool_name, tool_input}`, and blocks until the listener thread replies.
+6. The listener thread calls the `PermissionResponder` callback (which may block waiting for TUI input), then serialises the response and writes it back to the socket.
+7. After Claude CLI exits, `ClaudeCliRunner` deletes both temp files. The socket lifecycle is fully encapsulated inside `invoke_streaming` — the TUI never sees a socket path.
 
 The MCP tool result text contains one of:
 

@@ -456,7 +456,11 @@ impl AppState {
                     }
                     other => {
                         let s = other.to_string();
-                        if s.len() > 100 { format!("{}…", &s[..100]) } else { s }
+                        if s.len() > 100 {
+                            format!("{}…", &s[..100])
+                        } else {
+                            s
+                        }
                     }
                 };
                 detail.push_str(&format!("\n    {k}: {val_str}"));
@@ -514,9 +518,7 @@ impl AppState {
             .as_ref()
             .map(|r| r.tool_name.as_str())
             .unwrap_or("?");
-        self.append_text(&format!(
-            "\n  [permission: {tool} — approved for session]"
-        ));
+        self.append_text(&format!("\n  [permission: {tool} — approved for session]"));
         if let Some(ref tx) = self.perm_tx {
             let _ = tx.send(PermissionResponse::Allow);
         }
