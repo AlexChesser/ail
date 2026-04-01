@@ -1,285 +1,202 @@
 /**
- * Pipeline Explorer — sidebar tree view.
+ * Pipeline Explorer — flat list of discovered .ail.yaml files.
  *
- * Shows discovered .ail.yaml files in the workspace and their steps.
- * Context menu actions: Run, Validate, Open File.
+ * One item per pipeline. The active pipeline is marked with a filled circle.
+ * A "Browse…" item at the bottom opens a file picker for pipelines not in the workspace.
+ * Clicking a pipeline sets it as active. Context menu: Open, Validate, Run.
  */
 
 import * as vscode from "vscode";
-import * as fs from "fs";
 import * as path from "path";
-import { execFile } from "child_process";
 import { ResolvedBinary } from "../binary";
+import { discoverPipelines, pipelineLabel } from "../pipeline";
+import { getActivePipeline, setActivePipeline, onDidChangeActivePipeline } from "../state";
 
-// ── Tree Item types ──────────────────────────────────────────────────────────
+// ── Tree item types ───────────────────────────────────────────────────────────
 
 export class PipelineItem extends vscode.TreeItem {
   constructor(
     public readonly filePath: string,
-    public readonly label: string
+    active: boolean
   ) {
-    super(label, vscode.TreeItemCollapsibleState.Collapsed);
+    const label = pipelineLabel(filePath);
+    super(label, vscode.TreeItemCollapsibleState.None);
     this.resourceUri = vscode.Uri.file(filePath);
     this.tooltip = filePath;
-    this.contextValue = "ailPipeline";
-    this.iconPath = new vscode.ThemeIcon("symbol-file");
+    this.contextValue = active ? "ailActivePipeline" : "ailPipeline";
+
+    if (active) {
+      this.iconPath = new vscode.ThemeIcon(
+        "pass-filled",
+        new vscode.ThemeColor("charts.green")
+      );
+      this.description = "active";
+    } else {
+      this.iconPath = new vscode.ThemeIcon("circle-large-outline");
+    }
+
     this.command = {
-      command: "vscode.open",
-      title: "Open Pipeline",
-      arguments: [vscode.Uri.file(filePath)],
+      command: "ail.setActivePipeline",
+      title: "Set as Active Pipeline",
+      arguments: [filePath],
     };
   }
 }
 
-export class StepItem extends vscode.TreeItem {
-  constructor(
-    public readonly stepId: string,
-    public readonly stepType: string,
-    public readonly pipelinePath: string,
-    public readonly stepLine: number
-  ) {
-    super(stepId, vscode.TreeItemCollapsibleState.None);
-    this.description = stepType;
-    this.tooltip = `${stepType}: ${stepId}`;
-    this.contextValue = "ailStep";
-    this.iconPath = stepTypeIcon(stepType);
+class BrowseItem extends vscode.TreeItem {
+  constructor() {
+    super("Browse for pipeline…", vscode.TreeItemCollapsibleState.None);
+    this.iconPath = new vscode.ThemeIcon("folder-opened");
+    this.tooltip = "Pick a .ail.yaml file from disk";
+    this.contextValue = "ailBrowse";
     this.command = {
-      command: "vscode.open",
-      title: "Go to Step",
-      arguments: [
-        vscode.Uri.file(pipelinePath),
-        { selection: new vscode.Range(stepLine, 0, stepLine, 0) },
-      ],
+      command: "ail.browsePipeline",
+      title: "Browse for Pipeline",
     };
   }
 }
 
-function stepTypeIcon(stepType: string): vscode.ThemeIcon {
-  switch (stepType) {
-    case "prompt":
-      return new vscode.ThemeIcon("comment");
-    case "context":
-      return new vscode.ThemeIcon("terminal");
-    case "action":
-      return new vscode.ThemeIcon("debug-pause");
-    case "pipeline":
-      return new vscode.ThemeIcon("references");
-    default:
-      return new vscode.ThemeIcon("symbol-misc");
-  }
-}
-
-// ── Step parsing ─────────────────────────────────────────────────────────────
-
-interface ParsedStep {
-  id: string;
-  type: string;
-  line: number;
-}
-
-function parseStepsFromYaml(filePath: string): ParsedStep[] {
-  let content: string;
-  try {
-    content = fs.readFileSync(filePath, "utf-8");
-  } catch {
-    return [];
-  }
-
-  const steps: ParsedStep[] = [];
-  const lines = content.split("\n");
-
-  // Simple line-based parser — finds `- id:` blocks under `pipeline:`.
-  // Good enough for the tree view without pulling in a YAML parser.
-  let inPipeline = false;
-  let currentId: string | undefined;
-  let currentLine = 0;
-
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    const trimmed = line.trim();
-
-    if (trimmed === "pipeline:") {
-      inPipeline = true;
-      continue;
-    }
-
-    if (inPipeline) {
-      // Top-level keys after pipeline: (no indentation) end the pipeline block
-      if (/^\S/.test(line) && trimmed !== "") {
-        inPipeline = false;
-        continue;
-      }
-
-      const idMatch = trimmed.match(/^-?\s*id:\s*(.+)/);
-      if (idMatch) {
-        currentId = idMatch[1].trim().replace(/['"]/g, "");
-        currentLine = i;
-      }
-
-      if (currentId) {
-        const promptMatch = trimmed.match(/^prompt:/);
-        const contextMatch = trimmed.match(/^context:/);
-        const actionMatch = trimmed.match(/^action:/);
-        const pipelineMatch = trimmed.match(/^pipeline:/);
-
-        let type: string | undefined;
-        if (promptMatch) type = "prompt";
-        else if (contextMatch) type = "context";
-        else if (actionMatch) type = "action";
-        else if (pipelineMatch) type = "pipeline";
-
-        if (type) {
-          steps.push({ id: currentId, type, line: currentLine });
-          currentId = undefined;
-        }
-      }
-    }
-  }
-
-  return steps;
-}
-
-// ── Tree data provider ───────────────────────────────────────────────────────
+// ── Provider ─────────────────────────────────────────────────────────────────
 
 export class PipelineTreeProvider
-  implements vscode.TreeDataProvider<PipelineItem | StepItem>
+  implements vscode.TreeDataProvider<PipelineItem | BrowseItem>
 {
   private _onDidChangeTreeData = new vscode.EventEmitter<
-    PipelineItem | StepItem | undefined | null
+    PipelineItem | BrowseItem | undefined | null
   >();
   readonly onDidChangeTreeData = this._onDidChangeTreeData.event;
 
-  private _pipelines: PipelineItem[] = [];
+  private _pipelines: string[] = [];
+  private _extraPipelines: string[] = []; // added via Browse
 
-  constructor(private readonly binary: ResolvedBinary) {}
+  constructor(
+    private readonly binary: ResolvedBinary,
+    subscriptions: vscode.Disposable[]
+  ) {
+    // Refresh when the active pipeline changes (to update the active marker)
+    subscriptions.push(
+      onDidChangeActivePipeline(() => this._onDidChangeTreeData.fire(undefined))
+    );
+  }
 
   refresh(): void {
-    this._pipelines = this._discoverPipelines();
+    this._pipelines = discoverPipelines();
     this._onDidChangeTreeData.fire(undefined);
   }
 
-  getTreeItem(element: PipelineItem | StepItem): vscode.TreeItem {
+  addExtraPipeline(filePath: string): void {
+    if (!this._extraPipelines.includes(filePath)) {
+      this._extraPipelines.push(filePath);
+    }
+    this._onDidChangeTreeData.fire(undefined);
+  }
+
+  getTreeItem(element: PipelineItem | BrowseItem): vscode.TreeItem {
     return element;
   }
 
-  getChildren(
-    element?: PipelineItem | StepItem
-  ): (PipelineItem | StepItem)[] {
-    if (!element) {
-      // Root: return pipelines
-      if (this._pipelines.length === 0) {
-        this._pipelines = this._discoverPipelines();
-      }
-      return this._pipelines;
+  getChildren(): (PipelineItem | BrowseItem)[] {
+    if (this._pipelines.length === 0) {
+      this._pipelines = discoverPipelines();
     }
 
-    if (element instanceof PipelineItem) {
-      return this._stepsForPipeline(element.filePath);
+    const active = getActivePipeline();
+    const all = [...this._pipelines];
+
+    // Merge in any extra pipelines added via Browse that aren't already discovered
+    for (const extra of this._extraPipelines) {
+      if (!all.includes(extra)) all.push(extra);
     }
 
-    return [];
-  }
-
-  private _discoverPipelines(): PipelineItem[] {
-    const pipelines: PipelineItem[] = [];
-    const folders = vscode.workspace.workspaceFolders;
-    if (!folders) return pipelines;
-
-    for (const folder of folders) {
-      const candidates = [
-        path.join(folder.uri.fsPath, ".ail.yaml"),
-        path.join(folder.uri.fsPath, ".ail.yml"),
-      ];
-
-      // Also search one level deep
-      try {
-        const entries = fs.readdirSync(folder.uri.fsPath, { withFileTypes: true });
-        for (const entry of entries) {
-          if (entry.isDirectory() && entry.name === ".ail") {
-            const subdir = path.join(folder.uri.fsPath, ".ail");
-            try {
-              const subEntries = fs.readdirSync(subdir, { withFileTypes: true });
-              for (const sub of subEntries) {
-                if (sub.isFile() && (sub.name.endsWith(".yaml") || sub.name.endsWith(".yml"))) {
-                  candidates.push(path.join(subdir, sub.name));
-                }
-              }
-            } catch { /* ignore */ }
-          }
-          if (
-            entry.isFile() &&
-            (entry.name.endsWith(".ail.yaml") || entry.name.endsWith(".ail.yml"))
-          ) {
-            candidates.push(path.join(folder.uri.fsPath, entry.name));
-          }
-        }
-      } catch { /* ignore */ }
-
-      // Deduplicate and check existence
-      const seen = new Set<string>();
-      for (const filePath of candidates) {
-        if (!seen.has(filePath) && fs.existsSync(filePath)) {
-          seen.add(filePath);
-          const label = path.relative(folder.uri.fsPath, filePath);
-          pipelines.push(new PipelineItem(filePath, label));
-        }
-      }
-    }
-
-    return pipelines;
-  }
-
-  private _stepsForPipeline(filePath: string): StepItem[] {
-    const parsed = parseStepsFromYaml(filePath);
-    return parsed.map((s) => new StepItem(s.id, s.type, filePath, s.line));
+    const items: (PipelineItem | BrowseItem)[] = all.map(
+      (p) => new PipelineItem(p, p === active)
+    );
+    items.push(new BrowseItem());
+    return items;
   }
 }
 
-// ── Register tree view ───────────────────────────────────────────────────────
+// ── Registration ──────────────────────────────────────────────────────────────
 
 export function registerPipelineExplorer(
   context: vscode.ExtensionContext,
   binary: ResolvedBinary
 ): PipelineTreeProvider {
-  const provider = new PipelineTreeProvider(binary);
+  const provider = new PipelineTreeProvider(binary, context.subscriptions);
 
   const treeView = vscode.window.createTreeView("ail.pipelineExplorer", {
     treeDataProvider: provider,
-    showCollapseAll: true,
+    showCollapseAll: false,
   });
-
   context.subscriptions.push(treeView);
 
-  // Refresh on workspace file changes
-  const watcher = vscode.workspace.createFileSystemWatcher(
-    "**/.ail.yaml",
-    false,
-    false,
-    false
-  );
+  // Refresh on .ail.yaml create/delete
+  const watcher = vscode.workspace.createFileSystemWatcher("**/.ail.yaml", false, false, false);
   watcher.onDidCreate(() => provider.refresh());
   watcher.onDidDelete(() => provider.refresh());
-  watcher.onDidChange(() => provider.refresh());
   context.subscriptions.push(watcher);
 
-  // Register refresh command
   context.subscriptions.push(
     vscode.commands.registerCommand("ail.refreshExplorer", () => provider.refresh())
   );
 
-  // Run from tree context menu
+  // Set active pipeline
+  context.subscriptions.push(
+    vscode.commands.registerCommand(
+      "ail.setActivePipeline",
+      (filePath: string) => {
+        const current = getActivePipeline();
+        if (current === filePath) {
+          // Already active — open the file
+          void vscode.window.showTextDocument(vscode.Uri.file(filePath));
+        } else {
+          setActivePipeline(filePath);
+        }
+      }
+    )
+  );
+
+  // Browse for pipeline
+  context.subscriptions.push(
+    vscode.commands.registerCommand("ail.browsePipeline", async () => {
+      const uris = await vscode.window.showOpenDialog({
+        canSelectFiles: true,
+        canSelectFolders: false,
+        canSelectMany: false,
+        filters: { "AIL Pipelines": ["yaml", "yml"] },
+        title: "Select an AIL pipeline file",
+        openLabel: "Set as Active",
+      });
+      if (uris?.[0]) {
+        const filePath = uris[0].fsPath;
+        provider.addExtraPipeline(filePath);
+        setActivePipeline(filePath);
+      }
+    })
+  );
+
+  // Open from context menu
+  context.subscriptions.push(
+    vscode.commands.registerCommand(
+      "ail.openPipelineFile",
+      async (item: PipelineItem) => {
+        await vscode.window.showTextDocument(vscode.Uri.file(item.filePath));
+      }
+    )
+  );
+
+  // Run from context menu
   context.subscriptions.push(
     vscode.commands.registerCommand(
       "ail.runFromTree",
       async (item: PipelineItem) => {
-        // Open the file first, then trigger run
-        await vscode.window.showTextDocument(vscode.Uri.file(item.filePath));
+        setActivePipeline(item.filePath);
         await vscode.commands.executeCommand("ail.runPipeline");
       }
     )
   );
 
-  // Validate from tree context menu
+  // Validate from context menu
   context.subscriptions.push(
     vscode.commands.registerCommand(
       "ail.validateFromTree",

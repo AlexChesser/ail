@@ -1,0 +1,36 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "type": "shell",
+      "label": "npm: compile",
+      "command": "npm run compile",
+      "options": {
+        "env": {
+          "PATH": "/home/achesser/.nvm/versions/node/v24.14.1/bin:${env:PATH}"
+        }
+      },
+      "group": "build",
+      "problemMatcher": "$tsc",
+      "presentation": {
+        "reveal": "silent"
+      }
+    },
+    {
+      "type": "shell",
+      "label": "npm: watch",
+      "command": "npm run watch",
+      "options": {
+        "env": {
+          "PATH": "/home/achesser/.nvm/versions/node/v24.14.1/bin:${env:PATH}"
+        }
+      },
+      "group": "build",
+      "isBackground": true,
+      "problemMatcher": "$tsc-watch",
+      "presentation": {
+        "reveal": "silent"
+      }
+    }
+  ]
+}

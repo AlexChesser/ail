@@ -21,6 +21,15 @@
   ],
   "main": "./out/src/extension.js",
   "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "ail-sidebar",
+          "title": "AIL Pipelines",
+          "icon": "images/ail-sidebar.svg"
+        }
+      ]
+    },
     "configuration": {
       "title": "ail",
       "properties": {
@@ -74,14 +83,44 @@
         "title": "Validate Pipeline",
         "category": "ail",
         "icon": "$(check)"
+      },
+      {
+        "command": "ail.runWithPrompt",
+        "title": "Ail: Run with Prompt",
+        "category": "ail"
+      },
+      {
+        "command": "ail.setActivePipeline",
+        "title": "Set as Active Pipeline",
+        "category": "ail"
+      },
+      {
+        "command": "ail.browsePipeline",
+        "title": "Ail: Browse for Pipeline",
+        "category": "ail",
+        "icon": "$(folder-opened)"
+      },
+      {
+        "command": "ail.openPipelineFile",
+        "title": "Open File",
+        "category": "ail",
+        "icon": "$(go-to-file)"
       }
     ],
     "views": {
-      "explorer": [
+      "ail-sidebar": [
+        {
+          "id": "ail.chatView",
+          "name": "Chat",
+          "type": "webview"
+        },
         {
           "id": "ail.pipelineExplorer",
-          "name": "AIL Pipelines",
-          "when": "workspaceContains:.ail.yaml || workspaceContains:.ail/*.yaml"
+          "name": "Pipelines"
+        },
+        {
+          "id": "ail.stepsView",
+          "name": "Steps"
         }
       ]
     },
@@ -96,6 +135,40 @@
           "command": "ail.runPipeline",
           "when": "resourceExtname == .yaml && resourceFilename =~ /\\.ail\\.yaml$/",
           "group": "navigation"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "ail.browsePipeline",
+          "when": "view == ail.pipelineExplorer",
+          "group": "navigation"
+        },
+        {
+          "command": "ail.refreshExplorer",
+          "when": "view == ail.pipelineExplorer",
+          "group": "navigation"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "ail.runFromTree",
+          "when": "viewItem == ailPipeline || viewItem == ailActivePipeline",
+          "group": "inline@1"
+        },
+        {
+          "command": "ail.openPipelineFile",
+          "when": "viewItem == ailPipeline || viewItem == ailActivePipeline",
+          "group": "inline@2"
+        },
+        {
+          "command": "ail.validateFromTree",
+          "when": "viewItem == ailPipeline || viewItem == ailActivePipeline",
+          "group": "1_actions@1"
+        },
+        {
+          "command": "ail.openPipelineFile",
+          "when": "viewItem == ailPipeline || viewItem == ailActivePipeline",
+          "group": "1_actions@2"
         }
       ]
     },

@@ -12,10 +12,15 @@ import { parseNdjsonStream } from "../ndjson";
 import { ResolvedBinary } from "../binary";
 import { AilEvent, PipelineCompletedEvent, PipelineErrorEvent, StepStartedEvent } from "../types";
 import { ExecutionPanel } from "../panels/ExecutionPanel";
+import { ChatViewProvider } from "../views/ChatViewProvider";
+import { StepsTreeProvider } from "../views/StepsTreeProvider";
+import { getActivePipeline } from "../state";
 
 let activeProcess: ChildProcess | undefined;
 let outputChannel: vscode.OutputChannel | undefined;
 let activePanel: ExecutionPanel | undefined;
+let chatView: ChatViewProvider | undefined;
+let stepsView: StepsTreeProvider | undefined;
 
 function getOutputChannel(): vscode.OutputChannel {
   if (!outputChannel) {
@@ -24,8 +29,13 @@ function getOutputChannel(): vscode.OutputChannel {
   return outputChannel;
 }
 
-/** Resolve the pipeline path to run. */
+/** Resolve the pipeline path to run. Priority: active selection > open editor > config > workspace root. */
 function resolvePipelinePath(): string | undefined {
+  // 1. Active pipeline set via sidebar selector
+  const active = getActivePipeline();
+  if (active) return active;
+
+  // 2. Active text editor
   const editor = vscode.window.activeTextEditor;
   if (editor) {
     const filePath = editor.document.uri.fsPath;
@@ -34,12 +44,14 @@ function resolvePipelinePath(): string | undefined {
     }
   }
 
+  // 3. ail.defaultPipeline setting
   const config = vscode.workspace.getConfiguration("ail");
   const defaultPipeline = config.get<string>("defaultPipeline", "");
   if (defaultPipeline) {
     return defaultPipeline;
   }
 
+  // 4. Workspace root .ail.yaml
   const workspaceFolders = vscode.workspace.workspaceFolders;
   if (workspaceFolders?.[0]) {
     const candidate = path.join(workspaceFolders[0].uri.fsPath, ".ail.yaml");
@@ -112,11 +124,128 @@ function updateStatusBar(
   }
 }
 
+async function _doRun(
+  context: vscode.ExtensionContext,
+  binary: ResolvedBinary,
+  statusBarItem: vscode.StatusBarItem,
+  prompt: string,
+  pipelinePath: string
+): Promise<void> {
+  // Open Execution Monitor panel.
+  activePanel = ExecutionPanel.create(context);
+
+  const out = getOutputChannel();
+  out.show(true);
+  out.appendLine(`\n${"─".repeat(60)}`);
+  out.appendLine(`ail run — ${new Date().toLocaleTimeString()}`);
+  out.appendLine(`Pipeline: ${pipelinePath}`);
+  out.appendLine(`Prompt: ${prompt}`);
+
+  const args = [
+    "--once",
+    prompt,
+    "--pipeline",
+    pipelinePath,
+    "--output-format",
+    "json",
+    "--headless",
+  ];
+
+  const proc = spawn(binary.path, args, {
+    cwd: vscode.workspace.workspaceFolders?.[0]?.uri.fsPath,
+  });
+
+  activeProcess = proc;
+  updateStatusBar(statusBarItem, true);
+  chatView?.setRunning(true);
+  stepsView?.resetStatuses();
+
+  let totalCost = 0;
+
+  parseNdjsonStream(
+    proc.stdout!,
+    (event) => {
+      activePanel?.onEvent(event);
+
+      // Update steps view status
+      if (event.type === "step_started") {
+        stepsView?.setStepStatus((event as StepStartedEvent).step_id, "running");
+      } else if (event.type === "step_completed") {
+        stepsView?.setStepStatus(event.step_id, "completed");
+      } else if (event.type === "step_failed") {
+        stepsView?.setStepStatus(event.step_id, "failed");
+      } else if (event.type === "step_skipped") {
+        stepsView?.setStepStatus(event.step_id, "skipped");
+      } else if (event.type === "hitl_gate_reached") {
+        stepsView?.setStepStatus(event.step_id, "hitl");
+      }
+
+      const line = formatEvent(event);
+      if (line !== undefined) {
+        if (
+          event.type === "runner_event" &&
+          event.event.type === "stream_delta"
+        ) {
+          out.append(line);
+        } else {
+          out.appendLine(line);
+        }
+      }
+
+      if (
+        event.type === "runner_event" &&
+        event.event.type === "cost_update"
+      ) {
+        totalCost = event.event.cost_usd;
+      }
+    },
+    (err) => {
+      out.appendLine(`\n[stream error] ${err.message}`);
+    }
+  );
+
+  proc.stderr?.setEncoding("utf-8");
+  proc.stderr?.on("data", (chunk: string) => {
+    void chunk;
+  });
+
+  proc.on("close", (code) => {
+    activeProcess = undefined;
+    activePanel = undefined;
+    updateStatusBar(statusBarItem, false);
+    chatView?.setRunning(false);
+
+    if (code === 0) {
+      const costStr = totalCost > 0 ? ` (total: $${totalCost.toFixed(4)})` : "";
+      void vscode.window.showInformationMessage(
+        `ail: Pipeline completed${costStr}`
+      );
+    } else if (code !== null) {
+      void vscode.window.showErrorMessage(
+        `ail: Pipeline exited with code ${code} — see Output panel.`
+      );
+    }
+  });
+
+  proc.on("error", (err) => {
+    activeProcess = undefined;
+    updateStatusBar(statusBarItem, false);
+    chatView?.setRunning(false);
+    out.appendLine(`\n[error] Failed to spawn ail: ${err.message}`);
+    void vscode.window.showErrorMessage(`ail: ${err.message}`);
+  });
+}
+
 export function registerRunCommands(
   context: vscode.ExtensionContext,
   binary: ResolvedBinary,
-  statusBarItem: vscode.StatusBarItem
+  statusBarItem: vscode.StatusBarItem,
+  chat?: ChatViewProvider,
+  steps?: StepsTreeProvider
 ): void {
+  chatView = chat;
+  stepsView = steps;
+
   const runDisposable = vscode.commands.registerCommand(
     "ail.runPipeline",
     async () => {
@@ -142,102 +271,32 @@ export function registerRunCommands(
       });
 
       if (!prompt) {
-        return; // User cancelled
+        return;
       }
 
-      // Open Execution Monitor panel.
-      activePanel = ExecutionPanel.create(context);
+      await _doRun(context, binary, statusBarItem, prompt, pipelinePath);
+    }
+  );
 
-      const out = getOutputChannel();
-      out.show(true);
-      out.appendLine(`\n${"─".repeat(60)}`);
-      out.appendLine(`ail run — ${new Date().toLocaleTimeString()}`);
-      out.appendLine(`Pipeline: ${pipelinePath}`);
-      out.appendLine(`Prompt: ${prompt}`);
+  const runWithPromptDisposable = vscode.commands.registerCommand(
+    "ail.runWithPrompt",
+    async (prompt: string) => {
+      if (activeProcess) {
+        void vscode.window.showWarningMessage(
+          "An ail pipeline is already running. Use 'Ail: Stop Pipeline' to cancel it first."
+        );
+        return;
+      }
 
-      const args = [
-        "--once",
-        prompt,
-        "--pipeline",
-        pipelinePath,
-        "--output-format",
-        "json",
-        "--headless",
-      ];
+      const pipelinePath = resolvePipelinePath();
+      if (!pipelinePath) {
+        void vscode.window.showWarningMessage(
+          "No .ail.yaml file found. Open a pipeline file or set ail.defaultPipeline."
+        );
+        return;
+      }
 
-      const proc = spawn(binary.path, args, {
-        cwd: vscode.workspace.workspaceFolders?.[0]?.uri.fsPath,
-      });
-
-      activeProcess = proc;
-      updateStatusBar(statusBarItem, true);
-
-      let totalCost = 0;
-
-      parseNdjsonStream(
-        proc.stdout!,
-        (event) => {
-          // Route to Execution Monitor panel.
-          activePanel?.onEvent(event);
-
-          const line = formatEvent(event);
-          if (line !== undefined) {
-            // stream_delta has no newline prefix — append inline
-            if (
-              event.type === "runner_event" &&
-              event.event.type === "stream_delta"
-            ) {
-              out.append(line);
-            } else {
-              out.appendLine(line);
-            }
-          }
-
-          // Accumulate cost
-          if (
-            event.type === "runner_event" &&
-            event.event.type === "cost_update"
-          ) {
-            totalCost = event.event.cost_usd;
-          }
-        },
-        (err) => {
-          out.appendLine(`\n[stream error] ${err.message}`);
-        }
-      );
-
-      // Route stderr to output channel
-      proc.stderr?.setEncoding("utf-8");
-      proc.stderr?.on("data", (chunk: string) => {
-        // ail writes tracing JSON to stderr — skip it in the output channel
-        // (it's useful for debugging but noisy in the UI)
-        void chunk;
-      });
-
-      proc.on("close", (code) => {
-        activeProcess = undefined;
-        activePanel = undefined;
-        updateStatusBar(statusBarItem, false);
-
-        if (code === 0) {
-          const costStr = totalCost > 0 ? ` (total: $${totalCost.toFixed(4)})` : "";
-          void vscode.window.showInformationMessage(
-            `ail: Pipeline completed${costStr}`
-          );
-        } else if (code !== null) {
-          void vscode.window.showErrorMessage(
-            `ail: Pipeline exited with code ${code} — see Output panel.`
-          );
-        }
-        // code === null means killed by signal (stop command) — no notification
-      });
-
-      proc.on("error", (err) => {
-        activeProcess = undefined;
-        updateStatusBar(statusBarItem, false);
-        out.appendLine(`\n[error] Failed to spawn ail: ${err.message}`);
-        void vscode.window.showErrorMessage(`ail: ${err.message}`);
-      });
+      await _doRun(context, binary, statusBarItem, prompt, pipelinePath);
     }
   );
 
@@ -303,5 +362,5 @@ export function registerRunCommands(
     }
   );
 
-  context.subscriptions.push(runDisposable, stopDisposable, materializeDisposable);
+  context.subscriptions.push(runDisposable, runWithPromptDisposable, stopDisposable, materializeDisposable);
 }
