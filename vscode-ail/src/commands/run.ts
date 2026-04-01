@@ -71,7 +71,7 @@ function formatEvent(event: AilEvent): string | undefined {
       return `\n[${e.step_index + 1}/${e.total_steps}] ${e.step_id} — running...`;
     }
     case "step_completed":
-      return `    ✓ ${event.step_id}${event.cost_usd != null ? ` ($${event.cost_usd.toFixed(4)})` : ""}`;
+      return `    ✓ ${event.step_id} (${event.input_tokens} in / ${event.output_tokens} out)`;
     case "step_skipped":
       return `    ⊘ ${event.step_id} (skipped)`;
     case "step_failed":

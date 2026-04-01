@@ -81,6 +81,8 @@ export interface StepCompletedEvent {
   type: "step_completed";
   step_id: string;
   cost_usd: number | null;
+  input_tokens: number;
+  output_tokens: number;
 }
 
 export interface StepSkippedEvent {

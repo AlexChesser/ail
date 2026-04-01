@@ -77,6 +77,8 @@ export class ExecutionPanel {
           cmd: "stepCompleted",
           stepId: e.step_id,
           costUsd: e.cost_usd,
+          inputTokens: e.input_tokens,
+          outputTokens: e.output_tokens,
           totalCost: this._totalCost,
         });
         break;
@@ -221,8 +223,6 @@ function getWebviewHtml(_webview: vscode.Webview): string {
     flex: 1;
     overflow-y: auto;
     padding: 12px 16px;
-    white-space: pre-wrap;
-    word-break: break-word;
     font-family: var(--vscode-editor-font-family, monospace);
     font-size: var(--vscode-editor-font-size, 13px);
     line-height: 1.5;
@@ -243,6 +243,35 @@ function getWebviewHtml(_webview: vscode.Webview): string {
     margin-bottom: 4px;
     border-top: 1px solid var(--vscode-panel-border);
     padding-top: 8px;
+  }
+  .step-section { margin-bottom: 4px; }
+  details.thinking-block,
+  details.output-block {
+    margin: 4px 0 4px 12px;
+    border-left: 2px solid var(--vscode-panel-border);
+    padding-left: 8px;
+  }
+  details summary {
+    cursor: pointer;
+    font-size: 11px;
+    color: var(--vscode-descriptionForeground);
+    padding: 2px 0;
+    user-select: none;
+    list-style: none;
+  }
+  details summary::before { content: '▶ '; font-size: 9px; }
+  details[open] summary::before { content: '▼ '; font-size: 9px; }
+  details summary:hover { color: var(--vscode-foreground); }
+  .thinking-content,
+  .output-content {
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-family: var(--vscode-editor-font-family, monospace);
+    font-size: var(--vscode-editor-font-size, 13px);
+    line-height: 1.5;
+    margin: 4px 0;
+    max-height: 400px;
+    overflow-y: auto;
   }
   .error-text { color: var(--vscode-errorForeground); }
   .hitl-banner {
@@ -291,10 +320,11 @@ function getWebviewHtml(_webview: vscode.Webview): string {
 <script>
   const vscode = acquireVsCodeApi();
 
-  // Step state map: stepId -> { el, glyphEl, costEl }
+  // Step state map: stepId -> { el, glyphEl, tokenEl }
   const steps = new Map();
   let completedSteps = 0;
   let totalSteps = 0;
+  let currentStepId = null;
 
   const stepsContainer = document.getElementById('steps');
   const output = document.getElementById('output');
@@ -303,7 +333,7 @@ function getWebviewHtml(_webview: vscode.Webview): string {
   const costDisplay = document.getElementById('cost-display');
   const stepDisplay = document.getElementById('step-display');
 
-  function createStepEl(stepId, index, total) {
+  function createStepEl(stepId) {
     const el = document.createElement('div');
     el.className = 'step';
     el.id = 'step-' + stepId;
@@ -317,25 +347,24 @@ function getWebviewHtml(_webview: vscode.Webview): string {
     label.textContent = stepId;
     label.title = stepId;
 
-    const cost = document.createElement('span');
-    cost.className = 'step-cost';
+    const token = document.createElement('span');
+    token.className = 'step-cost';
 
     el.appendChild(glyph);
     el.appendChild(label);
-    el.appendChild(cost);
+    el.appendChild(token);
 
-    steps.set(stepId, { el, glyphEl: glyph, costEl: cost });
+    steps.set(stepId, { el, glyphEl: glyph, tokenEl: token });
     return el;
   }
 
-  function getOrCreateStep(stepId, index, total) {
+  function getOrCreateStep(stepId) {
     if (!steps.has(stepId)) {
-      const el = createStepEl(stepId, index, total);
+      const el = createStepEl(stepId);
       stepsContainer.innerHTML = '';
-      // Re-append all in order — simple since we process in order
       steps.forEach(s => stepsContainer.appendChild(s.el));
       stepsContainer.appendChild(el);
-      steps.set(stepId, { el, glyphEl: el.querySelector('.step-glyph'), costEl: el.querySelector('.step-cost') });
+      steps.set(stepId, { el, glyphEl: el.querySelector('.step-glyph'), tokenEl: el.querySelector('.step-cost') });
     }
     return steps.get(stepId);
   }
@@ -345,15 +374,46 @@ function getWebviewHtml(_webview: vscode.Webview): string {
     if (!s) return;
     s.glyphEl.textContent = symbol;
     s.glyphEl.className = 'step-glyph ' + cssClass;
-    // Spinning wrapper for running state
     if (cssClass === 'glyph-running') {
       s.glyphEl.innerHTML = '<span class="spinning">◌</span>';
     }
   }
 
-  function appendOutput(html) {
-    output.insertAdjacentHTML('beforeend', html);
-    output.scrollTop = output.scrollHeight;
+  function createStepSection(stepId) {
+    const section = document.createElement('div');
+    section.className = 'step-section';
+    section.id = 'section-' + stepId;
+
+    const header = document.createElement('div');
+    header.className = 'step-header';
+    header.textContent = '── ' + stepId + ' ──';
+
+    const thinkingDetails = document.createElement('details');
+    thinkingDetails.className = 'thinking-block';
+    const thinkingSummary = document.createElement('summary');
+    thinkingSummary.textContent = 'Thinking';
+    const thinkingPre = document.createElement('pre');
+    thinkingPre.className = 'thinking-content';
+    thinkingDetails.appendChild(thinkingSummary);
+    thinkingDetails.appendChild(thinkingPre);
+
+    const outputDetails = document.createElement('details');
+    outputDetails.className = 'output-block';
+    const outputSummary = document.createElement('summary');
+    outputSummary.textContent = 'Output';
+    const outputPre = document.createElement('pre');
+    outputPre.className = 'output-content';
+    outputDetails.appendChild(outputSummary);
+    outputDetails.appendChild(outputPre);
+
+    section.appendChild(header);
+    section.appendChild(thinkingDetails);
+    section.appendChild(outputDetails);
+    return section;
+  }
+
+  function getCurrentSection() {
+    return currentStepId ? document.getElementById('section-' + currentStepId) : null;
   }
 
   function escapeHtml(s) {
@@ -372,6 +432,7 @@ function getWebviewHtml(_webview: vscode.Webview): string {
         output.innerHTML = '';
         completedSteps = 0;
         totalSteps = msg.totalSteps;
+        currentStepId = null;
         runIdEl.textContent = msg.runId.slice(0, 8) + '...';
         statusText.textContent = 'Running...';
         costDisplay.textContent = 'Cost: —';
@@ -380,15 +441,17 @@ function getWebviewHtml(_webview: vscode.Webview): string {
       }
 
       case 'stepStarted': {
-        const s = getOrCreateStep(msg.stepId, msg.stepIndex, msg.totalSteps);
-        // Deactivate previous
+        currentStepId = msg.stepId;
+        const s = getOrCreateStep(msg.stepId);
         document.querySelectorAll('.step.active').forEach(e => e.classList.remove('active'));
         s.el.classList.add('active');
         s.el.scrollIntoView({ block: 'nearest' });
         setGlyph(msg.stepId, '◌', 'glyph-running');
         statusText.textContent = \`Running: \${msg.stepId}\`;
         stepDisplay.textContent = \`Steps: \${msg.stepIndex + 1}/\${msg.totalSteps}\`;
-        appendOutput(\`<div class="step-header">── \${escapeHtml(msg.stepId)} ──</div>\`);
+        const section = createStepSection(msg.stepId);
+        output.appendChild(section);
+        output.scrollTop = output.scrollHeight;
         break;
       }
 
@@ -397,9 +460,7 @@ function getWebviewHtml(_webview: vscode.Webview): string {
         if (s) {
           s.el.classList.remove('active');
           setGlyph(msg.stepId, '✓', 'glyph-completed');
-          if (msg.costUsd != null) {
-            s.costEl.textContent = '$' + msg.costUsd.toFixed(4);
-          }
+          s.tokenEl.textContent = \`\${msg.inputTokens} in / \${msg.outputTokens} out\`;
         }
         completedSteps++;
         costDisplay.textContent = \`Cost: $\${(msg.totalCost || 0).toFixed(4)}\`;
@@ -422,34 +483,64 @@ function getWebviewHtml(_webview: vscode.Webview): string {
           s.el.classList.remove('active');
           setGlyph(msg.stepId, '✗', 'glyph-failed');
         }
-        appendOutput(\`<div class="error-text">✗ \${escapeHtml(msg.error)}</div>\`);
+        const section = getCurrentSection();
+        if (section) {
+          const outPre = section.querySelector('.output-content');
+          outPre.insertAdjacentHTML('beforeend', \`<span class="error-text">✗ \${escapeHtml(msg.error)}</span>\`);
+          section.querySelector('.output-block').open = true;
+        }
         break;
       }
 
       case 'hitlGate': {
         const s = steps.get(msg.stepId);
         if (s) setGlyph(msg.stepId, '⏸', 'glyph-paused');
-        appendOutput(\`<div class="hitl-banner">⏸ Pipeline paused at <strong>\${escapeHtml(msg.stepId)}</strong>. Awaiting approval...</div>\`);
+        const section = document.getElementById('section-' + msg.stepId);
+        if (section) {
+          const outPre = section.querySelector('.output-content');
+          outPre.insertAdjacentHTML('beforeend', \`<div class="hitl-banner">⏸ Awaiting approval...</div>\`);
+          section.querySelector('.output-block').open = true;
+        }
         statusText.textContent = 'Paused — waiting for approval';
         break;
       }
 
-      case 'streamDelta':
-        output.insertAdjacentText('beforeend', msg.text);
-        output.scrollTop = output.scrollHeight;
+      case 'streamDelta': {
+        const section = getCurrentSection();
+        if (section) {
+          const outPre = section.querySelector('.output-content');
+          outPre.insertAdjacentText('beforeend', msg.text);
+          output.scrollTop = output.scrollHeight;
+        }
         break;
+      }
 
-      case 'thinking':
-        // Suppress thinking blocks — they're internal model reasoning
+      case 'thinking': {
+        const section = getCurrentSection();
+        if (section) {
+          const thinkPre = section.querySelector('.thinking-content');
+          thinkPre.insertAdjacentText('beforeend', msg.text);
+        }
         break;
+      }
 
-      case 'toolUse':
-        appendOutput(\`<div><span class="tool-badge">→ \${escapeHtml(msg.toolName)}</span></div>\`);
+      case 'toolUse': {
+        const section = getCurrentSection();
+        if (section) {
+          const thinkPre = section.querySelector('.thinking-content');
+          thinkPre.insertAdjacentHTML('beforeend', \`<div><span class="tool-badge">→ \${escapeHtml(msg.toolName)}</span></div>\`);
+        }
         break;
+      }
 
-      case 'toolResult':
-        appendOutput(\`<div><span class="tool-badge">← \${escapeHtml(msg.toolName)}</span></div>\`);
+      case 'toolResult': {
+        const section = getCurrentSection();
+        if (section) {
+          const thinkPre = section.querySelector('.thinking-content');
+          thinkPre.insertAdjacentHTML('beforeend', \`<div><span class="tool-badge">← \${escapeHtml(msg.toolName)}</span></div>\`);
+        }
         break;
+      }
 
       case 'costUpdate':
         costDisplay.textContent = \`Cost: $\${(msg.totalCost || 0).toFixed(4)}\`;
@@ -461,12 +552,24 @@ function getWebviewHtml(_webview: vscode.Webview): string {
           ? \`Completed (break)\`
           : 'Completed ✓';
         costDisplay.textContent = \`Cost: $\${(msg.totalCost || 0).toFixed(4)}\`;
+        // Auto-expand the last step's output block
+        const sections = document.querySelectorAll('.step-section');
+        if (sections.length > 0) {
+          const lastSection = sections[sections.length - 1];
+          const outputDetails = lastSection.querySelector('.output-block');
+          if (outputDetails) outputDetails.open = true;
+        }
         break;
       }
 
       case 'pipelineError':
         statusText.textContent = '✗ Pipeline error';
-        appendOutput(\`<div class="error-text">\\n[error] \${escapeHtml(msg.error)}</div>\`);
+        const errSection = getCurrentSection();
+        if (errSection) {
+          const outPre = errSection.querySelector('.output-content');
+          outPre.insertAdjacentHTML('beforeend', \`<span class="error-text">[error] \${escapeHtml(msg.error)}</span>\`);
+          errSection.querySelector('.output-block').open = true;
+        }
         break;
     }
   });
