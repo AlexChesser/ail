@@ -83,9 +83,20 @@ pub enum ExecutorEvent {
     HitlGateReached {
         step_id: String,
     },
-    RunnerEvent(RunnerEvent),
+    /// A streaming event from the runner, nested under `event` so the inner `type` field is
+    /// preserved in the NDJSON output. Using a named field avoids the internally-tagged
+    /// newtype-of-tagged-enum serialization conflict that would overwrite the inner `type`.
+    RunnerEvent {
+        event: RunnerEvent,
+    },
+    /// Pipeline completed. The `outcome` field (`"completed"` or `"break"`) comes from
+    /// `ExecuteOutcome`'s own `#[serde(tag = "outcome")]`, merged into this object by serde.
     PipelineCompleted(ExecuteOutcome),
-    PipelineError(String),
+    /// Pipeline aborted with an error.
+    PipelineError {
+        error: String,
+        error_type: String,
+    },
 }
 
 /// Load and run a sub-pipeline, returning a `TurnEntry` for the calling step.
@@ -550,7 +561,7 @@ pub fn execute_with_control(
                 // Forward runner events to the main event channel on a separate thread.
                 let fwd_handle = std::thread::spawn(move || {
                     for ev in runner_rx {
-                        let _ = event_tx_clone.send(ExecutorEvent::RunnerEvent(ev));
+                        let _ = event_tx_clone.send(ExecutorEvent::RunnerEvent { event: ev });
                     }
                 });
 
@@ -752,7 +763,10 @@ pub fn execute_with_control(
                                 source: None,
                             }),
                         };
-                        let _ = event_tx.send(ExecutorEvent::PipelineError(err.detail.clone()));
+                        let _ = event_tx.send(ExecutorEvent::PipelineError {
+                            error: err.detail.clone(),
+                            error_type: err.error_type.to_string(),
+                        });
                         return Err(err);
                     }
                     ResultAction::PauseForHuman => {
@@ -768,8 +782,10 @@ pub fn execute_with_control(
                                 session.turn_log.append(entry);
                             }
                             Err(e) => {
-                                let _ =
-                                    event_tx.send(ExecutorEvent::PipelineError(e.detail.clone()));
+                                let _ = event_tx.send(ExecutorEvent::PipelineError {
+                                    error: e.detail.clone(),
+                                    error_type: e.error_type.to_string(),
+                                });
                                 return Err(e);
                             }
                         }
@@ -1026,6 +1042,32 @@ mod tests {
         let json: serde_json::Value =
             serde_json::from_str(&serde_json::to_string(&event).unwrap()).unwrap();
         assert_eq!(json["type"], "pipeline_completed");
+        assert_eq!(json["outcome"], "completed");
+    }
+
+    #[test]
+    fn executor_event_serializes_runner_event_with_nested_event_field() {
+        let event = ExecutorEvent::RunnerEvent {
+            event: RunnerEvent::StreamDelta { text: "hello".into() },
+        };
+        let json: serde_json::Value =
+            serde_json::from_str(&serde_json::to_string(&event).unwrap()).unwrap();
+        assert_eq!(json["type"], "runner_event");
+        assert_eq!(json["event"]["type"], "stream_delta");
+        assert_eq!(json["event"]["text"], "hello");
+    }
+
+    #[test]
+    fn executor_event_serializes_pipeline_error_with_fields() {
+        let event = ExecutorEvent::PipelineError {
+            error: "something went wrong".into(),
+            error_type: "PIPELINE_ABORTED".into(),
+        };
+        let json: serde_json::Value =
+            serde_json::from_str(&serde_json::to_string(&event).unwrap()).unwrap();
+        assert_eq!(json["type"], "pipeline_error");
+        assert_eq!(json["error"], "something went wrong");
+        assert_eq!(json["error_type"], "PIPELINE_ABORTED");
     }
 
     #[test]

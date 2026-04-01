@@ -91,6 +91,8 @@ function formatEvent(event: AilEvent): string | undefined {
           return undefined; // suppress — shown in step_completed
         case "thinking":
           return undefined; // suppress thinking blocks in output channel
+        case "completed":
+          return undefined; // response text was already streamed via stream_delta
         default:
           return undefined;
       }

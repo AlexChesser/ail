@@ -749,18 +749,24 @@ impl AppState {
                     }
                 }
             }
-            ExecutorEvent::RunnerEvent(ail_core::runner::RunnerEvent::StreamDelta { ref text }) => {
+            ExecutorEvent::RunnerEvent {
+                event: ail_core::runner::RunnerEvent::StreamDelta { ref text },
+            } => {
                 self.viewport.step_streamed = true;
                 self.viewport.append_text(text);
                 // Do NOT reset viewport scroll here — preserves user's scroll position.
             }
-            ExecutorEvent::RunnerEvent(ail_core::runner::RunnerEvent::Thinking { ref text }) => {
+            ExecutorEvent::RunnerEvent {
+                event: ail_core::runner::RunnerEvent::Thinking { ref text },
+            } => {
                 // Prefix thinking blocks so the viewport can render them in a distinct style.
                 for line in text.lines() {
                     self.viewport.append_text(&format!("\n[thinking] {line}"));
                 }
             }
-            ExecutorEvent::RunnerEvent(ail_core::runner::RunnerEvent::Completed(ref result)) => {
+            ExecutorEvent::RunnerEvent {
+                event: ail_core::runner::RunnerEvent::Completed(ref result),
+            } => {
                 if !self.viewport.step_streamed && !result.response.is_empty() {
                     // Stub runner or no streaming — show full response text now.
                     // Prepend a newline so the response starts on its own line,
@@ -771,18 +777,21 @@ impl AppState {
                     self.stats.last_session_id = Some(sid.clone());
                 }
             }
-            ExecutorEvent::RunnerEvent(ail_core::runner::RunnerEvent::CostUpdate {
-                cost_usd,
-                input_tokens,
-                output_tokens,
-            }) => {
+            ExecutorEvent::RunnerEvent {
+                event:
+                    ail_core::runner::RunnerEvent::CostUpdate {
+                        cost_usd,
+                        input_tokens,
+                        output_tokens,
+                    },
+            } => {
                 self.stats.cumulative_cost_usd += cost_usd;
                 self.stats.cumulative_input_tokens += input_tokens;
                 self.stats.cumulative_output_tokens += output_tokens;
             }
-            ExecutorEvent::RunnerEvent(ail_core::runner::RunnerEvent::ToolUse {
-                ref tool_name,
-            }) => {
+            ExecutorEvent::RunnerEvent {
+                event: ail_core::runner::RunnerEvent::ToolUse { ref tool_name },
+            } => {
                 self.viewport.lines.push(format!("  [tool: {}]", tool_name));
                 // Do NOT reset viewport scroll — preserves user's scroll position.
             }
@@ -802,7 +811,7 @@ impl AppState {
                     .push("  press Enter to continue, or type feedback first".to_string());
                 self.viewport.scroll = 0;
             }
-            ExecutorEvent::RunnerEvent(_) => {
+            ExecutorEvent::RunnerEvent { .. } => {
                 // ToolResult, Error — no viewport update needed in M5.
             }
             ExecutorEvent::PipelineCompleted(_) => {
@@ -812,11 +821,11 @@ impl AppState {
                 self.viewport.lines.push("── done ──".to_string());
                 self.viewport.scroll = 0;
             }
-            ExecutorEvent::PipelineError(ref msg) => {
+            ExecutorEvent::PipelineError { ref error, .. } => {
                 self.phase = ExecutionPhase::Failed;
                 self.stats.run_end = Some(std::time::Instant::now());
                 self.viewport
-                    .append_text(&format!("\n[pipeline error: {msg}]"));
+                    .append_text(&format!("\n[pipeline error: {error}]"));
             }
         }
     }
@@ -1099,9 +1108,11 @@ mod tests {
     #[test]
     fn stream_delta_appends_text_and_sets_streamed() {
         let mut a = app();
-        a.apply_executor_event(ExecutorEvent::RunnerEvent(RunnerEvent::StreamDelta {
-            text: "hello".to_string(),
-        }));
+        a.apply_executor_event(ExecutorEvent::RunnerEvent {
+            event: RunnerEvent::StreamDelta {
+                text: "hello".to_string(),
+            },
+        });
         assert!(a.viewport.step_streamed);
         assert!(a.viewport.lines.iter().any(|l| l.contains("hello")));
     }
@@ -1109,11 +1120,13 @@ mod tests {
     #[test]
     fn cost_update_accumulates_tokens() {
         let mut a = app();
-        a.apply_executor_event(ExecutorEvent::RunnerEvent(RunnerEvent::CostUpdate {
-            cost_usd: 0.01,
-            input_tokens: 100,
-            output_tokens: 50,
-        }));
+        a.apply_executor_event(ExecutorEvent::RunnerEvent {
+            event: RunnerEvent::CostUpdate {
+                cost_usd: 0.01,
+                input_tokens: 100,
+                output_tokens: 50,
+            },
+        });
         assert!((a.stats.cumulative_cost_usd - 0.01).abs() < 1e-9);
         assert_eq!(a.stats.cumulative_input_tokens, 100);
         assert_eq!(a.stats.cumulative_output_tokens, 50);
@@ -1147,15 +1160,15 @@ mod tests {
     #[test]
     fn completed_runner_event_stores_session_id() {
         let mut a = app();
-        a.apply_executor_event(ExecutorEvent::RunnerEvent(RunnerEvent::Completed(
-            RunResult {
+        a.apply_executor_event(ExecutorEvent::RunnerEvent {
+            event: RunnerEvent::Completed(RunResult {
                 response: "done".to_string(),
                 cost_usd: None,
                 session_id: Some("abc123".to_string()),
                 input_tokens: 0,
                 output_tokens: 0,
-            },
-        )));
+            }),
+        });
         assert_eq!(a.stats.last_session_id.as_deref(), Some("abc123"));
     }
 

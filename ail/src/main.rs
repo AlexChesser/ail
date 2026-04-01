@@ -215,7 +215,7 @@ fn run_once_text_verbose(
             ExecutorEvent::StepFailed { step_id, error } => {
                 eprintln!("    ✗ {}: {}", step_id, error);
             }
-            ExecutorEvent::RunnerEvent(re) => match re {
+            ExecutorEvent::RunnerEvent { event: re } => match re {
                 RunnerEvent::Thinking { text } => {
                     thinking_buf.push_str(&text);
                 }
@@ -296,8 +296,26 @@ fn run_once_json(session: &mut ail_core::session::Session, runner: &dyn Runner, 
             })),
             ..InvokeOptions::default()
         };
-        match runner.invoke(prompt, invocation_options) {
+
+        // Spawn a thread to forward runner events as NDJSON to stdout.
+        let (runner_tx, runner_rx) = mpsc::channel::<ail_core::runner::RunnerEvent>();
+        let stdout_clone = std::io::stdout();
+        let fwd_handle = std::thread::spawn(move || {
+            for ev in runner_rx {
+                let wrapper = serde_json::json!({
+                    "type": "runner_event",
+                    "event": ev,
+                });
+                let mut out = stdout_clone.lock();
+                let _ = serde_json::to_writer(&mut out, &wrapper);
+                let _ = writeln!(out);
+                let _ = out.flush();
+            }
+        });
+
+        match runner.invoke_streaming(prompt, invocation_options, runner_tx) {
             Ok(result) => {
+                let _ = fwd_handle.join();
                 {
                     let mut out = stdout.lock();
                     let _ = serde_json::to_writer(
@@ -327,6 +345,7 @@ fn run_once_json(session: &mut ail_core::session::Session, runner: &dyn Runner, 
                 });
             }
             Err(e) => {
+                let _ = fwd_handle.join();
                 let mut out = stdout.lock();
                 let _ = serde_json::to_writer(
                     &mut out,

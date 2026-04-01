@@ -508,6 +508,8 @@ function getWebviewHtml(_webview: vscode.Webview): string {
       case 'streamDelta': {
         const section = getCurrentSection();
         if (section) {
+          const outBlock = section.querySelector('.output-block');
+          if (outBlock && !outBlock.open) outBlock.open = true;
           const outPre = section.querySelector('.output-content');
           outPre.insertAdjacentText('beforeend', msg.text);
           output.scrollTop = output.scrollHeight;
@@ -518,6 +520,8 @@ function getWebviewHtml(_webview: vscode.Webview): string {
       case 'thinking': {
         const section = getCurrentSection();
         if (section) {
+          const thinkBlock = section.querySelector('.thinking-block');
+          if (thinkBlock && !thinkBlock.open) thinkBlock.open = true;
           const thinkPre = section.querySelector('.thinking-content');
           thinkPre.insertAdjacentText('beforeend', msg.text);
         }
