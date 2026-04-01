@@ -14,6 +14,8 @@ fn append_response(session: &mut Session, step_id: &str, response: &str) {
         response: Some(response.to_string()),
         timestamp: SystemTime::now(),
         cost_usd: None,
+        input_tokens: 0,
+        output_tokens: 0,
         runner_session_id: None,
         stdout: None,
         stderr: None,

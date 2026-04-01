@@ -34,6 +34,8 @@ pub struct RunResult {
     pub response: String,
     pub cost_usd: Option<f64>,
     pub session_id: Option<String>,
+    pub input_tokens: u64,
+    pub output_tokens: u64,
 }
 
 /// A tool permission request emitted by the runner when it requires a human decision before
@@ -206,6 +208,8 @@ mod tests {
             response: "done".into(),
             cost_usd: Some(0.01),
             session_id: Some("ses_123".into()),
+            input_tokens: 10,
+            output_tokens: 5,
         });
         let json: serde_json::Value =
             serde_json::from_str(&serde_json::to_string(&event).unwrap()).unwrap();
@@ -220,6 +224,8 @@ mod tests {
             response: "hello".into(),
             cost_usd: None,
             session_id: None,
+            input_tokens: 0,
+            output_tokens: 0,
         };
         let json: serde_json::Value =
             serde_json::from_str(&serde_json::to_string(&result).unwrap()).unwrap();

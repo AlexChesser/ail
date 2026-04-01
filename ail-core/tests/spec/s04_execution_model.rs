@@ -73,6 +73,8 @@ mod session {
             response: response.map(|s| s.to_string()),
             timestamp: SystemTime::now(),
             cost_usd: None,
+            input_tokens: 0,
+            output_tokens: 0,
             runner_session_id: None,
             stdout: None,
             stderr: None,

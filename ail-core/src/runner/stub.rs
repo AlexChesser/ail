@@ -23,6 +23,8 @@ impl Runner for StubRunner {
             response: self.response.clone(),
             cost_usd: self.cost_usd,
             session_id: Some("stub-session-id".to_string()),
+            input_tokens: 0,
+            output_tokens: 0,
         })
     }
 }
@@ -53,6 +55,8 @@ impl Runner for CountingStubRunner {
             response: self.response.clone(),
             cost_usd: Some(0.0),
             session_id: Some("stub-session-id".to_string()),
+            input_tokens: 0,
+            output_tokens: 0,
         })
     }
 }

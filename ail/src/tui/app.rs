@@ -717,6 +717,8 @@ impl AppState {
             ExecutorEvent::StepCompleted {
                 ref step_id,
                 cost_usd,
+                input_tokens: _,
+                output_tokens: _,
             } => {
                 for s in &mut self.steps {
                     if s.id == *step_id {
@@ -1057,6 +1059,8 @@ mod tests {
         a.apply_executor_event(ExecutorEvent::StepCompleted {
             step_id: "s1".to_string(),
             cost_usd: Some(0.005),
+            input_tokens: 0,
+            output_tokens: 0,
         });
         assert_eq!(a.steps[0].glyph, StepGlyph::Completed);
         assert!((a.stats.cumulative_cost_usd - 0.005).abs() < 1e-9);
@@ -1148,6 +1152,8 @@ mod tests {
                 response: "done".to_string(),
                 cost_usd: None,
                 session_id: Some("abc123".to_string()),
+                input_tokens: 0,
+                output_tokens: 0,
             },
         )));
         assert_eq!(a.stats.last_session_id.as_deref(), Some("abc123"));

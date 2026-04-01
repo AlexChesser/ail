@@ -25,6 +25,8 @@ enum StreamParseAction {
         response: Option<String>,
         cost_usd: Option<f64>,
         session_id: Option<String>,
+        input_tokens: u64,
+        output_tokens: u64,
     },
     /// The `result` event arrived indicating an error.
     ResultError(String),
@@ -153,6 +155,8 @@ fn parse_stream_event(
                     response: event["result"].as_str().map(str::to_string),
                     cost_usd: cost,
                     session_id: session_id.map(str::to_string),
+                    input_tokens,
+                    output_tokens,
                 }
             }
         }
@@ -536,6 +540,8 @@ impl Runner for ClaudeCliRunner {
         let mut result_response: Option<String> = None;
         let mut result_cost: Option<f64> = None;
         let mut result_session_id: Option<String> = None;
+        let mut result_input_tokens: u64 = 0;
+        let mut result_output_tokens: u64 = 0;
         let mut error_detail: Option<String> = None;
 
         for line in reader.lines() {
@@ -565,10 +571,14 @@ impl Runner for ClaudeCliRunner {
                     response,
                     cost_usd,
                     session_id,
+                    input_tokens,
+                    output_tokens,
                 } => {
                     result_response = response;
                     result_cost = cost_usd;
                     result_session_id = session_id;
+                    result_input_tokens = input_tokens;
+                    result_output_tokens = output_tokens;
                     break;
                 }
                 StreamParseAction::ResultError(detail) => {
@@ -630,6 +640,8 @@ impl Runner for ClaudeCliRunner {
             response,
             cost_usd: result_cost,
             session_id: result_session_id,
+            input_tokens: result_input_tokens,
+            output_tokens: result_output_tokens,
         })
     }
 
@@ -710,6 +722,8 @@ impl Runner for ClaudeCliRunner {
         let mut result_response: Option<String> = None;
         let mut result_cost: Option<f64> = None;
         let mut result_session_id: Option<String> = None;
+        let mut result_input_tokens: u64 = 0;
+        let mut result_output_tokens: u64 = 0;
         let mut error_detail: Option<String> = None;
 
         // Use match-and-break rather than `?` so the done flag is always set before return.
@@ -743,10 +757,14 @@ impl Runner for ClaudeCliRunner {
                     response,
                     cost_usd,
                     session_id,
+                    input_tokens,
+                    output_tokens,
                 } => {
                     result_response = response;
                     result_cost = cost_usd;
                     result_session_id = session_id;
+                    result_input_tokens = input_tokens;
+                    result_output_tokens = output_tokens;
                     break;
                 }
                 StreamParseAction::ResultError(detail) => {
@@ -848,6 +866,8 @@ impl Runner for ClaudeCliRunner {
             response,
             cost_usd: result_cost,
             session_id: result_session_id,
+            input_tokens: result_input_tokens,
+            output_tokens: result_output_tokens,
         };
         let _ = tx.send(RunnerEvent::Completed(result.clone()));
         Ok(result)

@@ -14,6 +14,8 @@ pub struct TurnEntry {
     #[serde(skip)]
     pub timestamp: SystemTime,
     pub cost_usd: Option<f64>,
+    pub input_tokens: u64,
+    pub output_tokens: u64,
     /// The claude CLI session_id returned by this invocation.
     /// Used to resume the conversation for the next pipeline step.
     pub runner_session_id: Option<String>,

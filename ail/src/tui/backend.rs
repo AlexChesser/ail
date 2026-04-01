@@ -154,6 +154,8 @@ pub fn spawn_backend(
                                     response: Some(result.response),
                                     timestamp: std::time::SystemTime::now(),
                                     cost_usd: result.cost_usd,
+                                    input_tokens: result.input_tokens,
+                                    output_tokens: result.output_tokens,
                                     runner_session_id: result.session_id,
                                     stdout: None,
                                     stderr: None,
@@ -163,6 +165,8 @@ pub fn spawn_backend(
                                     ExecutorEvent::StepCompleted {
                                         step_id: "invocation".to_string(),
                                         cost_usd: None,
+                                        input_tokens: 0,
+                                        output_tokens: 0,
                                     },
                                 ));
                             }

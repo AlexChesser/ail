@@ -69,6 +69,8 @@ pub enum ExecutorEvent {
     StepCompleted {
         step_id: String,
         cost_usd: Option<f64>,
+        input_tokens: u64,
+        output_tokens: u64,
     },
     StepSkipped {
         step_id: String,
@@ -168,6 +170,8 @@ fn execute_sub_pipeline(
         response: Some(response),
         timestamp: SystemTime::now(),
         cost_usd: None,
+        input_tokens: 0,
+        output_tokens: 0,
         runner_session_id: child_session
             .turn_log
             .last_runner_session_id()
@@ -266,6 +270,8 @@ fn execute_inner(
                     response: Some(result.response),
                     timestamp: SystemTime::now(),
                     cost_usd: result.cost_usd,
+                    input_tokens: result.input_tokens,
+                    output_tokens: result.output_tokens,
                     runner_session_id: result.session_id,
                     stdout: None,
                     stderr: None,
@@ -320,6 +326,8 @@ fn execute_inner(
                     response: None,
                     timestamp: SystemTime::now(),
                     cost_usd: None,
+                    input_tokens: 0,
+                    output_tokens: 0,
                     runner_session_id: None,
                     stdout: Some(stdout),
                     stderr: Some(stderr),
@@ -560,6 +568,8 @@ pub fn execute_with_control(
                         let _ = event_tx.send(ExecutorEvent::StepCompleted {
                             step_id: step_id.clone(),
                             cost_usd: result.cost_usd,
+                            input_tokens: result.input_tokens,
+                            output_tokens: result.output_tokens,
                         });
 
                         TurnEntry {
@@ -568,6 +578,8 @@ pub fn execute_with_control(
                             response: Some(result.response),
                             timestamp: SystemTime::now(),
                             cost_usd: result.cost_usd,
+                            input_tokens: result.input_tokens,
+                            output_tokens: result.output_tokens,
                             runner_session_id: result.session_id,
                             stdout: None,
                             stderr: None,
@@ -629,6 +641,8 @@ pub fn execute_with_control(
                 let _ = event_tx.send(ExecutorEvent::StepCompleted {
                     step_id: step_id.clone(),
                     cost_usd: None,
+                    input_tokens: 0,
+                    output_tokens: 0,
                 });
 
                 TurnEntry {
@@ -637,6 +651,8 @@ pub fn execute_with_control(
                     response: None,
                     timestamp: SystemTime::now(),
                     cost_usd: None,
+                    input_tokens: 0,
+                    output_tokens: 0,
                     runner_session_id: None,
                     stdout: Some(stdout),
                     stderr: Some(stderr),
@@ -655,6 +671,8 @@ pub fn execute_with_control(
                 let _ = event_tx.send(ExecutorEvent::StepCompleted {
                     step_id: step_id.clone(),
                     cost_usd: None,
+                    input_tokens: 0,
+                    output_tokens: 0,
                 });
                 continue;
             }
@@ -668,6 +686,8 @@ pub fn execute_with_control(
                         let _ = event_tx.send(ExecutorEvent::StepCompleted {
                             step_id: step_id.clone(),
                             cost_usd: None,
+                            input_tokens: 0,
+                            output_tokens: 0,
                         });
                         entry
                     }
@@ -989,11 +1009,15 @@ mod tests {
         let event = ExecutorEvent::StepCompleted {
             step_id: "review".into(),
             cost_usd: Some(0.003),
+            input_tokens: 100,
+            output_tokens: 50,
         };
         let json: serde_json::Value =
             serde_json::from_str(&serde_json::to_string(&event).unwrap()).unwrap();
         assert_eq!(json["type"], "step_completed");
         assert_eq!(json["cost_usd"], 0.003);
+        assert_eq!(json["input_tokens"], 100);
+        assert_eq!(json["output_tokens"], 50);
     }
 
     #[test]
