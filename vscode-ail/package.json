@@ -19,7 +19,7 @@
     "workspaceContains:.ail.yaml",
     "workspaceContains:.ail/*.yaml"
   ],
-  "main": "./out/extension.js",
+  "main": "./out/src/extension.js",
   "contributes": {
     "configuration": {
       "title": "ail",
