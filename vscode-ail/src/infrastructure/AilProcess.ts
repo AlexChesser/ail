@@ -1,0 +1,170 @@
+/**
+ * AilProcess — concrete IAilClient implementation using child_process.spawn().
+ *
+ * This is the only file in the extension that calls spawn() for pipeline runs.
+ * All child_process interaction for the main pipeline run is contained here.
+ */
+
+import { spawn, execFile, ChildProcess } from 'child_process';
+import { IAilClient, InvokeOptions, ValidationResult, Disposable } from '../application/IAilClient';
+import { RunnerEvent } from '../application/events';
+import { parseNdjsonStream } from '../ndjson';
+import { AilEvent, StepStartedEvent, StepCompletedEvent, StepFailedEvent } from '../types';
+
+type EventHandler = (event: RunnerEvent) => void;
+
+export class AilProcess implements IAilClient {
+  private readonly _binaryPath: string;
+  private readonly _cwd: string | undefined;
+  private _activeProcess: ChildProcess | undefined;
+  private readonly _handlers = new Set<EventHandler>();
+
+  constructor(binaryPath: string, cwd?: string) {
+    this._binaryPath = binaryPath;
+    this._cwd = cwd;
+  }
+
+  onEvent(handler: EventHandler): Disposable {
+    this._handlers.add(handler);
+    return {
+      dispose: () => {
+        this._handlers.delete(handler);
+      },
+    };
+  }
+
+  private _emit(event: RunnerEvent): void {
+    for (const h of this._handlers) {
+      h(event);
+    }
+  }
+
+  invoke(prompt: string, pipeline: string, options: InvokeOptions): Promise<void> {
+    if (this._activeProcess) {
+      return Promise.reject(new Error('An ail pipeline is already running'));
+    }
+
+    const args = [
+      '--once', prompt,
+      '--pipeline', pipeline,
+      '--output-format', options.outputFormat ?? 'json',
+    ];
+    if (options.headless) {
+      args.push('--headless');
+    }
+
+    return new Promise<void>((resolve, reject) => {
+      const proc = spawn(this._binaryPath, args, { cwd: this._cwd });
+      this._activeProcess = proc;
+
+      parseNdjsonStream(
+        proc.stdout!,
+        (ailEvent: AilEvent) => {
+          const runnerEvent = this._mapAilEvent(ailEvent);
+          if (runnerEvent) {
+            this._emit(runnerEvent);
+          }
+        },
+        (err) => {
+          console.error(`[ail] NDJSON stream error: ${err.message}`);
+        }
+      );
+
+      // Consume stderr silently (callers can subscribe to 'error' events via onEvent)
+      proc.stderr?.resume();
+
+      proc.on('close', (code) => {
+        this._activeProcess = undefined;
+        if (code !== 0 && code !== null) {
+          this._emit({ type: 'error', message: `ail exited with code ${code}` });
+        }
+        resolve();
+      });
+
+      proc.on('error', (err) => {
+        this._activeProcess = undefined;
+        this._emit({ type: 'error', message: `Failed to spawn ail: ${err.message}` });
+        reject(err);
+      });
+    });
+  }
+
+  validate(pipeline: string): Promise<ValidationResult> {
+    return new Promise<ValidationResult>((resolve) => {
+      execFile(
+        this._binaryPath,
+        ['validate', '--pipeline', pipeline],
+        { timeout: 15000, cwd: this._cwd },
+        (err, stdout, stderr) => {
+          if (!err) {
+            resolve({ valid: true, errors: [] });
+          } else {
+            const errorLines = (stderr || stdout)
+              .trim()
+              .split('\n')
+              .filter(Boolean);
+            resolve({ valid: false, errors: errorLines });
+          }
+        }
+      );
+    });
+  }
+
+  cancel(): void {
+    if (!this._activeProcess) {
+      return;
+    }
+
+    const proc = this._activeProcess;
+    proc.kill('SIGTERM');
+
+    // Hard kill after 5 seconds if still running
+    const timeout = setTimeout(() => {
+      if (this._activeProcess === proc) {
+        proc.kill('SIGKILL');
+      }
+    }, 5000);
+
+    proc.once('close', () => {
+      clearTimeout(timeout);
+    });
+  }
+
+  /** Map an AilEvent to a RunnerEvent understood by the application layer. */
+  private _mapAilEvent(event: AilEvent): RunnerEvent | undefined {
+    switch (event.type) {
+      case 'step_started': {
+        const e = event as StepStartedEvent;
+        return {
+          type: 'step_started',
+          stepId: e.step_id,
+          stepIndex: e.step_index,
+          totalSteps: e.total_steps,
+        };
+      }
+      case 'step_completed': {
+        const e = event as StepCompletedEvent;
+        return { type: 'step_completed', stepId: e.step_id };
+      }
+      case 'step_skipped':
+        return { type: 'step_skipped', stepId: event.step_id };
+      case 'step_failed': {
+        const e = event as StepFailedEvent;
+        return { type: 'step_failed', stepId: e.step_id, error: e.error };
+      }
+      case 'hitl_gate_reached':
+        return { type: 'hitl_gate_reached', stepId: event.step_id };
+      case 'runner_event':
+        if (event.event.type === 'stream_delta') {
+          return { type: 'stream_delta', text: event.event.text };
+        }
+        return undefined;
+      case 'pipeline_completed':
+        return { type: 'pipeline_completed' };
+      case 'pipeline_error':
+        return { type: 'error', message: event.error };
+      default:
+        return undefined;
+    }
+  }
+}
