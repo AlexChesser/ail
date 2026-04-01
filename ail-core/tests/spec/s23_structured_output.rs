@@ -14,6 +14,7 @@ fn prompt_step(id: &str, text: &str) -> Step {
         tools: None,
         model: None,
         on_result: None,
+        runner: None,
     }
 }
 

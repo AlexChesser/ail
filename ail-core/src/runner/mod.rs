@@ -20,6 +20,7 @@
 #![allow(clippy::result_large_err)]
 
 pub mod claude;
+pub mod factory;
 pub mod stub;
 
 use serde::Serialize;

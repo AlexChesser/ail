@@ -63,6 +63,7 @@ mod s9_tool_permissions {
                 }),
                 model: None,
                 on_result: None,
+                runner: None,
             }],
             defaults: Default::default(),
             source: None,

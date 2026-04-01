@@ -265,6 +265,7 @@ pub fn validate(dto: PipelineFileDto, source: PathBuf) -> Result<Pipeline, AilEr
             tools,
             on_result,
             model: step_dto.model,
+            runner: step_dto.runner,
         });
     }
 

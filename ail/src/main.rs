@@ -2,7 +2,8 @@ mod cli;
 mod mcp_bridge;
 mod tui;
 
-use ail_core::runner::claude::{ClaudeCliRunnerConfig, ClaudeInvokeExtensions};
+use ail_core::runner::claude::ClaudeInvokeExtensions;
+use ail_core::runner::factory::RunnerFactory;
 use ail_core::runner::{InvokeOptions, Runner};
 use clap::Parser;
 use cli::{Cli, Commands, OutputFormat};
@@ -492,19 +493,23 @@ fn main() {
                     base_url: cli.provider_url.clone(),
                     auth_token: cli.provider_token.clone(),
                 };
-                let runner = ClaudeCliRunnerConfig::default()
-                    .headless(cli.headless)
-                    .build();
+                let runner = match RunnerFactory::build_default(cli.headless) {
+                    Ok(r) => r,
+                    Err(e) => {
+                        eprintln!("{e}");
+                        std::process::exit(1);
+                    }
+                };
 
                 match cli.output_format {
                     OutputFormat::Text => run_once_text(
                         &mut session,
-                        &runner,
+                        runner.as_ref(),
                         &prompt,
                         cli.show_thinking,
                         cli.show_responses,
                     ),
-                    OutputFormat::Json => run_once_json(&mut session, &runner, &prompt),
+                    OutputFormat::Json => run_once_json(&mut session, runner.as_ref(), &prompt),
                 }
             } else {
                 tracing::info!(event = "tui_launch");
@@ -524,11 +529,13 @@ fn main() {
                     base_url: cli.provider_url.clone(),
                     auth_token: cli.provider_token.clone(),
                 };
-                let runner = Box::new(
-                    ClaudeCliRunnerConfig::default()
-                        .headless(cli.headless)
-                        .build(),
-                );
+                let runner = match RunnerFactory::build_default(cli.headless) {
+                    Ok(r) => r,
+                    Err(e) => {
+                        eprintln!("{e}");
+                        std::process::exit(1);
+                    }
+                };
                 if let Err(e) = tui::run(pipeline, cli_provider, runner) {
                     eprintln!("TUI error: {e}");
                     std::process::exit(1);

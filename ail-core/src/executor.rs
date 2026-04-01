@@ -905,6 +905,7 @@ mod tests {
             tools: None,
             on_result: None,
             model: None,
+            runner: None,
         }
     }
 

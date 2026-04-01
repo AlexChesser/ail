@@ -17,6 +17,7 @@ Consumed by `ail` (the binary) and future language-server / SDK targets.
 | `materialize.rs` | `materialize(&Pipeline) → String` — annotated YAML round-trip |
 | `runner/mod.rs` | `Runner` trait, `RunResult`, `InvokeOptions` |
 | `runner/claude.rs` | `ClaudeCliRunner` — shells out to the `claude` CLI |
+| `runner/factory.rs` | `RunnerFactory` — builds runners by name; honours `AIL_DEFAULT_RUNNER` env |
 | `runner/stub.rs` | `StubRunner`, `CountingStubRunner` — deterministic test doubles |
 | `session/state.rs` | `Session` — `run_id`, `pipeline`, `invocation_prompt`, `turn_log` |
 | `session/turn_log.rs` | `TurnLog` — append-only NDJSON writer + in-memory entries |
@@ -27,7 +28,7 @@ Consumed by `ail` (the binary) and future language-server / SDK targets.
 ```rust
 // Pipeline and its steps
 pub struct Pipeline { pub steps: Vec<Step>, pub source: Option<PathBuf> }
-pub struct Step    { pub id: StepId, pub body: StepBody, pub tools: Option<ToolPolicy>, pub on_result: Option<Vec<ResultBranch>>, pub model: Option<String> }
+pub struct Step    { pub id: StepId, pub body: StepBody, pub tools: Option<ToolPolicy>, pub on_result: Option<Vec<ResultBranch>>, pub model: Option<String>, pub runner: Option<String> }
 pub enum StepBody  { Prompt(String), Skill(PathBuf), SubPipeline(String), Action(ActionKind), Context(ContextSource) }
 // SubPipeline(String): path may contain {{ variable }} syntax — resolved at execution time (SPEC §11)
 pub enum ContextSource { Shell(String) }
@@ -45,6 +46,11 @@ pub struct ProviderConfig { pub model: Option<String>, pub base_url: Option<Stri
 
 // Runner contract
 pub trait Runner { fn invoke(&self, prompt: &str, options: InvokeOptions) -> Result<RunResult, AilError>; }
+// RunnerFactory (runner/factory.rs) — resolves runners by name
+// Selection hierarchy: per-step runner: field → AIL_DEFAULT_RUNNER env → "claude"
+pub struct RunnerFactory;
+// RunnerFactory::build(name, headless) -> Result<Box<dyn Runner + Send>, AilError>
+// RunnerFactory::build_default(headless) -> Result<Box<dyn Runner + Send>, AilError>
 pub struct RunResult { pub response: String, pub cost_usd: Option<f64>, pub session_id: Option<String>, pub input_tokens: u64, pub output_tokens: u64 }
 pub type PermissionResponder = Arc<dyn Fn(PermissionRequest) -> PermissionResponse + Send + Sync>;
 pub struct PermissionRequest { pub display_name: String, pub display_detail: String }
@@ -85,6 +91,7 @@ pub struct AilError { pub error_type: &'static str, pub title: &'static str, pub
 | `CONFIG_VALIDATION_FAILED` | `ail:config/validation-failed` |
 | `TEMPLATE_UNRESOLVED` | `ail:template/unresolved-variable` |
 | `RUNNER_INVOCATION_FAILED` | `ail:runner/invocation-failed` |
+| `RUNNER_NOT_FOUND` | `ail:runner/not-found` |
 | `PIPELINE_ABORTED` | `ail:pipeline/aborted` |
 
 ## Invariants (do not break)

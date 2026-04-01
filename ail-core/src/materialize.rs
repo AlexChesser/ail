@@ -81,6 +81,7 @@ mod tests {
                 tools: None,
                 on_result: None,
                 model: None,
+                runner: None,
             }],
             source: Some(std::path::PathBuf::from("test.ail.yaml")),
             defaults: Default::default(),
