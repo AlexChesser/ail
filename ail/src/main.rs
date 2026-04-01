@@ -33,11 +33,7 @@ fn init_tracing(tui_mode: bool) {
 }
 
 /// Run `--once` with human-readable text output (default behaviour).
-fn run_once_text(
-    session: &mut ail_core::session::Session,
-    runner: &dyn Runner,
-    prompt: &str,
-) {
+fn run_once_text(session: &mut ail_core::session::Session, runner: &dyn Runner, prompt: &str) {
     let has_invocation_step = session
         .pipeline
         .steps
@@ -116,11 +112,7 @@ fn run_once_text(
 ///
 /// Uses `execute_with_control()` to receive `ExecutorEvent`s and serializes each
 /// as one JSON line. The invocation step (if host-managed) is also emitted as events.
-fn run_once_json(
-    session: &mut ail_core::session::Session,
-    runner: &dyn Runner,
-    prompt: &str,
-) {
+fn run_once_json(session: &mut ail_core::session::Session, runner: &dyn Runner, prompt: &str) {
     use ail_core::executor::ExecutionControl;
     use std::collections::HashSet;
     use std::io::Write;
@@ -133,12 +125,15 @@ fn run_once_json(
     // Emit run_started envelope.
     {
         let mut out = stdout.lock();
-        let _ = serde_json::to_writer(&mut out, &serde_json::json!({
-            "type": "run_started",
-            "run_id": session.run_id,
-            "pipeline_source": session.pipeline.source.as_ref().map(|p| p.display().to_string()),
-            "total_steps": session.pipeline.steps.len(),
-        }));
+        let _ = serde_json::to_writer(
+            &mut out,
+            &serde_json::json!({
+                "type": "run_started",
+                "run_id": session.run_id,
+                "pipeline_source": session.pipeline.source.as_ref().map(|p| p.display().to_string()),
+                "total_steps": session.pipeline.steps.len(),
+            }),
+        );
         let _ = writeln!(out);
     }
 
@@ -154,12 +149,15 @@ fn run_once_json(
         // Emit step_started for invocation.
         {
             let mut out = stdout.lock();
-            let _ = serde_json::to_writer(&mut out, &serde_json::json!({
-                "type": "step_started",
-                "step_id": "invocation",
-                "step_index": 0,
-                "total_steps": session.pipeline.steps.len() + 1,
-            }));
+            let _ = serde_json::to_writer(
+                &mut out,
+                &serde_json::json!({
+                    "type": "step_started",
+                    "step_id": "invocation",
+                    "step_index": 0,
+                    "total_steps": session.pipeline.steps.len() + 1,
+                }),
+            );
             let _ = writeln!(out);
         }
 
@@ -176,11 +174,14 @@ fn run_once_json(
             Ok(result) => {
                 {
                     let mut out = stdout.lock();
-                    let _ = serde_json::to_writer(&mut out, &serde_json::json!({
-                        "type": "step_completed",
-                        "step_id": "invocation",
-                        "cost_usd": result.cost_usd,
-                    }));
+                    let _ = serde_json::to_writer(
+                        &mut out,
+                        &serde_json::json!({
+                            "type": "step_completed",
+                            "step_id": "invocation",
+                            "cost_usd": result.cost_usd,
+                        }),
+                    );
                     let _ = writeln!(out);
                 }
                 session.turn_log.append(ail_core::session::TurnEntry {
@@ -197,11 +198,14 @@ fn run_once_json(
             }
             Err(e) => {
                 let mut out = stdout.lock();
-                let _ = serde_json::to_writer(&mut out, &serde_json::json!({
-                    "type": "pipeline_error",
-                    "error": e.detail,
-                    "error_type": e.error_type,
-                }));
+                let _ = serde_json::to_writer(
+                    &mut out,
+                    &serde_json::json!({
+                        "type": "pipeline_error",
+                        "error": e.detail,
+                        "error_type": e.error_type,
+                    }),
+                );
                 let _ = writeln!(out);
                 std::process::exit(1);
             }
@@ -247,11 +251,14 @@ fn run_once_json(
         }
         Err(e) => {
             let mut out = stdout.lock();
-            let _ = serde_json::to_writer(&mut out, &serde_json::json!({
-                "type": "pipeline_error",
-                "error": e.detail,
-                "error_type": e.error_type,
-            }));
+            let _ = serde_json::to_writer(
+                &mut out,
+                &serde_json::json!({
+                    "type": "pipeline_error",
+                    "error": e.detail,
+                    "error_type": e.error_type,
+                }),
+            );
             let _ = writeln!(out);
             std::process::exit(1);
         }

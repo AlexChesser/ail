@@ -976,10 +976,8 @@ mod tests {
             step_index: 0,
             total_steps: 3,
         };
-        let json: serde_json::Value = serde_json::from_str(
-            &serde_json::to_string(&event).unwrap(),
-        )
-        .unwrap();
+        let json: serde_json::Value =
+            serde_json::from_str(&serde_json::to_string(&event).unwrap()).unwrap();
         assert_eq!(json["type"], "step_started");
         assert_eq!(json["step_id"], "review");
         assert_eq!(json["step_index"], 0);
@@ -992,10 +990,8 @@ mod tests {
             step_id: "review".into(),
             cost_usd: Some(0.003),
         };
-        let json: serde_json::Value = serde_json::from_str(
-            &serde_json::to_string(&event).unwrap(),
-        )
-        .unwrap();
+        let json: serde_json::Value =
+            serde_json::from_str(&serde_json::to_string(&event).unwrap()).unwrap();
         assert_eq!(json["type"], "step_completed");
         assert_eq!(json["cost_usd"], 0.003);
     }
@@ -1003,10 +999,8 @@ mod tests {
     #[test]
     fn executor_event_serializes_pipeline_completed() {
         let event = ExecutorEvent::PipelineCompleted(ExecuteOutcome::Completed);
-        let json: serde_json::Value = serde_json::from_str(
-            &serde_json::to_string(&event).unwrap(),
-        )
-        .unwrap();
+        let json: serde_json::Value =
+            serde_json::from_str(&serde_json::to_string(&event).unwrap()).unwrap();
         assert_eq!(json["type"], "pipeline_completed");
     }
 
@@ -1015,10 +1009,8 @@ mod tests {
         let outcome = ExecuteOutcome::Break {
             step_id: "s1".into(),
         };
-        let json: serde_json::Value = serde_json::from_str(
-            &serde_json::to_string(&outcome).unwrap(),
-        )
-        .unwrap();
+        let json: serde_json::Value =
+            serde_json::from_str(&serde_json::to_string(&outcome).unwrap()).unwrap();
         assert_eq!(json["outcome"], "break");
         assert_eq!(json["step_id"], "s1");
     }

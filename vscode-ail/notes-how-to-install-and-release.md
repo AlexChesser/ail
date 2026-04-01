@@ -114,3 +114,33 @@ There are two distinct paths: local dev install (for dogfooding right now) and m
   VSIX
 
 ✻ Baked for 58s
+
+
+  Option 1: Build and install the .vsix yourself (recommended)
+
+  # Clone (or you already have it)
+  cd vscode-ail
+  npm install
+  npm run compile
+  npx @vscode/vsce package   # produces vscode-ail-0.1.0.vsix
+  code --install-extension vscode-ail-0.1.0.vsix
+
+  Option 2: Use a third-party tool — ovsx or install-vsix
+
+  Some people use tools like vscode-extensions but there's no official "install from GitHub URL" command in VS Code.
+
+  ---
+  The real answer for distribution before Marketplace:
+
+  GitHub Releases. The CI workflow we wrote already does this — when you tag vscode-v0.1.0, it uploads .vsix files as release assets. Anyone can then:
+
+  1. Go to the GitHub Release page
+  2. Download their platform's .vsix
+  3. In VS Code: Extensions sidebar → ··· menu → Install from VSIX...
+
+  Or from the command line:
+  # Download and install in one shot
+  curl -L https://github.com/alexchesser/ail/releases/download/vscode-v0.1.0/ail-linux-x64-0.1.0.vsix -o ail.vsix
+  code --install-extension ail.vsix
+
+  That's the practical pre-Marketplace distribution path — tag a release, share the GitHub Release URL.

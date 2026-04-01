@@ -68,10 +68,8 @@ fn events_serialize_to_valid_ndjson() {
     let types: Vec<String> = events
         .iter()
         .filter_map(|e| {
-            let json: serde_json::Value = serde_json::from_str(
-                &serde_json::to_string(e).unwrap(),
-            )
-            .unwrap();
+            let json: serde_json::Value =
+                serde_json::from_str(&serde_json::to_string(e).unwrap()).unwrap();
             json.get("type").and_then(|t| t.as_str().map(String::from))
         })
         .collect();
@@ -126,10 +124,8 @@ fn step_started_event_has_correct_fields() {
     .unwrap();
 
     let events: Vec<ExecutorEvent> = event_rx.iter().collect();
-    let first_json: serde_json::Value = serde_json::from_str(
-        &serde_json::to_string(&events[0]).unwrap(),
-    )
-    .unwrap();
+    let first_json: serde_json::Value =
+        serde_json::from_str(&serde_json::to_string(&events[0]).unwrap()).unwrap();
 
     assert_eq!(first_json["type"], "step_started");
     assert_eq!(first_json["step_id"], "review");
