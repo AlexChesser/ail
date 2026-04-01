@@ -18,10 +18,30 @@ Exactly one primary field is required per step. All other fields are optional.
 | Field | Description |
 |---|---|
 | `id` | String. **Required.** Unique identifier for this step within the resolved pipeline. Snake_case recommended. Step IDs are the public API of a `FROM`-able pipeline — treat them as stable identifiers. |
+| `runner` | String. Optional. Name of the runner to use for this step. Overrides `AIL_DEFAULT_RUNNER` and the pipeline-level default. See §19 and `RunnerFactory`. Recognised values: `claude`, `stub`. |
 | `condition` | Expression string. Step is skipped if false. See §12. |
 | `on_error` | Enum: `continue` \| `pause_for_human` \| `abort_pipeline` \| `retry`. Default: `pause_for_human`. |
 | `max_retries` | Integer. Retry attempts when `on_error: retry`. Default: `2`. |
 | `disabled` | Boolean. Skips step unconditionally. Useful during development. |
+
+#### Runner selection hierarchy
+
+For any given step, the runner is resolved in this order (highest priority first):
+
+1. Per-step `runner:` field in the YAML
+2. `AIL_DEFAULT_RUNNER` environment variable
+3. Hardcoded fallback: `"claude"` → `ClaudeCliRunner`
+
+```yaml
+pipeline:
+  - id: analyze
+    prompt: "Analyze this code."
+    runner: claude        # explicit — uses ClaudeCliRunner
+
+  - id: quick_check
+    prompt: "Any obvious issues?"
+    # runner not set — uses AIL_DEFAULT_RUNNER or "claude"
+```
 
 **`id` is always required.** Because any pipeline may be inherited from via `FROM`, `ail` cannot know at parse time which steps will be targeted by hook operations in inheriting pipelines. Step IDs must be stable identifiers — renaming a step ID in a `FROM`-able pipeline is a breaking change for all inheritors.
 

@@ -34,6 +34,7 @@ pub mod error_types {
     pub const TEMPLATE_UNRESOLVED: &str = "ail:template/unresolved-variable";
     pub const RUNNER_INVOCATION_FAILED: &str = "ail:runner/invocation-failed";
     pub const RUNNER_CANCELLED: &str = "ail:runner/cancelled";
+    pub const RUNNER_NOT_FOUND: &str = "ail:runner/not-found";
     pub const PIPELINE_ABORTED: &str = "ail:pipeline/aborted";
 }
 

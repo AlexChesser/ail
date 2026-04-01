@@ -11,6 +11,7 @@ mod executor {
             tools: None,
             model: None,
             on_result: None,
+            runner: None,
         }
     }
 

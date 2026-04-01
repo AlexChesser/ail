@@ -30,6 +30,9 @@ pub struct StepDto {
     pub tools: Option<ToolsDto>,
     pub on_result: Option<Vec<OnResultBranchDto>>,
     pub model: Option<String>,
+    /// Optional runner name override for this step. Overrides `AIL_DEFAULT_RUNNER` and the
+    /// pipeline-level default. See §19 and `RunnerFactory`.
+    pub runner: Option<String>,
 }
 
 #[derive(Deserialize)]

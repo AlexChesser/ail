@@ -91,6 +91,7 @@ fn invoke_options_carries_resolved_model() {
         tools: None,
         on_result: None,
         model: None,
+        runner: None,
     };
     let pipeline = Pipeline {
         steps: vec![step],

@@ -48,6 +48,7 @@ impl Pipeline {
                 tools: None,
                 on_result: None,
                 model: None,
+                runner: None,
             }],
             source: None,
             defaults: ProviderConfig::default(),
@@ -66,6 +67,9 @@ pub struct Step {
     pub on_result: Option<Vec<ResultBranch>>,
     /// Per-step model override. Overrides `pipeline.defaults.model` but not CLI flags.
     pub model: Option<String>,
+    /// Optional runner name override for this step (SPEC §19).
+    /// Selection hierarchy: per-step `runner:` → `AIL_DEFAULT_RUNNER` env → `"claude"`.
+    pub runner: Option<String>,
 }
 
 #[derive(Debug, Default, Clone)]

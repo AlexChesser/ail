@@ -17,6 +17,45 @@ The following CLI tools are on the roadmap for first-class `ail` support. Each w
 
 ---
 
+## RunnerFactory — Runner Selection at Runtime
+
+`ail-core` ships a `RunnerFactory` in `runner/factory.rs` that resolves runners by name. The selection hierarchy is:
+
+1. Per-step `runner:` field in the pipeline YAML (see §5 — Step Specification)
+2. `AIL_DEFAULT_RUNNER` environment variable
+3. Hardcoded fallback: `"claude"` → `ClaudeCliRunner`
+
+### Adding a new runner
+
+1. Implement the `Runner` trait in a new module under `ail-core/src/runner/`.
+2. Add a match arm in `RunnerFactory::build()` mapping the runner name string to the implementation.
+3. Export the module from `ail-core/src/runner/mod.rs`.
+
+```rust
+// In runner/factory.rs — RunnerFactory::build():
+"my_runner" => Ok(Box::new(my_runner::MyRunner::new(headless))),
+```
+
+### `AIL_DEFAULT_RUNNER` environment variable
+
+Set this to override the default runner for all steps that do not declare a per-step `runner:` field:
+
+```bash
+AIL_DEFAULT_RUNNER=stub ail --once "Hello" --pipeline demo/.ail.yaml
+```
+
+Recognised values: `claude`, `stub`. Any unrecognised value produces a `ail:runner/not-found` error with the unknown name in the detail.
+
+### `RUNNER_NOT_FOUND` error
+
+When a runner name (from `AIL_DEFAULT_RUNNER` or a per-step `runner:` field) is not recognized, `ail` exits with:
+
+```
+[ail:runner/not-found] Unknown runner: Runner '<name>' is not recognized. Known runners: claude, stub
+```
+
+---
+
 ## Writing a Custom Adapter
 
 If your CLI tool does not implement this contract, you can still integrate it with `ail` by writing a custom adapter in Rust. Adapters implement the `Runner` trait defined in `ail`'s core and are loaded at runtime as dynamic libraries.
