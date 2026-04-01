@@ -4,6 +4,11 @@
   "description": "Run and monitor ail pipelines from VS Code",
   "version": "0.1.0",
   "publisher": "alexchesser",
+  "license": "AGPL-3.0-only",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/alexchesser/ail"
+  },
   "engines": {
     "vscode": "^1.85.0"
   },
@@ -77,27 +82,6 @@
           "id": "ail.pipelineExplorer",
           "name": "AIL Pipelines",
           "when": "workspaceContains:.ail.yaml || workspaceContains:.ail/*.yaml"
-        }
-      ]
-    },
-    "menus": {
-      "view/item/context": [
-        {
-          "command": "ail.runFromTree",
-          "when": "view == ail.pipelineExplorer && viewItem == ailPipeline",
-          "group": "inline"
-        },
-        {
-          "command": "ail.validateFromTree",
-          "when": "view == ail.pipelineExplorer && viewItem == ailPipeline",
-          "group": "inline"
-        }
-      ],
-      "view/title": [
-        {
-          "command": "ail.refreshExplorer",
-          "when": "view == ail.pipelineExplorer",
-          "group": "navigation"
         }
       ]
     },
