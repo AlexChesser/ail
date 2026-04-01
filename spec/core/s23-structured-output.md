@@ -57,9 +57,14 @@ These mirror the `ExecutorEvent` enum in `ail-core/src/executor.rs`.
 {
   "type": "step_completed",
   "step_id": "review",
-  "cost_usd": 0.003
+  "cost_usd": 0.003,
+  "input_tokens": 1234,
+  "output_tokens": 567
 }
 ```
+
+`cost_usd` is `null` for non-runner steps (context:shell, pause_for_human, sub-pipeline).
+`input_tokens` and `output_tokens` are `0` for non-runner steps.
 
 **`step_skipped`** — step was disabled or skipped by control logic:
 ```json
@@ -186,7 +191,12 @@ Runner events are nested under `"type": "runner_event"` with the runner event in
 |-----------------|-----------|
 | `--output-format json --headless` | NDJSON output, no tool permission prompts (auto-skip). |
 | `--output-format json` (no `--headless`) | NDJSON output, tool permissions via MCP bridge. |
-| `--output-format text` | Default text output (unchanged). |
+| `--output-format text` | Default text output — prints final response(s) only. |
+| `--output-format text --show-thinking` | Text output with per-step thinking blocks printed to stderr. |
+| `--output-format text --show-responses` | Text output with per-step response blocks printed to stderr. |
+| `--output-format text --show-thinking --show-responses` | Both thinking and response blocks per step. |
+
+`--show-thinking` and `--show-responses` are only meaningful with `--output-format text` and `--once`. They have no effect in JSON mode (thinking/response events are already in the NDJSON stream for consumers to handle).
 
 ## 23.6 Implementation Status
 

@@ -45,7 +45,7 @@ pub struct ProviderConfig { pub model: Option<String>, pub base_url: Option<Stri
 
 // Runner contract
 pub trait Runner { fn invoke(&self, prompt: &str, options: InvokeOptions) -> Result<RunResult, AilError>; }
-pub struct RunResult { pub response: String, pub cost_usd: Option<f64>, pub session_id: Option<String> }
+pub struct RunResult { pub response: String, pub cost_usd: Option<f64>, pub session_id: Option<String>, pub input_tokens: u64, pub output_tokens: u64 }
 pub type PermissionResponder = Arc<dyn Fn(PermissionRequest) -> PermissionResponse + Send + Sync>;
 pub struct PermissionRequest { pub display_name: String, pub display_detail: String }
 // display_detail is pre-formatted by the runner from its native tool input format.

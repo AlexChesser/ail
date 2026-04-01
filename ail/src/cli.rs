@@ -49,6 +49,14 @@ pub struct Cli {
     #[arg(long, value_name = "FORMAT", default_value = "text")]
     pub output_format: OutputFormat,
 
+    /// Include model thinking/reasoning text in --once text output.
+    #[arg(long)]
+    pub show_thinking: bool,
+
+    /// Include full step response text in --once text output.
+    #[arg(long)]
+    pub show_responses: bool,
+
     #[command(subcommand)]
     pub command: Option<Commands>,
 }
@@ -178,6 +186,18 @@ mod tests {
     fn model_flag_parses() {
         let cli = Cli::try_parse_from(["ail", "--model", "gemma3:1b"]).unwrap();
         assert_eq!(cli.model.as_deref(), Some("gemma3:1b"));
+    }
+
+    #[test]
+    fn show_thinking_flag_parses() {
+        let cli = Cli::try_parse_from(["ail", "--once", "hi", "--show-thinking"]).unwrap();
+        assert!(cli.show_thinking);
+    }
+
+    #[test]
+    fn show_responses_flag_parses() {
+        let cli = Cli::try_parse_from(["ail", "--once", "hi", "--show-responses"]).unwrap();
+        assert!(cli.show_responses);
     }
 
     #[test]

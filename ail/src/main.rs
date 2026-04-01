@@ -33,7 +33,16 @@ fn init_tracing(tui_mode: bool) {
 }
 
 /// Run `--once` with human-readable text output (default behaviour).
-fn run_once_text(session: &mut ail_core::session::Session, runner: &dyn Runner, prompt: &str) {
+///
+/// When `show_thinking` or `show_responses` is set, uses streaming execution to print
+/// per-step progress, thinking blocks, and/or responses as they arrive.
+fn run_once_text(
+    session: &mut ail_core::session::Session,
+    runner: &dyn Runner,
+    prompt: &str,
+    show_thinking: bool,
+    show_responses: bool,
+) {
     let has_invocation_step = session
         .pipeline
         .steps
@@ -53,7 +62,15 @@ fn run_once_text(session: &mut ail_core::session::Session, runner: &dyn Runner, 
         };
         match runner.invoke(prompt, invocation_options) {
             Ok(result) => {
-                println!("{}", result.response);
+                if show_responses {
+                    println!(
+                        "[1/{}] invocation ({} in / {} out)",
+                        session.pipeline.steps.len() + 1,
+                        result.input_tokens,
+                        result.output_tokens
+                    );
+                    println!("\n  [Response]\n{}\n", result.response);
+                }
                 session.turn_log.append(ail_core::session::TurnEntry {
                     step_id: "invocation".to_string(),
                     prompt: prompt.to_string(),
@@ -75,14 +92,24 @@ fn run_once_text(session: &mut ail_core::session::Session, runner: &dyn Runner, 
         }
     }
 
+    if show_thinking || show_responses {
+        run_once_text_verbose(session, runner, show_thinking, show_responses);
+    } else {
+        run_once_text_quiet(session, runner, has_invocation_step);
+    }
+}
+
+/// Quiet path: no per-step output, just print the final response(s).
+fn run_once_text_quiet(
+    session: &mut ail_core::session::Session,
+    runner: &dyn Runner,
+    has_invocation_step: bool,
+) {
     match ail_core::executor::execute(session, runner) {
         Ok(outcome) => {
             use ail_core::executor::ExecuteOutcome;
-            match outcome {
-                ExecuteOutcome::Break { step_id } => {
-                    tracing::info!(event = "pipeline_break", step_id = %step_id);
-                }
-                ExecuteOutcome::Completed => {}
+            if let ExecuteOutcome::Break { step_id } = outcome {
+                tracing::info!(event = "pipeline_break", step_id = %step_id);
             }
             if has_invocation_step {
                 if let Some(resp) = session.turn_log.response_for_step("invocation") {
@@ -107,6 +134,103 @@ fn run_once_text(session: &mut ail_core::session::Session, runner: &dyn Runner, 
             eprintln!("{e}");
             std::process::exit(1);
         }
+    }
+}
+
+/// Verbose path: print per-step progress + optional thinking/response blocks.
+///
+/// Uses `execute_with_control` so `RunnerEvent::Thinking` and `RunnerEvent::StreamDelta`
+/// events are available for display. The unbounded mpsc channel means execute_with_control
+/// never blocks; events are drained after it returns.
+fn run_once_text_verbose(
+    session: &mut ail_core::session::Session,
+    runner: &dyn Runner,
+    show_thinking: bool,
+    show_responses: bool,
+) {
+    use ail_core::executor::{ExecutionControl, ExecutorEvent};
+    use ail_core::runner::RunnerEvent;
+    use std::collections::HashSet;
+    use std::sync::atomic::AtomicBool;
+    use std::sync::mpsc;
+    use std::sync::Arc;
+
+    let (event_tx, event_rx) = mpsc::channel();
+    let (_hitl_tx, hitl_rx) = mpsc::channel::<String>();
+    let control = ExecutionControl {
+        pause_requested: Arc::new(AtomicBool::new(false)),
+        kill_requested: Arc::new(AtomicBool::new(false)),
+        permission_responder: None,
+    };
+    let disabled_steps = HashSet::new();
+
+    let result = ail_core::executor::execute_with_control(
+        session,
+        runner,
+        &control,
+        &disabled_steps,
+        event_tx,
+        hitl_rx,
+    );
+
+    // Drain events (event_tx dropped when execute_with_control returned, so iter terminates).
+    let mut thinking_buf = String::new();
+    let mut response_buf = String::new();
+
+    for event in event_rx.iter() {
+        match event {
+            ExecutorEvent::StepStarted {
+                step_id,
+                step_index,
+                total_steps,
+            } => {
+                thinking_buf.clear();
+                response_buf.clear();
+                eprintln!(
+                    "[{}/{}] {} — running...",
+                    step_index + 1,
+                    total_steps,
+                    step_id
+                );
+            }
+            ExecutorEvent::StepCompleted {
+                step_id,
+                input_tokens,
+                output_tokens,
+                ..
+            } => {
+                eprintln!(
+                    "    ✓ {} ({} in / {} out)",
+                    step_id, input_tokens, output_tokens
+                );
+                if show_thinking && !thinking_buf.is_empty() {
+                    eprintln!("\n  [Thinking]\n{}\n", thinking_buf.trim_end());
+                    thinking_buf.clear();
+                }
+                if show_responses && !response_buf.is_empty() {
+                    eprintln!("\n  [Response]\n{}\n", response_buf.trim_end());
+                    response_buf.clear();
+                }
+            }
+            ExecutorEvent::StepFailed { step_id, error } => {
+                eprintln!("    ✗ {}: {}", step_id, error);
+            }
+            ExecutorEvent::RunnerEvent(re) => match re {
+                RunnerEvent::Thinking { text } => {
+                    thinking_buf.push_str(&text);
+                }
+                RunnerEvent::StreamDelta { text } => {
+                    response_buf.push_str(&text);
+                }
+                _ => {}
+            },
+            _ => {}
+        }
+    }
+
+    if let Err(e) = result {
+        eprintln!("{e}");
+        std::process::exit(1);
     }
 }
 
@@ -354,7 +478,13 @@ fn main() {
                     .build();
 
                 match cli.output_format {
-                    OutputFormat::Text => run_once_text(&mut session, &runner, &prompt),
+                    OutputFormat::Text => run_once_text(
+                        &mut session,
+                        &runner,
+                        &prompt,
+                        cli.show_thinking,
+                        cli.show_responses,
+                    ),
                     OutputFormat::Json => run_once_json(&mut session, &runner, &prompt),
                 }
             } else {
