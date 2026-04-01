@@ -1,0 +1,196 @@
+name: Release Extension
+
+on:
+  push:
+    tags:
+      - "vscode-v*"
+
+permissions:
+  contents: write
+
+jobs:
+  # ── Build ail binaries for all platforms ─────────────────────────────────
+  build-binaries:
+    name: Build ${{ matrix.target }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-apple-darwin
+            runner: macos-13        # Intel Mac
+            binary: ail
+            artifact: ail-x86_64-apple-darwin
+
+          - target: aarch64-apple-darwin
+            runner: macos-14        # Apple Silicon
+            binary: ail
+            artifact: ail-aarch64-apple-darwin
+
+          - target: x86_64-unknown-linux-musl
+            runner: ubuntu-latest
+            binary: ail
+            artifact: ail-x86_64-unknown-linux-musl
+            use-cross: true
+
+          - target: x86_64-pc-windows-msvc
+            runner: windows-latest
+            binary: ail.exe
+            artifact: ail-x86_64-pc-windows-msvc.exe
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install cross (Linux musl)
+        if: matrix.use-cross == true
+        run: cargo install cross --git https://github.com/cross-rs/cross
+
+      - name: Build (cross)
+        if: matrix.use-cross == true
+        run: cross build --release --target ${{ matrix.target }}
+
+      - name: Build (native)
+        if: matrix.use-cross != true
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Strip binary (Unix)
+        if: runner.os != 'Windows'
+        run: strip target/${{ matrix.target }}/release/${{ matrix.binary }}
+
+      - name: Upload binary artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: target/${{ matrix.target }}/release/${{ matrix.binary }}
+          retention-days: 1
+
+  # ── Package and publish VSIX ──────────────────────────────────────────────
+  package-vsix:
+    name: Package VSIX
+    needs: build-binaries
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: vscode-ail
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: vscode-ail/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests
+        run: npm test
+
+      - name: Download all binaries
+        uses: actions/download-artifact@v4
+        with:
+          path: vscode-ail/dist
+          merge-multiple: true
+
+      - name: Make binaries executable (Unix)
+        run: chmod +x dist/ail-* || true
+
+      - name: Show dist contents
+        run: ls -la dist/
+
+      - name: Install vsce
+        run: npm install -g @vscode/vsce
+
+      - name: Extract version from tag
+        id: version
+        run: echo "version=${GITHUB_REF_NAME#vscode-v}" >> "$GITHUB_OUTPUT"
+        shell: bash
+        working-directory: .
+
+      - name: Update version in package.json
+        run: |
+          npm version ${{ steps.version.outputs.version }} --no-git-tag-version
+
+      # Package once per target platform (VS Code platform-specific VSIX)
+      - name: Package VSIX — linux x64
+        run: vsce package --target linux-x64 --out ail-linux-x64-${{ steps.version.outputs.version }}.vsix
+
+      - name: Package VSIX — darwin x64
+        run: vsce package --target darwin-x64 --out ail-darwin-x64-${{ steps.version.outputs.version }}.vsix
+
+      - name: Package VSIX — darwin arm64
+        run: vsce package --target darwin-arm64 --out ail-darwin-arm64-${{ steps.version.outputs.version }}.vsix
+
+      - name: Package VSIX — win32 x64
+        run: vsce package --target win32-x64 --out ail-win32-x64-${{ steps.version.outputs.version }}.vsix
+
+      - name: Upload VSIX artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: vsix-packages
+          path: vscode-ail/*.vsix
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: vscode-ail/*.vsix
+          name: "VSCode Extension ${{ steps.version.outputs.version }}"
+          body: |
+            ## ail VSCode Extension v${{ steps.version.outputs.version }}
+
+            ### Installation
+
+            Download the `.vsix` for your platform and install with:
+            ```
+            code --install-extension ail-<platform>-${{ steps.version.outputs.version }}.vsix
+            ```
+
+            | Platform | File |
+            |----------|------|
+            | macOS (Intel) | `ail-darwin-x64-*.vsix` |
+            | macOS (Apple Silicon) | `ail-darwin-arm64-*.vsix` |
+            | Linux x64 | `ail-linux-x64-*.vsix` |
+            | Windows x64 | `ail-win32-x64-*.vsix` |
+
+            The `ail` binary is bundled — no Rust toolchain required.
+
+  # ── Publish to VS Code Marketplace (optional, requires secret) ───────────
+  publish:
+    name: Publish to Marketplace
+    needs: package-vsix
+    runs-on: ubuntu-latest
+    if: vars.PUBLISH_TO_MARKETPLACE == 'true'
+    defaults:
+      run:
+        working-directory: vscode-ail
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install vsce
+        run: npm install -g @vscode/vsce
+
+      - name: Download VSIX packages
+        uses: actions/download-artifact@v4
+        with:
+          name: vsix-packages
+          path: vscode-ail/
+
+      - name: Publish all platforms
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+        run: |
+          for vsix in *.vsix; do
+            vsce publish --packagePath "$vsix"
+          done

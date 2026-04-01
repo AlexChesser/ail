@@ -22,13 +22,14 @@
 pub mod claude;
 pub mod stub;
 
+use serde::Serialize;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
 use crate::error::AilError;
 
 /// Result of a single runner invocation.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct RunResult {
     pub response: String,
     pub cost_usd: Option<f64>,
@@ -37,7 +38,7 @@ pub struct RunResult {
 
 /// A tool permission request emitted by the runner when it requires a human decision before
 /// executing a tool.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct PermissionRequest {
     /// Human-readable name of the tool being invoked (e.g. `"Bash"`, `"Write"`).
     pub display_name: String,
@@ -60,7 +61,8 @@ pub enum PermissionResponse {
 pub type PermissionResponder = Arc<dyn Fn(PermissionRequest) -> PermissionResponse + Send + Sync>;
 
 /// Streaming events emitted by `invoke_streaming()`.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
 pub enum RunnerEvent {
     /// A chunk of assistant text arrived.
     StreamDelta { text: String },
@@ -142,5 +144,86 @@ pub trait Runner {
         let result = self.invoke(prompt, options)?;
         let _ = tx.send(RunnerEvent::Completed(result.clone()));
         Ok(result)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn runner_event_serializes_stream_delta() {
+        let event = RunnerEvent::StreamDelta {
+            text: "Hello".into(),
+        };
+        let json: serde_json::Value =
+            serde_json::from_str(&serde_json::to_string(&event).unwrap()).unwrap();
+        assert_eq!(json["type"], "stream_delta");
+        assert_eq!(json["text"], "Hello");
+    }
+
+    #[test]
+    fn runner_event_serializes_cost_update() {
+        let event = RunnerEvent::CostUpdate {
+            cost_usd: 0.012,
+            input_tokens: 100,
+            output_tokens: 50,
+        };
+        let json: serde_json::Value =
+            serde_json::from_str(&serde_json::to_string(&event).unwrap()).unwrap();
+        assert_eq!(json["type"], "cost_update");
+        assert_eq!(json["cost_usd"], 0.012);
+        assert_eq!(json["input_tokens"], 100);
+        assert_eq!(json["output_tokens"], 50);
+    }
+
+    #[test]
+    fn runner_event_serializes_tool_use() {
+        let event = RunnerEvent::ToolUse {
+            tool_name: "Bash".into(),
+        };
+        let json: serde_json::Value =
+            serde_json::from_str(&serde_json::to_string(&event).unwrap()).unwrap();
+        assert_eq!(json["type"], "tool_use");
+        assert_eq!(json["tool_name"], "Bash");
+    }
+
+    #[test]
+    fn runner_event_serializes_permission_requested() {
+        let event = RunnerEvent::PermissionRequested(PermissionRequest {
+            display_name: "Bash".into(),
+            display_detail: "rm -rf /tmp/test".into(),
+        });
+        let json: serde_json::Value =
+            serde_json::from_str(&serde_json::to_string(&event).unwrap()).unwrap();
+        assert_eq!(json["type"], "permission_requested");
+        assert_eq!(json["display_name"], "Bash");
+    }
+
+    #[test]
+    fn runner_event_serializes_completed() {
+        let event = RunnerEvent::Completed(RunResult {
+            response: "done".into(),
+            cost_usd: Some(0.01),
+            session_id: Some("ses_123".into()),
+        });
+        let json: serde_json::Value =
+            serde_json::from_str(&serde_json::to_string(&event).unwrap()).unwrap();
+        assert_eq!(json["type"], "completed");
+        assert_eq!(json["response"], "done");
+        assert_eq!(json["cost_usd"], 0.01);
+    }
+
+    #[test]
+    fn run_result_serializes() {
+        let result = RunResult {
+            response: "hello".into(),
+            cost_usd: None,
+            session_id: None,
+        };
+        let json: serde_json::Value =
+            serde_json::from_str(&serde_json::to_string(&result).unwrap()).unwrap();
+        assert_eq!(json["response"], "hello");
+        assert!(json["cost_usd"].is_null());
     }
 }

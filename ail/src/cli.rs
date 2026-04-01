@@ -1,5 +1,15 @@
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ValueEnum};
 use std::path::PathBuf;
+
+/// Output format for pipeline execution results.
+#[derive(Debug, Clone, Copy, Default, ValueEnum)]
+pub enum OutputFormat {
+    /// Human-readable text output (default).
+    #[default]
+    Text,
+    /// NDJSON event stream to stdout — one JSON object per line.
+    Json,
+}
 
 #[derive(Parser)]
 #[command(
@@ -34,6 +44,10 @@ pub struct Cli {
     /// Set as `ANTHROPIC_AUTH_TOKEN` in the runner subprocess environment.
     #[arg(long, value_name = "TOKEN")]
     pub provider_token: Option<String>,
+
+    /// Output format for pipeline execution. `json` emits an NDJSON event stream to stdout.
+    #[arg(long, value_name = "FORMAT", default_value = "text")]
+    pub output_format: OutputFormat,
 
     #[command(subcommand)]
     pub command: Option<Commands>,
@@ -139,6 +153,25 @@ mod tests {
         assert!(cli.provider_url.is_none());
         assert!(cli.provider_token.is_none());
         assert!(cli.command.is_none());
+        assert!(matches!(cli.output_format, OutputFormat::Text));
+    }
+
+    #[test]
+    fn output_format_json_parses() {
+        let cli = Cli::try_parse_from(["ail", "--output-format", "json"]).unwrap();
+        assert!(matches!(cli.output_format, OutputFormat::Json));
+    }
+
+    #[test]
+    fn output_format_text_parses() {
+        let cli = Cli::try_parse_from(["ail", "--output-format", "text"]).unwrap();
+        assert!(matches!(cli.output_format, OutputFormat::Text));
+    }
+
+    #[test]
+    fn output_format_defaults_to_text() {
+        let cli = Cli::try_parse_from(["ail", "--once", "hello"]).unwrap();
+        assert!(matches!(cli.output_format, OutputFormat::Text));
     }
 
     #[test]

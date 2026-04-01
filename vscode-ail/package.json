@@ -1,0 +1,149 @@
+{
+  "name": "vscode-ail",
+  "displayName": "ail — AI Pipeline Orchestrator",
+  "description": "Run and monitor ail pipelines from VS Code",
+  "version": "0.1.0",
+  "publisher": "alexchesser",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "workspaceContains:.ail.yaml",
+    "workspaceContains:.ail/*.yaml"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "configuration": {
+      "title": "ail",
+      "properties": {
+        "ail.binaryPath": {
+          "type": "string",
+          "default": "",
+          "description": "Path to the ail binary. Leave empty to use the bundled binary."
+        },
+        "ail.defaultPipeline": {
+          "type": "string",
+          "default": "",
+          "description": "Path to the default pipeline file. Leave empty for automatic discovery."
+        }
+      }
+    },
+    "commands": [
+      {
+        "command": "ail.validatePipeline",
+        "title": "Ail: Validate Pipeline",
+        "category": "ail"
+      },
+      {
+        "command": "ail.runPipeline",
+        "title": "Ail: Run Pipeline",
+        "category": "ail"
+      },
+      {
+        "command": "ail.stopPipeline",
+        "title": "Ail: Stop Pipeline",
+        "category": "ail"
+      },
+      {
+        "command": "ail.materializePipeline",
+        "title": "Ail: Inspect Resolved Pipeline",
+        "category": "ail"
+      },
+      {
+        "command": "ail.refreshExplorer",
+        "title": "Ail: Refresh Pipeline Explorer",
+        "category": "ail",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "ail.runFromTree",
+        "title": "Run Pipeline",
+        "category": "ail",
+        "icon": "$(play)"
+      },
+      {
+        "command": "ail.validateFromTree",
+        "title": "Validate Pipeline",
+        "category": "ail",
+        "icon": "$(check)"
+      }
+    ],
+    "views": {
+      "explorer": [
+        {
+          "id": "ail.pipelineExplorer",
+          "name": "AIL Pipelines",
+          "when": "workspaceContains:.ail.yaml || workspaceContains:.ail/*.yaml"
+        }
+      ]
+    },
+    "menus": {
+      "view/item/context": [
+        {
+          "command": "ail.runFromTree",
+          "when": "view == ail.pipelineExplorer && viewItem == ailPipeline",
+          "group": "inline"
+        },
+        {
+          "command": "ail.validateFromTree",
+          "when": "view == ail.pipelineExplorer && viewItem == ailPipeline",
+          "group": "inline"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "ail.refreshExplorer",
+          "when": "view == ail.pipelineExplorer",
+          "group": "navigation"
+        }
+      ]
+    },
+    "menus": {
+      "editor/title": [
+        {
+          "command": "ail.validatePipeline",
+          "when": "resourceExtname == .yaml && resourceFilename =~ /\\.ail\\.yaml$/",
+          "group": "navigation"
+        },
+        {
+          "command": "ail.runPipeline",
+          "when": "resourceExtname == .yaml && resourceFilename =~ /\\.ail\\.yaml$/",
+          "group": "navigation"
+        }
+      ]
+    },
+    "languages": [
+      {
+        "id": "ail-pipeline",
+        "aliases": [
+          "AIL Pipeline"
+        ],
+        "extensions": [
+          ".ail.yaml"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ]
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "test": "npm run compile && node out/test/binary.test.js && node out/test/ndjson.test.js && node out/test/pipeline-tree.test.js",
+    "lint": "eslint src --ext ts"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/vscode": "^1.85.0",
+    "@typescript-eslint/eslint-plugin": "^6.0.0",
+    "@typescript-eslint/parser": "^6.0.0",
+    "eslint": "^8.0.0",
+    "typescript": "^5.3.0"
+  },
+  "config": {
+    "ailMinVersion": "0.1.0"
+  }
+}

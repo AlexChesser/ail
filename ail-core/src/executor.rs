@@ -7,6 +7,8 @@ use std::sync::mpsc;
 use std::sync::Arc;
 use std::time::SystemTime;
 
+use serde::Serialize;
+
 use crate::config::domain::{
     ContextSource, ExitCodeMatch, ResultAction, ResultMatcher, StepBody, MAX_SUB_PIPELINE_DEPTH,
 };
@@ -19,7 +21,8 @@ use crate::session::{Session, TurnEntry};
 use crate::template;
 
 /// Returned by `execute()` to distinguish successful completion variants.
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
+#[serde(tag = "outcome", rename_all = "snake_case")]
 pub enum ExecuteOutcome {
     /// All steps ran to completion.
     Completed,
@@ -55,7 +58,8 @@ impl Default for ExecutionControl {
 }
 
 /// Events emitted by `execute_with_control()` to the TUI.
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
 pub enum ExecutorEvent {
     StepStarted {
         step_id: String,
@@ -963,5 +967,59 @@ mod tests {
         assert_eq!(session.turn_log.entries().len(), 0);
 
         std::env::set_current_dir(orig).unwrap();
+    }
+
+    #[test]
+    fn executor_event_serializes_step_started() {
+        let event = ExecutorEvent::StepStarted {
+            step_id: "review".into(),
+            step_index: 0,
+            total_steps: 3,
+        };
+        let json: serde_json::Value = serde_json::from_str(
+            &serde_json::to_string(&event).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(json["type"], "step_started");
+        assert_eq!(json["step_id"], "review");
+        assert_eq!(json["step_index"], 0);
+        assert_eq!(json["total_steps"], 3);
+    }
+
+    #[test]
+    fn executor_event_serializes_step_completed() {
+        let event = ExecutorEvent::StepCompleted {
+            step_id: "review".into(),
+            cost_usd: Some(0.003),
+        };
+        let json: serde_json::Value = serde_json::from_str(
+            &serde_json::to_string(&event).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(json["type"], "step_completed");
+        assert_eq!(json["cost_usd"], 0.003);
+    }
+
+    #[test]
+    fn executor_event_serializes_pipeline_completed() {
+        let event = ExecutorEvent::PipelineCompleted(ExecuteOutcome::Completed);
+        let json: serde_json::Value = serde_json::from_str(
+            &serde_json::to_string(&event).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(json["type"], "pipeline_completed");
+    }
+
+    #[test]
+    fn execute_outcome_serializes_break() {
+        let outcome = ExecuteOutcome::Break {
+            step_id: "s1".into(),
+        };
+        let json: serde_json::Value = serde_json::from_str(
+            &serde_json::to_string(&outcome).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(json["outcome"], "break");
+        assert_eq!(json["step_id"], "s1");
     }
 }

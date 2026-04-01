@@ -5,7 +5,7 @@ mod tui;
 use ail_core::runner::claude::{ClaudeCliRunnerConfig, ClaudeInvokeExtensions};
 use ail_core::runner::{InvokeOptions, Runner};
 use clap::Parser;
-use cli::{Cli, Commands};
+use cli::{Cli, Commands, OutputFormat};
 
 /// Initialise tracing. In TUI mode, write to a log file so output doesn't corrupt the
 /// alternate screen. In all other modes, write to stderr.
@@ -29,6 +29,232 @@ fn init_tracing(tui_mode: bool) {
             .json()
             .with_writer(std::io::stderr)
             .init();
+    }
+}
+
+/// Run `--once` with human-readable text output (default behaviour).
+fn run_once_text(
+    session: &mut ail_core::session::Session,
+    runner: &dyn Runner,
+    prompt: &str,
+) {
+    let has_invocation_step = session
+        .pipeline
+        .steps
+        .first()
+        .map(|s| s.id.as_str() == "invocation")
+        .unwrap_or(false);
+
+    if !has_invocation_step {
+        let invocation_options = InvokeOptions {
+            model: session.cli_provider.model.clone(),
+            extensions: Some(Box::new(ClaudeInvokeExtensions {
+                base_url: session.cli_provider.base_url.clone(),
+                auth_token: session.cli_provider.auth_token.clone(),
+                permission_socket: None,
+            })),
+            ..InvokeOptions::default()
+        };
+        match runner.invoke(prompt, invocation_options) {
+            Ok(result) => {
+                println!("{}", result.response);
+                session.turn_log.append(ail_core::session::TurnEntry {
+                    step_id: "invocation".to_string(),
+                    prompt: prompt.to_string(),
+                    response: Some(result.response),
+                    timestamp: std::time::SystemTime::now(),
+                    cost_usd: result.cost_usd,
+                    runner_session_id: result.session_id,
+                    stdout: None,
+                    stderr: None,
+                    exit_code: None,
+                });
+            }
+            Err(e) => {
+                eprintln!("{e}");
+                std::process::exit(1);
+            }
+        }
+    }
+
+    match ail_core::executor::execute(session, runner) {
+        Ok(outcome) => {
+            use ail_core::executor::ExecuteOutcome;
+            match outcome {
+                ExecuteOutcome::Break { step_id } => {
+                    tracing::info!(event = "pipeline_break", step_id = %step_id);
+                }
+                ExecuteOutcome::Completed => {}
+            }
+            if has_invocation_step {
+                if let Some(resp) = session.turn_log.response_for_step("invocation") {
+                    println!("{resp}");
+                }
+            }
+            if let Some(entry) = session
+                .turn_log
+                .entries()
+                .iter()
+                .rev()
+                .find(|e| e.step_id != "invocation" && e.response.is_some())
+            {
+                println!(
+                    "\n--- {} ---\n{}",
+                    entry.step_id,
+                    entry.response.as_deref().unwrap_or("")
+                );
+            }
+        }
+        Err(e) => {
+            eprintln!("{e}");
+            std::process::exit(1);
+        }
+    }
+}
+
+/// Run `--once` with NDJSON event stream to stdout.
+///
+/// Uses `execute_with_control()` to receive `ExecutorEvent`s and serializes each
+/// as one JSON line. The invocation step (if host-managed) is also emitted as events.
+fn run_once_json(
+    session: &mut ail_core::session::Session,
+    runner: &dyn Runner,
+    prompt: &str,
+) {
+    use ail_core::executor::ExecutionControl;
+    use std::collections::HashSet;
+    use std::io::Write;
+    use std::sync::atomic::AtomicBool;
+    use std::sync::mpsc;
+    use std::sync::Arc;
+
+    let stdout = std::io::stdout();
+
+    // Emit run_started envelope.
+    {
+        let mut out = stdout.lock();
+        let _ = serde_json::to_writer(&mut out, &serde_json::json!({
+            "type": "run_started",
+            "run_id": session.run_id,
+            "pipeline_source": session.pipeline.source.as_ref().map(|p| p.display().to_string()),
+            "total_steps": session.pipeline.steps.len(),
+        }));
+        let _ = writeln!(out);
+    }
+
+    let has_invocation_step = session
+        .pipeline
+        .steps
+        .first()
+        .map(|s| s.id.as_str() == "invocation")
+        .unwrap_or(false);
+
+    // If the pipeline does not declare an invocation step, the host runs it first.
+    if !has_invocation_step {
+        // Emit step_started for invocation.
+        {
+            let mut out = stdout.lock();
+            let _ = serde_json::to_writer(&mut out, &serde_json::json!({
+                "type": "step_started",
+                "step_id": "invocation",
+                "step_index": 0,
+                "total_steps": session.pipeline.steps.len() + 1,
+            }));
+            let _ = writeln!(out);
+        }
+
+        let invocation_options = InvokeOptions {
+            model: session.cli_provider.model.clone(),
+            extensions: Some(Box::new(ClaudeInvokeExtensions {
+                base_url: session.cli_provider.base_url.clone(),
+                auth_token: session.cli_provider.auth_token.clone(),
+                permission_socket: None,
+            })),
+            ..InvokeOptions::default()
+        };
+        match runner.invoke(prompt, invocation_options) {
+            Ok(result) => {
+                {
+                    let mut out = stdout.lock();
+                    let _ = serde_json::to_writer(&mut out, &serde_json::json!({
+                        "type": "step_completed",
+                        "step_id": "invocation",
+                        "cost_usd": result.cost_usd,
+                    }));
+                    let _ = writeln!(out);
+                }
+                session.turn_log.append(ail_core::session::TurnEntry {
+                    step_id: "invocation".to_string(),
+                    prompt: prompt.to_string(),
+                    response: Some(result.response),
+                    timestamp: std::time::SystemTime::now(),
+                    cost_usd: result.cost_usd,
+                    runner_session_id: result.session_id,
+                    stdout: None,
+                    stderr: None,
+                    exit_code: None,
+                });
+            }
+            Err(e) => {
+                let mut out = stdout.lock();
+                let _ = serde_json::to_writer(&mut out, &serde_json::json!({
+                    "type": "pipeline_error",
+                    "error": e.detail,
+                    "error_type": e.error_type,
+                }));
+                let _ = writeln!(out);
+                std::process::exit(1);
+            }
+        }
+    }
+
+    // Execute pipeline steps with event streaming.
+    let (event_tx, event_rx) = mpsc::channel();
+    let (_hitl_tx, hitl_rx) = mpsc::channel::<String>();
+    let control = ExecutionControl {
+        pause_requested: Arc::new(AtomicBool::new(false)),
+        kill_requested: Arc::new(AtomicBool::new(false)),
+        permission_responder: None,
+    };
+    let disabled_steps = HashSet::new();
+
+    // Spawn event writer thread — serializes ExecutorEvents as NDJSON.
+    let writer_handle = std::thread::spawn(move || {
+        let stdout = std::io::stdout();
+        for event in event_rx {
+            let mut out = stdout.lock();
+            let _ = serde_json::to_writer(&mut out, &event);
+            let _ = writeln!(out);
+            let _ = out.flush();
+        }
+    });
+
+    let result = ail_core::executor::execute_with_control(
+        session,
+        runner,
+        &control,
+        &disabled_steps,
+        event_tx,
+        hitl_rx,
+    );
+
+    // Wait for writer thread to drain.
+    let _ = writer_handle.join();
+
+    match result {
+        Ok(_) => {
+            // PipelineCompleted event already emitted by execute_with_control.
+        }
+        Err(e) => {
+            let mut out = stdout.lock();
+            let _ = serde_json::to_writer(&mut out, &serde_json::json!({
+                "type": "pipeline_error",
+                "error": e.detail,
+                "error_type": e.error_type,
+            }));
+            let _ = writeln!(out);
+            std::process::exit(1);
+        }
     }
 }
 
@@ -114,84 +340,9 @@ fn main() {
                     .headless(cli.headless)
                     .build();
 
-                // If the pipeline does not declare an invocation step, the host runs it
-                // with default settings before handing off to the executor (SPEC §4.1).
-                let has_invocation_step = session
-                    .pipeline
-                    .steps
-                    .first()
-                    .map(|s| s.id.as_str() == "invocation")
-                    .unwrap_or(false);
-
-                if !has_invocation_step {
-                    let invocation_options = InvokeOptions {
-                        model: session.cli_provider.model.clone(),
-                        extensions: Some(Box::new(ClaudeInvokeExtensions {
-                            base_url: session.cli_provider.base_url.clone(),
-                            auth_token: session.cli_provider.auth_token.clone(),
-                            permission_socket: None,
-                        })),
-                        ..InvokeOptions::default()
-                    };
-                    match runner.invoke(&prompt, invocation_options) {
-                        Ok(result) => {
-                            println!("{}", result.response);
-                            session.turn_log.append(ail_core::session::TurnEntry {
-                                step_id: "invocation".to_string(),
-                                prompt: prompt.clone(),
-                                response: Some(result.response),
-                                timestamp: std::time::SystemTime::now(),
-                                cost_usd: result.cost_usd,
-                                runner_session_id: result.session_id,
-                                stdout: None,
-                                stderr: None,
-                                exit_code: None,
-                            });
-                        }
-                        Err(e) => {
-                            eprintln!("{e}");
-                            std::process::exit(1);
-                        }
-                    }
-                }
-
-                // Execute pipeline steps. If the pipeline declares an invocation step,
-                // the executor runs it (with whatever config the user supplied). Subsequent
-                // steps resume the session via last_runner_session_id (SPEC §4.1, §4.2).
-                match ail_core::executor::execute(&mut session, &runner) {
-                    Ok(outcome) => {
-                        use ail_core::executor::ExecuteOutcome;
-                        match outcome {
-                            ExecuteOutcome::Break { step_id } => {
-                                tracing::info!(event = "pipeline_break", step_id = %step_id);
-                            }
-                            ExecuteOutcome::Completed => {}
-                        }
-                        if has_invocation_step {
-                            // Executor ran invocation — print its response now.
-                            if let Some(resp) = session.turn_log.response_for_step("invocation") {
-                                println!("{resp}");
-                            }
-                        }
-                        // Print the last non-invocation step response, if any.
-                        if let Some(entry) = session
-                            .turn_log
-                            .entries()
-                            .iter()
-                            .rev()
-                            .find(|e| e.step_id != "invocation" && e.response.is_some())
-                        {
-                            println!(
-                                "\n--- {} ---\n{}",
-                                entry.step_id,
-                                entry.response.as_deref().unwrap_or("")
-                            );
-                        }
-                    }
-                    Err(e) => {
-                        eprintln!("{e}");
-                        std::process::exit(1);
-                    }
+                match cli.output_format {
+                    OutputFormat::Text => run_once_text(&mut session, &runner, &prompt),
+                    OutputFormat::Json => run_once_json(&mut session, &runner, &prompt),
                 }
             } else {
                 tracing::info!(event = "tui_launch");

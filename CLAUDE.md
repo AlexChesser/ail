@@ -58,6 +58,9 @@ cargo run -- validate --pipeline demo/.ail.yaml
 
 # Inspect resolved pipeline YAML
 cargo run -- materialize --pipeline demo/.ail.yaml
+
+# Run with NDJSON event stream (for programmatic consumers)
+cargo run -- --once "hello" --pipeline demo/.ail.yaml --output-format json
 ```
 
 ## SPEC is the Contract — Always Audit on Functional Changes

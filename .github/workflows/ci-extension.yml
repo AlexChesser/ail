@@ -1,0 +1,105 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  # ── Rust: build, test, clippy ─────────────────────────────────────────────
+  rust:
+    name: Rust (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@nextest
+
+      - name: Build
+        run: cargo build --release
+
+      - name: Test
+        run: cargo nextest run
+
+      - name: Clippy
+        run: cargo clippy -- -D warnings
+
+      - name: Format check
+        run: cargo fmt --check
+
+  # ── Extension: TypeScript compile + unit tests ────────────────────────────
+  extension:
+    name: Extension
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: vscode-ail
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: vscode-ail/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Test
+        run: npm test
+
+  # ── Integration: run --output-format json with built binary ───────────────
+  integration:
+    name: Structured output integration
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ubuntu-integration-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Build release binary
+        run: cargo build --release
+
+      - name: Verify --output-format json emits NDJSON
+        run: |
+          set -euo pipefail
+          # Create a minimal passthrough pipeline (no steps — just verifies startup event)
+          OUTPUT=$(./target/release/ail --once "hello" --output-format json 2>/dev/null || true)
+          echo "Output: $OUTPUT"
+          # Each non-empty line must be valid JSON
+          echo "$OUTPUT" | grep -v '^$' | while IFS= read -r line; do
+            echo "$line" | python3 -c "import sys,json; json.loads(sys.stdin.read())" \
+              || (echo "Invalid JSON: $line" && exit 1)
+          done
+          # Must contain run_started or step_started
+          echo "$OUTPUT" | grep -q '"type"' || (echo "No type field found" && exit 1)
+          echo "✓ NDJSON output is valid"

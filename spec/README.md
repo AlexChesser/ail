@@ -46,6 +46,7 @@ The AIL Pipeline Language Specification — for pipeline authors and implementer
 | [s20-mvp.md](core/s20-mvp.md) | §20 MVP v0.0.1 Scope | What is and isn't in scope for v0.0.1 | reference — v0.0.1 complete; alpha scope is next |
 | [s21-planned-extensions.md](core/s21-planned-extensions.md) | §21 Planned Extensions | Structured I/O, parallel steps, multi-provider quality comparison (D-020), self-modifying pipelines (D-019), MCP, plugins, observability | planned |
 | [s22-open-questions.md](core/s22-open-questions.md) | §22 Open Questions | Unresolved design questions (completion detection, hot reload, self-modifying pipeline approval/validation, etc.) | reference |
+| [s23-structured-output.md](core/s23-structured-output.md) | §23 Structured Output | `--output-format json` NDJSON event stream; event schema; ordering guarantees | **v0.1** ✓ |
 
 ---
 
