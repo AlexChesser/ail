@@ -18,12 +18,12 @@ jobs:
       matrix:
         include:
           - target: x86_64-apple-darwin
-            runner: macos-13        # Intel Mac
+            runner: macos-15-intel  # Intel x86_64 (macos-13 removed Sep 2025)
             binary: ail
             artifact: ail-x86_64-apple-darwin
 
           - target: aarch64-apple-darwin
-            runner: macos-14        # Apple Silicon
+            runner: macos-15        # Apple Silicon
             binary: ail
             artifact: ail-aarch64-apple-darwin
 
