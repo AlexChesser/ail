@@ -14,18 +14,36 @@ import { StagePanel } from '../panels/StagePanel';
 import { ChatViewProvider } from '../views/ChatViewProvider';
 import { StepsTreeProvider } from '../views/StepsTreeProvider';
 import { AilProcess } from '../infrastructure/AilProcess';
+import { IAilClient } from './IAilClient';
 import { RunnerEvent } from './events';
+import { AilEvent } from '../types';
+
+/** Minimal panel interface needed by RunnerService — allows injection in tests. */
+export interface IStagePanel {
+  onEvent(event: AilEvent): void;
+  dispose(): void;
+}
+
+/** Injectable factories for per-run dependencies. Defaults to real implementations. */
+export interface RunnerDeps {
+  createProcess(binaryPath: string, cwd?: string): IAilClient;
+  createPanel(
+    ctx: vscode.ExtensionContext,
+    writeStdin?: (msg: object) => void,
+  ): IStagePanel;
+}
 
 /** One active pipeline run. */
 interface RunContext {
-  process: AilProcess;
-  panel: StagePanel;
+  process: IAilClient;
+  panel: IStagePanel;
   startTime: number;
 }
 
 export class RunnerService {
   private readonly _ctx: ServiceContext;
   private readonly _bus: EventBus;
+  private readonly _deps: RunnerDeps;
   /** Active runs keyed by run UUID. */
   private readonly _activeRuns = new Map<string, RunContext>();
   private _chatView: ChatViewProvider | undefined;
@@ -33,9 +51,13 @@ export class RunnerService {
   private _statusBarItem: vscode.StatusBarItem | undefined;
   private _onRunComplete: (() => void) | undefined;
 
-  constructor(ctx: ServiceContext, bus: EventBus) {
+  constructor(ctx: ServiceContext, bus: EventBus, deps?: RunnerDeps) {
     this._ctx = ctx;
     this._bus = bus;
+    this._deps = deps ?? {
+      createProcess: (bin, cwd) => new AilProcess(bin, cwd),
+      createPanel: (extCtx, writeStdin) => StagePanel.create(extCtx, writeStdin),
+    };
   }
 
   /** Register a callback to be invoked after each run completes (used for history refresh). */
@@ -62,10 +84,10 @@ export class RunnerService {
   async startRun(prompt: string, pipelinePath: string, env?: Record<string, string>): Promise<void> {
     const runId = randomUUID();
 
-    // Create a dedicated AilProcess per run so multiple can coexist.
-    const proc = new AilProcess(this._ctx.binaryPath, this._ctx.cwd);
+    // Create a dedicated process + panel per run so multiple can coexist.
+    const proc = this._deps.createProcess(this._ctx.binaryPath, this._ctx.cwd);
 
-    const panel = StagePanel.create(
+    const panel = this._deps.createPanel(
       this._ctx.extensionContext,
       (msg) => proc.writeStdin(msg),
     );

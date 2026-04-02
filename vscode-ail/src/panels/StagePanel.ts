@@ -24,6 +24,7 @@ import {
   RunStartedEvent,
 } from '../types';
 import { RunRecord } from '../application/HistoryService';
+import { MessageBuffer } from './MessageBuffer';
 
 export class StagePanel {
   private static readonly viewType = 'ail.stagePanel';
@@ -32,15 +33,23 @@ export class StagePanel {
   private _totalCost = 0;
   private readonly _stepStartTimes = new Map<string, number>();
   private _writeStdin: ((message: object) => void) | undefined;
+  private readonly _buffer: MessageBuffer;
 
   private constructor(panel: vscode.WebviewPanel, writeStdin?: (message: object) => void) {
     this._panel = panel;
     this._writeStdin = writeStdin;
+    this._buffer = new MessageBuffer((msg) => {
+      void this._panel.webview.postMessage(msg);
+    });
     this._panel.onDidDispose(() => this.dispose(), null, this._disposables);
     this._panel.webview.html = getStagePanelHtml();
-    // Route webview → stdin messages
+    // Route webview → host messages (ready signal + stdin messages)
     this._panel.webview.onDidReceiveMessage(
       (msg: { type: string; stepId?: string; text?: string; allowed?: boolean; reason?: string }) => {
+        if (msg.type === 'ready') {
+          this._buffer.markReady();
+          return;
+        }
         if (!this._writeStdin) return;
         switch (msg.type) {
           case 'hitl_response':
@@ -199,7 +208,7 @@ export class StagePanel {
   }
 
   private _post(message: object): void {
-    void this._panel.webview.postMessage(message);
+    this._buffer.post(message);
   }
 
   dispose(): void {
@@ -941,6 +950,10 @@ function getStagePanelHtml(): string {
       }
     }
   });
+
+  // Signal the host that the webview script has executed and the message
+  // listener is registered. The host will flush its queued messages.
+  vscode.postMessage({ type: 'ready' });
 </script>
 </body>
 </html>`;
