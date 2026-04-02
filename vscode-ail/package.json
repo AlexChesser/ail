@@ -237,8 +237,8 @@
     "build": "node esbuild.js",
     "compile": "tsc -p ./",
     "watch": "node esbuild.js --watch",
-    "test": "npm run compile && node node_modules/.bin/c8 --reporter=text --reporter=lcov node_modules/.bin/mocha \"out/src/test/suite/*.test.js\"",
-    "test:coverage": "npm run compile && node node_modules/.bin/c8 --reporter=html --reporter=text node_modules/.bin/mocha \"out/src/test/suite/*.test.js\"",
+    "test": "npm run compile && node node_modules/.bin/c8 node_modules/.bin/mocha \"out/src/test/suite/*.test.js\"",
+    "test:coverage": "npm run compile && node node_modules/.bin/c8 --reporter=html node_modules/.bin/mocha \"out/src/test/suite/*.test.js\"",
     "test:integration": "npm run compile && node out/src/test/runTest.js",
     "lint": "eslint src --ext ts"
   },
@@ -258,6 +258,16 @@
     "jsdom": "^29.0.1",
     "mocha": "^11.7.5",
     "typescript": "^5.3.0"
+  },
+  "c8": {
+    "include": [
+      "out/src/**/*.js"
+    ],
+    "exclude": [
+      "out/src/test/**"
+    ],
+    "all": false,
+    "reporter": ["text", "lcov"]
   },
   "config": {
     "ailMinVersion": "0.1.0"
