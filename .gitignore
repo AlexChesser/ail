@@ -23,3 +23,4 @@ vscode-ail/node_modules/
 vscode-ail/out/
 vscode-ail/dist/
 vscode-ail/*.vsix
+vscode-ail/coverage/

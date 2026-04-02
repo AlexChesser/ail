@@ -54,18 +54,21 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Use Node.js 22
+      - name: Use Node.js 24
         uses: actions/setup-node@v4
         with:
-          node-version: "22"
+          node-version: "24"
           cache: "npm"
           cache-dependency-path: vscode-ail/package-lock.json
 
       - name: Install dependencies
         run: npm ci
 
-      - name: Test
+      - name: Test (with coverage)
         run: npm test
+
+      - name: Enforce coverage thresholds
+        run: node node_modules/.bin/c8 check-coverage --lines 60 --branches 50 --functions 55 node_modules/.bin/mocha "out/src/test/suite/*.test.js"
 
   # ── Integration: run --output-format json with built binary ───────────────
   integration:

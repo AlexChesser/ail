@@ -237,7 +237,8 @@
     "build": "node esbuild.js",
     "compile": "tsc -p ./",
     "watch": "node esbuild.js --watch",
-    "test": "npm run compile && node node_modules/.bin/mocha \"out/src/test/suite/*.test.js\"",
+    "test": "npm run compile && node node_modules/.bin/c8 --reporter=text --reporter=lcov node_modules/.bin/mocha \"out/src/test/suite/*.test.js\"",
+    "test:coverage": "npm run compile && node node_modules/.bin/c8 --reporter=html --reporter=text node_modules/.bin/mocha \"out/src/test/suite/*.test.js\"",
     "test:integration": "npm run compile && node out/src/test/runTest.js",
     "lint": "eslint src --ext ts"
   },
@@ -250,6 +251,7 @@
     "@typescript-eslint/eslint-plugin": "^6.0.0",
     "@typescript-eslint/parser": "^6.0.0",
     "@vscode/test-electron": "^2.5.2",
+    "c8": "^11.0.0",
     "esbuild": "^0.27.5",
     "eslint": "^8.0.0",
     "glob": "^13.0.6",
