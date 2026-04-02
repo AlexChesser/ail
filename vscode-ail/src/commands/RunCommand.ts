@@ -2,6 +2,10 @@
  * RunCommand — thin command handler that delegates to RunnerService.
  *
  * No spawn() calls here. All process management lives in AilProcess.
+ *
+ * If the active text editor has a non-empty selection, that text is passed
+ * to the ail process as the AIL_SELECTION environment variable, making it
+ * available in pipeline templates as {{ env.AIL_SELECTION }}.
  */
 
 import * as vscode from 'vscode';
@@ -37,6 +41,16 @@ export class RunCommand {
       return;
     }
 
-    await this._service.startRun(prompt, pipelinePath);
+    // Capture any active editor selection to pass as AIL_SELECTION
+    const env: Record<string, string> = {};
+    const activeEditor = vscode.window.activeTextEditor;
+    if (activeEditor && !activeEditor.selection.isEmpty) {
+      const selectedText = activeEditor.document.getText(activeEditor.selection);
+      if (selectedText.trim().length > 0) {
+        env['AIL_SELECTION'] = selectedText;
+      }
+    }
+
+    await this._service.startRun(prompt, pipelinePath, Object.keys(env).length > 0 ? env : undefined);
   }
 }

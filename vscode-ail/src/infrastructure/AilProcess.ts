@@ -71,7 +71,10 @@ export class AilProcess implements IAilClient {
     }
 
     return new Promise<void>((resolve, reject) => {
-      const proc = spawn(this._binaryPath, args, { cwd: this._cwd });
+      const spawnEnv = options.env
+        ? { ...process.env, ...options.env }
+        : undefined;
+      const proc = spawn(this._binaryPath, args, { cwd: this._cwd, env: spawnEnv });
       this._activeProcess = proc;
 
       parseNdjsonStream(

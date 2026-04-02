@@ -10,6 +10,7 @@ import { execFile } from "child_process";
 import { resolveBinary, clearBinaryCache } from "./binary";
 import { registerPipelineExplorer } from "./views/PipelineTreeProvider";
 import { registerStepsView } from "./views/StepsTreeProvider";
+import { registerHistoryView } from "./views/HistoryTreeProvider";
 import { ChatViewProvider } from "./views/ChatViewProvider";
 import { registerCompletions } from "./language/completions";
 import { initState } from "./state";
@@ -17,6 +18,8 @@ import { AilProcess } from "./infrastructure/AilProcess";
 import { createServiceContext } from "./application/ServiceContext";
 import { EventBus } from "./application/EventBus";
 import { RunnerService } from "./application/RunnerService";
+import { HistoryService } from "./application/HistoryService";
+import { StagePanel } from "./panels/StagePanel";
 import { RunCommand } from "./commands/RunCommand";
 import { ValidateCommand } from "./commands/ValidateCommand";
 import { resolvePipelinePath } from "./utils/pipelinePath";
@@ -52,13 +55,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   // ── DI wiring ──────────────────────────────────────────────────────────────
 
-  const client = new AilProcess(
-    binary.path,
-    vscode.workspace.workspaceFolders?.[0]?.uri.fsPath
-  );
+  const cwd = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+  const client = new AilProcess(binary.path, cwd);
   const services = createServiceContext(context, client);
   const bus = new EventBus();
   const runnerService = new RunnerService(services, bus);
+  const historyService = new HistoryService(context, cwd ?? process.cwd());
 
   // ── Views ──────────────────────────────────────────────────────────────────
 
@@ -69,9 +71,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   registerPipelineExplorer(context, binary);
   const stepsProvider = registerStepsView(context);
+  const historyProvider = registerHistoryView(context, historyService);
 
   // Inject views into the runner service
   runnerService.setViews(statusBarItem, chatProvider, stepsProvider);
+
+  // Refresh history after each run completes
+  runnerService.setOnRunComplete(() => historyProvider.refresh());
 
   // ── Commands ───────────────────────────────────────────────────────────────
 
@@ -82,6 +88,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   context.subscriptions.push(validateCommand.getDiagnosticCollection());
 
   context.subscriptions.push(
+    vscode.commands.registerCommand("ail.openHistoryRun", async (runId: string) => {
+      const record = await historyService.getRunDetail(runId);
+      if (!record) {
+        void vscode.window.showWarningMessage(`ail: Run ${runId} not found in history.`);
+        return;
+      }
+      StagePanel.openReview(context, record);
+    }),
+
     vscode.commands.registerCommand("ail.runPipeline", async () => {
       await runCommand.execute();
     }),

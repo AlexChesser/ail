@@ -105,6 +105,17 @@
         "title": "Open File",
         "category": "ail",
         "icon": "$(go-to-file)"
+      },
+      {
+        "command": "ail.openHistoryRun",
+        "title": "Ail: Open History Run",
+        "category": "ail"
+      },
+      {
+        "command": "ail.refreshHistory",
+        "title": "Ail: Refresh History",
+        "category": "ail",
+        "icon": "$(refresh)"
       }
     ],
     "views": {
@@ -121,6 +132,10 @@
         {
           "id": "ail.stepsView",
           "name": "Steps"
+        },
+        {
+          "id": "ail.historyView",
+          "name": "Run History"
         }
       ]
     },
@@ -146,6 +161,11 @@
         {
           "command": "ail.refreshExplorer",
           "when": "view == ail.pipelineExplorer",
+          "group": "navigation"
+        },
+        {
+          "command": "ail.refreshHistory",
+          "when": "view == ail.historyView",
           "group": "navigation"
         }
       ],

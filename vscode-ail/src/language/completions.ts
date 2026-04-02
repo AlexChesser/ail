@@ -50,6 +50,12 @@ const TEMPLATE_VARIABLES: Array<{ label: string; detail: string; documentation: 
       "Environment variable. Usage: {{ env.MY_VAR }}. Aborts with error if unset.",
   },
   {
+    label: "env.AIL_SELECTION",
+    detail: "string",
+    documentation:
+      "Text selected in the active VS Code editor when the run was started. Set automatically by the ail extension.",
+  },
+  {
     label: "step.",
     detail: "step reference",
     documentation:

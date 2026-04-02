@@ -15,6 +15,8 @@ export interface Disposable {
 export interface InvokeOptions {
   headless?: boolean;
   outputFormat?: 'text' | 'json';
+  /** Extra environment variables to pass to the ail child process. */
+  env?: Record<string, string>;
 }
 
 export interface ValidationResult {

@@ -11,7 +11,7 @@ import * as vscode from 'vscode';
 import { ServiceContext } from './ServiceContext';
 import { EventBus, Disposable } from './EventBus';
 import { AilEvent, StepStartedEvent } from '../types';
-import { ExecutionPanel } from '../panels/ExecutionPanel';
+import { StagePanel } from '../panels/StagePanel';
 import { ChatViewProvider } from '../views/ChatViewProvider';
 import { StepsTreeProvider } from '../views/StepsTreeProvider';
 
@@ -66,14 +66,20 @@ export class RunnerService {
   private readonly _ctx: ServiceContext;
   private readonly _bus: EventBus;
   private _isRunning = false;
-  private _activePanel: ExecutionPanel | undefined;
+  private _activePanel: StagePanel | undefined;
   private _chatView: ChatViewProvider | undefined;
   private _stepsView: StepsTreeProvider | undefined;
   private _statusBarItem: vscode.StatusBarItem | undefined;
+  private _onRunComplete: (() => void) | undefined;
 
   constructor(ctx: ServiceContext, bus: EventBus) {
     this._ctx = ctx;
     this._bus = bus;
+  }
+
+  /** Register a callback to be invoked after each run completes (used for history refresh). */
+  setOnRunComplete(cb: () => void): void {
+    this._onRunComplete = cb;
   }
 
   /** Inject optional view/UI references (call from extension.ts after views are created). */
@@ -91,7 +97,7 @@ export class RunnerService {
     return this._isRunning;
   }
 
-  async startRun(prompt: string, pipelinePath: string): Promise<void> {
+  async startRun(prompt: string, pipelinePath: string, env?: Record<string, string>): Promise<void> {
     if (this._isRunning) {
       void vscode.window.showWarningMessage(
         "An ail pipeline is already running. Use 'Ail: Stop Pipeline' to cancel it first."
@@ -104,7 +110,7 @@ export class RunnerService {
     this._chatView?.setRunning(true);
     this._stepsView?.resetStatuses();
 
-    this._activePanel = ExecutionPanel.create(this._ctx.extensionContext);
+    this._activePanel = StagePanel.create(this._ctx.extensionContext);
 
     const out = this._ctx.outputChannel;
     out.show(true);
@@ -176,6 +182,7 @@ export class RunnerService {
       await this._ctx.client.invoke(prompt, pipelinePath, {
         headless: true,
         outputFormat: 'json',
+        env,
       });
 
       void vscode.window.showInformationMessage('ail: Pipeline completed');
@@ -190,6 +197,7 @@ export class RunnerService {
       this._activePanel = undefined;
       this._updateStatusBar(false);
       this._chatView?.setRunning(false);
+      this._onRunComplete?.();
     }
   }
 
