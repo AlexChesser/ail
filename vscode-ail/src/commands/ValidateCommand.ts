@@ -5,34 +5,10 @@
  */
 
 import * as vscode from 'vscode';
-import * as path from 'path';
 import { ServiceContext } from '../application/ServiceContext';
+import { resolvePipelinePath } from '../utils/pipelinePath';
 
 const diagnosticCollection = vscode.languages.createDiagnosticCollection('ail');
-
-/** Resolve the pipeline path to validate. */
-function resolvePipelinePath(): string | undefined {
-  const editor = vscode.window.activeTextEditor;
-  if (editor) {
-    const filePath = editor.document.uri.fsPath;
-    if (filePath.endsWith('.ail.yaml') || filePath.endsWith('.ail.yml')) {
-      return filePath;
-    }
-  }
-
-  const config = vscode.workspace.getConfiguration('ail');
-  const defaultPipeline = config.get<string>('defaultPipeline', '');
-  if (defaultPipeline) {
-    return defaultPipeline;
-  }
-
-  const workspaceFolders = vscode.workspace.workspaceFolders;
-  if (workspaceFolders?.[0]) {
-    return path.join(workspaceFolders[0].uri.fsPath, '.ail.yaml');
-  }
-
-  return undefined;
-}
 
 export class ValidateCommand {
   constructor(private readonly _ctx: ServiceContext) {}

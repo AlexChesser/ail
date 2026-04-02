@@ -186,9 +186,10 @@
     ]
   },
   "scripts": {
-    "vscode:prepublish": "npm run compile",
+    "vscode:prepublish": "node esbuild.js --production",
+    "build": "node esbuild.js",
     "compile": "tsc -p ./",
-    "watch": "tsc -watch -p ./",
+    "watch": "node esbuild.js --watch",
     "test": "npm run compile && node out/test/binary.test.js && node out/test/ndjson.test.js && node out/test/pipeline-tree.test.js",
     "lint": "eslint src --ext ts"
   },
@@ -197,6 +198,7 @@
     "@types/vscode": "^1.85.0",
     "@typescript-eslint/eslint-plugin": "^6.0.0",
     "@typescript-eslint/parser": "^6.0.0",
+    "esbuild": "^0.27.5",
     "eslint": "^8.0.0",
     "typescript": "^5.3.0"
   },

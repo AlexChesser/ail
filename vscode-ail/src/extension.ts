@@ -6,7 +6,6 @@
  */
 
 import * as vscode from "vscode";
-import * as path from "path";
 import { execFile } from "child_process";
 import { resolveBinary, clearBinaryCache } from "./binary";
 import { registerPipelineExplorer } from "./views/PipelineTreeProvider";
@@ -20,6 +19,7 @@ import { EventBus } from "./application/EventBus";
 import { RunnerService } from "./application/RunnerService";
 import { RunCommand } from "./commands/RunCommand";
 import { ValidateCommand } from "./commands/ValidateCommand";
+import { resolvePipelinePath } from "./utils/pipelinePath";
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
   // Persistent active pipeline state
@@ -99,30 +99,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }),
 
     vscode.commands.registerCommand("ail.materializePipeline", async () => {
-      // Resolve pipeline path (reuse same logic as RunCommand)
-      const active = (await import("./state")).getActivePipeline();
-      const editor = vscode.window.activeTextEditor;
-      let pipelinePath: string | undefined = active;
-
-      if (!pipelinePath && editor) {
-        const filePath = editor.document.uri.fsPath;
-        if (filePath.endsWith(".ail.yaml") || filePath.endsWith(".ail.yml")) {
-          pipelinePath = filePath;
-        }
-      }
-
-      if (!pipelinePath) {
-        const config = vscode.workspace.getConfiguration("ail");
-        pipelinePath = config.get<string>("defaultPipeline", "") || undefined;
-      }
-
-      if (!pipelinePath && vscode.workspace.workspaceFolders?.[0]) {
-        pipelinePath = path.join(
-          vscode.workspace.workspaceFolders[0].uri.fsPath,
-          ".ail.yaml"
-        );
-      }
-
+      const pipelinePath = resolvePipelinePath();
       if (!pipelinePath) {
         void vscode.window.showWarningMessage("No .ail.yaml file found.");
         return;

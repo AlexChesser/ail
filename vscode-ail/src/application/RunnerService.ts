@@ -11,7 +11,6 @@ import * as vscode from 'vscode';
 import { ServiceContext } from './ServiceContext';
 import { EventBus, Disposable } from './EventBus';
 import { AilEvent, StepStartedEvent } from '../types';
-import { parseNdjsonStream } from '../ndjson';
 import { ExecutionPanel } from '../panels/ExecutionPanel';
 import { ChatViewProvider } from '../views/ChatViewProvider';
 import { StepsTreeProvider } from '../views/StepsTreeProvider';

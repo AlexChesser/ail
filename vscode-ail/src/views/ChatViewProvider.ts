@@ -115,6 +115,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   function send() {
     const prompt = textarea.value.trim();
     if (!prompt || runBtn.disabled) return;
+    textarea.value = '';
     vscode.postMessage({ type: 'send', prompt });
   }
 
