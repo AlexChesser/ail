@@ -377,16 +377,17 @@ fn run_once_json(session: &mut ail_core::session::Session, runner: &dyn Runner, 
 
     // Build the permission responder — blocks until the stdin reader delivers a decision.
     let pending_perm_responder = Arc::clone(&pending_permission);
-    let responder: ail_core::runner::PermissionResponder = Arc::new(
-        move |_req: ail_core::runner::PermissionRequest| {
+    let responder: ail_core::runner::PermissionResponder =
+        Arc::new(move |_req: ail_core::runner::PermissionRequest| {
             let (tx, rx) = mpsc::sync_channel(1);
             if let Ok(mut guard) = pending_perm_responder.lock() {
                 *guard = Some(tx);
             }
             rx.recv_timeout(std::time::Duration::from_secs(300))
-                .unwrap_or(ail_core::runner::PermissionResponse::Deny("timeout".to_string()))
-        },
-    );
+                .unwrap_or(ail_core::runner::PermissionResponse::Deny(
+                    "timeout".to_string(),
+                ))
+        });
 
     let control = ExecutionControl {
         pause_requested: Arc::clone(&pause_requested),
@@ -424,7 +425,10 @@ fn run_once_json(session: &mut ail_core::session::Session, runner: &dyn Runner, 
                     let _ = hitl_tx_stdin.send(text);
                 }
                 Some("permission_response") => {
-                    let allowed = msg.get("allowed").and_then(|v| v.as_bool()).unwrap_or(false);
+                    let allowed = msg
+                        .get("allowed")
+                        .and_then(|v| v.as_bool())
+                        .unwrap_or(false);
                     let response = if allowed {
                         ail_core::runner::PermissionResponse::Allow
                     } else {

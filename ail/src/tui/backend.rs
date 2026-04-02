@@ -141,8 +141,9 @@ pub fn spawn_backend(
                         let fwd_inv_tx = event_tx.clone();
                         let fwd_inv_handle = thread::spawn(move || {
                             for ev in runner_rx {
-                                let _ = fwd_inv_tx
-                                    .send(BackendEvent::Executor(ExecutorEvent::RunnerEvent { event: ev }));
+                                let _ = fwd_inv_tx.send(BackendEvent::Executor(
+                                    ExecutorEvent::RunnerEvent { event: ev },
+                                ));
                             }
                         });
 

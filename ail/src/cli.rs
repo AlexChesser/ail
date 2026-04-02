@@ -158,8 +158,7 @@ mod tests {
 
     #[test]
     fn validate_output_format_json_parses() {
-        let cli =
-            Cli::try_parse_from(["ail", "validate", "--output-format", "json"]).unwrap();
+        let cli = Cli::try_parse_from(["ail", "validate", "--output-format", "json"]).unwrap();
         if let Some(Commands::Validate { output_format, .. }) = cli.command {
             assert!(matches!(output_format, OutputFormat::Json));
         } else {

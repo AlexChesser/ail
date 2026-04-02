@@ -15,7 +15,7 @@
 //! 3. Export the module from `runner/mod.rs`.
 
 use super::{
-    claude::{ClaudeCliRunnerConfig, ClaudeCliRunner},
+    claude::{ClaudeCliRunner, ClaudeCliRunnerConfig},
     stub::StubRunner,
     Runner,
 };
@@ -62,8 +62,7 @@ impl RunnerFactory {
     /// 1. `AIL_DEFAULT_RUNNER` env var (if set and non-empty)
     /// 2. `"claude"` (hardcoded fallback)
     pub fn build_default(headless: bool) -> Result<Box<dyn Runner + Send>, AilError> {
-        let name =
-            std::env::var("AIL_DEFAULT_RUNNER").unwrap_or_else(|_| "claude".to_string());
+        let name = std::env::var("AIL_DEFAULT_RUNNER").unwrap_or_else(|_| "claude".to_string());
         Self::build(&name, headless)
     }
 }
@@ -97,7 +96,9 @@ mod tests {
     fn build_stub_runner_returns_fixed_response() {
         use crate::runner::InvokeOptions;
         let runner = RunnerFactory::build("stub", false).unwrap();
-        let result = runner.invoke("any prompt", InvokeOptions::default()).unwrap();
+        let result = runner
+            .invoke("any prompt", InvokeOptions::default())
+            .unwrap();
         assert_eq!(result.response, "stub response");
     }
 

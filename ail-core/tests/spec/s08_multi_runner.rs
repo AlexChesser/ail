@@ -1,5 +1,4 @@
 /// SPEC §19 — RunnerFactory: build by name, AIL_DEFAULT_RUNNER env var, RUNNER_NOT_FOUND error.
-
 use ail_core::error::error_types;
 use ail_core::runner::factory::RunnerFactory;
 use ail_core::runner::{InvokeOptions, Runner};
@@ -17,7 +16,8 @@ fn factory_builds_stub_runner_by_name() {
 /// Factory builds a stub runner with trailing whitespace and mixed case.
 #[test]
 fn factory_builds_stub_runner_case_insensitive_and_trimmed() {
-    let runner = RunnerFactory::build("  Stub  ", false).expect("should build with whitespace/case");
+    let runner =
+        RunnerFactory::build("  Stub  ", false).expect("should build with whitespace/case");
     let result = runner
         .invoke("hello", InvokeOptions::default())
         .expect("stub runner should succeed");

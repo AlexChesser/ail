@@ -1074,7 +1074,9 @@ mod tests {
     #[test]
     fn executor_event_serializes_runner_event_with_nested_event_field() {
         let event = ExecutorEvent::RunnerEvent {
-            event: RunnerEvent::StreamDelta { text: "hello".into() },
+            event: RunnerEvent::StreamDelta {
+                text: "hello".into(),
+            },
         };
         let json: serde_json::Value =
             serde_json::from_str(&serde_json::to_string(&event).unwrap()).unwrap();
