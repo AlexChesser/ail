@@ -31,6 +31,11 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     this._view?.webview.postMessage({ type: "setRunning", running });
   }
 
+  /** Pre-populate the textarea with a prompt (used by Fork from history). */
+  populate(prompt: string): void {
+    this._view?.webview.postMessage({ type: "populate", prompt });
+  }
+
   private _html(): string {
     return /* html */ `<!DOCTYPE html>
 <html lang="en">
@@ -137,6 +142,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     if (msg.type === 'setRunning') {
       runBtn.disabled = msg.running;
       stopBtn.classList.toggle('visible', msg.running);
+    } else if (msg.type === 'populate') {
+      textarea.value = msg.prompt || '';
+      textarea.focus();
     }
   });
 </script>

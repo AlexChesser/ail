@@ -110,7 +110,10 @@ export class RunnerService {
     this._chatView?.setRunning(true);
     this._stepsView?.resetStatuses();
 
-    this._activePanel = StagePanel.create(this._ctx.extensionContext);
+    this._activePanel = StagePanel.create(
+      this._ctx.extensionContext,
+      (msg) => this._ctx.client.writeStdin(msg)
+    );
 
     const out = this._ctx.outputChannel;
     out.show(true);

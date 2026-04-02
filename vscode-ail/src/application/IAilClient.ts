@@ -44,6 +44,13 @@ export interface IAilClient {
   cancel(): void;
 
   /**
+   * Write a NDJSON control message to the active process stdin.
+   * Used for HITL responses, permission responses, pause/resume/kill.
+   * No-op if no process is running.
+   */
+  writeStdin(message: object): void;
+
+  /**
    * Register a handler for runner events emitted during `invoke()`.
    * Returns a Disposable that unregisters the handler.
    */

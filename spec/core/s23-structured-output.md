@@ -212,5 +212,49 @@ Runner events are nested under `"type": "runner_event"` with the runner event in
 | `ExecutorEvent` serialization | **v0.1** ✓ |
 | `RunnerEvent` serialization | **v0.1** ✓ |
 | `run_started` envelope event | **v0.1** ✓ |
-| stdin HITL response channel | planned (Phase 4) |
-| stdin permission response channel | planned (Phase 4) |
+| stdin HITL response channel | **v0.1** ✓ |
+| stdin permission response channel | **v0.1** ✓ |
+
+## 23.7 Stdin Control Protocol
+
+When `--output-format json` is active, `ail` also listens on **stdin** for NDJSON control messages. This enables programmatic consumers (e.g. the VS Code extension) to respond to `hitl_gate_reached` and `permission_requested` events, and to pause/resume/kill the pipeline.
+
+All stdin messages are NDJSON lines: one JSON object per line.
+
+### Message Types
+
+**`hitl_response`** — unblock a `pause_for_human` step:
+```json
+{ "type": "hitl_response", "step_id": "human_review", "text": "Optional guidance text" }
+```
+
+- `text` is optional. When provided, it is delivered to the step as guidance.
+- If no response arrives within the process lifetime, the gate blocks indefinitely.
+
+**`permission_response`** — respond to a `permission_requested` event:
+```json
+{ "type": "permission_response", "allowed": true }
+{ "type": "permission_response", "allowed": false, "reason": "Denied by user" }
+```
+
+- `reason` is optional and only meaningful when `allowed` is `false`.
+- Unanswered permission requests time out after 5 minutes and are treated as `Deny`.
+
+**`pause`** / **`resume`** — suspend/unsuspend execution:
+```json
+{ "type": "pause" }
+{ "type": "resume" }
+```
+
+**`kill`** — request graceful abort:
+```json
+{ "type": "kill" }
+```
+
+Equivalent to sending SIGTERM. The pipeline emits `pipeline_error` and exits.
+
+### Implementation Notes
+
+- The stdin reader runs on a dedicated thread; malformed JSON lines are silently skipped.
+- Only one `permission_response` channel is outstanding at a time; responses are routed by order of arrival.
+- In `--headless` mode (`--dangerously-skip-permissions`), the runner auto-approves permissions and no `permission_requested` event is emitted — `permission_response` messages are harmless no-ops.

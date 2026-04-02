@@ -131,6 +131,13 @@ export class AilProcess implements IAilClient {
     });
   }
 
+  writeStdin(message: object): void {
+    if (!this._activeProcess?.stdin) {
+      return;
+    }
+    this._activeProcess.stdin.write(JSON.stringify(message) + '\n');
+  }
+
   cancel(): void {
     if (!this._activeProcess) {
       return;

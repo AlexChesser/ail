@@ -31,17 +31,35 @@ export class StagePanel {
   private _disposables: vscode.Disposable[] = [];
   private _totalCost = 0;
   private readonly _stepStartTimes = new Map<string, number>();
+  private _writeStdin: ((message: object) => void) | undefined;
 
-  private constructor(panel: vscode.WebviewPanel) {
+  private constructor(panel: vscode.WebviewPanel, writeStdin?: (message: object) => void) {
     this._panel = panel;
+    this._writeStdin = writeStdin;
     this._panel.onDidDispose(() => this.dispose(), null, this._disposables);
     this._panel.webview.html = getStagePanelHtml();
+    // Route webview → stdin messages
+    this._panel.webview.onDidReceiveMessage(
+      (msg: { type: string; stepId?: string; text?: string; allowed?: boolean; reason?: string }) => {
+        if (!this._writeStdin) return;
+        switch (msg.type) {
+          case 'hitl_response':
+            this._writeStdin({ type: 'hitl_response', step_id: msg.stepId, text: msg.text ?? '' });
+            break;
+          case 'permission_response':
+            this._writeStdin({ type: 'permission_response', allowed: msg.allowed ?? false, reason: msg.reason ?? '' });
+            break;
+        }
+      },
+      null,
+      this._disposables
+    );
   }
 
   // ── Factory methods ─────────────────────────────────────────────────────────
 
   /** Create a new panel for a live run. */
-  static create(context: vscode.ExtensionContext): StagePanel {
+  static create(context: vscode.ExtensionContext, writeStdin?: (message: object) => void): StagePanel {
     const panel = vscode.window.createWebviewPanel(
       StagePanel.viewType,
       'ail: Execution Monitor',
@@ -52,7 +70,7 @@ export class StagePanel {
         localResourceRoots: [vscode.Uri.joinPath(context.extensionUri, 'out')],
       }
     );
-    const instance = new StagePanel(panel);
+    const instance = new StagePanel(panel, writeStdin);
     instance._post({ cmd: 'init', mode: 'live' });
     return instance;
   }
@@ -387,14 +405,59 @@ function getStagePanelHtml(): string {
     margin: 8px 0;
     border-radius: 4px;
   }
+  .hitl-banner textarea {
+    width: 100%;
+    min-height: 60px;
+    background: var(--vscode-input-background);
+    color: var(--vscode-input-foreground);
+    border: 1px solid var(--vscode-input-border);
+    border-radius: 3px;
+    padding: 4px 6px;
+    font-family: inherit;
+    font-size: 12px;
+    resize: vertical;
+    margin-top: 6px;
+    box-sizing: border-box;
+  }
+  .hitl-banner .btn-row {
+    display: flex;
+    gap: 8px;
+    margin-top: 6px;
+  }
+  .btn-approve, .btn-reject, .btn-allow, .btn-deny {
+    padding: 3px 12px;
+    border-radius: 3px;
+    border: none;
+    cursor: pointer;
+    font-size: 12px;
+  }
+  .btn-approve, .btn-allow {
+    background: var(--vscode-button-background);
+    color: var(--vscode-button-foreground);
+  }
+  .btn-approve:hover, .btn-allow:hover {
+    background: var(--vscode-button-hoverBackground);
+  }
+  .btn-reject, .btn-deny {
+    background: var(--vscode-button-secondaryBackground);
+    color: var(--vscode-button-secondaryForeground);
+  }
+  .btn-reject:hover, .btn-deny:hover {
+    background: var(--vscode-button-secondaryHoverBackground);
+  }
   .permission-banner {
     background: var(--vscode-inputValidation-infoBackground);
     border: 1px solid var(--vscode-inputValidation-infoBorder);
-    padding: 4px 8px;
+    padding: 6px 8px;
     margin: 4px 0;
     border-radius: 3px;
     font-size: 11px;
     word-break: break-all;
+  }
+  .permission-banner .btn-row {
+    display: flex;
+    gap: 8px;
+    margin-top: 6px;
   }
 
   /* ── Cost bar ── */
@@ -641,6 +704,30 @@ function getStagePanelHtml(): string {
     stepDisplay.textContent = 'Steps: ' + totalSteps;
   }
 
+  // ── HITL / Permission response helpers ──────────────────────────────────
+
+  function submitHitl(stepId, approved) {
+    const textEl = document.getElementById('hitl-text-' + stepId);
+    const text = textEl ? textEl.value : '';
+    const banner = document.getElementById('hitl-' + stepId);
+    if (banner) banner.innerHTML = approved
+      ? '<span style="color:#4ec994">✓ Approved' + (text ? ': ' + escapeHtml(text) : '') + '</span>'
+      : '<span style="color:#f48771">✗ Rejected' + (text ? ': ' + escapeHtml(text) : '') + '</span>';
+    vscode.postMessage({ type: 'hitl_response', stepId, text: approved ? text : null });
+  }
+
+  function submitPermission(bannerId, allowed) {
+    const banner = document.getElementById(bannerId);
+    if (banner) {
+      const btnRow = banner.querySelector('.btn-row');
+      if (btnRow) btnRow.remove();
+      banner.insertAdjacentHTML('beforeend', allowed
+        ? '<div style="color:#4ec994;margin-top:4px">✓ Allowed</div>'
+        : '<div style="color:#f48771;margin-top:4px">✗ Denied</div>');
+    }
+    vscode.postMessage({ type: 'permission_response', allowed });
+  }
+
   // ── Message handler ──────────────────────────────────────────────────────
 
   window.addEventListener('message', (event) => {
@@ -739,7 +826,18 @@ function getStagePanelHtml(): string {
         const gateSection = document.getElementById('section-' + msg.stepId);
         if (gateSection) {
           const outPre = gateSection.querySelector('.output-content');
-          if (outPre) outPre.insertAdjacentHTML('beforeend', '<div class="hitl-banner">⏸ Awaiting approval...</div>');
+          if (outPre) {
+            const bannerId = 'hitl-' + msg.stepId;
+            outPre.insertAdjacentHTML('beforeend',
+              '<div class="hitl-banner" id="' + bannerId + '">' +
+              '<strong>⏸ HITL Gate</strong> — step paused for human review.' +
+              '<textarea id="hitl-text-' + msg.stepId + '" placeholder="Optional guidance text..."></textarea>' +
+              '<div class="btn-row">' +
+              '<button class="btn-approve" onclick="submitHitl(\'' + msg.stepId + '\', true)">Approve</button>' +
+              '<button class="btn-reject" onclick="submitHitl(\'' + msg.stepId + '\', false)">Reject</button>' +
+              '</div></div>'
+            );
+          }
           const outBlock = gateSection.querySelector('.output-block');
           if (outBlock) outBlock.open = true;
         }
@@ -794,9 +892,17 @@ function getStagePanelHtml(): string {
           const thinkBlock = pr.querySelector('.thinking-block');
           if (thinkBlock && !thinkBlock.open) thinkBlock.open = true;
           const thinkPre = pr.querySelector('.thinking-content');
-          if (thinkPre) thinkPre.insertAdjacentHTML('beforeend',
-            '<div class="permission-banner">🔐 <strong>' + escapeHtml(msg.displayName) + '</strong>: ' + escapeHtml(msg.displayDetail) + '</div>'
-          );
+          if (thinkPre) {
+            const permId = 'perm-' + Date.now();
+            thinkPre.insertAdjacentHTML('beforeend',
+              '<div class="permission-banner" id="' + permId + '">' +
+              '🔐 <strong>' + escapeHtml(msg.displayName) + '</strong>: ' + escapeHtml(msg.displayDetail) +
+              '<div class="btn-row">' +
+              '<button class="btn-allow" onclick="submitPermission(\'' + permId + '\', true)">Allow</button>' +
+              '<button class="btn-deny" onclick="submitPermission(\'' + permId + '\', false)">Deny</button>' +
+              '</div></div>'
+            );
+          }
         }
         statusText.textContent = 'Waiting for permission...';
         break;

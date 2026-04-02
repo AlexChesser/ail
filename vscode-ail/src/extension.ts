@@ -97,6 +97,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       StagePanel.openReview(context, record);
     }),
 
+    vscode.commands.registerCommand("ail.forkHistoryRun", async (runId: string) => {
+      const record = await historyService.getRunDetail(runId);
+      if (!record || !record.invocationPrompt) {
+        void vscode.window.showWarningMessage("ail: No prompt available for this run.");
+        return;
+      }
+      // Focus the chat view and populate the textarea with the original prompt
+      await vscode.commands.executeCommand("ail.chatView.focus");
+      chatProvider.populate(record.invocationPrompt);
+    }),
+
     vscode.commands.registerCommand("ail.runPipeline", async () => {
       await runCommand.execute();
     }),
