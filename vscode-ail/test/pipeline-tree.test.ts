@@ -1,72 +1,13 @@
 /**
- * Unit tests for PipelineTreeProvider step parsing.
- * No VS Code API required — tests the pure YAML-parsing logic directly.
+ * Unit tests for parseStepsFromYaml().
+ * No VS Code API required — imports from src/utils/parseYaml directly.
  */
 
 import * as assert from "assert";
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
-
-// Inline the parsing logic to test it independently of VS Code API.
-interface ParsedStep {
-  id: string;
-  type: string;
-  line: number;
-}
-
-function parseStepsFromYaml(filePath: string): ParsedStep[] {
-  let content: string;
-  try {
-    content = fs.readFileSync(filePath, "utf-8");
-  } catch {
-    return [];
-  }
-
-  const steps: ParsedStep[] = [];
-  const lines = content.split("\n");
-  let inPipeline = false;
-  let currentId: string | undefined;
-  let currentLine = 0;
-
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    const trimmed = line.trim();
-
-    if (trimmed === "pipeline:") {
-      inPipeline = true;
-      continue;
-    }
-
-    if (inPipeline) {
-      if (/^\S/.test(line) && trimmed !== "") {
-        inPipeline = false;
-        continue;
-      }
-
-      const idMatch = trimmed.match(/^-?\s*id:\s*(.+)/);
-      if (idMatch) {
-        currentId = idMatch[1].trim().replace(/['"]/g, "");
-        currentLine = i;
-      }
-
-      if (currentId) {
-        let type: string | undefined;
-        if (trimmed.match(/^prompt:/)) type = "prompt";
-        else if (trimmed.match(/^context:/)) type = "context";
-        else if (trimmed.match(/^action:/)) type = "action";
-        else if (trimmed.match(/^pipeline:/)) type = "pipeline";
-
-        if (type) {
-          steps.push({ id: currentId, type, line: currentLine });
-          currentId = undefined;
-        }
-      }
-    }
-  }
-
-  return steps;
-}
+import { parseStepsFromYaml } from "../src/utils/parseYaml";
 
 function writeTmp(content: string): string {
   const f = path.join(os.tmpdir(), `ail-test-${Date.now()}.ail.yaml`);
@@ -127,6 +68,56 @@ pipeline:
   const steps = parseStepsFromYaml("/nonexistent/path.ail.yaml");
   assert.strictEqual(steps.length, 0, "Missing file should yield no steps");
   console.log("✓ nonexistent file handled gracefully");
+}
+
+// Test 5: multi-line prompt (would silently fail with regex parser)
+{
+  const f = writeTmp(`version: "0.0.1"
+pipeline:
+  - id: analyze
+    prompt: |
+      You are a senior engineer.
+      Review the following code for correctness,
+      performance, and style.
+`);
+  const steps = parseStepsFromYaml(f);
+  assert.strictEqual(steps.length, 1, "Multi-line prompt should parse as one step");
+  assert.strictEqual(steps[0].id, "analyze");
+  assert.strictEqual(steps[0].type, "prompt");
+  fs.unlinkSync(f);
+  console.log("✓ multi-line prompt parsed correctly");
+}
+
+// Test 6: quoted step id (would strip quotes with regex parser but now exact)
+{
+  const f = writeTmp(`version: "0.0.1"
+pipeline:
+  - id: "my-step"
+    prompt: "do something"
+`);
+  const steps = parseStepsFromYaml(f);
+  assert.strictEqual(steps.length, 1);
+  assert.strictEqual(steps[0].id, "my-step", "Quoted id should be unquoted");
+  fs.unlinkSync(f);
+  console.log("✓ quoted step id parsed correctly");
+}
+
+// Test 7: steps with YAML comments (would confuse regex parser)
+{
+  const f = writeTmp(`version: "0.0.1"
+pipeline:
+  # First step reviews the PR
+  - id: review
+    prompt: "Review this PR" # brief review
+  - id: summarize
+    prompt: "Summarize findings"
+`);
+  const steps = parseStepsFromYaml(f);
+  assert.strictEqual(steps.length, 2, "Comments should not affect parsing");
+  assert.strictEqual(steps[0].id, "review");
+  assert.strictEqual(steps[1].id, "summarize");
+  fs.unlinkSync(f);
+  console.log("✓ YAML comments handled correctly");
 }
 
 console.log("✓ pipeline-tree.test.ts — all tests passed");

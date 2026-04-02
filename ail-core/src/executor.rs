@@ -65,12 +65,18 @@ pub enum ExecutorEvent {
         step_id: String,
         step_index: usize,
         total_steps: usize,
+        /// The resolved prompt that will be sent to the runner.
+        /// `None` for non-prompt steps (context:shell, action, sub-pipeline).
+        resolved_prompt: Option<String>,
     },
     StepCompleted {
         step_id: String,
         cost_usd: Option<f64>,
         input_tokens: u64,
         output_tokens: u64,
+        /// The runner's response text.
+        /// `None` for non-prompt steps (context:shell, action, sub-pipeline).
+        response: Option<String>,
     },
     StepSkipped {
         step_id: String,
@@ -486,11 +492,16 @@ pub fn execute_with_control(
             continue;
         }
 
-        let _ = event_tx.send(ExecutorEvent::StepStarted {
-            step_id: step_id.clone(),
-            step_index,
-            total_steps,
-        });
+        // Prompt steps emit StepStarted after template resolution so resolved_prompt is available.
+        // All other step types emit it here with resolved_prompt: None.
+        if !matches!(step.body, StepBody::Prompt(_)) {
+            let _ = event_tx.send(ExecutorEvent::StepStarted {
+                step_id: step_id.clone(),
+                step_index,
+                total_steps,
+                resolved_prompt: None,
+            });
+        }
 
         tracing::info!(run_id = %session.run_id, step_id = %step_id, "executing step (controlled)");
 
@@ -521,6 +532,14 @@ pub fn execute_with_control(
                         return Err(e);
                     }
                 };
+
+                // Emit StepStarted here for Prompt steps — resolved_prompt is now available.
+                let _ = event_tx.send(ExecutorEvent::StepStarted {
+                    step_id: step_id.clone(),
+                    step_index,
+                    total_steps,
+                    resolved_prompt: Some(resolved.clone()),
+                });
 
                 let resume_id = session
                     .turn_log
@@ -581,6 +600,7 @@ pub fn execute_with_control(
                             cost_usd: result.cost_usd,
                             input_tokens: result.input_tokens,
                             output_tokens: result.output_tokens,
+                            response: Some(result.response.clone()),
                         });
 
                         TurnEntry {
@@ -654,6 +674,7 @@ pub fn execute_with_control(
                     cost_usd: None,
                     input_tokens: 0,
                     output_tokens: 0,
+                    response: None,
                 });
 
                 TurnEntry {
@@ -684,6 +705,7 @@ pub fn execute_with_control(
                     cost_usd: None,
                     input_tokens: 0,
                     output_tokens: 0,
+                    response: None,
                 });
                 continue;
             }
@@ -699,6 +721,7 @@ pub fn execute_with_control(
                             cost_usd: None,
                             input_tokens: 0,
                             output_tokens: 0,
+                            response: None,
                         });
                         entry
                     }
@@ -1012,6 +1035,7 @@ mod tests {
             step_id: "review".into(),
             step_index: 0,
             total_steps: 3,
+            resolved_prompt: Some("Please review the code".into()),
         };
         let json: serde_json::Value =
             serde_json::from_str(&serde_json::to_string(&event).unwrap()).unwrap();
@@ -1028,6 +1052,7 @@ mod tests {
             cost_usd: Some(0.003),
             input_tokens: 100,
             output_tokens: 50,
+            response: Some("Looks good!".into()),
         };
         let json: serde_json::Value =
             serde_json::from_str(&serde_json::to_string(&event).unwrap()).unwrap();

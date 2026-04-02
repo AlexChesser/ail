@@ -184,6 +184,7 @@ fn run_once_text_verbose(
                 step_id,
                 step_index,
                 total_steps,
+                ..
             } => {
                 thinking_buf.clear();
                 response_buf.clear();

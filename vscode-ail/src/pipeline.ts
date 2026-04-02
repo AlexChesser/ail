@@ -67,68 +67,8 @@ export function pipelineLabel(filePath: string): string {
 
 // ── Step parsing ─────────────────────────────────────────────────────────────
 
-export interface ParsedStep {
-  id: string;
-  type: string;
-  line: number;
-}
-
-/**
- * Extract pipeline steps from a .ail.yaml file.
- * Line-based parser — no YAML library dependency.
- */
-export function parseStepsFromYaml(filePath: string): ParsedStep[] {
-  let content: string;
-  try {
-    content = fs.readFileSync(filePath, "utf-8");
-  } catch {
-    return [];
-  }
-
-  const steps: ParsedStep[] = [];
-  const lines = content.split("\n");
-  let inPipeline = false;
-  let currentId: string | undefined;
-  let currentLine = 0;
-
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    const trimmed = line.trim();
-
-    if (trimmed === "pipeline:") {
-      inPipeline = true;
-      continue;
-    }
-
-    if (inPipeline) {
-      if (/^\S/.test(line) && trimmed !== "") {
-        inPipeline = false;
-        continue;
-      }
-
-      const idMatch = trimmed.match(/^-?\s*id:\s*(.+)/);
-      if (idMatch) {
-        currentId = idMatch[1].trim().replace(/['"]/g, "");
-        currentLine = i;
-      }
-
-      if (currentId) {
-        let type: string | undefined;
-        if (/^prompt:/.test(trimmed)) type = "prompt";
-        else if (/^context:/.test(trimmed)) type = "context";
-        else if (/^action:/.test(trimmed)) type = "action";
-        else if (/^pipeline:/.test(trimmed)) type = "pipeline";
-
-        if (type) {
-          steps.push({ id: currentId, type, line: currentLine });
-          currentId = undefined;
-        }
-      }
-    }
-  }
-
-  return steps;
-}
+export type { ParsedStep } from "./utils/parseYaml";
+export { parseStepsFromYaml } from "./utils/parseYaml";
 
 // ── Step type icon ────────────────────────────────────────────────────────────
 

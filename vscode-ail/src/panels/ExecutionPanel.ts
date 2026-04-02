@@ -24,6 +24,8 @@ export class ExecutionPanel {
   private _disposables: vscode.Disposable[] = [];
   private _stepCount = 0;
   private _totalCost = 0;
+  /** Start timestamp (ms) per step, for latency tracking. */
+  private readonly _stepStartTimes = new Map<string, number>();
 
   private constructor(panel: vscode.WebviewPanel) {
     this._panel = panel;
@@ -56,12 +58,14 @@ export class ExecutionPanel {
         const e = event as RunStartedEvent;
         this._stepCount = e.total_steps;
         this._totalCost = 0;
+        this._stepStartTimes.clear();
         this._panel.title = "ail: Running";
         this._post({ cmd: "runStarted", runId: e.run_id, totalSteps: e.total_steps });
         break;
       }
       case "step_started": {
         const e = event as StepStartedEvent;
+        this._stepStartTimes.set(e.step_id, Date.now());
         this._post({
           cmd: "stepStarted",
           stepId: e.step_id,
@@ -73,12 +77,15 @@ export class ExecutionPanel {
       case "step_completed": {
         const e = event as StepCompletedEvent;
         if (e.cost_usd != null) this._totalCost += e.cost_usd;
+        const startTime = this._stepStartTimes.get(e.step_id);
+        const latencyMs = startTime != null ? Date.now() - startTime : null;
         this._post({
           cmd: "stepCompleted",
           stepId: e.step_id,
           costUsd: e.cost_usd,
           inputTokens: e.input_tokens,
           outputTokens: e.output_tokens,
+          latencyMs,
           totalCost: this._totalCost,
         });
         break;
@@ -108,6 +115,8 @@ export class ExecutionPanel {
           this._post({ cmd: "costUpdate", costUsd: re.cost_usd, totalCost: this._totalCost });
         } else if (re.type === "thinking") {
           this._post({ cmd: "thinking", text: re.text });
+        } else if (re.type === "permission_requested") {
+          this._post({ cmd: "permissionRequested", displayName: re.display_name, displayDetail: re.display_detail });
         }
         break;
       }
@@ -280,6 +289,15 @@ function getWebviewHtml(_webview: vscode.Webview): string {
     padding: 8px 12px;
     margin: 8px 0;
     border-radius: 4px;
+  }
+  .permission-banner {
+    background: var(--vscode-inputValidation-infoBackground);
+    border: 1px solid var(--vscode-inputValidation-infoBorder);
+    padding: 4px 8px;
+    margin: 4px 0;
+    border-radius: 3px;
+    font-size: 11px;
+    word-break: break-all;
   }
 
   /* ── Cost bar ── */
@@ -460,7 +478,13 @@ function getWebviewHtml(_webview: vscode.Webview): string {
         if (s) {
           s.el.classList.remove('active');
           setGlyph(msg.stepId, '✓', 'glyph-completed');
-          s.tokenEl.textContent = \`\${msg.inputTokens} in / \${msg.outputTokens} out\`;
+          const latency = msg.latencyMs != null
+            ? (msg.latencyMs >= 1000 ? \`\${(msg.latencyMs / 1000).toFixed(1)}s\` : \`\${msg.latencyMs}ms\`)
+            : '';
+          const tokens = (msg.inputTokens || msg.outputTokens)
+            ? \`\${msg.inputTokens}↑ \${msg.outputTokens}↓\`
+            : '';
+          s.tokenEl.textContent = [tokens, latency].filter(Boolean).join(' · ');
         }
         completedSteps++;
         costDisplay.textContent = \`Cost: $\${(msg.totalCost || 0).toFixed(4)}\`;
@@ -543,6 +567,20 @@ function getWebviewHtml(_webview: vscode.Webview): string {
           const thinkPre = section.querySelector('.thinking-content');
           thinkPre.insertAdjacentHTML('beforeend', \`<div><span class="tool-badge">← \${escapeHtml(msg.toolName)}</span></div>\`);
         }
+        break;
+      }
+
+      case 'permissionRequested': {
+        const section = getCurrentSection();
+        if (section) {
+          const thinkBlock = section.querySelector('.thinking-block');
+          if (thinkBlock && !thinkBlock.open) thinkBlock.open = true;
+          const thinkPre = section.querySelector('.thinking-content');
+          thinkPre.insertAdjacentHTML('beforeend',
+            \`<div class="permission-banner">🔐 <strong>\${escapeHtml(msg.displayName)}</strong>: \${escapeHtml(msg.displayDetail)}</div>\`
+          );
+        }
+        statusText.textContent = 'Waiting for permission...';
         break;
       }
 

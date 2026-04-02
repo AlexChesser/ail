@@ -75,6 +75,8 @@ export interface StepStartedEvent {
   step_id: string;
   step_index: number;
   total_steps: number;
+  /** Fully-resolved prompt sent to the runner. null for non-prompt steps. */
+  resolved_prompt: string | null;
 }
 
 export interface StepCompletedEvent {
@@ -83,6 +85,8 @@ export interface StepCompletedEvent {
   cost_usd: number | null;
   input_tokens: number;
   output_tokens: number;
+  /** Runner response text. null for non-prompt steps. */
+  response: string | null;
 }
 
 export interface StepSkippedEvent {

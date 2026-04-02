@@ -122,6 +122,7 @@ pub fn spawn_backend(
                             step_id: "invocation".to_string(),
                             step_index: 0,
                             total_steps,
+                            resolved_prompt: Some(prompt.clone()),
                         }));
 
                         let invocation_options = InvokeOptions {
@@ -167,6 +168,7 @@ pub fn spawn_backend(
                                         cost_usd: None,
                                         input_tokens: 0,
                                         output_tokens: 0,
+                                        response: None,
                                     },
                                 ));
                             }

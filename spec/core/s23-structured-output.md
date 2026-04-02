@@ -48,9 +48,12 @@ These mirror the `ExecutorEvent` enum in `ail-core/src/executor.rs`.
   "type": "step_started",
   "step_id": "review",
   "step_index": 0,
-  "total_steps": 3
+  "total_steps": 3,
+  "resolved_prompt": "Please review the following code for correctness..."
 }
 ```
+
+`resolved_prompt` is the fully-resolved prompt text (all `{{ variable }}` substitutions applied) that will be sent to the runner. It is `null` for non-prompt steps (`context:shell`, `action`, sub-pipeline). For prompt steps, `step_started` is emitted **after** template resolution so `resolved_prompt` is always populated when present.
 
 **`step_completed`**:
 ```json
@@ -59,12 +62,14 @@ These mirror the `ExecutorEvent` enum in `ail-core/src/executor.rs`.
   "step_id": "review",
   "cost_usd": 0.003,
   "input_tokens": 1234,
-  "output_tokens": 567
+  "output_tokens": 567,
+  "response": "The code looks well-structured. A few observations..."
 }
 ```
 
 `cost_usd` is `null` for non-runner steps (context:shell, pause_for_human, sub-pipeline).
 `input_tokens` and `output_tokens` are `0` for non-runner steps.
+`response` is the runner's full response text. It is `null` for non-prompt steps.
 
 **`step_skipped`** — step was disabled or skipped by control logic:
 ```json
@@ -184,6 +189,7 @@ Runner events are nested under `"type": "runner_event"` with the runner event in
 3. `step_completed` or `step_failed` is emitted after all runner events for that step.
 4. `pipeline_completed` or `pipeline_error` is always the last executor event.
 5. Runner events (`stream_delta`, `tool_use`, etc.) are emitted between `step_started` and `step_completed` for the active step.
+6. For prompt steps, `step_started` is emitted after template resolution, so `resolved_prompt` is always populated. If template resolution fails, `step_failed` is emitted without a preceding `step_started`.
 
 ## 23.5 Interaction with Other Flags
 

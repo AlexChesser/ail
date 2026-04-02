@@ -190,19 +190,28 @@
     "build": "node esbuild.js",
     "compile": "tsc -p ./",
     "watch": "node esbuild.js --watch",
-    "test": "npm run compile && node out/test/binary.test.js && node out/test/ndjson.test.js && node out/test/pipeline-tree.test.js",
+    "test": "npm run compile && node node_modules/.bin/mocha \"out/src/test/suite/*.test.js\"",
+    "test:integration": "npm run compile && node out/src/test/runTest.js",
     "lint": "eslint src --ext ts"
   },
   "devDependencies": {
+    "@types/glob": "^9.0.0",
+    "@types/mocha": "^10.0.10",
     "@types/node": "^20.0.0",
     "@types/vscode": "^1.85.0",
     "@typescript-eslint/eslint-plugin": "^6.0.0",
     "@typescript-eslint/parser": "^6.0.0",
+    "@vscode/test-electron": "^2.5.2",
     "esbuild": "^0.27.5",
     "eslint": "^8.0.0",
+    "glob": "^13.0.6",
+    "mocha": "^11.7.5",
     "typescript": "^5.3.0"
   },
   "config": {
     "ailMinVersion": "0.1.0"
+  },
+  "dependencies": {
+    "yaml": "^2.8.3"
   }
 }

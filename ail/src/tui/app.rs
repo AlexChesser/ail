@@ -686,6 +686,7 @@ impl AppState {
                 ref step_id,
                 step_index,
                 total_steps,
+                ..
             } => {
                 self.phase = ExecutionPhase::Running;
                 self.viewport.active_step_id = Some(step_id.clone());
@@ -717,8 +718,7 @@ impl AppState {
             ExecutorEvent::StepCompleted {
                 ref step_id,
                 cost_usd,
-                input_tokens: _,
-                output_tokens: _,
+                ..
             } => {
                 for s in &mut self.steps {
                     if s.id == *step_id {
@@ -1034,6 +1034,7 @@ mod tests {
             step_id: "review".to_string(),
             step_index: 0,
             total_steps: 2,
+            resolved_prompt: None,
         });
         assert_eq!(a.phase, ExecutionPhase::Running);
         assert_eq!(a.viewport.active_step_id.as_deref(), Some("review"));
@@ -1052,6 +1053,7 @@ mod tests {
             step_id: "s1".to_string(),
             step_index: 0,
             total_steps: 1,
+            resolved_prompt: None,
         });
         assert!(a.viewport.lines.iter().any(|l| l.contains("s1")));
         // A blank separator line was inserted before the step header.
@@ -1070,6 +1072,7 @@ mod tests {
             cost_usd: Some(0.005),
             input_tokens: 0,
             output_tokens: 0,
+            response: None,
         });
         assert_eq!(a.steps[0].glyph, StepGlyph::Completed);
         assert!((a.stats.cumulative_cost_usd - 0.005).abs() < 1e-9);
