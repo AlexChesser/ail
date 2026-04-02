@@ -162,6 +162,7 @@ pub fn spawn_backend(
                                     stdout: None,
                                     stderr: None,
                                     exit_code: None,
+                                    thinking: result.thinking,
                                 });
                                 let _ = event_tx.send(BackendEvent::Executor(
                                     ExecutorEvent::StepCompleted {

@@ -10,7 +10,7 @@ import * as vscode from 'vscode';
 import { randomUUID } from 'crypto';
 import { ServiceContext } from './ServiceContext';
 import { EventBus } from './EventBus';
-import { StagePanel } from '../panels/StagePanel';
+import { UnifiedPanel, IUnifiedPanel } from '../panels/UnifiedPanel';
 import { ChatViewProvider } from '../views/ChatViewProvider';
 import { StepsTreeProvider } from '../views/StepsTreeProvider';
 import { AilProcess } from '../infrastructure/AilProcess';
@@ -21,6 +21,8 @@ import { AilEvent } from '../types';
 /** Minimal panel interface needed by RunnerService — allows injection in tests. */
 export interface IStagePanel {
   onEvent(event: AilEvent): void;
+  /** Called when a run ends so the panel can release per-run resources. */
+  onRunComplete(runId: string): void;
   dispose(): void;
 }
 
@@ -29,7 +31,8 @@ export interface RunnerDeps {
   createProcess(binaryPath: string, cwd?: string): IAilClient;
   createPanel(
     ctx: vscode.ExtensionContext,
-    writeStdin?: (msg: object) => void,
+    runId: string,
+    writeStdin: (msg: object) => void,
   ): IStagePanel;
 }
 
@@ -56,7 +59,8 @@ export class RunnerService {
     this._bus = bus;
     this._deps = deps ?? {
       createProcess: (bin, cwd) => new AilProcess(bin, cwd),
-      createPanel: (extCtx, writeStdin) => StagePanel.create(extCtx, writeStdin),
+      createPanel: (extCtx, runId, writeStdin) =>
+        UnifiedPanel.startLiveRun(extCtx, runId, writeStdin) as unknown as IStagePanel,
     };
   }
 
@@ -84,11 +88,13 @@ export class RunnerService {
   async startRun(prompt: string, pipelinePath: string, env?: Record<string, string>): Promise<void> {
     const runId = randomUUID();
 
-    // Create a dedicated process + panel per run so multiple can coexist.
+    // Create a dedicated process per run so multiple can coexist.
     const proc = this._deps.createProcess(this._ctx.binaryPath, this._ctx.cwd);
 
+    // createPanel receives runId so the singleton panel can track per-run stdin callbacks.
     const panel = this._deps.createPanel(
       this._ctx.extensionContext,
+      runId,
       (msg) => proc.writeStdin(msg),
     );
 
@@ -180,6 +186,7 @@ export class RunnerService {
     } finally {
       rawDisposable.dispose();
       disposable.dispose();
+      panel.onRunComplete(runId);
       this._activeRuns.delete(runId);
       this._updateStatusBar();
       if (this._activeRuns.size === 0) {

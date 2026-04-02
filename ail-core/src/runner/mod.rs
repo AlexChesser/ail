@@ -37,6 +37,9 @@ pub struct RunResult {
     pub session_id: Option<String>,
     pub input_tokens: u64,
     pub output_tokens: u64,
+    /// Concatenated thinking/reasoning text from extended thinking blocks, if any.
+    /// `None` when no thinking blocks were present in the response.
+    pub thinking: Option<String>,
 }
 
 /// A tool permission request emitted by the runner when it requires a human decision before
@@ -211,6 +214,7 @@ mod tests {
             session_id: Some("ses_123".into()),
             input_tokens: 10,
             output_tokens: 5,
+            thinking: None,
         });
         let json: serde_json::Value =
             serde_json::from_str(&serde_json::to_string(&event).unwrap()).unwrap();
@@ -227,6 +231,7 @@ mod tests {
             session_id: None,
             input_tokens: 0,
             output_tokens: 0,
+            thinking: None,
         };
         let json: serde_json::Value =
             serde_json::from_str(&serde_json::to_string(&result).unwrap()).unwrap();

@@ -19,8 +19,20 @@ Module._load = function (request: string, ...args: unknown[]) {
         showInformationMessage: () => Promise.resolve(undefined),
         showErrorMessage: () => Promise.resolve(undefined),
         showWarningMessage: () => Promise.resolve(undefined),
+        createWebviewPanel: () => ({
+          title: '',
+          webview: {
+            html: '',
+            postMessage: () => Promise.resolve(undefined),
+            onDidReceiveMessage: () => ({ dispose: () => { /* no-op */ } }),
+          },
+          reveal: () => { /* no-op */ },
+          onDidDispose: () => ({ dispose: () => { /* no-op */ } }),
+          dispose: () => { /* no-op */ },
+        }),
       },
-      // StatusBarItem methods are called on the injected mock, not here.
+      ViewColumn: { Beside: 2, One: 1, Two: 2, Active: -1 },
+      Uri: { joinPath: (..._a: unknown[]) => ({ fsPath: '/fake/out' }) },
     };
   }
   return _origLoad(request, ...args);
@@ -78,7 +90,9 @@ class MockAilClient implements IAilClient {
 class MockStagePanel implements IStagePanel {
   events: AilEvent[] = [];
   disposed = false;
+  completedRunIds: string[] = [];
   onEvent(event: AilEvent): void { this.events.push(event); }
+  onRunComplete(runId: string): void { this.completedRunIds.push(runId); }
   dispose(): void { this.disposed = true; }
 }
 
@@ -278,5 +292,30 @@ suite('RunnerService', () => {
     // Should not throw (error is caught inside startRun)
     await service.startRun('hello', '/fake/.ail.yaml');
     assert.strictEqual(service.isRunning, false);
+  });
+
+  test('onRunComplete is called with the run UUID after the run ends', async () => {
+    const ctx = makeCtx();
+    const bus = new EventBus();
+    const mockProc = new MockAilClient();
+    const mockPanel = new MockStagePanel();
+
+    let capturedRunId: string | undefined;
+    const deps: RunnerDeps = {
+      createProcess: () => mockProc,
+      createPanel: (_ctx, runId) => {
+        capturedRunId = runId;
+        return mockPanel;
+      },
+    };
+
+    const service = new RunnerService(ctx as never, bus, deps);
+    service.setViews(makeStatusBar() as never);
+
+    await service.startRun('hello', '/fake/.ail.yaml');
+
+    assert.ok(capturedRunId, 'createPanel should receive a run UUID');
+    assert.strictEqual(mockPanel.completedRunIds.length, 1, 'onRunComplete should be called once');
+    assert.strictEqual(mockPanel.completedRunIds[0], capturedRunId, 'onRunComplete should receive the same runId');
   });
 });

@@ -122,6 +122,12 @@
         "title": "Ail: Refresh History",
         "category": "ail",
         "icon": "$(refresh)"
+      },
+      {
+        "command": "ail.openUnifiedPanel",
+        "title": "Ail: Open Run Monitor",
+        "category": "ail",
+        "icon": "$(history)"
       }
     ],
     "views": {

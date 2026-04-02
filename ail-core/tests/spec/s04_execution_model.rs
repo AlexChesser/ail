@@ -80,6 +80,7 @@ mod session {
             stdout: None,
             stderr: None,
             exit_code: None,
+            thinking: None,
         }
     }
 

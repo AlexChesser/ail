@@ -196,6 +196,7 @@ fn execute_sub_pipeline(
         stdout: None,
         stderr: None,
         exit_code: None,
+        thinking: None,
     })
 }
 
@@ -293,6 +294,7 @@ fn execute_inner(
                     stdout: None,
                     stderr: None,
                     exit_code: None,
+                    thinking: result.thinking,
                 }
             }
 
@@ -349,6 +351,7 @@ fn execute_inner(
                     stdout: Some(stdout),
                     stderr: Some(stderr),
                     exit_code: Some(exit_code),
+                    thinking: None,
                 }
             }
 
@@ -615,6 +618,7 @@ pub fn execute_with_control(
                             stdout: None,
                             stderr: None,
                             exit_code: None,
+                            thinking: result.thinking,
                         }
                     }
                     Err(e) => {
@@ -689,6 +693,7 @@ pub fn execute_with_control(
                     stdout: Some(stdout),
                     stderr: Some(stderr),
                     exit_code: Some(exit_code),
+                    thinking: None,
                 }
             }
 

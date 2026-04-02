@@ -19,7 +19,7 @@ import { createServiceContext } from "./application/ServiceContext";
 import { EventBus } from "./application/EventBus";
 import { RunnerService } from "./application/RunnerService";
 import { HistoryService } from "./application/HistoryService";
-import { StagePanel } from "./panels/StagePanel";
+import { UnifiedPanel } from "./panels/UnifiedPanel";
 import { RunCommand } from "./commands/RunCommand";
 import { ValidateCommand } from "./commands/ValidateCommand";
 import { resolvePipelinePath } from "./utils/pipelinePath";
@@ -62,6 +62,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const runnerService = new RunnerService(services, bus);
   const historyService = new HistoryService(context, cwd ?? process.cwd());
 
+  // Wire HistoryService into the singleton UnifiedPanel so it can load run
+  // details when the user clicks a historical run in column 1.
+  UnifiedPanel.setHistoryService(historyService);
+
   // ── Views ──────────────────────────────────────────────────────────────────
 
   const chatProvider = new ChatViewProvider();
@@ -76,8 +80,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // Inject views into the runner service
   runnerService.setViews(statusBarItem, chatProvider, stepsProvider);
 
-  // Refresh history after each run completes
-  runnerService.setOnRunComplete(() => historyProvider.refresh());
+  // Refresh history sidebar tree and unified panel column 1 after each run completes
+  runnerService.setOnRunComplete(() => {
+    historyProvider.refresh();
+    void UnifiedPanel.refreshHistory();
+  });
 
   // ── Commands ───────────────────────────────────────────────────────────────
 
@@ -94,7 +101,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         void vscode.window.showWarningMessage(`ail: Run ${runId} not found in history.`);
         return;
       }
-      StagePanel.openReview(context, record);
+      UnifiedPanel.openReview(context, record);
     }),
 
     vscode.commands.registerCommand("ail.forkHistoryRun", async (runId: string) => {
@@ -106,6 +113,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // Focus the chat view and populate the textarea with the original prompt
       await vscode.commands.executeCommand("ail.chatView.focus");
       chatProvider.populate(record.invocationPrompt);
+    }),
+
+    vscode.commands.registerCommand("ail.openUnifiedPanel", async () => {
+      const records = await historyService.getHistory();
+      if (records.length === 0) {
+        void vscode.window.showInformationMessage("ail: No run history found. Run a pipeline first.");
+        return;
+      }
+      UnifiedPanel.openReview(context, records[0]);
     }),
 
     vscode.commands.registerCommand("ail.runPipeline", async () => {

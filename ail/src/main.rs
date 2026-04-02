@@ -84,6 +84,7 @@ fn run_once_text(
                     stdout: None,
                     stderr: None,
                     exit_code: None,
+                    thinking: result.thinking,
                 });
             }
             Err(e) => {
@@ -344,6 +345,7 @@ fn run_once_json(session: &mut ail_core::session::Session, runner: &dyn Runner, 
                     stdout: None,
                     stderr: None,
                     exit_code: None,
+                    thinking: result.thinking,
                 });
             }
             Err(e) => {

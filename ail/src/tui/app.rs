@@ -1170,6 +1170,7 @@ mod tests {
                 session_id: Some("abc123".to_string()),
                 input_tokens: 0,
                 output_tokens: 0,
+                thinking: None,
             }),
         });
         assert_eq!(a.stats.last_session_id.as_deref(), Some("abc123"));

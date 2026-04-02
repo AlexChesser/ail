@@ -32,6 +32,28 @@ enum StreamParseAction {
     ResultError(String),
 }
 
+/// Accumulate thinking block text from an `assistant` stream-json event into `buf`.
+/// Called alongside `parse_stream_event` so thinking text can be persisted in `RunResult`.
+fn accumulate_thinking(event: &serde_json::Value, buf: &mut String) {
+    if event["type"].as_str() != Some("assistant") {
+        return;
+    }
+    if let Some(content) = event["message"]["content"].as_array() {
+        for item in content {
+            if item["type"].as_str() == Some("thinking") {
+                if let Some(text) = item["thinking"].as_str() {
+                    if !text.is_empty() {
+                        if !buf.is_empty() {
+                            buf.push('\n');
+                        }
+                        buf.push_str(text);
+                    }
+                }
+            }
+        }
+    }
+}
+
 /// Parse a single `stream-json` NDJSON event from the claude CLI.
 ///
 /// Sends appropriate `RunnerEvent`s through `tx` (when provided) for streaming display,
@@ -543,6 +565,7 @@ impl Runner for ClaudeCliRunner {
         let mut result_input_tokens: u64 = 0;
         let mut result_output_tokens: u64 = 0;
         let mut error_detail: Option<String> = None;
+        let mut thinking_buf = String::new();
 
         for line in reader.lines() {
             let line = line.map_err(|e| AilError {
@@ -564,6 +587,8 @@ impl Runner for ClaudeCliRunner {
             })?;
 
             tracing::trace!(line = %line, "stream-json raw line");
+
+            accumulate_thinking(&event, &mut thinking_buf);
 
             match parse_stream_event(&event, None) {
                 StreamParseAction::Continue => {}
@@ -642,6 +667,7 @@ impl Runner for ClaudeCliRunner {
             session_id: result_session_id,
             input_tokens: result_input_tokens,
             output_tokens: result_output_tokens,
+            thinking: if thinking_buf.is_empty() { None } else { Some(thinking_buf) },
         })
     }
 
@@ -725,6 +751,7 @@ impl Runner for ClaudeCliRunner {
         let mut result_input_tokens: u64 = 0;
         let mut result_output_tokens: u64 = 0;
         let mut error_detail: Option<String> = None;
+        let mut thinking_buf = String::new();
 
         // Use match-and-break rather than `?` so the done flag is always set before return.
         for line in reader.lines() {
@@ -750,6 +777,8 @@ impl Runner for ClaudeCliRunner {
             };
 
             tracing::trace!(line = %line, "stream-json raw line");
+
+            accumulate_thinking(&event, &mut thinking_buf);
 
             match parse_stream_event(&event, Some(&tx)) {
                 StreamParseAction::Continue => {}
@@ -868,6 +897,7 @@ impl Runner for ClaudeCliRunner {
             session_id: result_session_id,
             input_tokens: result_input_tokens,
             output_tokens: result_output_tokens,
+            thinking: if thinking_buf.is_empty() { None } else { Some(thinking_buf) },
         };
         let _ = tx.send(RunnerEvent::Completed(result.clone()));
         Ok(result)

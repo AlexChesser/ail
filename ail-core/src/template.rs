@@ -201,6 +201,7 @@ mod tests {
             stdout: None,
             stderr: None,
             exit_code: None,
+            thinking: None,
         });
     }
 
@@ -218,6 +219,7 @@ mod tests {
             stdout: Some(stdout.to_string()),
             stderr: Some(stderr.to_string()),
             exit_code: Some(code),
+            thinking: None,
         });
     }
 

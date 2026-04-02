@@ -1,0 +1,1 @@
+{"type":"runner_event","event":{"type":"permission_requested","display_name":"Bash","display_detail":"rm -rf /tmp/test-build"}}

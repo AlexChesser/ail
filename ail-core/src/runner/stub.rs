@@ -25,6 +25,7 @@ impl Runner for StubRunner {
             session_id: Some("stub-session-id".to_string()),
             input_tokens: 0,
             output_tokens: 0,
+            thinking: None,
         })
     }
 }
@@ -57,6 +58,7 @@ impl Runner for CountingStubRunner {
             session_id: Some("stub-session-id".to_string()),
             input_tokens: 0,
             output_tokens: 0,
+            thinking: None,
         })
     }
 }

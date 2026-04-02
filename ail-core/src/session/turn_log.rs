@@ -25,6 +25,9 @@ pub struct TurnEntry {
     pub stderr: Option<String>,
     /// Exit code from a `context: shell:` step.
     pub exit_code: Option<i32>,
+    /// Concatenated thinking/reasoning text from extended thinking blocks, if any.
+    /// `None` when no thinking blocks were present (non-prompt steps, or model without thinking).
+    pub thinking: Option<String>,
 }
 
 /// Written to NDJSON before calling the runner. If the runner crashes or hangs,
