@@ -1,5 +1,6 @@
 mod s03_file_format;
 mod s04_execution_model;
+mod s04_log_provider;
 mod s05_3_on_result;
 mod s05_5_context_steps;
 mod s05_step_specification;

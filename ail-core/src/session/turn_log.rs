@@ -1,10 +1,9 @@
-use std::fs::OpenOptions;
-use std::io::Write;
 use std::path::PathBuf;
 use std::time::SystemTime;
 
 use serde::Serialize;
-use sha1::{Digest, Sha1};
+
+use super::log_provider::{JsonlProvider, LogProvider};
 
 #[derive(Serialize)]
 pub struct TurnEntry {
@@ -43,41 +42,58 @@ struct StepStartedEvent<'a> {
 pub struct TurnLog {
     entries: Vec<TurnEntry>,
     run_id: String,
-    /// `~/.ail/projects/<sha1_of_cwd>` — deterministic per working directory.
-    project_dir: PathBuf,
+    provider: Box<dyn LogProvider>,
 }
 
 impl TurnLog {
+    /// Create a `TurnLog` backed by the default `JsonlProvider` (NDJSON on disk).
     pub fn new(run_id: String) -> Self {
+        TurnLog::with_provider(run_id, Box::new(JsonlProvider::new()))
+    }
+
+    /// Create a `TurnLog` with an injected `LogProvider`. Useful for tests.
+    pub fn with_provider(run_id: String, provider: Box<dyn LogProvider>) -> Self {
         TurnLog {
             entries: Vec::new(),
             run_id,
-            project_dir: project_dir(),
+            provider,
         }
     }
 
     /// Full path to the NDJSON run log file.
+    /// Delegates to the standalone `log_provider::run_path` helper (always uses the default
+    /// project-dir computation regardless of the active provider).
     pub fn run_path(&self) -> PathBuf {
-        self.project_dir
-            .join("runs")
-            .join(format!("{}.jsonl", self.run_id))
+        super::log_provider::run_path(&self.run_id)
     }
 
-    /// Write a `step_started` event to NDJSON before invoking the runner.
+    /// Write a `step_started` event to the provider before invoking the runner.
     /// Not added to the in-memory entries — only persisted for observability.
-    pub fn record_step_started(&self, step_id: &str, prompt: &str) {
+    pub fn record_step_started(&mut self, step_id: &str, prompt: &str) {
         let event = StepStartedEvent {
             event_type: "step_started",
             step_id,
             prompt,
         };
-        if let Err(e) = self.write_ndjson(&event) {
-            tracing::warn!(
-                run_id = %self.run_id,
-                step_id = %step_id,
-                error = %e,
-                "failed to persist step_started event"
-            );
+        match serde_json::to_value(&event) {
+            Ok(json_value) => {
+                if let Err(e) = self.provider.write_entry(&self.run_id, &json_value) {
+                    tracing::warn!(
+                        run_id = %self.run_id,
+                        step_id = %step_id,
+                        error = %e,
+                        "failed to persist step_started event"
+                    );
+                }
+            }
+            Err(e) => {
+                tracing::warn!(
+                    run_id = %self.run_id,
+                    step_id = %step_id,
+                    error = %e,
+                    "failed to serialize step_started event"
+                );
+            }
         }
     }
 
@@ -89,20 +105,18 @@ impl TurnLog {
             "turn_log_append"
         );
 
-        if let Err(e) = self.write_ndjson(&entry) {
-            tracing::warn!(run_id = %self.run_id, error = %e, "failed to persist turn log entry");
+        match serde_json::to_value(&entry) {
+            Ok(json_value) => {
+                if let Err(e) = self.provider.write_entry(&self.run_id, &json_value) {
+                    tracing::warn!(run_id = %self.run_id, error = %e, "failed to persist turn log entry");
+                }
+            }
+            Err(e) => {
+                tracing::warn!(run_id = %self.run_id, error = %e, "failed to serialize turn log entry");
+            }
         }
 
         self.entries.push(entry);
-    }
-
-    fn write_ndjson<T: Serialize>(&self, value: &T) -> std::io::Result<()> {
-        let dir = self.project_dir.join("runs");
-        std::fs::create_dir_all(&dir)?;
-        let path = dir.join(format!("{}.jsonl", self.run_id));
-        let line = serde_json::to_string(value).map_err(std::io::Error::other)?;
-        let mut file = OpenOptions::new().create(true).append(true).open(path)?;
-        writeln!(file, "{line}")
     }
 
     pub fn last_response(&self) -> Option<&str> {
@@ -169,19 +183,4 @@ impl TurnLog {
     pub fn entries(&self) -> &[TurnEntry] {
         &self.entries
     }
-}
-
-/// `~/.ail/projects/<sha1_of_cwd>` — one directory per working directory.
-/// Deterministic: same project root always maps to the same bucket, so all
-/// runs within a project share a session history directory (SPEC §4.4).
-fn project_dir() -> PathBuf {
-    let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-    let mut hasher = Sha1::new();
-    hasher.update(cwd.to_string_lossy().as_bytes());
-    let hash = format!("{:x}", hasher.finalize());
-    dirs::home_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join(".ail")
-        .join("projects")
-        .join(hash)
 }

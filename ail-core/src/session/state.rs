@@ -2,6 +2,7 @@ use uuid::Uuid;
 
 use crate::config::domain::{Pipeline, ProviderConfig};
 
+use super::log_provider::LogProvider;
 use super::turn_log::TurnLog;
 
 pub struct Session {
@@ -27,5 +28,12 @@ impl Session {
             tool_allowlist: Vec::new(),
             cli_provider: ProviderConfig::default(),
         }
+    }
+
+    /// Replace the default `JsonlProvider` with a custom `LogProvider`.
+    /// Must be called immediately after `Session::new` before any entries are written.
+    pub fn with_log_provider(mut self, provider: Box<dyn LogProvider>) -> Self {
+        self.turn_log = TurnLog::with_provider(self.run_id.clone(), provider);
+        self
     }
 }

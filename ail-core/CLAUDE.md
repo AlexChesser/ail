@@ -19,8 +19,9 @@ Consumed by `ail` (the binary) and future language-server / SDK targets.
 | `runner/claude.rs` | `ClaudeCliRunner` — shells out to the `claude` CLI |
 | `runner/factory.rs` | `RunnerFactory` — builds runners by name; honours `AIL_DEFAULT_RUNNER` env |
 | `runner/stub.rs` | `StubRunner`, `CountingStubRunner` — deterministic test doubles |
+| `session/log_provider.rs` | `LogProvider` trait + `JsonlProvider` (NDJSON) + `NullProvider` (tests) |
 | `session/state.rs` | `Session` — `run_id`, `pipeline`, `invocation_prompt`, `turn_log` |
-| `session/turn_log.rs` | `TurnLog` — append-only NDJSON writer + in-memory entries |
+| `session/turn_log.rs` | `TurnLog` — in-memory entry store + delegates persistence to `LogProvider` |
 | `template.rs` | `resolve(template, &Session) → Result<String, AilError>` |
 
 ## Key Types
