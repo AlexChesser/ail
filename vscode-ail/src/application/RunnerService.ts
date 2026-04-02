@@ -116,42 +116,10 @@ export class RunnerService {
 
     let totalCost = 0;
 
-    // Subscribe to the raw AilEvent stream from the client to drive all UI
-    // The client's onEvent gives us RunnerEvents (simplified). We need full AilEvents
-    // for the execution panel and output channel formatting.
-    // We handle this by re-parsing the NDJSON stream indirectly via the spawn in AilProcess.
-    // Instead, we use a higher-level approach: subscribe to client events for the bus,
-    // and separately hook the full AilEvent stream via a side channel using spawn directly
-    // from within RunnerService for the panel/output channel. However, to avoid duplicating
-    // spawn logic, we drive both from the onEvent registration on the client.
-
-    // The panel and output channel need full AilEvent fidelity. We bridge this by
-    // listening to the client's onEvent (RunnerEvent subset) and supplementing with
-    // the EventBus emissions (which carry RunnerEvents, not AilEvents).
-    // For now, we use a spawn-adjacent approach: the client fires onEvent handlers
-    // during invoke(). We register a handler that processes the RunnerEvent into
-    // EventBus emissions and also drives the views.
-
-    // NOTE: The ExecutionPanel.onEvent() expects AilEvents. The RunnerService
-    // bridges RunnerEvents from IAilClient to drive the output channel only.
-    // The panel gets AilEvents via the spawn stream inside AilProcess, but we
-    // need to replicate those events here. To keep AilProcess as the sole spawn
-    // site, we pass the full AilEvent stream through a callback registered
-    // via a separate, extended interface. For this refactor, we wire the panel
-    // using the same parseNdjsonStream by having AilProcess emit 'raw_ail_event'
-    // as a special passthrough.
-
-    // Practical approach: AilProcess.onEvent delivers RunnerEvents for the bus.
-    // We also need to feed full AilEvents to ExecutionPanel. To do this cleanly
-    // without a second spawn, we accept an optional rawEventHandler in startRun.
-    // The spawn inside AilProcess passes each AilEvent to both the RunnerEvent
-    // mapper AND to any rawEventHandler registered here.
-
-    // For this implementation, we reconstruct what the panel needs from the
-    // RunnerEvents available from IAilClient and accept some panel fidelity loss
-    // for events not in the RunnerEvent union (tool_use, tool_result, cost_update,
-    // thinking, run_started). These are suppressed in the panel during this refactor.
-    // Issue #6 will address full panel fidelity with an extended client interface.
+    // Feed full-fidelity AilEvents to the panel (thinking, tool_use, cost_update, etc.)
+    const rawDisposable = this._ctx.client.onRawEvent((ailEvent) => {
+      this._activePanel?.onEvent(ailEvent);
+    });
 
     const disposable = this._ctx.client.onEvent((runnerEvent) => {
       // Drive EventBus
@@ -217,6 +185,7 @@ export class RunnerService {
       out.appendLine(`\n[error] Failed to spawn ail: ${msg}`);
       void vscode.window.showErrorMessage(`ail: ${msg}`);
     } finally {
+      rawDisposable.dispose();
       disposable.dispose();
       this._isRunning = false;
       this._activePanel = undefined;

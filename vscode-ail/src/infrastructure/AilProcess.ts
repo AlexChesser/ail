@@ -12,12 +12,14 @@ import { parseNdjsonStream } from '../ndjson';
 import { AilEvent, StepStartedEvent, StepCompletedEvent, StepFailedEvent } from '../types';
 
 type EventHandler = (event: RunnerEvent) => void;
+type RawEventHandler = (event: AilEvent) => void;
 
 export class AilProcess implements IAilClient {
   private readonly _binaryPath: string;
   private readonly _cwd: string | undefined;
   private _activeProcess: ChildProcess | undefined;
   private readonly _handlers = new Set<EventHandler>();
+  private readonly _rawHandlers = new Set<RawEventHandler>();
 
   constructor(binaryPath: string, cwd?: string) {
     this._binaryPath = binaryPath;
@@ -33,8 +35,23 @@ export class AilProcess implements IAilClient {
     };
   }
 
+  onRawEvent(handler: RawEventHandler): Disposable {
+    this._rawHandlers.add(handler);
+    return {
+      dispose: () => {
+        this._rawHandlers.delete(handler);
+      },
+    };
+  }
+
   private _emit(event: RunnerEvent): void {
     for (const h of this._handlers) {
+      h(event);
+    }
+  }
+
+  private _emitRaw(event: AilEvent): void {
+    for (const h of this._rawHandlers) {
       h(event);
     }
   }
@@ -60,6 +77,7 @@ export class AilProcess implements IAilClient {
       parseNdjsonStream(
         proc.stdout!,
         (ailEvent: AilEvent) => {
+          this._emitRaw(ailEvent);
           const runnerEvent = this._mapAilEvent(ailEvent);
           if (runnerEvent) {
             this._emit(runnerEvent);

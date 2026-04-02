@@ -6,6 +6,7 @@
  */
 
 import { RunnerEvent } from './events';
+import { AilEvent } from '../types';
 
 export interface Disposable {
   dispose(): void;
@@ -45,4 +46,12 @@ export interface IAilClient {
    * Returns a Disposable that unregisters the handler.
    */
   onEvent(handler: (event: RunnerEvent) => void): Disposable;
+
+  /**
+   * Register a handler for the full-fidelity AilEvent stream during `invoke()`.
+   * Delivers every raw event from the ail binary before any mapping occurs.
+   * Use this for consumers (e.g. ExecutionPanel) that need events not present
+   * in the simplified RunnerEvent union (thinking, tool_use, cost_update, etc.).
+   */
+  onRawEvent(handler: (event: AilEvent) => void): Disposable;
 }
