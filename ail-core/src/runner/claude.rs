@@ -667,7 +667,11 @@ impl Runner for ClaudeCliRunner {
             session_id: result_session_id,
             input_tokens: result_input_tokens,
             output_tokens: result_output_tokens,
-            thinking: if thinking_buf.is_empty() { None } else { Some(thinking_buf) },
+            thinking: if thinking_buf.is_empty() {
+                None
+            } else {
+                Some(thinking_buf)
+            },
         })
     }
 
@@ -897,7 +901,11 @@ impl Runner for ClaudeCliRunner {
             session_id: result_session_id,
             input_tokens: result_input_tokens,
             output_tokens: result_output_tokens,
-            thinking: if thinking_buf.is_empty() { None } else { Some(thinking_buf) },
+            thinking: if thinking_buf.is_empty() {
+                None
+            } else {
+                Some(thinking_buf)
+            },
         };
         let _ = tx.send(RunnerEvent::Completed(result.clone()));
         Ok(result)

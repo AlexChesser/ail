@@ -1,5 +1,5 @@
 use ail_core::config::domain::{Pipeline, Step, StepBody, StepId};
-use ail_core::executor::{execute_with_control, ExecutionControl, ExecuteOutcome, ExecutorEvent};
+use ail_core::executor::{execute_with_control, ExecuteOutcome, ExecutionControl, ExecutorEvent};
 use ail_core::runner::stub::StubRunner;
 use ail_core::runner::{PermissionRequest, RunResult, RunnerEvent};
 use ail_core::session::Session;
@@ -162,8 +162,7 @@ fn load_fixture(name: &str) -> serde_json::Value {
     let path = fixtures_dir().join(name);
     let content = std::fs::read_to_string(&path)
         .unwrap_or_else(|e| panic!("Failed to read fixture {name}: {e}"));
-    serde_json::from_str(&content)
-        .unwrap_or_else(|e| panic!("Failed to parse fixture {name}: {e}"))
+    serde_json::from_str(&content).unwrap_or_else(|e| panic!("Failed to parse fixture {name}: {e}"))
 }
 
 fn serialize_event(event: &ExecutorEvent) -> serde_json::Value {
@@ -195,7 +194,10 @@ fn golden_step_started_no_prompt() {
         total_steps: 3,
         resolved_prompt: None,
     };
-    assert_eq!(serialize_event(&event), load_fixture("step_started_no_prompt.json"));
+    assert_eq!(
+        serialize_event(&event),
+        load_fixture("step_started_no_prompt.json")
+    );
 }
 
 /// SPEC §23 — step_completed with cost matches golden fixture.
@@ -221,7 +223,10 @@ fn golden_step_completed_no_cost() {
         output_tokens: 0,
         response: None,
     };
-    assert_eq!(serialize_event(&event), load_fixture("step_completed_no_cost.json"));
+    assert_eq!(
+        serialize_event(&event),
+        load_fixture("step_completed_no_cost.json")
+    );
 }
 
 /// SPEC §23 — step_skipped matches golden fixture.
@@ -249,14 +254,20 @@ fn golden_hitl_gate_reached() {
     let event = ExecutorEvent::HitlGateReached {
         step_id: "approval_gate".into(),
     };
-    assert_eq!(serialize_event(&event), load_fixture("hitl_gate_reached.json"));
+    assert_eq!(
+        serialize_event(&event),
+        load_fixture("hitl_gate_reached.json")
+    );
 }
 
 /// SPEC §23 — pipeline_completed (completed outcome) matches golden fixture.
 #[test]
 fn golden_pipeline_completed() {
     let event = ExecutorEvent::PipelineCompleted(ExecuteOutcome::Completed);
-    assert_eq!(serialize_event(&event), load_fixture("pipeline_completed.json"));
+    assert_eq!(
+        serialize_event(&event),
+        load_fixture("pipeline_completed.json")
+    );
 }
 
 /// SPEC §23 — pipeline_completed (break outcome) matches golden fixture.
@@ -265,7 +276,10 @@ fn golden_pipeline_completed_break() {
     let event = ExecutorEvent::PipelineCompleted(ExecuteOutcome::Break {
         step_id: "early_exit".into(),
     });
-    assert_eq!(serialize_event(&event), load_fixture("pipeline_completed_break.json"));
+    assert_eq!(
+        serialize_event(&event),
+        load_fixture("pipeline_completed_break.json")
+    );
 }
 
 /// SPEC §23 — pipeline_error matches golden fixture.
@@ -281,8 +295,13 @@ fn golden_pipeline_error() {
 /// SPEC §23 — runner_event(stream_delta) matches golden fixture.
 #[test]
 fn golden_runner_event_stream_delta() {
-    let inner = RunnerEvent::StreamDelta { text: "Hello, world!".into() };
-    assert_eq!(serialize_runner_wrapped(inner), load_fixture("runner_event_stream_delta.json"));
+    let inner = RunnerEvent::StreamDelta {
+        text: "Hello, world!".into(),
+    };
+    assert_eq!(
+        serialize_runner_wrapped(inner),
+        load_fixture("runner_event_stream_delta.json")
+    );
 }
 
 /// SPEC §23 — runner_event(thinking) matches golden fixture.
@@ -291,21 +310,34 @@ fn golden_runner_event_thinking() {
     let inner = RunnerEvent::Thinking {
         text: "Let me analyze the code structure first...".into(),
     };
-    assert_eq!(serialize_runner_wrapped(inner), load_fixture("runner_event_thinking.json"));
+    assert_eq!(
+        serialize_runner_wrapped(inner),
+        load_fixture("runner_event_thinking.json")
+    );
 }
 
 /// SPEC §23 — runner_event(tool_use) matches golden fixture.
 #[test]
 fn golden_runner_event_tool_use() {
-    let inner = RunnerEvent::ToolUse { tool_name: "Bash".into() };
-    assert_eq!(serialize_runner_wrapped(inner), load_fixture("runner_event_tool_use.json"));
+    let inner = RunnerEvent::ToolUse {
+        tool_name: "Bash".into(),
+    };
+    assert_eq!(
+        serialize_runner_wrapped(inner),
+        load_fixture("runner_event_tool_use.json")
+    );
 }
 
 /// SPEC §23 — runner_event(tool_result) matches golden fixture.
 #[test]
 fn golden_runner_event_tool_result() {
-    let inner = RunnerEvent::ToolResult { tool_name: "Bash".into() };
-    assert_eq!(serialize_runner_wrapped(inner), load_fixture("runner_event_tool_result.json"));
+    let inner = RunnerEvent::ToolResult {
+        tool_name: "Bash".into(),
+    };
+    assert_eq!(
+        serialize_runner_wrapped(inner),
+        load_fixture("runner_event_tool_result.json")
+    );
 }
 
 /// SPEC §23 — runner_event(cost_update) matches golden fixture.
@@ -316,7 +348,10 @@ fn golden_runner_event_cost_update() {
         input_tokens: 50,
         output_tokens: 25,
     };
-    assert_eq!(serialize_runner_wrapped(inner), load_fixture("runner_event_cost_update.json"));
+    assert_eq!(
+        serialize_runner_wrapped(inner),
+        load_fixture("runner_event_cost_update.json")
+    );
 }
 
 /// SPEC §23 — runner_event(permission_requested) matches golden fixture.
@@ -343,5 +378,8 @@ fn golden_runner_event_completed() {
         output_tokens: 50,
         thinking: None,
     });
-    assert_eq!(serialize_runner_wrapped(inner), load_fixture("runner_event_completed.json"));
+    assert_eq!(
+        serialize_runner_wrapped(inner),
+        load_fixture("runner_event_completed.json")
+    );
 }
