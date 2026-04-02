@@ -19,7 +19,7 @@
     "workspaceContains:.ail.yaml",
     "workspaceContains:.ail/*.yaml"
   ],
-  "main": "./out/src/extension.js",
+  "main": "./dist/extension.js",
   "contributes": {
     "viewsContainers": {
       "activitybar": [
