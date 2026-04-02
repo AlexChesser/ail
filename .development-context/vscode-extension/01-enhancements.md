@@ -10,9 +10,9 @@ The `vscode-ail` extension is a working proof of concept with solid DI architect
 |---|---|---|
 | Headless execution | DONE | `AilProcess.invoke()` passes `--headless` |
 | Execution Monitor | DONE | `ExecutionPanel` webview with steps, streaming, cost |
-| HITL gate approval/rejection | BLOCKED | Runtime emits `hitl_gate_reached` but has no stdin response channel |
-| Path A interrupt (resume) | BLOCKED | Requires bidirectional protocol |
-| Path B guidance injection | BLOCKED | Requires bidirectional protocol |
+| HITL gate approval/rejection | DONE | Full bidirectional chain implemented; `on_result: pause_for_human` also unblocks in controlled executor |
+| Path A interrupt (resume) | DONE | stdin `pause`/`resume` messages wired to `ExecutionControl` atomics |
+| Path B guidance injection | DONE | `hitl_response` carries optional `text` field to executor |
 | Path C hard kill | DONE | `AilProcess.cancel()` sends SIGTERM/SIGKILL |
 | YAML highlighting | DONE | `ail-pipeline` language contribution |
 | Pipeline Explorer | DONE | `PipelineTreeProvider` |

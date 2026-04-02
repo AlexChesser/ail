@@ -418,7 +418,7 @@ fn execute_inner(
                         tracing::info!(
                             run_id = %session.run_id,
                             step_id = %step_id,
-                            "on_result pause_for_human (no-op in headless mode)"
+                            "on_result pause_for_human (no-op in uncontrolled execution)"
                         );
                     }
                     ResultAction::Pipeline(ref path_template) => {
@@ -801,7 +801,16 @@ pub fn execute_with_control(
                         tracing::info!(
                             run_id = %session.run_id,
                             step_id = %step_id,
-                            "on_result pause_for_human (no-op in headless mode)"
+                            "on_result pause_for_human — waiting for HITL response"
+                        );
+                        let _ = event_tx.send(ExecutorEvent::HitlGateReached {
+                            step_id: step_id.clone(),
+                        });
+                        let _response = hitl_rx.recv().unwrap_or_default();
+                        tracing::info!(
+                            run_id = %session.run_id,
+                            step_id = %step_id,
+                            "on_result HITL gate unblocked — resuming"
                         );
                     }
                     ResultAction::Pipeline(ref path_template) => {

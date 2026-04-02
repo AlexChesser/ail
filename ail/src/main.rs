@@ -266,6 +266,95 @@ fn run_once_json(session: &mut ail_core::session::Session, runner: &dyn Runner, 
         let _ = writeln!(out);
     }
 
+    // Build the HITL and permission infrastructure before any step runs so that
+    // both the invocation step and pipeline steps can receive permission responses
+    // via the stdin control protocol.
+    let (hitl_tx, hitl_rx) = mpsc::channel::<String>();
+    let pause_requested = Arc::new(AtomicBool::new(false));
+    let kill_requested = Arc::new(AtomicBool::new(false));
+
+    // One-shot channel for permission responses. When the PermissionResponder
+    // callback fires, it parks a SyncSender here; the stdin reader picks it up.
+    let pending_permission: Arc<
+        std::sync::Mutex<Option<mpsc::SyncSender<ail_core::runner::PermissionResponse>>>,
+    > = Arc::new(std::sync::Mutex::new(None));
+
+    // Build the permission responder — blocks until the stdin reader delivers a decision.
+    let pending_perm_responder = Arc::clone(&pending_permission);
+    let responder: ail_core::runner::PermissionResponder =
+        Arc::new(move |_req: ail_core::runner::PermissionRequest| {
+            let (tx, rx) = mpsc::sync_channel(1);
+            if let Ok(mut guard) = pending_perm_responder.lock() {
+                *guard = Some(tx);
+            }
+            rx.recv_timeout(std::time::Duration::from_secs(300))
+                .unwrap_or(ail_core::runner::PermissionResponse::Deny(
+                    "timeout".to_string(),
+                ))
+        });
+
+    // Spawn the stdin reader thread — routes NDJSON control messages from the
+    // extension (or any consumer) into the executor's control channels.
+    let hitl_tx_stdin = hitl_tx;
+    let pause_stdin = Arc::clone(&pause_requested);
+    let kill_stdin = Arc::clone(&kill_requested);
+    let pending_perm_stdin = Arc::clone(&pending_permission);
+    std::thread::spawn(move || {
+        use std::io::BufRead;
+        let stdin = std::io::stdin();
+        for line in stdin.lock().lines() {
+            let line = match line {
+                Ok(l) if !l.is_empty() => l,
+                Ok(_) => continue,
+                Err(_) => break,
+            };
+            let msg: serde_json::Value = match serde_json::from_str(&line) {
+                Ok(v) => v,
+                Err(_) => continue,
+            };
+            match msg.get("type").and_then(|t| t.as_str()) {
+                Some("hitl_response") => {
+                    let text = msg
+                        .get("text")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
+                    let _ = hitl_tx_stdin.send(text);
+                }
+                Some("permission_response") => {
+                    let allowed = msg
+                        .get("allowed")
+                        .and_then(|v| v.as_bool())
+                        .unwrap_or(false);
+                    let response = if allowed {
+                        ail_core::runner::PermissionResponse::Allow
+                    } else {
+                        let reason = msg
+                            .get("reason")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("")
+                            .to_string();
+                        ail_core::runner::PermissionResponse::Deny(reason)
+                    };
+                    let mut guard = pending_perm_stdin.lock().unwrap_or_else(|e| e.into_inner());
+                    if let Some(tx) = guard.take() {
+                        let _ = tx.send(response);
+                    }
+                }
+                Some("pause") => {
+                    pause_stdin.store(true, std::sync::atomic::Ordering::SeqCst);
+                }
+                Some("resume") => {
+                    pause_stdin.store(false, std::sync::atomic::Ordering::SeqCst);
+                }
+                Some("kill") => {
+                    kill_stdin.store(true, std::sync::atomic::Ordering::SeqCst);
+                }
+                _ => {}
+            }
+        }
+    });
+
     let has_invocation_step = session
         .pipeline
         .steps
@@ -297,6 +386,7 @@ fn run_once_json(session: &mut ail_core::session::Session, runner: &dyn Runner, 
                 auth_token: session.cli_provider.auth_token.clone(),
                 permission_socket: None,
             })),
+            permission_responder: Some(Arc::clone(&responder)),
             ..InvokeOptions::default()
         };
 
@@ -365,32 +455,6 @@ fn run_once_json(session: &mut ail_core::session::Session, runner: &dyn Runner, 
         }
     }
 
-    // Execute pipeline steps with event streaming.
-    let (event_tx, event_rx) = mpsc::channel();
-    let (hitl_tx, hitl_rx) = mpsc::channel::<String>();
-    let pause_requested = Arc::new(AtomicBool::new(false));
-    let kill_requested = Arc::new(AtomicBool::new(false));
-
-    // One-shot channel for permission responses. When the PermissionResponder
-    // callback fires, it parks a SyncSender here; the stdin reader picks it up.
-    let pending_permission: Arc<
-        std::sync::Mutex<Option<mpsc::SyncSender<ail_core::runner::PermissionResponse>>>,
-    > = Arc::new(std::sync::Mutex::new(None));
-
-    // Build the permission responder — blocks until the stdin reader delivers a decision.
-    let pending_perm_responder = Arc::clone(&pending_permission);
-    let responder: ail_core::runner::PermissionResponder =
-        Arc::new(move |_req: ail_core::runner::PermissionRequest| {
-            let (tx, rx) = mpsc::sync_channel(1);
-            if let Ok(mut guard) = pending_perm_responder.lock() {
-                *guard = Some(tx);
-            }
-            rx.recv_timeout(std::time::Duration::from_secs(300))
-                .unwrap_or(ail_core::runner::PermissionResponse::Deny(
-                    "timeout".to_string(),
-                ))
-        });
-
     let control = ExecutionControl {
         pause_requested: Arc::clone(&pause_requested),
         kill_requested: Arc::clone(&kill_requested),
@@ -398,67 +462,8 @@ fn run_once_json(session: &mut ail_core::session::Session, runner: &dyn Runner, 
     };
     let disabled_steps = HashSet::new();
 
-    // Spawn the stdin reader thread — routes NDJSON control messages from the
-    // extension (or any consumer) into the executor's control channels.
-    let hitl_tx_stdin = hitl_tx;
-    let pause_stdin = Arc::clone(&pause_requested);
-    let kill_stdin = Arc::clone(&kill_requested);
-    let pending_perm_stdin = Arc::clone(&pending_permission);
-    std::thread::spawn(move || {
-        use std::io::BufRead;
-        let stdin = std::io::stdin();
-        for line in stdin.lock().lines() {
-            let line = match line {
-                Ok(l) if !l.is_empty() => l,
-                Ok(_) => continue,
-                Err(_) => break,
-            };
-            let msg: serde_json::Value = match serde_json::from_str(&line) {
-                Ok(v) => v,
-                Err(_) => continue,
-            };
-            match msg.get("type").and_then(|t| t.as_str()) {
-                Some("hitl_response") => {
-                    let text = msg
-                        .get("text")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("")
-                        .to_string();
-                    let _ = hitl_tx_stdin.send(text);
-                }
-                Some("permission_response") => {
-                    let allowed = msg
-                        .get("allowed")
-                        .and_then(|v| v.as_bool())
-                        .unwrap_or(false);
-                    let response = if allowed {
-                        ail_core::runner::PermissionResponse::Allow
-                    } else {
-                        let reason = msg
-                            .get("reason")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("")
-                            .to_string();
-                        ail_core::runner::PermissionResponse::Deny(reason)
-                    };
-                    let mut guard = pending_perm_stdin.lock().unwrap_or_else(|e| e.into_inner());
-                    if let Some(tx) = guard.take() {
-                        let _ = tx.send(response);
-                    }
-                }
-                Some("pause") => {
-                    pause_stdin.store(true, std::sync::atomic::Ordering::SeqCst);
-                }
-                Some("resume") => {
-                    pause_stdin.store(false, std::sync::atomic::Ordering::SeqCst);
-                }
-                Some("kill") => {
-                    kill_stdin.store(true, std::sync::atomic::Ordering::SeqCst);
-                }
-                _ => {}
-            }
-        }
-    });
+    // Execute pipeline steps with event streaming.
+    let (event_tx, event_rx) = mpsc::channel();
 
     // Spawn event writer thread — serializes ExecutorEvents as NDJSON.
     let writer_handle = std::thread::spawn(move || {

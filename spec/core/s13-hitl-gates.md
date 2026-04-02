@@ -70,6 +70,10 @@ Preferred over explicit gates — interrupts only when something genuinely requi
 
 For automated runs (CI, the autonomous agent use case, Docker sandbox), HITL prompts are not viable. Pass `--dangerously-skip-permissions` to the Claude CLI invocation to bypass all tool permission checks. This is only appropriate in a fully trusted, sandboxed environment. `ail` will expose this as a session-level flag — not a pipeline YAML option — to prevent it from being accidentally committed to a shared pipeline file.
 
-**`--once` mode:** The `--once` flow never sets a `permission_responder`, so no MCP bridge is created and interactive permission HITL is not available. Tools in `--once` mode require either `--headless` (bypass all permissions) or `tools: allow:` in the pipeline YAML (pre-approve specific tools).
+**`--once --output-format json` mode:** Full interactive HITL is available. Both the invocation step and all pipeline steps use a `permission_responder` wired to the stdin control protocol (§23.7). Consumers receive `permission_requested` events on stdout and respond via `permission_response` messages on stdin. `pause_for_human` steps and `on_result: pause_for_human` branches both block the executor and emit `hitl_gate_reached` events, unblocked by `hitl_response` messages on stdin.
+
+**`--once` text mode:** The `--once --output-format text` flow does not set a `permission_responder` and does not spawn a stdin reader thread. Interactive permission HITL is not available. Tools in text mode require either `--headless` (bypass all permissions) or `tools: allow:` in the pipeline YAML (pre-approve specific tools).
+
+**Interactive questions in Claude's text output:** When the model's response contains a question (e.g., "Do you want option 1, 2, or 3?"), this is the step's completed response — not a HITL event. In `-p` mode (single-turn), there is no follow-up turn within a step. The question text is available to subsequent steps as `{{ step.<id>.response }}`. Pipelines that need human review of model output should use explicit `pause_for_human` gates.
 
 ---

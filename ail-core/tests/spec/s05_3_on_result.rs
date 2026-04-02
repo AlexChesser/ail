@@ -1,9 +1,14 @@
 use ail_core::config::domain::{
     ExitCodeMatch, Pipeline, ResultAction, ResultBranch, ResultMatcher, Step, StepBody, StepId,
 };
-use ail_core::executor::{execute, ExecuteOutcome};
+use ail_core::executor::{
+    execute, execute_with_control, ExecuteOutcome, ExecutionControl, ExecutorEvent,
+};
 use ail_core::runner::stub::StubRunner;
 use ail_core::session::Session;
+use std::collections::HashSet;
+use std::sync::mpsc;
+use std::sync::Arc;
 
 fn make_session(steps: Vec<Step>) -> Session {
     Session::new(
@@ -144,7 +149,7 @@ fn on_result_break_exits_as_ok_not_err() {
     std::env::set_current_dir(orig).unwrap();
 }
 
-/// SPEC §5.4 — pause_for_human in on_result is a no-op in v0.1 headless mode
+/// SPEC §5.4 — pause_for_human in on_result is a no-op in the uncontrolled executor (no HITL channel)
 #[test]
 fn on_result_pause_for_human_suspends() {
     let tmp = tempfile::tempdir().unwrap();
@@ -161,7 +166,59 @@ fn on_result_pause_for_human_suspends() {
     );
     let mut session = make_session(vec![step]);
     let result = execute(&mut session, &StubRunner::new("x"));
-    // v0.1: pause_for_human is a no-op — pipeline continues
+    // uncontrolled executor: pause_for_human is a no-op — pipeline continues
+    assert!(result.is_ok());
+
+    std::env::set_current_dir(orig).unwrap();
+}
+
+/// SPEC §5.4, §13 — pause_for_human in on_result blocks in the controlled executor until a
+/// hitl_response is received, then resumes and completes the pipeline.
+#[test]
+fn on_result_pause_for_human_blocks_in_controlled_executor() {
+    let tmp = tempfile::tempdir().unwrap();
+    let orig = std::env::current_dir().unwrap();
+    std::env::set_current_dir(tmp.path()).unwrap();
+
+    let step = context_step_with_exit(
+        "gate",
+        0,
+        vec![ResultBranch {
+            matcher: ResultMatcher::Always,
+            action: ResultAction::PauseForHuman,
+        }],
+    );
+    let mut session = make_session(vec![step]);
+
+    let (event_tx, event_rx) = mpsc::channel::<ExecutorEvent>();
+    let (hitl_tx, hitl_rx) = mpsc::channel::<String>();
+    let control = ExecutionControl {
+        pause_requested: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        kill_requested: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        permission_responder: None,
+    };
+    let disabled_steps = HashSet::new();
+
+    // Spawn a thread that waits for the HitlGateReached event, then unblocks the gate.
+    let gate_thread = std::thread::spawn(move || {
+        for ev in event_rx {
+            if matches!(ev, ExecutorEvent::HitlGateReached { .. }) {
+                let _ = hitl_tx.send("approved".to_string());
+                break;
+            }
+        }
+    });
+
+    let result = execute_with_control(
+        &mut session,
+        &StubRunner::new("x"),
+        &control,
+        &disabled_steps,
+        event_tx,
+        hitl_rx,
+    );
+
+    let _ = gate_thread.join();
     assert!(result.is_ok());
 
     std::env::set_current_dir(orig).unwrap();
