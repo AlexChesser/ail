@@ -16,13 +16,6 @@ export class RunCommand {
   constructor(private readonly _service: RunnerService) {}
 
   async execute(promptOverride?: string): Promise<void> {
-    if (this._service.isRunning) {
-      void vscode.window.showWarningMessage(
-        "An ail pipeline is already running. Use 'Ail: Stop Pipeline' to cancel it first."
-      );
-      return;
-    }
-
     const pipelinePath = resolvePipelinePath();
     if (!pipelinePath) {
       void vscode.window.showWarningMessage(

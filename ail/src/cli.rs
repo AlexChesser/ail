@@ -79,6 +79,11 @@ pub enum Commands {
         /// Path to the pipeline YAML file to validate. Overrides automatic discovery.
         #[arg(long, value_name = "PATH")]
         pipeline: Option<PathBuf>,
+
+        /// Output format: `text` (default) prints human-readable result; `json` emits a single
+        /// JSON object: `{"valid":true}` or `{"valid":false,"errors":[{"message":"...","error_type":"..."}]}`.
+        #[arg(long, value_name = "FORMAT", default_value = "text")]
+        output_format: OutputFormat,
     },
     /// Internal: MCP permission bridge. Spawned by Claude CLI to handle tool permission checks.
     /// Not intended for direct use.
@@ -144,8 +149,29 @@ mod tests {
     fn validate_with_pipeline_flag_parses() {
         let cli =
             Cli::try_parse_from(["ail", "validate", "--pipeline", "/tmp/test.ail.yaml"]).unwrap();
-        if let Some(Commands::Validate { pipeline }) = cli.command {
+        if let Some(Commands::Validate { pipeline, .. }) = cli.command {
             assert_eq!(pipeline, Some(PathBuf::from("/tmp/test.ail.yaml")));
+        } else {
+            panic!("expected Validate command");
+        }
+    }
+
+    #[test]
+    fn validate_output_format_json_parses() {
+        let cli =
+            Cli::try_parse_from(["ail", "validate", "--output-format", "json"]).unwrap();
+        if let Some(Commands::Validate { output_format, .. }) = cli.command {
+            assert!(matches!(output_format, OutputFormat::Json));
+        } else {
+            panic!("expected Validate command");
+        }
+    }
+
+    #[test]
+    fn validate_output_format_defaults_to_text() {
+        let cli = Cli::try_parse_from(["ail", "validate"]).unwrap();
+        if let Some(Commands::Validate { output_format, .. }) = cli.command {
+            assert!(matches!(output_format, OutputFormat::Text));
         } else {
             panic!("expected Validate command");
         }

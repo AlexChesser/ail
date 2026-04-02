@@ -38,10 +38,16 @@ export class ValidateCommand {
           void vscode.window.showInformationMessage('ail: Pipeline valid.');
           diagnosticCollection.delete(fileUri);
         } else {
-          const diagnostics: vscode.Diagnostic[] = result.errors.map((msg) => {
-            const range = new vscode.Range(0, 0, 0, 0);
-            const d = new vscode.Diagnostic(range, msg, vscode.DiagnosticSeverity.Error);
+          const diagnostics: vscode.Diagnostic[] = result.errors.map((err) => {
+            // ail reports 1-based lines; VS Code uses 0-based. Fall back to line 0 if absent.
+            const line = err.line !== undefined ? Math.max(0, err.line - 1) : 0;
+            const col = err.column !== undefined ? Math.max(0, err.column - 1) : 0;
+            const range = new vscode.Range(line, col, line, Number.MAX_SAFE_INTEGER);
+            const d = new vscode.Diagnostic(range, err.message, vscode.DiagnosticSeverity.Error);
             d.source = 'ail';
+            if (err.error_type) {
+              d.code = err.error_type;
+            }
             return d;
           });
           diagnosticCollection.set(fileUri, diagnostics);

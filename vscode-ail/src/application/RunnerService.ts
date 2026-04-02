@@ -1,72 +1,33 @@
 /**
  * RunnerService — orchestrates pipeline runs.
  *
- * Holds the run state (is a run active?) and co-ordinates between
- * the IAilClient, EventBus, and VS Code UI components (output channel,
- * status bar, views) without importing those directly — it receives them
- * via ServiceContext and explicit callbacks.
+ * Supports multiple concurrent pipeline runs. Each run gets its own
+ * AilProcess instance identified by a UUID. The shared client on
+ * ServiceContext is used only for validate() calls.
  */
 
 import * as vscode from 'vscode';
+import { randomUUID } from 'crypto';
 import { ServiceContext } from './ServiceContext';
-import { EventBus, Disposable } from './EventBus';
-import { AilEvent, StepStartedEvent } from '../types';
+import { EventBus } from './EventBus';
 import { StagePanel } from '../panels/StagePanel';
 import { ChatViewProvider } from '../views/ChatViewProvider';
 import { StepsTreeProvider } from '../views/StepsTreeProvider';
+import { AilProcess } from '../infrastructure/AilProcess';
+import { RunnerEvent } from './events';
 
-/** Format an AilEvent into a human-readable Output Channel line. Returns undefined to suppress. */
-function formatEvent(event: AilEvent): string | undefined {
-  switch (event.type) {
-    case 'run_started':
-      return `\n▶ Pipeline run ${event.run_id} started (${event.total_steps} step(s))`;
-    case 'step_started': {
-      const e = event as StepStartedEvent;
-      return `\n[${e.step_index + 1}/${e.total_steps}] ${e.step_id} — running...`;
-    }
-    case 'step_completed':
-      return `    ✓ ${event.step_id} (${event.input_tokens} in / ${event.output_tokens} out)`;
-    case 'step_skipped':
-      return `    ⊘ ${event.step_id} (skipped)`;
-    case 'step_failed':
-      return `    ✗ ${event.step_id}: ${event.error}`;
-    case 'hitl_gate_reached':
-      return `\n⏸ HITL gate: ${event.step_id} — waiting for approval`;
-    case 'runner_event': {
-      const re = event.event;
-      switch (re.type) {
-        case 'stream_delta':
-          return re.text;
-        case 'tool_use':
-          return `\n  → ${re.tool_name}`;
-        case 'tool_result':
-          return `  ← ${re.tool_name}`;
-        case 'cost_update':
-          return undefined;
-        case 'thinking':
-          return undefined;
-        case 'completed':
-          return undefined;
-        default:
-          return undefined;
-      }
-    }
-    case 'pipeline_completed':
-      return event.outcome === 'break'
-        ? `\n✓ Pipeline completed (break at ${event.step_id})`
-        : `\n✓ Pipeline completed`;
-    case 'pipeline_error':
-      return `\n✗ Pipeline error [${event.error_type}]: ${event.error}`;
-    default:
-      return undefined;
-  }
+/** One active pipeline run. */
+interface RunContext {
+  process: AilProcess;
+  panel: StagePanel;
+  startTime: number;
 }
 
 export class RunnerService {
   private readonly _ctx: ServiceContext;
   private readonly _bus: EventBus;
-  private _isRunning = false;
-  private _activePanel: StagePanel | undefined;
+  /** Active runs keyed by run UUID. */
+  private readonly _activeRuns = new Map<string, RunContext>();
   private _chatView: ChatViewProvider | undefined;
   private _stepsView: StepsTreeProvider | undefined;
   private _statusBarItem: vscode.StatusBarItem | undefined;
@@ -93,43 +54,42 @@ export class RunnerService {
     this._stepsView = stepsView;
   }
 
+  /** True if at least one run is currently active. */
   get isRunning(): boolean {
-    return this._isRunning;
+    return this._activeRuns.size > 0;
   }
 
   async startRun(prompt: string, pipelinePath: string, env?: Record<string, string>): Promise<void> {
-    if (this._isRunning) {
-      void vscode.window.showWarningMessage(
-        "An ail pipeline is already running. Use 'Ail: Stop Pipeline' to cancel it first."
-      );
-      return;
-    }
+    const runId = randomUUID();
 
-    this._isRunning = true;
-    this._updateStatusBar(true);
+    // Create a dedicated AilProcess per run so multiple can coexist.
+    const proc = new AilProcess(this._ctx.binaryPath, this._ctx.cwd);
+
+    const panel = StagePanel.create(
+      this._ctx.extensionContext,
+      (msg) => proc.writeStdin(msg),
+    );
+
+    const runCtx: RunContext = { process: proc, panel, startTime: Date.now() };
+    this._activeRuns.set(runId, runCtx);
+
+    this._updateStatusBar();
     this._chatView?.setRunning(true);
     this._stepsView?.resetStatuses();
-
-    this._activePanel = StagePanel.create(
-      this._ctx.extensionContext,
-      (msg) => this._ctx.client.writeStdin(msg)
-    );
 
     const out = this._ctx.outputChannel;
     out.show(true);
     out.appendLine(`\n${'─'.repeat(60)}`);
-    out.appendLine(`ail run — ${new Date().toLocaleTimeString()}`);
+    out.appendLine(`ail run [${runId}] — ${new Date().toLocaleTimeString()}`);
     out.appendLine(`Pipeline: ${pipelinePath}`);
     out.appendLine(`Prompt: ${prompt}`);
 
-    let totalCost = 0;
-
-    // Feed full-fidelity AilEvents to the panel (thinking, tool_use, cost_update, etc.)
-    const rawDisposable = this._ctx.client.onRawEvent((ailEvent) => {
-      this._activePanel?.onEvent(ailEvent);
+    // Feed full-fidelity AilEvents to the panel.
+    const rawDisposable = proc.onRawEvent((ailEvent) => {
+      panel.onEvent(ailEvent);
     });
 
-    const disposable = this._ctx.client.onEvent((runnerEvent) => {
+    const disposable = proc.onEvent((runnerEvent: RunnerEvent) => {
       // Drive EventBus
       this._bus.emit(runnerEvent);
 
@@ -154,9 +114,11 @@ export class RunnerService {
 
       // Drive output channel
       switch (runnerEvent.type) {
-        case 'step_started':
-          out.appendLine(`\n[${runnerEvent.stepIndex + 1}/${runnerEvent.totalSteps}] ${runnerEvent.stepId} — running...`);
+        case 'step_started': {
+          const e = runnerEvent as Extract<RunnerEvent, { type: 'step_started' }>;
+          out.appendLine(`\n[${e.stepIndex + 1}/${e.totalSteps}] ${e.stepId} — running...`);
           break;
+        }
         case 'step_completed':
           out.appendLine(`    ✓ ${runnerEvent.stepId}`);
           break;
@@ -182,7 +144,7 @@ export class RunnerService {
     });
 
     try {
-      await this._ctx.client.invoke(prompt, pipelinePath, {
+      await proc.invoke(prompt, pipelinePath, {
         headless: true,
         outputFormat: 'json',
         env,
@@ -196,34 +158,56 @@ export class RunnerService {
     } finally {
       rawDisposable.dispose();
       disposable.dispose();
-      this._isRunning = false;
-      this._activePanel = undefined;
-      this._updateStatusBar(false);
-      this._chatView?.setRunning(false);
+      this._activeRuns.delete(runId);
+      this._updateStatusBar();
+      if (this._activeRuns.size === 0) {
+        this._chatView?.setRunning(false);
+      }
       this._onRunComplete?.();
     }
   }
 
-  stopRun(): void {
-    if (!this._isRunning) {
+  /**
+   * Stop a run. If runId is given, stop that specific run. If omitted,
+   * stop the most recently started run (last entry in the map).
+   */
+  stopRun(runId?: string): void {
+    if (this._activeRuns.size === 0) {
       void vscode.window.showInformationMessage('No ail pipeline is running.');
       return;
     }
 
+    const targetId = runId ?? [...this._activeRuns.keys()].at(-1);
+    if (!targetId) {
+      return;
+    }
+
+    const ctx = this._activeRuns.get(targetId);
+    if (!ctx) {
+      void vscode.window.showWarningMessage(`ail: No active run with id ${targetId}.`);
+      return;
+    }
+
     const out = this._ctx.outputChannel;
-    out.appendLine('\n⏹ Stop requested — sending SIGTERM...');
-    this._ctx.client.cancel();
+    out.appendLine(`\n⏹ Stop requested for run [${targetId}] — sending SIGTERM...`);
+    ctx.process.cancel();
   }
 
-  private _updateStatusBar(running: boolean): void {
+  private _updateStatusBar(): void {
     if (!this._statusBarItem) return;
-    if (running) {
+    const count = this._activeRuns.size;
+    if (count === 0) {
+      this._statusBarItem.hide();
+    } else if (count === 1) {
       this._statusBarItem.text = '$(loading~spin) ail: running';
       this._statusBarItem.tooltip = 'ail pipeline is running — click to stop';
       this._statusBarItem.command = 'ail.stopPipeline';
       this._statusBarItem.show();
     } else {
-      this._statusBarItem.hide();
+      this._statusBarItem.text = `$(loading~spin) ail: ${count} running`;
+      this._statusBarItem.tooltip = `${count} ail pipelines are running — click to stop the most recent`;
+      this._statusBarItem.command = 'ail.stopPipeline';
+      this._statusBarItem.show();
     }
   }
 }

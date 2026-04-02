@@ -19,9 +19,18 @@ export interface InvokeOptions {
   env?: Record<string, string>;
 }
 
+export interface ValidationError {
+  message: string;
+  error_type?: string;
+  /** 1-based line number from the ail binary, if available. */
+  line?: number;
+  /** 1-based column number from the ail binary, if available. */
+  column?: number;
+}
+
 export interface ValidationResult {
   valid: boolean;
-  errors: string[];
+  errors: ValidationError[];
 }
 
 export interface IAilClient {

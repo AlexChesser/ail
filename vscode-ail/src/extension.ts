@@ -57,7 +57,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   const cwd = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
   const client = new AilProcess(binary.path, cwd);
-  const services = createServiceContext(context, client);
+  const services = createServiceContext(context, client, binary.path, cwd);
   const bus = new EventBus();
   const runnerService = new RunnerService(services, bus);
   const historyService = new HistoryService(context, cwd ?? process.cwd());

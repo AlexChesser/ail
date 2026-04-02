@@ -6,7 +6,7 @@
  */
 
 import { spawn, execFile, ChildProcess } from 'child_process';
-import { IAilClient, InvokeOptions, ValidationResult, Disposable } from '../application/IAilClient';
+import { IAilClient, InvokeOptions, ValidationResult, ValidationError, Disposable } from '../application/IAilClient';
 import { RunnerEvent } from '../application/events';
 import { parseNdjsonStream } from '../ndjson';
 import { AilEvent, StepStartedEvent, StepCompletedEvent, StepFailedEvent } from '../types';
@@ -114,18 +114,26 @@ export class AilProcess implements IAilClient {
     return new Promise<ValidationResult>((resolve) => {
       execFile(
         this._binaryPath,
-        ['validate', '--pipeline', pipeline],
+        ['validate', '--pipeline', pipeline, '--output-format', 'json'],
         { timeout: 15000, cwd: this._cwd },
-        (err, stdout, stderr) => {
-          if (!err) {
-            resolve({ valid: true, errors: [] });
-          } else {
-            const errorLines = (stderr || stdout)
-              .trim()
-              .split('\n')
-              .filter(Boolean);
-            resolve({ valid: false, errors: errorLines });
+        (_err, stdout, _stderr) => {
+          const raw = stdout.trim();
+          if (!raw) {
+            // Binary produced no output — treat as generic failure
+            resolve({ valid: false, errors: [{ message: 'ail validate produced no output' }] });
+            return;
           }
+          let parsed: { valid: boolean; errors?: ValidationError[] };
+          try {
+            parsed = JSON.parse(raw) as { valid: boolean; errors?: ValidationError[] };
+          } catch {
+            resolve({ valid: false, errors: [{ message: raw }] });
+            return;
+          }
+          resolve({
+            valid: parsed.valid,
+            errors: parsed.errors ?? [],
+          });
         }
       );
     });
