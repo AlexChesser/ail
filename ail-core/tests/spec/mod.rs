@@ -19,3 +19,4 @@ mod s18_materialize;
 mod s21_mvp;
 mod s23_structured_output;
 mod s35_ail_log_formatter;
+mod s39_consistency;

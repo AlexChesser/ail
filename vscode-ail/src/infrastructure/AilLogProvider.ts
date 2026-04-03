@@ -8,6 +8,20 @@
  * the formatted log output.
  *
  * This is the single content provider for all ail-log virtual documents.
+ *
+ * **Design: Rust binary is the single source of truth (Issue #39 D1)**
+ *
+ * The extension has no TypeScript formatter. All formatting is delegated to the Rust
+ * binary via AilProcess.log(), which spawns `ail log --format markdown`. This design:
+ *
+ * 1. Ensures consistent output across all consumers (CLI, extension, future TUIs)
+ * 2. Reduces maintenance burden (no duplicate formatter logic)
+ * 3. Keeps the extension thin: receive stdout, render it, display it
+ * 4. Makes it easier to keep the spec and implementation in sync (spec/runner/r04)
+ *
+ * If the binary is unavailable (v1 edge case), _formatError() returns a fallback
+ * error message; there is no fallback formatter. The user is directed to check
+ * the binary installation.
  */
 
 import * as vscode from 'vscode';
