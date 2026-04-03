@@ -47,6 +47,7 @@ The AIL Pipeline Language Specification — for pipeline authors and implementer
 | [s21-planned-extensions.md](core/s21-planned-extensions.md) | §21 Planned Extensions | Structured I/O, parallel steps, multi-provider quality comparison (D-020), self-modifying pipelines (D-019), MCP, plugins, observability | planned |
 | [s22-open-questions.md](core/s22-open-questions.md) | §22 Open Questions | Unresolved design questions (completion detection, hot reload, self-modifying pipeline approval/validation, etc.) | reference |
 | [s23-structured-output.md](core/s23-structured-output.md) | §23 Structured Output | `--output-format json` NDJSON event stream; event schema; ordering guarantees | **v0.1** ✓ |
+| [s24-log-command.md](core/s24-log-command.md) | §24 The `ail log` Command | CLI interface for run inspection; `--format` and `--follow` flags; exit codes; project scoping | **alpha** |
 
 ---
 
@@ -59,3 +60,4 @@ The AIL Runner Contract — for CLI tool authors and adapter writers.
 | [r01-overview.md](runner/r01-overview.md) | Purpose, Background, Compliance Tiers | What `ail` needs from any runner; minimum vs. extended compliance | reference |
 | [r02-claude-cli.md](runner/r02-claude-cli.md) | Reference Implementation — Claude CLI | Verified flags, event stream, session continuity, tool permission interface | v0.1 ✓ — invocation, session-continuity, `--allowedTools`, MCP bridge HITL all implemented and validated |
 | [r03-targets.md](runner/r03-targets.md) | Known Runners, Custom Adapters, Open Questions | Roadmap runners; Runner trait for adapters; remaining open questions | planned |
+| [r04-ail-log-format.md](runner/r04-ail-log-format.md) | r04. AIL Log Format Specification | Terminal-safe markdown+directives format; version header, thinking/tool-call/tool-result/stdio directives, turns, costs, errors | **alpha** |
