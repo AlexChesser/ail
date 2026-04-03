@@ -647,6 +647,8 @@ fn main() {
                 model,
                 base_url: provider_url,
                 auth_token: provider_token,
+                input_cost_per_1k: None,
+                output_cost_per_1k: None,
             };
             let runner = match RunnerFactory::build_default(true) {
                 Ok(r) => r,
@@ -686,6 +688,8 @@ fn main() {
                     model: cli.model.clone(),
                     base_url: cli.provider_url.clone(),
                     auth_token: cli.provider_token.clone(),
+                    input_cost_per_1k: None,
+                    output_cost_per_1k: None,
                 };
                 let runner = match RunnerFactory::build_default(cli.headless) {
                     Ok(r) => r,
@@ -722,6 +726,8 @@ fn main() {
                     model: cli.model.clone(),
                     base_url: cli.provider_url.clone(),
                     auth_token: cli.provider_token.clone(),
+                    input_cost_per_1k: None,
+                    output_cost_per_1k: None,
                 };
                 let runner = match RunnerFactory::build_default(cli.headless) {
                     Ok(r) => r,

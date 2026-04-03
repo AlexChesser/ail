@@ -36,6 +36,8 @@ defaults:                   # optional; inherited by all steps
   provider:                 # ✓ PARSED — provider connection details
     base_url: http://localhost:11434   # set as ANTHROPIC_BASE_URL in subprocess env
     auth_token: ollama                 # set as ANTHROPIC_AUTH_TOKEN in subprocess env
+    input_cost_per_1k: 0.0             # ✓ PARSED — cost per 1000 input tokens in USD (e.g., 0.0 for local Ollama)
+    output_cost_per_1k: 0.0            # ✓ PARSED — cost per 1000 output tokens in USD (e.g., 0.0 for local Ollama)
   # timeout_seconds, on_error, tools at defaults level — not yet parsed
   timeout_seconds: 120
   on_error: pause_for_human

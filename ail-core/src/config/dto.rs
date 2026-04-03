@@ -17,6 +17,8 @@ pub struct DefaultsDto {
 pub struct ProviderDto {
     pub base_url: Option<String>,
     pub auth_token: Option<String>,
+    pub input_cost_per_1k: Option<f64>,
+    pub output_cost_per_1k: Option<f64>,
 }
 
 #[derive(Deserialize)]

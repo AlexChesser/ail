@@ -42,17 +42,23 @@ fn provider_config_merge_higher_wins() {
         model: Some("base-model".to_string()),
         base_url: Some("http://base".to_string()),
         auth_token: Some("base-token".to_string()),
+        input_cost_per_1k: Some(0.0),
+        output_cost_per_1k: Some(0.0),
     };
     let override_ = ProviderConfig {
         model: Some("override-model".to_string()),
         base_url: None,
         auth_token: None,
+        input_cost_per_1k: None,
+        output_cost_per_1k: None,
     };
     let merged = base.merge(override_);
     assert_eq!(merged.model.as_deref(), Some("override-model"));
     // base values fall through when override has None
     assert_eq!(merged.base_url.as_deref(), Some("http://base"));
     assert_eq!(merged.auth_token.as_deref(), Some("base-token"));
+    assert_eq!(merged.input_cost_per_1k, Some(0.0));
+    assert_eq!(merged.output_cost_per_1k, Some(0.0));
 }
 
 #[test]
@@ -62,11 +68,15 @@ fn provider_config_merge_all_none_returns_base() {
         model: Some("model".to_string()),
         base_url: Some("http://url".to_string()),
         auth_token: Some("token".to_string()),
+        input_cost_per_1k: Some(0.001),
+        output_cost_per_1k: Some(0.002),
     };
     let merged = base.clone().merge(ProviderConfig::default());
     assert_eq!(merged.model, base.model);
     assert_eq!(merged.base_url, base.base_url);
     assert_eq!(merged.auth_token, base.auth_token);
+    assert_eq!(merged.input_cost_per_1k, base.input_cost_per_1k);
+    assert_eq!(merged.output_cost_per_1k, base.output_cost_per_1k);
 }
 
 #[test]
@@ -76,6 +86,22 @@ fn pipeline_without_defaults_has_empty_provider_config() {
     assert!(pipeline.defaults.model.is_none());
     assert!(pipeline.defaults.base_url.is_none());
     assert!(pipeline.defaults.auth_token.is_none());
+    assert!(pipeline.defaults.input_cost_per_1k.is_none());
+    assert!(pipeline.defaults.output_cost_per_1k.is_none());
+}
+
+#[test]
+fn provider_costs_yaml_parses_cost_fields() {
+    let pipeline = ail_core::config::load(&fixtures_dir().join("provider_costs.ail.yaml"))
+        .expect("fixture should load");
+    assert_eq!(pipeline.defaults.model.as_deref(), Some("ollama"));
+    assert_eq!(
+        pipeline.defaults.base_url.as_deref(),
+        Some("http://localhost:11434")
+    );
+    assert_eq!(pipeline.defaults.auth_token.as_deref(), Some("ollama"));
+    assert_eq!(pipeline.defaults.input_cost_per_1k, Some(0.0));
+    assert_eq!(pipeline.defaults.output_cost_per_1k, Some(0.0));
 }
 
 #[test]
@@ -101,6 +127,8 @@ fn invoke_options_carries_resolved_model() {
             model: Some("default-model".to_string()),
             base_url: None,
             auth_token: None,
+            input_cost_per_1k: None,
+            output_cost_per_1k: None,
         },
     };
     let mut session = Session::new(pipeline, "prompt".to_string());

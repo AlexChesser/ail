@@ -18,6 +18,8 @@ pub fn validate(dto: PipelineFileDto, source: PathBuf) -> Result<Pipeline, AilEr
             model: d.model,
             base_url: d.provider.as_ref().and_then(|p| p.base_url.clone()),
             auth_token: d.provider.as_ref().and_then(|p| p.auth_token.clone()),
+            input_cost_per_1k: d.provider.as_ref().and_then(|p| p.input_cost_per_1k),
+            output_cost_per_1k: d.provider.as_ref().and_then(|p| p.output_cost_per_1k),
         })
         .unwrap_or_default();
 

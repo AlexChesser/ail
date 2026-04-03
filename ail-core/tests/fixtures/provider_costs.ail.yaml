@@ -1,0 +1,11 @@
+version: "0.0.1"
+defaults:
+  model: ollama
+  provider:
+    base_url: http://localhost:11434
+    auth_token: ollama
+    input_cost_per_1k: 0.0
+    output_cost_per_1k: 0.0
+pipeline:
+  - id: step_one
+    prompt: "Hello from step one"
