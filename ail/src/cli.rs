@@ -115,6 +115,27 @@ pub enum Commands {
         #[arg(long)]
         socket: String,
     },
+    /// Interactive chat mode: multi-turn conversation with pipeline execution after each message.
+    Chat {
+        /// Send a single message and exit (non-interactive).
+        #[arg(long, short)]
+        message: Option<String>,
+        /// Stream NDJSON events to stdout.
+        #[arg(long)]
+        stream: bool,
+        /// Path to the pipeline YAML file. Overrides automatic discovery.
+        #[arg(long, value_name = "PATH")]
+        pipeline: Option<PathBuf>,
+        /// Override the model for all runner invocations.
+        #[arg(long, value_name = "MODEL")]
+        model: Option<String>,
+        /// Override the provider base URL.
+        #[arg(long, value_name = "URL")]
+        provider_url: Option<String>,
+        /// Override the provider auth token.
+        #[arg(long, value_name = "TOKEN")]
+        provider_token: Option<String>,
+    },
 }
 
 #[cfg(test)]
