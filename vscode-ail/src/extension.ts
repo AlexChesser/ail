@@ -76,6 +76,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // details when the user clicks a historical run in column 1.
   UnifiedPanel.setHistoryService(historyService);
 
+  // Wire HistoryService into RunnerService for post-run cost regression detection.
+  runnerService.setHistoryService(historyService);
+
   // ── Views ──────────────────────────────────────────────────────────────────
 
   const chatProvider = new ChatViewProvider();

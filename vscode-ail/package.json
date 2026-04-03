@@ -59,6 +59,11 @@
           "type": "number",
           "default": 0,
           "description": "Show a warning notification when a run's cost exceeds this amount in USD. Set to 0 to disable."
+        },
+        "ail.costRegressionMultiplier": {
+          "type": "number",
+          "default": 2.0,
+          "description": "Warn when a run costs more than N times the rolling average of the last 10 runs. Set to 0 to disable."
         }
       }
     },

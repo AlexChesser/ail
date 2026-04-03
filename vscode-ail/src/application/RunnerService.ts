@@ -17,6 +17,7 @@ import { AilProcess } from '../infrastructure/AilProcess';
 import { IAilClient } from './IAilClient';
 import { RunnerEvent } from './events';
 import { AilEvent, RunnerEventWrapper } from '../types';
+import { HistoryService } from './HistoryService';
 
 /** Minimal panel interface needed by RunnerService — allows injection in tests. */
 export interface IStagePanel {
@@ -65,6 +66,7 @@ export class RunnerService {
   private _stepsView: StepsTreeProvider | undefined;
   private _statusBarItem: vscode.StatusBarItem | undefined;
   private _onRunComplete: (() => void) | undefined;
+  private _historyService: HistoryService | undefined;
   /** Summary of the most recently completed run, for post-run status bar display. */
   private _lastRunSummary: { costUsd: number; completed: number; total: number } | undefined;
   /** Timer to hide the status bar after a completed run. */
@@ -83,6 +85,11 @@ export class RunnerService {
   /** Register a callback to be invoked after each run completes (used for history refresh). */
   setOnRunComplete(cb: () => void): void {
     this._onRunComplete = cb;
+  }
+
+  /** Inject the HistoryService for post-run cost regression detection. */
+  setHistoryService(historyService: HistoryService): void {
+    this._historyService = historyService;
   }
 
   /** Inject optional view/UI references (call from extension.ts after views are created). */
@@ -283,6 +290,34 @@ export class RunnerService {
         this._chatView?.setRunning(false);
       }
       this._onRunComplete?.();
+
+      // Cost regression detection: compare this run's cost to rolling average.
+      if (this._historyService && runCtx.costUsd > 0) {
+        void this._checkCostRegression(runCtx.costUsd);
+      }
+    }
+  }
+
+  private async _checkCostRegression(thisCostUsd: number): Promise<void> {
+    const multiplier = vscode.workspace
+      .getConfiguration('ail')
+      .get<number>('costRegressionMultiplier', 2.0);
+
+    let avgCost: number;
+    try {
+      avgCost = await this._historyService!.getRecentAverageCost(10);
+    } catch {
+      return;
+    }
+
+    if (avgCost <= 0) {
+      return;
+    }
+
+    if (thisCostUsd > multiplier * avgCost) {
+      void vscode.window.showWarningMessage(
+        `ail: This run cost $${thisCostUsd.toFixed(2)} — ${(thisCostUsd / avgCost).toFixed(1)}x your recent average of $${avgCost.toFixed(2)} per run.`
+      );
     }
   }
 

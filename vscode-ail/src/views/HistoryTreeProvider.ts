@@ -21,9 +21,10 @@ export class HistoryItem extends vscode.TreeItem {
     const relTime = relativeTime(record.timestamp);
     const pipeline = pipelineLabel(record.pipelineSource);
     const cost =
-      record.totalCostUsd > 0 ? ` ($${record.totalCostUsd.toFixed(4)})` : '';
+      record.totalCostUsd > 0 ? ` $${record.totalCostUsd.toFixed(2)}` : '';
+    const stepCount = record.steps.length > 0 ? ` · ${record.steps.length} steps` : '';
 
-    super(`${glyph} ${relTime} — ${pipeline}${cost}`, vscode.TreeItemCollapsibleState.None);
+    super(`${glyph} ${relTime} — ${pipeline}${cost}${stepCount}`, vscode.TreeItemCollapsibleState.None);
 
     this.tooltip = record.invocationPrompt || record.runId;
     this.description = record.invocationPrompt
@@ -69,7 +70,7 @@ export class HistoryTreeProvider implements vscode.TreeDataProvider<HistoryItem 
   async getChildren(): Promise<(HistoryItem | EmptyItem)[]> {
     let records: RunRecord[];
     try {
-      records = await this._historyService.getHistory();
+      records = await this._historyService.getHistory(50);
     } catch {
       return [new EmptyItem('Failed to load run history')];
     }
@@ -78,7 +79,7 @@ export class HistoryTreeProvider implements vscode.TreeDataProvider<HistoryItem 
       return [new EmptyItem('No runs yet — run a pipeline to see history')];
     }
 
-    return records.map((r) => new HistoryItem(r));
+    return records.slice(0, 50).map((r) => new HistoryItem(r));
   }
 }
 
