@@ -25,12 +25,14 @@
  *   pipelineCompleted Mark live run as complete in column 1.
  *   pipelineError    Mark live run as error in column 1.
  *   reviewData       Populate columns 2+3 for a historical run.
+ *   stepFilesChanged Update a step's file diff list (from git diff).
  *
  * Webview → host messages:
  *   ready            Webview script has loaded and is ready for messages.
  *   selectRun        User clicked a historical run in column 1.
  *   hitl_response    User approved/rejected a HITL gate.
  *   permission_response User allowed/denied a permission request.
+ *   viewDiff         User clicked "View Diff" for a file in a step.
  */
 export function getUnifiedPanelHtml(): string {
   return `<!DOCTYPE html>
@@ -330,6 +332,16 @@ export function getUnifiedPanelHtml(): string {
     gap: 16px;
     flex-shrink: 0;
   }
+
+  /* ── File diff section (col 3) ── */
+  .diff-file-item { display: flex; align-items: center; gap: 8px; padding: 2px 0; font-size: 12px; }
+  .diff-file-path { flex: 1; font-family: monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .diff-change-type { font-size: 10px; padding: 1px 4px; border-radius: 3px; flex-shrink: 0; }
+  .diff-added    { background: rgba(78, 201, 148, 0.2); color: #4ec994; }
+  .diff-modified { background: rgba(79, 193, 255, 0.2); color: #4fc3ff; }
+  .diff-deleted  { background: rgba(244, 135, 113, 0.2); color: #f48771; }
+  .diff-link { cursor: pointer; color: var(--vscode-textLink-foreground); text-decoration: underline; font-size: 11px; flex-shrink: 0; }
+  .diff-count-badge { font-size: 10px; padding: 1px 4px; border-radius: 3px; background: rgba(79, 193, 255, 0.2); color: #4fc3ff; margin-left: auto; }
 </style>
 </head>
 <body>
@@ -436,7 +448,7 @@ export function getUnifiedPanelHtml(): string {
   }
 
   function makeStepEntry() {
-    return { status: 'pending', thinking: '', output: '', tools: [], hitlHtml: null, permHtmls: [], telemetry: null, resultCode: null, rawEventData: null };
+    return { status: 'pending', thinking: '', output: '', tools: [], hitlHtml: null, permHtmls: [], telemetry: null, resultCode: null, rawEventData: null, files: [] };
   }
 
   // ── Column 1: Run list rendering ─────────────────────────────────────────────
@@ -565,6 +577,7 @@ export function getUnifiedPanelHtml(): string {
       parts.push('<span class="step-meta-tokens">↑' + inT + ' ↓' + outT + '</span>');
     }
     if (step.resultCode) parts.push(resultBadgeHtml(step.resultCode));
+    if (step.files?.length) parts.push('<span class="diff-count-badge">📄' + step.files.length + '</span>');
     if (!parts.length) return '';
     return '<span class="step-meta">' + parts.join('') + '</span>';
   }
@@ -579,6 +592,10 @@ export function getUnifiedPanelHtml(): string {
     const glyphSymbol = step.status === 'running'
       ? '<span class="spinning">◌</span>'
       : glyphChar(step.status);
+
+    const diffBadge = step.files && step.files.length > 0
+      ? '<span class="diff-count-badge">📄 ' + step.files.length + '</span>'
+      : '';
 
     el.innerHTML =
       '<span class="step-glyph ' + glyphClass + '">' + glyphSymbol + '</span>' +
@@ -634,6 +651,22 @@ export function getUnifiedPanelHtml(): string {
       : glyphChar(status);
   }
 
+
+  function updateStepItemDiffBadge(stepId, fileCount) {
+    const el = document.getElementById('step-item-' + stepId);
+    if (!el) return;
+    let badge = el.querySelector('.diff-count-badge');
+    if (fileCount > 0) {
+      if (!badge) {
+        badge = document.createElement('span');
+        badge.className = 'diff-count-badge';
+        el.appendChild(badge);
+      }
+      badge.textContent = '📄 ' + fileCount;
+    } else if (badge) {
+      badge.remove();
+    }
+  }
 
   // ── Column 3: Step detail ─────────────────────────────────────────────────────
 
@@ -753,6 +786,10 @@ export function getUnifiedPanelHtml(): string {
 
     detailBody.appendChild(metaDetails);
 
+    // Diff section — file changes detected during this step
+    const diffEl = renderDiffSection(stepId, step.files);
+    if (diffEl) detailBody.appendChild(diffEl);
+
     // If this is the currently live step, set up live DOM references
     if (runId === liveRunId && stepId === liveCurrentStepId) {
       liveThinkingPre = thinkPre;
@@ -823,6 +860,39 @@ export function getUnifiedPanelHtml(): string {
   }
 
   function escRaw(s) { return esc(s); }
+
+  function viewDiff(stepId, filePath) {
+    vscode.postMessage({ type: 'viewDiff', stepId, filePath });
+  }
+
+  function renderDiffSection(stepId, files) {
+    if (!files || files.length === 0) return null;
+
+    const details = document.createElement('details');
+    details.className = 'payload-block diff-section';
+    details.open = true;
+
+    const summary = document.createElement('summary');
+    summary.textContent = 'Files Changed (' + files.length + ')';
+    details.appendChild(summary);
+
+    for (const f of files) {
+      const item = document.createElement('div');
+      item.className = 'diff-file-item';
+
+      const typeClass = 'diff-' + (f.changeType || 'modified');
+      const typeLabel = f.changeType === 'added' ? 'A' : f.changeType === 'deleted' ? 'D' : 'M';
+
+      item.innerHTML =
+        '<span class="diff-change-type ' + typeClass + '">' + typeLabel + '</span>' +
+        '<span class="diff-file-path" title="' + esc(f.relativePath) + '">' + esc(f.relativePath) + '</span>' +
+        '<span class="diff-link" onclick="viewDiff(' + JSON.stringify(stepId) + ',' + JSON.stringify(f.relativePath) + ')">View Diff</span>';
+
+      details.appendChild(item);
+    }
+
+    return details;
+  }
 
   function submitPermission(permId, stepId, allowed) {
     const banner = document.getElementById(permId);
@@ -1002,6 +1072,25 @@ export function getUnifiedPanelHtml(): string {
           step.resultCode = msg.resultCode;
         }
         updateStepItemMeta(msg.stepId, step || makeStepEntry());
+        break;
+      }
+
+      case 'stepFilesChanged': {
+        const entry = runs.get(liveRunId);
+        if (!entry) break;
+        const step = entry.steps.get(msg.stepId);
+        if (step) {
+          step.files = msg.files || [];
+          updateStepItemDiffBadge(msg.stepId, step.files.length);
+          // Re-render diff section if this step is currently selected
+          if (selectedStepId === msg.stepId) {
+            // Remove existing diff section (identified by dedicated .diff-section class)
+            const existingDiff = detailBody.querySelector('details.diff-section');
+            if (existingDiff) existingDiff.remove();
+            const diffEl = renderDiffSection(msg.stepId, step.files);
+            if (diffEl) detailBody.appendChild(diffEl);
+          }
+        }
         break;
       }
 

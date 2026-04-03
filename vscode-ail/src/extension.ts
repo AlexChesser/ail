@@ -20,6 +20,7 @@ import { EventBus } from "./application/EventBus";
 import { RunnerService } from "./application/RunnerService";
 import { HistoryService } from "./application/HistoryService";
 import { UnifiedPanel } from "./panels/UnifiedPanel";
+import { DiffContentProvider, DIFF_SCHEME } from "./infrastructure/DiffContentProvider";
 import { RunCommand } from "./commands/RunCommand";
 import { ValidateCommand } from "./commands/ValidateCommand";
 import { CreatePipelineCommand } from "./commands/CreatePipelineCommand";
@@ -75,6 +76,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // Wire HistoryService into the singleton UnifiedPanel so it can load run
   // details when the user clicks a historical run in column 1.
   UnifiedPanel.setHistoryService(historyService);
+
+  // Register the ail-diff URI scheme provider for per-step file diff viewing.
+  context.subscriptions.push(
+    vscode.workspace.registerTextDocumentContentProvider(DIFF_SCHEME, DiffContentProvider.instance)
+  );
+
+  // Wire workspace CWD into UnifiedPanel for git snapshot tracking.
+  if (cwd) {
+    UnifiedPanel.setCwd(cwd);
+  }
 
   // Wire HistoryService into RunnerService for post-run cost regression detection.
   runnerService.setHistoryService(historyService);

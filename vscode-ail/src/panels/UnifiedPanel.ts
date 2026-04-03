@@ -12,6 +12,7 @@
  */
 
 import * as vscode from 'vscode';
+import * as path from 'path';
 import {
   AilEvent,
   StepStartedEvent,
@@ -24,6 +25,8 @@ import { RunRecord } from '../application/HistoryService';
 import { HistoryService } from '../application/HistoryService';
 import { MessageBuffer } from './MessageBuffer';
 import { getUnifiedPanelHtml } from './unifiedPanelHtml';
+import { GitDiffService, GitSnapshot, FileDiff } from '../infrastructure/GitDiffService';
+import { DiffContentProvider } from '../infrastructure/DiffContentProvider';
 
 // ── Public interface for RunnerService ───────────────────────────────────────
 
@@ -56,6 +59,9 @@ export class UnifiedPanel implements IUnifiedPanel {
 
   /** Injected once from extension.ts after activation. */
   private static _historyService: HistoryService | undefined;
+
+  /** Workspace root used for git snapshot tracking. Defaults to process.cwd(). */
+  private static _cwd: string = process.cwd();
 
   /**
    * Injectable factory for WebviewPanel creation.
@@ -91,6 +97,15 @@ export class UnifiedPanel implements IUnifiedPanel {
   /** Timer handles for HITL gate 2-minute escalation warnings. Keyed by step_id. */
   private readonly _hitlTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
+  /** Git diff service for per-step file change tracking. */
+  private readonly _gitDiff = new GitDiffService();
+
+  /** Git snapshots taken at step_started. Keyed by step_id. */
+  private readonly _stepSnapshots = new Map<string, GitSnapshot>();
+
+  /** Computed file diffs per step. Keyed by step_id. */
+  private readonly _stepDiffs = new Map<string, FileDiff[]>();
+
   // ── Constructor ─────────────────────────────────────────────────────────────
 
   private constructor(panel: vscode.WebviewPanel) {
@@ -103,7 +118,7 @@ export class UnifiedPanel implements IUnifiedPanel {
     this._panel.onDidDispose(() => this.dispose(), null, this._disposables);
 
     this._panel.webview.onDidReceiveMessage(
-      (msg: { type: string; runId?: string; stepId?: string; text?: string; allowed?: boolean; reason?: string }) => {
+      (msg: { type: string; runId?: string; stepId?: string; text?: string; allowed?: boolean; reason?: string; filePath?: string }) => {
         switch (msg.type) {
           case 'ready':
             this._buffer.markReady();
@@ -121,6 +136,12 @@ export class UnifiedPanel implements IUnifiedPanel {
             cb?.({ type: 'permission_response', allowed: msg.allowed ?? false, reason: msg.reason ?? '' });
             break;
           }
+          case 'viewDiff': {
+            if (msg.stepId && msg.filePath) {
+              void this._openDiff(msg.stepId, msg.filePath);
+            }
+            break;
+          }
         }
       },
       null,
@@ -133,6 +154,11 @@ export class UnifiedPanel implements IUnifiedPanel {
   /** Register the HistoryService once after extension activation. */
   static setHistoryService(svc: HistoryService): void {
     UnifiedPanel._historyService = svc;
+  }
+
+  /** Set the workspace root CWD for git snapshot tracking. */
+  static setCwd(cwd: string): void {
+    UnifiedPanel._cwd = cwd;
   }
 
   /** Get or create the singleton panel. Does not reveal it. */
@@ -235,6 +261,8 @@ export class UnifiedPanel implements IUnifiedPanel {
           totalSteps:    e.total_steps,
           resolvedPrompt: e.resolved_prompt ?? null,
         });
+        // Capture git snapshot for diff tracking (fire-and-forget, non-fatal)
+        void this._captureGitSnapshot(e.step_id);
         break;
       }
       case 'step_completed': {
@@ -257,6 +285,8 @@ export class UnifiedPanel implements IUnifiedPanel {
           clearTimeout(pendingTimer);
           this._hitlTimers.delete(e.step_id);
         }
+        // Compute git diff for this step (fire-and-forget, non-fatal)
+        void this._computeGitDiff(e.step_id);
         break;
       }
       case 'step_skipped':
@@ -265,6 +295,8 @@ export class UnifiedPanel implements IUnifiedPanel {
       case 'step_failed': {
         const e = event as StepFailedEvent;
         this._post({ cmd: 'stepFailed', stepId: e.step_id, error: e.error });
+        // Compute git diff for this step (fire-and-forget, non-fatal)
+        void this._computeGitDiff(e.step_id);
         break;
       }
       case 'hitl_gate_reached': {
@@ -362,6 +394,9 @@ export class UnifiedPanel implements IUnifiedPanel {
         clearTimeout(timer);
         this._hitlTimers.delete(stepId);
       }
+      // Release git snapshot/diff data for this run
+      this._stepSnapshots.clear();
+      this._stepDiffs.clear();
     }
   }
 
@@ -377,6 +412,66 @@ export class UnifiedPanel implements IUnifiedPanel {
 
   private _post(message: object): void {
     this._buffer.post(message);
+  }
+
+  private async _captureGitSnapshot(stepId: string): Promise<void> {
+    try {
+      if (!await this._gitDiff.isGitRepo(UnifiedPanel._cwd)) return;
+      const snapshot = await this._gitDiff.captureSnapshot(UnifiedPanel._cwd);
+      this._stepSnapshots.set(stepId, snapshot);
+    } catch {
+      // git not available or repo has no commits — non-fatal
+    }
+  }
+
+  private async _computeGitDiff(stepId: string): Promise<void> {
+    try {
+      const snapshot = this._stepSnapshots.get(stepId);
+      if (!snapshot) return;
+      if (!await this._gitDiff.isGitRepo(UnifiedPanel._cwd)) return;
+      const files = await this._gitDiff.diffBetween(UnifiedPanel._cwd, snapshot);
+      if (files.length > 0) {
+        this._stepDiffs.set(stepId, files);
+        this._post({ cmd: 'stepFilesChanged', stepId, files });
+      }
+    } catch {
+      // git diff failed — non-fatal
+    }
+  }
+
+  private async _openDiff(stepId: string, relativePath: string): Promise<void> {
+    try {
+      const files = this._stepDiffs.get(stepId);
+      const fileDiff = files?.find((f) => f.relativePath === relativePath);
+      if (!fileDiff) return;
+
+      const beforeContent = await this._gitDiff.getFileAtRef(
+        UnifiedPanel._cwd,
+        fileDiff.beforeRef,
+        relativePath,
+      );
+      const afterContent = await this._gitDiff.getFileFromDisk(
+        path.join(UnifiedPanel._cwd, relativePath),
+      );
+
+      const beforeKey = `/${stepId}/before/${relativePath}`;
+      const afterKey  = `/${stepId}/after/${relativePath}`;
+      DiffContentProvider.instance.setContent(beforeKey, beforeContent);
+      DiffContentProvider.instance.setContent(afterKey, afterContent);
+
+      const beforeUri = vscode.Uri.parse(`ail-diff:${beforeKey}`);
+      const afterUri  = vscode.Uri.parse(`ail-diff:${afterKey}`);
+      const fileName  = path.basename(relativePath);
+
+      await vscode.commands.executeCommand(
+        'vscode.diff',
+        beforeUri,
+        afterUri,
+        `${fileName} (Step: ${stepId})`,
+      );
+    } catch {
+      // Diff open failed — non-fatal
+    }
   }
 
   private async _handleSelectRun(runId: string): Promise<void> {
