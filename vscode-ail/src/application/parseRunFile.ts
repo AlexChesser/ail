@@ -11,11 +11,14 @@
 
 export interface TurnEntry {
   step_id: string;
+  event_type: string | null;
   prompt: string | null;
   response: string | null;
   cost_usd: number | null;
   input_tokens: number | null;
   output_tokens: number | null;
+  /** Latency in milliseconds from step_started to step_completed. Null when unavailable. */
+  latency_ms: number | null;
   runner_session_id: string | null;
   stdout: string | null;
   stderr: string | null;
@@ -80,11 +83,13 @@ export function parseRunFileContent(
     } else {
       const entry: TurnEntry = {
         step_id: typeof obj['step_id'] === 'string' ? obj['step_id'] : '',
+        event_type: typeof obj['event_type'] === 'string' ? obj['event_type'] : null,
         prompt: typeof obj['prompt'] === 'string' ? obj['prompt'] : null,
         response: typeof obj['response'] === 'string' ? obj['response'] : null,
         cost_usd: typeof obj['cost_usd'] === 'number' ? obj['cost_usd'] : null,
         input_tokens: typeof obj['input_tokens'] === 'number' ? obj['input_tokens'] : null,
         output_tokens: typeof obj['output_tokens'] === 'number' ? obj['output_tokens'] : null,
+        latency_ms: typeof obj['latency_ms'] === 'number' ? obj['latency_ms'] : null,
         runner_session_id: typeof obj['runner_session_id'] === 'string' ? obj['runner_session_id'] : null,
         stdout: typeof obj['stdout'] === 'string' ? obj['stdout'] : null,
         stderr: typeof obj['stderr'] === 'string' ? obj['stderr'] : null,

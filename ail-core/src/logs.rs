@@ -48,6 +48,9 @@ pub struct StepSummary {
     pub thinking: Option<String>,
     /// Unix epoch milliseconds.
     pub recorded_at: i64,
+    /// Duration from `step_started` to `step_completed` in milliseconds.
+    /// `None` when either event is missing for this step.
+    pub latency_ms: Option<i64>,
 }
 
 /// Query logs from the default DB location (`~/.ail/projects/<sha1_of_cwd>/ail.db`).
@@ -211,6 +214,18 @@ fn load_sessions(
     })
 }
 
+/// Raw step row read from the database before latency enrichment.
+struct RawStepRow {
+    step_id: String,
+    event_type: String,
+    response: Option<String>,
+    cost_usd: Option<f64>,
+    input_tokens: Option<i64>,
+    output_tokens: Option<i64>,
+    thinking: Option<String>,
+    recorded_at: i64,
+}
+
 fn load_steps(conn: &Connection, run_id: &str) -> Result<Vec<StepSummary>, AilError> {
     let mut stmt = conn
         .prepare(
@@ -227,9 +242,9 @@ fn load_steps(conn: &Connection, run_id: &str) -> Result<Vec<StepSummary>, AilEr
             context: None,
         })?;
 
-    let rows: Result<Vec<StepSummary>, _> = stmt
+    let rows: Result<Vec<RawStepRow>, _> = stmt
         .query_map(params![run_id], |row| {
-            Ok(StepSummary {
+            Ok(RawStepRow {
                 step_id: row.get(0)?,
                 event_type: row.get(1)?,
                 response: row.get(2)?,
@@ -248,10 +263,46 @@ fn load_steps(conn: &Connection, run_id: &str) -> Result<Vec<StepSummary>, AilEr
         })?
         .collect::<Result<Vec<_>, _>>();
 
-    rows.map_err(|e| AilError {
+    let raw_rows = rows.map_err(|e| AilError {
         error_type: error_types::PIPELINE_ABORTED,
         title: "Failed to collect step rows",
         detail: e.to_string(),
         context: None,
-    })
+    })?;
+
+    // Build a map of step_id → started_at timestamp for latency computation.
+    // A step may have multiple rows (step_started + step_completed); we pair them.
+    use std::collections::HashMap;
+    let mut started_at_map: HashMap<String, i64> = HashMap::new();
+    for row in &raw_rows {
+        if row.event_type == "step_started" {
+            started_at_map.insert(row.step_id.clone(), row.recorded_at);
+        }
+    }
+
+    let steps: Vec<StepSummary> = raw_rows
+        .into_iter()
+        .map(|row| {
+            let latency_ms = if row.event_type == "step_completed" {
+                started_at_map
+                    .get(&row.step_id)
+                    .map(|started| row.recorded_at - started)
+            } else {
+                None
+            };
+            StepSummary {
+                step_id: row.step_id,
+                event_type: row.event_type,
+                response: row.response,
+                cost_usd: row.cost_usd,
+                input_tokens: row.input_tokens,
+                output_tokens: row.output_tokens,
+                thinking: row.thinking,
+                recorded_at: row.recorded_at,
+                latency_ms,
+            }
+        })
+        .collect();
+
+    Ok(steps)
 }

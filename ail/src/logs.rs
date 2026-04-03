@@ -142,6 +142,7 @@ fn print_session_json(session: &SessionSummary) {
                 "output_tokens": s.output_tokens,
                 "thinking": s.thinking,
                 "recorded_at": s.recorded_at,
+                "latency_ms": s.latency_ms,
             })
         })
         .collect();

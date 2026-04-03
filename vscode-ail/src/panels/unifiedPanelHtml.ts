@@ -296,6 +296,29 @@ export function getUnifiedPanelHtml(): string {
     font-style: italic;
   }
 
+  /* ── Result badges (col 2) ── */
+  .result-badge { padding: 1px 4px; border-radius: 3px; font-size: 9px; font-weight: bold; text-transform: uppercase; }
+  .result-completed { background: rgba(78, 201, 148, 0.2); color: #4ec994; }
+  .result-skipped   { background: rgba(229, 192, 123, 0.2); color: #e5c07b; }
+  .result-break     { background: rgba(229, 192, 123, 0.2); color: #e5c07b; }
+  .result-abort     { background: rgba(244, 135, 113, 0.2); color: #f48771; }
+  .result-error     { background: rgba(244, 135, 113, 0.2); color: #f48771; }
+
+  /* ── Step meta row (latency + tokens + badge) ── */
+  .step-meta { display: flex; gap: 4px; align-items: center; font-size: 10px; margin-left: auto; color: var(--vscode-descriptionForeground); }
+  .step-item.selected .step-meta { color: inherit; opacity: 0.8; }
+  .step-meta-tokens { font-size: 10px; }
+
+  /* ── Collapsible details block in col 3 ── */
+  details.meta-block {
+    margin: 4px 0;
+    border-left: 2px solid var(--vscode-panel-border);
+    padding-left: 8px;
+  }
+  .meta-table { font-size: 11px; border-collapse: collapse; width: 100%; }
+  .meta-table td { padding: 2px 6px 2px 0; vertical-align: top; }
+  .meta-table td:first-child { color: var(--vscode-descriptionForeground); white-space: nowrap; }
+
   /* ── Cost bar ── */
   #cost-bar {
     padding: 4px 12px;
@@ -413,7 +436,7 @@ export function getUnifiedPanelHtml(): string {
   }
 
   function makeStepEntry() {
-    return { status: 'pending', thinking: '', output: '', tools: [], hitlHtml: null, permHtmls: [], telemetry: null };
+    return { status: 'pending', thinking: '', output: '', tools: [], hitlHtml: null, permHtmls: [], telemetry: null, resultCode: null, rawEventData: null };
   }
 
   // ── Column 1: Run list rendering ─────────────────────────────────────────────
@@ -514,6 +537,38 @@ export function getUnifiedPanelHtml(): string {
     }
   }
 
+  function resultBadgeHtml(resultCode) {
+    if (!resultCode) return '';
+    const cls = resultCode === 'completed' ? 'result-completed'
+      : resultCode === 'skipped' ? 'result-skipped'
+      : resultCode === 'break' ? 'result-break'
+      : resultCode === 'abort_pipeline' ? 'result-abort'
+      : 'result-error';
+    const label = resultCode === 'abort_pipeline' ? 'abort' : resultCode;
+    return '<span class="result-badge ' + cls + '">' + esc(label) + '</span>';
+  }
+
+  function formatLatency(latencyMs) {
+    if (latencyMs == null) return null;
+    return latencyMs >= 1000
+      ? (latencyMs / 1000).toFixed(1) + 's'
+      : latencyMs + 'ms';
+  }
+
+  function stepMetaHtml(step) {
+    const parts = [];
+    const lat = formatLatency(step.telemetry?.latencyMs ?? null);
+    if (lat) parts.push('<span>' + esc(lat) + '</span>');
+    if (step.telemetry?.inputTokens != null || step.telemetry?.outputTokens != null) {
+      const inT = step.telemetry.inputTokens != null ? step.telemetry.inputTokens : '—';
+      const outT = step.telemetry.outputTokens != null ? step.telemetry.outputTokens : '—';
+      parts.push('<span class="step-meta-tokens">↑' + inT + ' ↓' + outT + '</span>');
+    }
+    if (step.resultCode) parts.push(resultBadgeHtml(step.resultCode));
+    if (!parts.length) return '';
+    return '<span class="step-meta">' + parts.join('') + '</span>';
+  }
+
   function renderStepItem(stepId, step, runId) {
     const el = document.createElement('div');
     el.className = 'step-item' + (stepId === selectedStepId ? ' selected' : '');
@@ -524,15 +579,27 @@ export function getUnifiedPanelHtml(): string {
     const glyphSymbol = step.status === 'running'
       ? '<span class="spinning">◌</span>'
       : glyphChar(step.status);
-    const costStr = step.telemetry?.costUsd ? '$' + step.telemetry.costUsd.toFixed(4) : '';
 
     el.innerHTML =
       '<span class="step-glyph ' + glyphClass + '">' + glyphSymbol + '</span>' +
       '<span class="step-label" title="' + esc(stepId) + '">' + esc(stepId) + '</span>' +
-      (costStr ? '<span class="step-cost">' + esc(costStr) + '</span>' : '');
+      stepMetaHtml(step);
 
     el.addEventListener('click', () => selectStep(runId, stepId));
     stepsList.appendChild(el);
+  }
+
+  function updateStepItemMeta(stepId, step) {
+    const el = document.getElementById('step-item-' + stepId);
+    if (!el) return;
+    // Remove old meta span
+    const old = el.querySelector('.step-meta');
+    if (old) old.remove();
+    // Remove old step-cost span (legacy — replaced by step-meta)
+    const oldCost = el.querySelector('.step-cost');
+    if (oldCost) oldCost.remove();
+    const html = stepMetaHtml(step);
+    if (html) el.insertAdjacentHTML('beforeend', html);
   }
 
   function glyphChar(status) {
@@ -567,17 +634,6 @@ export function getUnifiedPanelHtml(): string {
       : glyphChar(status);
   }
 
-  function updateStepItemCost(stepId, costUsd) {
-    const el = document.getElementById('step-item-' + stepId);
-    if (!el) return;
-    let costEl = el.querySelector('.step-cost');
-    if (!costEl) {
-      costEl = document.createElement('span');
-      costEl.className = 'step-cost';
-      el.appendChild(costEl);
-    }
-    costEl.textContent = '$' + costUsd.toFixed(4);
-  }
 
   // ── Column 3: Step detail ─────────────────────────────────────────────────────
 
@@ -654,6 +710,48 @@ export function getUnifiedPanelHtml(): string {
     outDetails.appendChild(outPre);
     if (step.output || step.hitlHtml) outDetails.open = true;
     detailBody.appendChild(outDetails);
+
+    // Details block — result code, latency, tokens, cost, raw event data
+    const metaDetails = document.createElement('details');
+    metaDetails.className = 'meta-block';
+    const metaSummary = document.createElement('summary');
+    metaSummary.textContent = 'Details';
+    metaDetails.appendChild(metaSummary);
+
+    const table = document.createElement('table');
+    table.className = 'meta-table';
+
+    function addMetaRow(label, value) {
+      const tr = document.createElement('tr');
+      const td1 = document.createElement('td');
+      td1.textContent = label;
+      const td2 = document.createElement('td');
+      td2.textContent = value;
+      tr.appendChild(td1);
+      tr.appendChild(td2);
+      table.appendChild(tr);
+    }
+
+    addMetaRow('Result code', step.resultCode ?? '—');
+    const lat = formatLatency(step.telemetry?.latencyMs ?? null);
+    addMetaRow('Latency', lat ?? '—');
+    addMetaRow('Input tokens', step.telemetry?.inputTokens != null ? String(step.telemetry.inputTokens) : '—');
+    addMetaRow('Output tokens', step.telemetry?.outputTokens != null ? String(step.telemetry.outputTokens) : '—');
+    addMetaRow('Cost', step.telemetry?.costUsd != null && step.telemetry.costUsd > 0 ? '$' + step.telemetry.costUsd.toFixed(4) : '—');
+    addMetaRow('Model', '—');
+
+    metaDetails.appendChild(table);
+
+    if (step.rawEventData) {
+      const rawPre = document.createElement('pre');
+      rawPre.className = 'block-content payload-content';
+      rawPre.textContent = typeof step.rawEventData === 'string'
+        ? step.rawEventData
+        : JSON.stringify(step.rawEventData, null, 2);
+      metaDetails.appendChild(rawPre);
+    }
+
+    detailBody.appendChild(metaDetails);
 
     // If this is the currently live step, set up live DOM references
     if (runId === liveRunId && stepId === liveCurrentStepId) {
@@ -835,6 +933,7 @@ export function getUnifiedPanelHtml(): string {
         const step = entry.steps.get(msg.stepId);
         if (step) {
           step.status = 'completed';
+          step.resultCode = 'completed';
           step.telemetry = {
             inputTokens: msg.inputTokens,
             outputTokens: msg.outputTokens,
@@ -846,7 +945,7 @@ export function getUnifiedPanelHtml(): string {
           entry.summary.totalCostUsd = msg.totalCost || 0;
         }
         updateStepItemGlyph(msg.stepId, 'completed');
-        if (msg.costUsd) updateStepItemCost(msg.stepId, msg.costUsd);
+        updateStepItemMeta(msg.stepId, step || makeStepEntry());
         costDisplay.textContent = 'Cost: $' + ((msg.totalCost || 0).toFixed(4));
         if (selectedRunId === liveRunId && selectedStepId === msg.stepId) {
           renderTelemetryChips(step?.telemetry || null);
@@ -865,9 +964,11 @@ export function getUnifiedPanelHtml(): string {
         const step = entry.steps.get(msg.stepId);
         if (step) {
           step.status = 'failed';
+          step.resultCode = 'error';
           step.output += (step.output ? '\\n' : '') + '✗ ' + (msg.error || '');
         }
         updateStepItemGlyph(msg.stepId, 'failed');
+        updateStepItemMeta(msg.stepId, step || makeStepEntry());
         if (selectedRunId === liveRunId && selectedStepId === msg.stepId && liveOutputPre) {
           liveOutputPre.insertAdjacentHTML('beforeend',
             '<span class="error-text">✗ ' + esc(msg.error || '') + '</span>');
@@ -883,8 +984,24 @@ export function getUnifiedPanelHtml(): string {
         const entry = runs.get(liveRunId);
         if (!entry) break;
         const step = entry.steps.get(msg.stepId);
-        if (step) step.status = 'skipped';
+        if (step) {
+          step.status = 'skipped';
+          step.resultCode = 'skipped';
+        }
         updateStepItemGlyph(msg.stepId, 'skipped');
+        updateStepItemMeta(msg.stepId, step || makeStepEntry());
+        break;
+      }
+
+      // ─── Result code override (break / abort_pipeline from pipeline events) ──────
+      case 'stepResultCode': {
+        const entry = runs.get(liveRunId);
+        if (!entry) break;
+        const step = entry.steps.get(msg.stepId);
+        if (step) {
+          step.resultCode = msg.resultCode;
+        }
+        updateStepItemMeta(msg.stepId, step || makeStepEntry());
         break;
       }
 
@@ -1038,21 +1155,52 @@ export function getUnifiedPanelHtml(): string {
           runs.set(msg.runId, entry);
         }
 
-        // Rebuild steps from TurnEntry records
+        // Rebuild steps from TurnEntry records.
+        // Each step may have multiple rows (step_started + step_completed).
+        // Aggregate by step_id, preferring data from step_completed rows.
         entry.steps.clear();
+        const stepRowsMap = new Map();
         for (const te of (msg.steps || [])) {
+          if (!te.step_id) continue;
+          if (!stepRowsMap.has(te.step_id)) {
+            stepRowsMap.set(te.step_id, []);
+          }
+          stepRowsMap.get(te.step_id).push(te);
+        }
+        for (const [stepId, rows] of stepRowsMap) {
+          // Find the richest row: prefer step_completed, then step_failed, then step_skipped, then any
+          const completedRow = rows.find(r => r.event_type === 'step_completed');
+          const failedRow    = rows.find(r => r.event_type === 'step_failed');
+          const skippedRow   = rows.find(r => r.event_type === 'step_skipped');
+          const primaryRow   = completedRow || failedRow || skippedRow || rows[rows.length - 1];
+
+          // Determine result code from event_type
+          let resultCode = null;
+          if (completedRow)     resultCode = 'completed';
+          else if (failedRow)   resultCode = 'error';
+          else if (skippedRow)  resultCode = 'skipped';
+
+          // Determine status for glyph
+          let status = 'completed';
+          if (failedRow && !completedRow)  status = 'failed';
+          else if (skippedRow && !completedRow && !failedRow) status = 'skipped';
+
+          // Aggregate data: find prompt from step_started row if available
+          const startedRow = rows.find(r => r.event_type === 'step_started');
+
           const step = makeStepEntry();
-          step.status       = 'completed';
-          step.output       = te.response || '';
-          step.thinking     = te.thinking || '';
-          step.resolvedPrompt = te.prompt || null;
+          step.status       = status;
+          step.resultCode   = resultCode;
+          step.output       = primaryRow.response || '';
+          step.thinking     = primaryRow.thinking || '';
+          step.resolvedPrompt = (startedRow || primaryRow).prompt || null;
           step.telemetry    = {
-            inputTokens:  te.input_tokens,
-            outputTokens: te.output_tokens,
-            costUsd:      te.cost_usd,
-            latencyMs:    null,
+            inputTokens:  primaryRow.input_tokens ?? null,
+            outputTokens: primaryRow.output_tokens ?? null,
+            costUsd:      primaryRow.cost_usd ?? null,
+            latencyMs:    completedRow?.latency_ms ?? null,
           };
-          entry.steps.set(te.step_id, step);
+          entry.steps.set(stepId, step);
         }
 
         // Select this run and show its first step
