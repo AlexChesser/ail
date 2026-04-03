@@ -157,3 +157,157 @@ vsce package    # produce vscode-ail-X.Y.Z.vsix
 ```
 
 The `vscode:prepublish` script runs `node esbuild.js --production` (minified, no sourcemaps).
+
+---
+
+# Log Display Architecture (Issue #34)
+
+The extension displays run logs via a single, subprocess-based interface: `ail log` binary. All database access is tunneled through that binary — there is no direct SQLite access from TypeScript, no `better-sqlite3`, no embedded database client.
+
+## Design Principle: Binary as Single Data Interface
+
+The SQLite schema is an internal implementation detail of the `ail` binary. The extension is a thin display consumer that spawns `ail log [run_id]` subprocesses and renders their formatted stdout. This isolation ensures:
+
+1. **Schema evolution is decoupled**: database changes don't break the extension.
+2. **Consistent semantics**: all log consumers (CLI, extension, future TUIs) use the same binary interface.
+3. **Resource efficiency**: no duplicate database connections; the Rust process handles pooling and locking.
+4. **Observability**: the binary logs its own polling behavior; the extension stays simple.
+
+## Data Flow
+
+```
+User clicks "Open Log" or views history
+         ↓
+AilLogProvider.provideTextDocumentContent(uri)
+         ↓
+AilProcess.log(runId?) [spawns `ail log [run_id] --format markdown`]
+         ↓
+Binary reads SQLite, emits ail-log/1 format to stdout
+         ↓
+Extension captures stdout → Virtual document
+         ↓
+TextMate grammar (ail-log.tmLanguage.json) adds syntax highlighting
+         ↓
+Markdown preview renders collapsible directives (:::thinking, :::tool-call, etc.)
+         ↓
+Auto-folding (FoldingProvider) collapses blocks per ail.autoFoldThinking config
+```
+
+## Two Rendering Modes
+
+### Raw Mode (Primary)
+
+- **Input:** ail-log/1 format stdout from `ail log --format markdown`
+- **Processing:** URI scheme `ail-log` provides virtual document; TextMate grammar highlights blocks
+- **Interaction:** Click to fold/expand `:::` directives
+- **Spec:** `spec/runner/r04-ail-log-format.md` (format contract)
+
+### Preview Mode (Markdown)
+
+- **Input:** Same ail-log/1 content
+- **Processing:** VS Code's built-in Markdown preview renderer transforms the `:::directive` syntax into `<details><summary>` HTML
+- **Interaction:** Click to fold/expand; standard Markdown preview features
+- **Future:** custom CSS for ail-specific styling
+
+## Commands
+
+Register these in `package.json` → `contributes.commands`:
+
+- **`ail.openLog`** — Opens the log viewer for a given run
+  - **Arguments:** `run_id?: string` (optional; if omitted, resolves to latest run via `ail log` with no run_id)
+  - **Behavior:** Spawns `ail log [run_id] --format markdown`, opens virtual document with URI scheme `ail-log://{run_id}`, shows Markdown preview
+  - **Keybinding:** (none by default; callable from command palette or other commands)
+
+- **`ail.followTail`** — Toggle live-tail mode for an in-progress run
+  - **Arguments:** `run_id: string`
+  - **Behavior:** If run is in-progress, spawns `ail log --follow <run_id>` subprocess; streams appended lines to virtual document as they arrive. Auto-scrolls to bottom if enabled (default: on for in-progress runs, off for completed runs).
+  - **Exit:** Binary exits code 0 when run completes; extension detects process exit and stops streaming.
+
+- **`ail.toggleView`** — Switch between raw and preview modes
+  - **Behavior:** Opens the same virtual document in different editors (raw editor + preview panel)
+  - **State:** Persisted in workspaceState
+
+## Configuration
+
+Register these in `package.json` → `contributes.configuration`:
+
+- **`ail.autoFoldThinking`** — Boolean, default `true`
+  - **Behavior:** When true, FoldingProvider auto-collapses all `:::thinking` blocks on document open
+  - **Scope:** User/Workspace
+  - **Example:**
+    ```json
+    {
+      "ail.autoFoldThinking": true
+    }
+    ```
+
+## Live Tail via `ail log --follow`
+
+The binary handles all polling — the extension is a passive consumer:
+
+**Rust side (binary responsibility):**
+- `ail log --follow <run_id>` reads the run's status from SQLite
+- Emits full run (ail-log/1 format) on first line
+- Polls `SELECT * FROM steps WHERE run_id = ? AND recorded_at > ? ORDER BY recorded_at` every 500ms for new steps
+- Appends formatted new lines to stdout as they arrive
+- Exits code 0 when `step_completed` is encountered on the final step
+- Exits code 1 on database error or invalid run_id
+- Retries on SQLITE_BUSY: up to 3 retries with 50ms backoff before skipping the tick
+
+**TypeScript side (extension responsibility):**
+- `AilLogStream.ts` spawns the subprocess
+- Attaches to `proc.stdout` and fires `_onDidChange` emitter on each line
+- Debounces to max 1 emission per 300ms
+- `AilLogProvider` re-reads the virtual document content on each change
+- Calls `editor.revealRange()` to auto-scroll (respects `ail.followTail` setting)
+- Cleans up subprocess on error or when process exits
+
+## Non-Goals for v1
+
+These will be implemented in v2 or later:
+
+- **CodeLens:** no run-re-run or edit-and-rerun buttons on log lines
+- **Per-tool-call blocks:** `:::tool-call` and `:::tool-result` directives require a future `run_events` schema extension; v1 emits thinking + response only
+- **HITL (Human-in-the-Loop):** no approve/reject buttons for permission gates
+- **Log search:** search happens via `ail logs --query` (different command); not integrated into the log viewer yet
+- **Diff mode:** no side-by-side comparison of logs from consecutive runs
+
+## Relationship to Existing Extension Architecture
+
+The log display system is **orthogonal** to the pipeline execution system:
+
+- **Pipeline execution** (`AilProcess.invoke()`, `RunnerService`, `UnifiedPanel`): Uses `--output-format json` with NDJSON streaming. Real-time event handling for UI updates during a run. Schema: `spec/core/s23-structured-output.md`.
+
+- **Log display** (`AilProcess.log()`, `AilLogProvider`, `AilLogStream`): Uses `--format markdown` or `--format json` (static format or streaming). Displays completed or in-progress run history. Schema: `spec/runner/r04-ail-log-format.md`.
+
+These are separate concerns with separate data flows:
+- Execution flow: `invoke()` → binary → NDJSON events → RunnerService → UI updates
+- Log flow: `log()` → binary → ail-log/1 stdout → virtual document → preview
+
+`HistoryService.getRunDetail()` currently uses `ail logs` (plural, table format). The `log` (singular) subcommand is intended as a future replacement for detailed run inspection; both can coexist during the transition.
+
+## File Organization (Implementation Plan)
+
+**Phase 1 (C1–C3):** Infrastructure + rendering
+
+- `src/infrastructure/AilProcess.ts` — add `log(runId?: string): Promise<string>` method
+- `src/infrastructure/AilLogProvider.ts` — new `TextDocumentContentProvider` for `ail-log` URI scheme
+- `src/infrastructure/AilLogStream.ts` — new subprocess wrapper for `--follow` mode
+- `src/infrastructure/FoldingProvider.ts` — auto-folding controller respecting `ail.autoFoldThinking`
+- `src/commands/OpenLogCommand.ts` — command handler for `ail.openLog`
+- `src/types.ts` — add TypeScript types for ail-log directive taxonomy (if needed for grammar or formatter)
+- `syntaxes/ail-log.tmLanguage.json` — TextMate grammar for syntax highlighting and folding
+- `test-fixtures/sample.ail-log` — manual verification fixture
+
+**Phase 2 (D1–D2):** Consistency + live tail
+
+- Cross-check formatter output against golden fixture
+- Wire `AilLogStream` into `AilLogProvider` for live runs
+- Auto-scroll and debouncing
+
+## Testing
+
+- `src/test/AilProcess.test.ts` — mock subprocess; assert `log()` invocation and argument passing
+- `src/test/AilLogProvider.test.ts` — mock `AilProcess.log()`, assert URI parsing and virtual document content
+- Manual smoke test: open a historical run and verify collapsible blocks render correctly
+- Grammar test: validate `ail-log.tmLanguage.json` against `test-fixtures/sample.ail-log`
