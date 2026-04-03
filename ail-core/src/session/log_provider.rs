@@ -9,6 +9,11 @@ use sha1::{Digest, Sha1};
 /// Best-effort: errors are returned to `TurnLog` which logs via `tracing::warn`.
 pub trait LogProvider: Send {
     fn write_entry(&mut self, run_id: &str, value: &Value) -> std::io::Result<()>;
+
+    /// Mark the run as finished. Default is a no-op for providers that don't track session state.
+    fn finish(&mut self, _run_id: &str, _status: &str) -> std::io::Result<()> {
+        Ok(())
+    }
 }
 
 /// `~/.ail/projects/<sha1_of_cwd>` — one directory per working directory.
@@ -72,6 +77,38 @@ pub struct NullProvider;
 
 impl LogProvider for NullProvider {
     fn write_entry(&mut self, _run_id: &str, _value: &Value) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+/// Fans out writes to multiple `LogProvider`s. Best-effort: failures in one provider are
+/// logged as warnings but do not prevent writes to the remaining providers.
+pub struct CompositeProvider {
+    providers: Vec<Box<dyn LogProvider>>,
+}
+
+impl CompositeProvider {
+    pub fn new(providers: Vec<Box<dyn LogProvider>>) -> Self {
+        CompositeProvider { providers }
+    }
+}
+
+impl LogProvider for CompositeProvider {
+    fn write_entry(&mut self, run_id: &str, value: &Value) -> std::io::Result<()> {
+        for provider in &mut self.providers {
+            if let Err(e) = provider.write_entry(run_id, value) {
+                tracing::warn!(run_id = %run_id, error = %e, "composite provider: write_entry failed");
+            }
+        }
+        Ok(())
+    }
+
+    fn finish(&mut self, run_id: &str, status: &str) -> std::io::Result<()> {
+        for provider in &mut self.providers {
+            if let Err(e) = provider.finish(run_id, status) {
+                tracing::warn!(run_id = %run_id, error = %e, "composite provider: finish failed");
+            }
+        }
         Ok(())
     }
 }
