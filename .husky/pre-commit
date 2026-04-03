@@ -1,0 +1,5 @@
+#!/usr/bin/env sh
+. "$(dirname -- "$0")/_/husky.sh"
+
+# Fail fast: TypeScript compile check for vscode-ail
+cd vscode-ail && npm run compile

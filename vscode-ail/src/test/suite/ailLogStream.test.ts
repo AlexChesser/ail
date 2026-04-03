@@ -30,7 +30,7 @@ suite('AilLogStream', () => {
   });
 
   teardown(() => {
-    spawnStub.restore();
+    spawnStub.reset();
   });
 
   test('start() spawns ail log --follow with correct arguments', async () => {
@@ -44,7 +44,7 @@ suite('AilLogStream', () => {
     spawnStub.returns(mockProcess);
 
     const onNewLine = sinon.spy();
-    const stream = new AilLogStream('test-run-id', '/path/to/ail', onNewLine);
+    const stream = new AilLogStream('test-run-id', '/path/to/ail', onNewLine, undefined, spawnStub);
 
     // Start the stream (non-blocking via async)
     const promise = stream.start();
@@ -75,7 +75,7 @@ suite('AilLogStream', () => {
     spawnStub.returns(mockProcess);
 
     const onNewLine = sinon.spy();
-    const stream = new AilLogStream('test-run-id', '/path/to/ail', onNewLine);
+    const stream = new AilLogStream('test-run-id', '/path/to/ail', onNewLine, undefined, spawnStub);
 
     const promise = stream.start();
 
@@ -115,7 +115,7 @@ suite('AilLogStream', () => {
     spawnStub.returns(mockProcess);
 
     const onNewLine = sinon.spy();
-    const stream = new AilLogStream('test-run-id', '/path/to/ail', onNewLine);
+    const stream = new AilLogStream('test-run-id', '/path/to/ail', onNewLine, undefined, spawnStub);
 
     const promise = stream.start();
 
@@ -137,7 +137,7 @@ suite('AilLogStream', () => {
     spawnStub.returns(mockProcess);
 
     const onNewLine = sinon.spy();
-    const stream = new AilLogStream('test-run-id', '/path/to/ail', onNewLine);
+    const stream = new AilLogStream('test-run-id', '/path/to/ail', onNewLine, undefined, spawnStub);
 
     const promise = stream.start();
 
@@ -158,7 +158,7 @@ suite('AilLogStream', () => {
     spawnStub.returns(mockProcess);
 
     const onNewLine = sinon.spy();
-    const stream = new AilLogStream('test-run-id', '/path/to/ail', onNewLine);
+    const stream = new AilLogStream('test-run-id', '/path/to/ail', onNewLine, undefined, spawnStub);
 
     const promise = stream.start();
 
@@ -185,7 +185,7 @@ suite('AilLogStream', () => {
     spawnStub.returns(mockProcess);
 
     const onNewLine = sinon.spy();
-    const stream = new AilLogStream('test-run-id', '/path/to/ail', onNewLine);
+    const stream = new AilLogStream('test-run-id', '/path/to/ail', onNewLine, undefined, spawnStub);
 
     // Start but don't await
     void stream.start();
@@ -195,7 +195,7 @@ suite('AilLogStream', () => {
       stream.dispose();
 
       // Verify kill was called with SIGTERM
-      assert(killStub.called, 'process.kill should have been called');
+      assert.ok(killStub.called, 'process.kill should have been called');
       assert.strictEqual(killStub.firstCall.args[0], 'SIGTERM');
     });
   });
@@ -210,7 +210,7 @@ suite('AilLogStream', () => {
     spawnStub.returns(mockProcess);
 
     const onNewLine = sinon.spy();
-    const stream = new AilLogStream('test-run-id', '/path/to/ail', onNewLine);
+    const stream = new AilLogStream('test-run-id', '/path/to/ail', onNewLine, undefined, spawnStub);
 
     // Start but don't await
     void stream.start();
@@ -222,7 +222,7 @@ suite('AilLogStream', () => {
       stream.dispose();
 
       // Should not throw
-      assert(true, 'dispose() should be idempotent');
+      assert.ok(true, 'dispose() should be idempotent');
     });
   });
 
@@ -235,7 +235,7 @@ suite('AilLogStream', () => {
     spawnStub.returns(mockProcess);
 
     const onNewLine = sinon.spy();
-    const stream = new AilLogStream('test-run-id', '/path/to/ail', onNewLine, '/some/cwd');
+    const stream = new AilLogStream('test-run-id', '/path/to/ail', onNewLine, '/some/cwd', spawnStub);
 
     const promise = stream.start();
 

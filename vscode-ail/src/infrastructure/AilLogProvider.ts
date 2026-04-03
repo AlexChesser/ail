@@ -41,7 +41,7 @@ export class AilLogProvider implements vscode.TextDocumentContentProvider {
 
   readonly onDidChange = this._onDidChange.event;
 
-  constructor(ailProcess: AilProcess, binaryPath: string, cwd?: string) {
+  constructor(ailProcess: AilProcess, binaryPath = '', cwd?: string) {
     this._ailProcess = ailProcess;
     this._binaryPath = binaryPath;
     this._cwd = cwd;

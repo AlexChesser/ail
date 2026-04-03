@@ -69,8 +69,13 @@ npm run compile
 # Run all tests
 npm test
 
+# Before committing: full check (compile + lint + test)
+npm run check
+
 # Launch Extension Development Host (from .vscode/launch.json or VS Code F5)
 ```
+
+**⚠️ Hard rule:** `npm run check` must pass before committing extension changes. `npm run compile` is the fastest signal — it catches TypeScript errors, missing constructor arguments, and missing module imports before tests run. Never commit code that doesn't type-check.
 
 ## Architecture
 

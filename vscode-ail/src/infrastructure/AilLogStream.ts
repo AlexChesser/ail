@@ -17,6 +17,7 @@ export class AilLogStream {
   private readonly _binaryPath: string;
   private readonly _cwd: string | undefined;
   private readonly _onNewLine: (line: string) => void;
+  private readonly _spawnFn: typeof spawn;
   private _process: ChildProcess | undefined;
   private _rl: readline.Interface | undefined;
 
@@ -27,17 +28,20 @@ export class AilLogStream {
    * @param binaryPath Full path to `ail` binary
    * @param onNewLine Callback fired for each new line of output
    * @param cwd Optional working directory for the spawned process
+   * @param spawnFn Optional spawn function (for testing); defaults to child_process.spawn
    */
   constructor(
     runId: string,
     binaryPath: string,
     onNewLine: (line: string) => void,
-    cwd?: string
+    cwd?: string,
+    spawnFn: typeof spawn = spawn
   ) {
     this._runId = runId;
     this._binaryPath = binaryPath;
     this._onNewLine = onNewLine;
     this._cwd = cwd;
+    this._spawnFn = spawnFn;
   }
 
   /**
@@ -54,7 +58,7 @@ export class AilLogStream {
   async start(): Promise<void> {
     return new Promise<void>((resolve, reject) => {
       try {
-        this._process = spawn(this._binaryPath, ['log', '--follow', this._runId, '--format', 'markdown'], {
+        this._process = this._spawnFn(this._binaryPath, ['log', '--follow', this._runId, '--format', 'markdown'], {
           cwd: this._cwd,
         });
 
