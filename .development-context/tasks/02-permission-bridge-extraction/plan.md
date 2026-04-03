@@ -1,4 +1,4 @@
-# Task 02: Permission Bridge Extraction
+# Task 02: Permission Bridge Extraction ✓ DONE
 
 ## Prerequisites
 - Task 01 (runner injection through TUI) — establishes runner as injected dependency

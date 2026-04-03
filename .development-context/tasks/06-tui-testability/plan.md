@@ -1,4 +1,4 @@
-# Task 06: TUI Testability
+# Task 06: TUI Testability ✓ DONE
 
 ## Findings Addressed
 - **QUALITY-001** (medium): AppState and inline event loop are untestable, violating ARCHITECTURE.md §2.10

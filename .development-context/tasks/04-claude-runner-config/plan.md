@@ -1,4 +1,4 @@
-# Task 04: ClaudeCliRunner Config Pattern
+# Task 04: ClaudeCliRunner Config Pattern ✓ DONE
 
 ## Findings Addressed
 - **LSP-001** (medium): headless flag is a Claude CLI concept leaking into the construction contract

@@ -1,4 +1,4 @@
-# Issue #8: Multi-Runner Architecture Refactor
+# Issue #8: Multi-Runner Architecture Refactor ✓ DONE
 
 ## Context
 

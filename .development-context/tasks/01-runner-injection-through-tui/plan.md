@@ -1,4 +1,4 @@
-# Task 01: Runner Injection Through TUI Call Stack
+# Task 01: Runner Injection Through TUI Call Stack ✓ DONE
 
 ## Findings Addressed
 - **DIP-001** (critical): backend.rs imports and constructs ClaudeCliRunner directly

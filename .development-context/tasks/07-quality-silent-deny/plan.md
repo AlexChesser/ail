@@ -1,4 +1,4 @@
-# Task 07: Fix Silent Deny on Channel Close
+# Task 07: Fix Silent Deny on Channel Close ✓ DONE
 
 ## Findings Addressed
 - **QUALITY-002** (low): perm_rx.recv() fallback to Deny silently swallows channel-closed errors
