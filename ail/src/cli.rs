@@ -85,6 +85,28 @@ pub enum Commands {
         #[arg(long, value_name = "FORMAT", default_value = "text")]
         output_format: OutputFormat,
     },
+    /// Query execution logs stored by ail.
+    Logs {
+        /// Filter by session run_id (prefix match).
+        #[arg(long)]
+        session: Option<String>,
+
+        /// Full-text search across step content.
+        #[arg(long)]
+        query: Option<String>,
+
+        /// Output format: `text` (default) or `json` (NDJSON, one object per session).
+        #[arg(long, default_value = "text", value_enum)]
+        format: OutputFormat,
+
+        /// Stream new log entries in real-time (poll every second).
+        #[arg(long)]
+        tail: bool,
+
+        /// Maximum number of sessions to return.
+        #[arg(long, default_value_t = 20)]
+        limit: usize,
+    },
     /// Internal: MCP permission bridge. Spawned by Claude CLI to handle tool permission checks.
     /// Not intended for direct use.
     #[command(name = "mcp-bridge", hide = true)]
