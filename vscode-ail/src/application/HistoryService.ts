@@ -61,7 +61,7 @@ function sessionToRunRecord(session: LogsSession): RunRecord | null {
     ? session.started_at * 1000
     : 0;
 
-  const pipelineSource = session.pipeline_source ?? 'unknown';
+  const pipelineSource = session.pipeline_source || 'unknown';
 
   let outcome: RunOutcome = 'unknown';
   if (session.status === 'completed') {

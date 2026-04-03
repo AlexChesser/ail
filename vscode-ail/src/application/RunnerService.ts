@@ -34,6 +34,8 @@ export interface RunnerDeps {
     ctx: vscode.ExtensionContext,
     runId: string,
     writeStdin: (msg: object) => void,
+    prompt?: string,
+    pipelinePath?: string,
   ): IStagePanel;
 }
 
@@ -77,8 +79,8 @@ export class RunnerService {
     this._bus = bus;
     this._deps = deps ?? {
       createProcess: (bin, cwd) => new AilProcess(bin, cwd),
-      createPanel: (extCtx, runId, writeStdin) =>
-        UnifiedPanel.startLiveRun(extCtx, runId, writeStdin) as unknown as IStagePanel,
+      createPanel: (extCtx, runId, writeStdin, prompt, pipelinePath) =>
+        UnifiedPanel.startLiveRun(extCtx, runId, writeStdin, prompt, pipelinePath) as unknown as IStagePanel,
     };
   }
 
@@ -119,6 +121,8 @@ export class RunnerService {
       this._ctx.extensionContext,
       runId,
       (msg) => proc.writeStdin(msg),
+      prompt,
+      pipelinePath,
     );
 
     const runCtx: RunContext = {

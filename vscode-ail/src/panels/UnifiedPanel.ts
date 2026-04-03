@@ -27,6 +27,7 @@ import { MessageBuffer } from './MessageBuffer';
 import { getUnifiedPanelHtml } from './unifiedPanelHtml';
 import { GitDiffService, GitSnapshot, FileDiff } from '../infrastructure/GitDiffService';
 import { DiffContentProvider } from '../infrastructure/DiffContentProvider';
+import { parseStepsFromYaml } from '../utils/parseYaml';
 
 // ── Public interface for RunnerService ───────────────────────────────────────
 
@@ -93,6 +94,12 @@ export class UnifiedPanel implements IUnifiedPanel {
 
   /** Running total cost for the current live run. */
   private _liveTotalCost = 0;
+
+  /** The prompt text for the current live run (for immediate display in col 1). */
+  private _livePrompt = '';
+
+  /** Parsed step manifest for the current live run (for pre-populating col 2). */
+  private _liveStepManifest: { id: string; type: string }[] = [];
 
   /** Timer handles for HITL gate 2-minute escalation warnings. Keyed by step_id. */
   private readonly _hitlTimers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -189,12 +196,18 @@ export class UnifiedPanel implements IUnifiedPanel {
     context: vscode.ExtensionContext,
     runId: string,
     writeStdin: (msg: object) => void,
+    prompt = '',
+    pipelinePath = '',
   ): UnifiedPanel {
     const instance = UnifiedPanel._getOrCreate(context);
     instance._writeStdinMap.set(runId, writeStdin);
     instance._liveRunId = runId;
     instance._liveTotalCost = 0;
     instance._liveCurrentStepId = undefined;
+    instance._livePrompt = prompt;
+    instance._liveStepManifest = pipelinePath
+      ? [{ id: 'invocation', type: 'prompt' }, ...parseStepsFromYaml(pipelinePath).map(s => ({ id: s.id, type: s.type }))]
+      : [];
     instance._stepStartTimes.clear();
     instance._panel.reveal(vscode.ViewColumn.Beside, true);
 
@@ -243,10 +256,12 @@ export class UnifiedPanel implements IUnifiedPanel {
         const e = event as RunStartedEvent;
         this._panel.title = 'ail: Running';
         this._post({
-          cmd: 'liveRunStarted',
-          runId:          e.run_id,
-          totalSteps:     e.total_steps,
-          pipelineSource: e.pipeline_source ?? 'unknown',
+          cmd:              'liveRunStarted',
+          runId:            e.run_id,
+          totalSteps:       e.total_steps,
+          pipelineSource:   e.pipeline_source ?? 'unknown',
+          invocationPrompt: this._livePrompt,
+          stepManifest:     this._liveStepManifest,
         });
         break;
       }
@@ -337,9 +352,9 @@ export class UnifiedPanel implements IUnifiedPanel {
         } else if (re.type === 'thinking') {
           this._post({ cmd: 'thinking', text: re.text });
         } else if (re.type === 'tool_use') {
-          this._post({ cmd: 'toolUse', toolName: re.tool_name });
+          this._post({ cmd: 'toolUse', toolName: re.tool_name, toolUseId: re.tool_use_id, input: re.input });
         } else if (re.type === 'tool_result') {
-          this._post({ cmd: 'toolResult', toolName: re.tool_name });
+          this._post({ cmd: 'toolResult', toolName: re.tool_name, toolUseId: re.tool_use_id, content: re.content, isError: re.is_error });
         } else if (re.type === 'cost_update') {
           this._liveTotalCost = re.cost_usd;
           this._post({ cmd: 'costUpdate', totalCost: this._liveTotalCost });

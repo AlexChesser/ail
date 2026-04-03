@@ -19,11 +19,17 @@ export interface ThinkingEvent {
 export interface ToolUseEvent {
   type: "tool_use";
   tool_name: string;
+  tool_use_id?: string;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  input?: any;
 }
 
 export interface ToolResultEvent {
   type: "tool_result";
   tool_name: string;
+  tool_use_id?: string;
+  content?: string;
+  is_error?: boolean;
 }
 
 export interface CostUpdateEvent {

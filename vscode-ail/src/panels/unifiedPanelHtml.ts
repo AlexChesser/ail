@@ -70,7 +70,7 @@ export function getUnifiedPanelHtml(): string {
     flex-shrink: 0;
   }
 
-  #col-history { width: 200px; border-right: 1px solid var(--vscode-panel-border); }
+  #col-history { width: 240px; border-right: 1px solid var(--vscode-panel-border); }
   #col-steps   { width: 220px; border-right: 1px solid var(--vscode-panel-border); }
   #col-detail  { flex: 1; flex-shrink: 1; min-width: 0; }
 
@@ -117,10 +117,7 @@ export function getUnifiedPanelHtml(): string {
   }
   .run-time { color: var(--vscode-descriptionForeground); }
   .run-item.selected .run-time { color: inherit; opacity: 0.75; }
-  .run-pipeline { font-weight: bold; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .run-cost { font-size: 10px; color: var(--vscode-descriptionForeground); margin-left: auto; }
-  .run-item.selected .run-cost { color: inherit; opacity: 0.75; }
-  .run-prompt {
+  .run-pipeline {
     font-size: 10px;
     color: var(--vscode-descriptionForeground);
     overflow: hidden;
@@ -128,7 +125,26 @@ export function getUnifiedPanelHtml(): string {
     white-space: nowrap;
     margin-top: 1px;
   }
-  .run-item.selected .run-prompt { color: inherit; opacity: 0.75; }
+  .run-item.selected .run-pipeline { color: inherit; opacity: 0.6; }
+  .run-cost { font-size: 10px; color: var(--vscode-descriptionForeground); margin-left: auto; }
+  .run-item.selected .run-cost { color: inherit; opacity: 0.75; }
+  .run-prompt-primary {
+    font-size: 12px;
+    font-weight: 600;
+    overflow: hidden;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    margin-top: 2px;
+    line-height: 1.35;
+  }
+  .run-no-prompt {
+    font-size: 11px;
+    color: var(--vscode-descriptionForeground);
+    font-style: italic;
+    margin-top: 2px;
+  }
+  .run-item.selected .run-no-prompt { color: inherit; opacity: 0.6; }
 
   @keyframes spin {
     from { transform: rotate(0deg); }
@@ -342,6 +358,65 @@ export function getUnifiedPanelHtml(): string {
   .diff-deleted  { background: rgba(244, 135, 113, 0.2); color: #f48771; }
   .diff-link { cursor: pointer; color: var(--vscode-textLink-foreground); text-decoration: underline; font-size: 11px; flex-shrink: 0; }
   .diff-count-badge { font-size: 10px; padding: 1px 4px; border-radius: 3px; background: rgba(79, 193, 255, 0.2); color: #4fc3ff; margin-left: auto; }
+
+  /* ── Step sections (unified log, col 3) ── */
+  .step-section {
+    border-top: 1px solid var(--vscode-panel-border);
+    padding-bottom: 8px;
+  }
+  .step-section:first-child { border-top: none; }
+  .step-section-header {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    background: var(--vscode-editor-background);
+    padding: 6px 14px 4px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+    border-bottom: 1px solid var(--vscode-panel-border);
+  }
+  .step-section-header.active { background: var(--vscode-editor-selectionBackground, rgba(0,122,204,0.15)); }
+  .section-step-label { font-weight: bold; font-size: 12px; }
+  .section-glyph { width: 16px; text-align: center; font-size: 13px; }
+  .step-section .payload-block,
+  .step-section .thinking-block,
+  .step-section .output-block,
+  .step-section .meta-block,
+  .step-section .diff-section {
+    margin-left: 14px;
+    margin-right: 14px;
+  }
+
+  /* ── Expandable tool badges (Issue 6b) ── */
+  details.tool-detail {
+    display: inline-block;
+    margin: 2px 0;
+  }
+  details.tool-detail summary {
+    list-style: none;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+  }
+  details.tool-detail summary::before { content: none; }
+  details.tool-detail[open] .tool-badge { border-radius: 3px 3px 0 0; }
+  .tool-content {
+    display: block;
+    background: var(--vscode-textCodeBlock-background, rgba(0,0,0,0.2));
+    border: 1px solid var(--vscode-panel-border);
+    border-top: none;
+    border-radius: 0 0 3px 3px;
+    padding: 4px 8px;
+    font-family: var(--vscode-editor-font-family, monospace);
+    font-size: 11px;
+    white-space: pre-wrap;
+    word-break: break-all;
+    max-height: 200px;
+    overflow-y: auto;
+    margin-bottom: 2px;
+  }
 </style>
 </head>
 <body>
@@ -397,19 +472,24 @@ export function getUnifiedPanelHtml(): string {
   // Map<runId, RunEntry>
   // RunEntry: { summary: RunSummary, steps: Map<stepId, StepEntry> }
   // RunSummary: { runId, timestamp, pipelineSource, outcome, totalCostUsd, invocationPrompt, isLive }
-  // StepEntry: { id, status, thinking, output, tools, hitlHtml, permHtmls, telemetry }
+  // StepEntry: { status, thinking, output, tools, hitlHtml, permHtmls, telemetry, resultCode, rawEventData, files, resolvedPrompt }
   const runs = new Map();
 
   let selectedRunId    = null;  // shown in col 2+3
-  let selectedStepId   = null;  // shown in col 3
+  let selectedStepId   = null;  // highlighted in col 2, scrolled to in col 3
   let liveRunId        = null;  // the run currently receiving events
   let liveCurrentStepId = null; // the step currently streaming
 
-  // Live DOM references for efficient streaming (null when not in live-streaming mode)
+  // Unified log: tracks which run's sections are currently rendered in col 3
+  let renderedRunId = null;
+  // Map<stepId, { thinkPre, outPre }> — cached DOM refs per section
+  const sectionRefs = new Map();
+
+  // Live DOM references for efficient streaming (set on stepStarted, cleared on stepCompleted/Failed)
   let liveThinkingPre  = null;
   let liveOutputPre    = null;
 
-  // Auto-scroll state: paused when the user scrolls up, resumed when they scroll back to bottom.
+  // Auto-scroll state: paused when the user scrolls up; reset on each new step start.
   let autoScrollPaused = false;
   detailBody.addEventListener('scroll', () => {
     const atBottom = detailBody.scrollHeight - detailBody.scrollTop - detailBody.clientHeight < 40;
@@ -448,7 +528,17 @@ export function getUnifiedPanelHtml(): string {
   }
 
   function makeStepEntry() {
-    return { status: 'pending', thinking: '', output: '', tools: [], hitlHtml: null, permHtmls: [], telemetry: null, resultCode: null, rawEventData: null, files: [] };
+    return { status: 'pending', thinking: '', output: '', tools: [], hitlHtml: null, permHtmls: [], telemetry: null, resultCode: null, rawEventData: null, files: [], resolvedPrompt: null };
+  }
+
+  // Render a tool badge. If detail content available, wraps in <details> for expansion.
+  function renderToolBadgeHtml(t) {
+    const label = esc(t.dir + ' ' + t.name);
+    const badge = '<span class="tool-badge">' + label + '</span>';
+    if (t.detail) {
+      return '<details class="tool-detail"><summary>' + badge + '</summary><pre class="tool-content">' + esc(t.detail) + '</pre></details>';
+    }
+    return '<div>' + badge + '</div>';
   }
 
   // ── Column 1: Run list rendering ─────────────────────────────────────────────
@@ -474,18 +564,23 @@ export function getUnifiedPanelHtml(): string {
       el.dataset.runId = s.runId;
 
       const costStr = s.totalCostUsd > 0 ? '$' + s.totalCostUsd.toFixed(4) : '';
-      const promptStr = s.invocationPrompt ? s.invocationPrompt.slice(0, 55) : '';
+      const label = pipelineLabel(s.pipelineSource);
 
+      // Row 1: glyph + time + cost
+      // Row 2: prompt (primary)
+      // Row 3: pipeline name (secondary, omit if unknown)
       el.innerHTML =
         '<div class="run-meta">' +
           '<span class="run-glyph">' + outcomeGlyph(s.outcome, s.isLive) + '</span>' +
-          '<span class="run-pipeline">' + esc(pipelineLabel(s.pipelineSource)) + '</span>' +
+          '<span class="run-time">' + relTime(s.timestamp) + '</span>' +
           (costStr ? '<span class="run-cost">' + esc(costStr) + '</span>' : '') +
         '</div>' +
-        '<div class="run-meta" style="margin-top:1px">' +
-          '<span class="run-time">' + relTime(s.timestamp) + '</span>' +
-        '</div>' +
-        (promptStr ? '<div class="run-prompt">' + esc(promptStr) + (s.invocationPrompt && s.invocationPrompt.length > 55 ? '…' : '') + '</div>' : '');
+        (s.invocationPrompt
+          ? '<div class="run-prompt-primary">' + esc(s.invocationPrompt) + '</div>'
+          : '<div class="run-no-prompt">No prompt</div>') +
+        (label && label !== 'unknown'
+          ? '<div class="run-pipeline">' + esc(label) + '</div>'
+          : '');
 
       el.addEventListener('click', () => onRunClick(s.runId));
       historyList.appendChild(el);
@@ -668,51 +763,47 @@ export function getUnifiedPanelHtml(): string {
     }
   }
 
-  // ── Column 3: Step detail ─────────────────────────────────────────────────────
+  // ── Column 3: Unified scrollable log ─────────────────────────────────────────
 
-  function selectStep(runId, stepId) {
-    selectedStepId = stepId;
-    liveThinkingPre = null;
-    liveOutputPre   = null;
-    autoScrollPaused = false;
+  /**
+   * Build a full section DOM element for a step. Does not append to detailBody.
+   */
+  function createStepSection(stepId, step) {
+    const section = document.createElement('div');
+    section.className = 'step-section';
+    section.id = 'section-' + stepId;
 
-    // Update col 2 highlight
-    stepsList.querySelectorAll('.step-item').forEach((el) => {
-      el.classList.toggle('selected', el.dataset.stepId === stepId);
-    });
+    // Sticky header
+    const header = document.createElement('div');
+    header.className = 'step-section-header';
+    header.id = 'section-header-' + stepId;
+    const glyphClass = glyphCssClass(step.status);
+    const glyphSymbol = step.status === 'running'
+      ? '<span class="spinning">◌</span>'
+      : glyphChar(step.status);
+    header.innerHTML =
+      '<span class="section-glyph ' + glyphClass + '">' + glyphSymbol + '</span>' +
+      '<strong class="section-step-label">' + esc(stepId) + '</strong>' +
+      '<span class="section-telemetry telemetry-chips"></span>';
+    section.appendChild(header);
 
-    const entry = runs.get(runId);
-    const step  = entry?.steps.get(stepId);
-    if (!step) { clearDetailPanel('Select a step'); return; }
-
-    // Update header
-    detailLabel.textContent = '── ' + stepId + ' ──';
-    renderTelemetryChips(step.telemetry);
-
-    // Render full stored content
-    detailBody.innerHTML = '';
-
-    // Payload (resolved prompt) — shown as collapsible
+    // Payload block
     if (step.resolvedPrompt) {
       const d = makeDetailsBlock('Inspected Payload', 'payload-block', step.resolvedPrompt, 'payload-content', false);
-      detailBody.appendChild(d);
+      section.appendChild(d);
     }
 
-    // Thinking block — if we have content
+    // Thinking block
     const thinkDetails = document.createElement('details');
     thinkDetails.className = 'thinking-block';
     const thinkSummary = document.createElement('summary');
     thinkSummary.textContent = 'Thinking';
     const thinkPre = document.createElement('pre');
-    thinkPre.className = 'block-content';
+    thinkPre.className = 'block-content thinking-content';
     thinkPre.textContent = step.thinking;
-    // Append tool badges after thinking text
     for (const t of step.tools) {
-      const badge = document.createElement('div');
-      badge.innerHTML = '<span class="tool-badge">' + esc(t.dir + ' ' + t.name) + '</span>';
-      thinkPre.appendChild(badge.firstChild);
+      thinkPre.insertAdjacentHTML('beforeend', renderToolBadgeHtml(t));
     }
-    // Append permission banners
     for (const html of step.permHtmls) {
       const wrapper = document.createElement('div');
       wrapper.innerHTML = html;
@@ -723,7 +814,7 @@ export function getUnifiedPanelHtml(): string {
     if (step.thinking || step.tools.length > 0 || step.permHtmls.length > 0) {
       thinkDetails.open = true;
     }
-    detailBody.appendChild(thinkDetails);
+    section.appendChild(thinkDetails);
 
     // Output block
     const outDetails = document.createElement('details');
@@ -731,9 +822,8 @@ export function getUnifiedPanelHtml(): string {
     const outSummary = document.createElement('summary');
     outSummary.textContent = 'Output';
     const outPre = document.createElement('pre');
-    outPre.className = 'block-content';
+    outPre.className = 'block-content output-content';
     outPre.textContent = step.output;
-    // HITL banner (if any)
     if (step.hitlHtml) {
       const wrapper = document.createElement('div');
       wrapper.innerHTML = step.hitlHtml;
@@ -742,58 +832,144 @@ export function getUnifiedPanelHtml(): string {
     outDetails.appendChild(outSummary);
     outDetails.appendChild(outPre);
     if (step.output || step.hitlHtml) outDetails.open = true;
-    detailBody.appendChild(outDetails);
+    section.appendChild(outDetails);
 
-    // Details block — result code, latency, tokens, cost, raw event data
+    // Meta block
     const metaDetails = document.createElement('details');
     metaDetails.className = 'meta-block';
     const metaSummary = document.createElement('summary');
     metaSummary.textContent = 'Details';
     metaDetails.appendChild(metaSummary);
-
     const table = document.createElement('table');
     table.className = 'meta-table';
-
-    function addMetaRow(label, value) {
+    function addRow(lbl, val) {
       const tr = document.createElement('tr');
-      const td1 = document.createElement('td');
-      td1.textContent = label;
-      const td2 = document.createElement('td');
-      td2.textContent = value;
-      tr.appendChild(td1);
-      tr.appendChild(td2);
-      table.appendChild(tr);
+      const td1 = document.createElement('td'); td1.textContent = lbl;
+      const td2 = document.createElement('td'); td2.textContent = val;
+      tr.appendChild(td1); tr.appendChild(td2); table.appendChild(tr);
     }
-
-    addMetaRow('Result code', step.resultCode ?? '—');
+    addRow('Result code', step.resultCode ?? '—');
     const lat = formatLatency(step.telemetry?.latencyMs ?? null);
-    addMetaRow('Latency', lat ?? '—');
-    addMetaRow('Input tokens', step.telemetry?.inputTokens != null ? String(step.telemetry.inputTokens) : '—');
-    addMetaRow('Output tokens', step.telemetry?.outputTokens != null ? String(step.telemetry.outputTokens) : '—');
-    addMetaRow('Cost', step.telemetry?.costUsd != null && step.telemetry.costUsd > 0 ? '$' + step.telemetry.costUsd.toFixed(4) : '—');
-    addMetaRow('Model', '—');
-
+    addRow('Latency', lat ?? '—');
+    addRow('Input tokens', step.telemetry?.inputTokens != null ? String(step.telemetry.inputTokens) : '—');
+    addRow('Output tokens', step.telemetry?.outputTokens != null ? String(step.telemetry.outputTokens) : '—');
+    addRow('Cost', step.telemetry?.costUsd != null && step.telemetry.costUsd > 0 ? '$' + step.telemetry.costUsd.toFixed(4) : '—');
+    addRow('Model', '—');
     metaDetails.appendChild(table);
-
     if (step.rawEventData) {
       const rawPre = document.createElement('pre');
       rawPre.className = 'block-content payload-content';
       rawPre.textContent = typeof step.rawEventData === 'string'
-        ? step.rawEventData
-        : JSON.stringify(step.rawEventData, null, 2);
+        ? step.rawEventData : JSON.stringify(step.rawEventData, null, 2);
       metaDetails.appendChild(rawPre);
     }
+    section.appendChild(metaDetails);
 
-    detailBody.appendChild(metaDetails);
-
-    // Diff section — file changes detected during this step
+    // Diff section
     const diffEl = renderDiffSection(stepId, step.files);
-    if (diffEl) detailBody.appendChild(diffEl);
+    if (diffEl) section.appendChild(diffEl);
 
-    // If this is the currently live step, set up live DOM references
-    if (runId === liveRunId && stepId === liveCurrentStepId) {
-      liveThinkingPre = thinkPre;
-      liveOutputPre   = outPre;
+    return section;
+  }
+
+  /**
+   * Append a new section to detailBody and cache its streaming refs.
+   */
+  function appendStepSection(stepId, step) {
+    const section = createStepSection(stepId, step);
+    detailBody.appendChild(section);
+    const thinkPre = section.querySelector('.thinking-content');
+    const outPre   = section.querySelector('.output-content');
+    sectionRefs.set(stepId, { thinkPre, outPre });
+  }
+
+  /**
+   * Ensure the unified log sections for runId are rendered in detailBody.
+   * Idempotent: does nothing if already rendered for this run.
+   */
+  function ensureRunSections(runId) {
+    if (renderedRunId === runId) return;
+    const entry = runs.get(runId);
+    if (!entry) return;
+
+    detailBody.innerHTML = '';
+    sectionRefs.clear();
+    renderedRunId = runId;
+
+    for (const [stepId, step] of entry.steps) {
+      appendStepSection(stepId, step);
+    }
+  }
+
+  /**
+   * Update the sticky section header glyph for a step.
+   */
+  function updateSectionGlyph(stepId, status) {
+    const header = document.getElementById('section-header-' + stepId);
+    if (!header) return;
+    const glyphEl = header.querySelector('.section-glyph');
+    if (!glyphEl) return;
+    glyphEl.className = 'section-glyph ' + glyphCssClass(status);
+    glyphEl.innerHTML = status === 'running'
+      ? '<span class="spinning">◌</span>'
+      : glyphChar(status);
+  }
+
+  /**
+   * Update the telemetry chips in the section header.
+   */
+  function updateSectionTelemetry(stepId, telemetry) {
+    const header = document.getElementById('section-header-' + stepId);
+    if (!header || !telemetry) return;
+    const chips = header.querySelector('.section-telemetry');
+    if (!chips) return;
+    const parts = [];
+    if (telemetry.inputTokens != null || telemetry.outputTokens != null) {
+      parts.push('<span class="chip">⬆' + (telemetry.inputTokens ?? '—') + ' ⬇' + (telemetry.outputTokens ?? '—') + '</span>');
+    }
+    if (telemetry.costUsd != null && telemetry.costUsd > 0) {
+      parts.push('<span class="chip">$' + telemetry.costUsd.toFixed(4) + '</span>');
+    }
+    if (telemetry.latencyMs != null) {
+      const s = telemetry.latencyMs >= 1000
+        ? (telemetry.latencyMs / 1000).toFixed(1) + 's'
+        : telemetry.latencyMs + 'ms';
+      parts.push('<span class="chip">' + s + '</span>');
+    }
+    chips.innerHTML = parts.join('');
+  }
+
+  /**
+   * Select a step: highlight in col 2, scroll to its section in col 3.
+   */
+  function selectStep(runId, stepId) {
+    selectedStepId = stepId;
+
+    // Update col 2 highlight
+    stepsList.querySelectorAll('.step-item').forEach((el) => {
+      el.classList.toggle('selected', el.dataset.stepId === stepId);
+    });
+
+    const entry = runs.get(runId);
+    const step  = entry?.steps.get(stepId);
+    if (!step) { clearDetailPanel('Select a step'); return; }
+
+    // Update global header to show focused step
+    detailLabel.textContent = '── ' + stepId + ' ──';
+    renderTelemetryChips(step.telemetry);
+
+    // Ensure unified log sections exist
+    ensureRunSections(runId);
+
+    // Highlight the active section header
+    detailBody.querySelectorAll('.step-section-header').forEach((el) => {
+      el.classList.toggle('active', el.id === 'section-header-' + stepId);
+    });
+
+    // Scroll to section (guard: scrollIntoView may not be available in all environments)
+    const section = document.getElementById('section-' + stepId);
+    if (section && typeof section.scrollIntoView === 'function') {
+      try { section.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch { /* no-op */ }
     }
   }
 
@@ -817,6 +993,8 @@ export function getUnifiedPanelHtml(): string {
     detailBody.innerHTML    = '';
     liveThinkingPre = null;
     liveOutputPre   = null;
+    renderedRunId   = null;
+    sectionRefs.clear();
   }
 
   function renderTelemetryChips(telemetry) {
@@ -924,6 +1102,8 @@ export function getUnifiedPanelHtml(): string {
         liveCurrentStepId = null;
         liveThinkingPre   = null;
         liveOutputPre     = null;
+        renderedRunId     = null;
+        sectionRefs.clear();
         renderHistoryList();
         stepsList.innerHTML  = '<div class="empty-state">Select a run</div>';
         clearDetailPanel('Select a step');
@@ -952,6 +1132,8 @@ export function getUnifiedPanelHtml(): string {
         liveCurrentStepId = null;
         liveThinkingPre   = null;
         liveOutputPre     = null;
+        renderedRunId     = null;
+        sectionRefs.clear();
 
         const summary = {
           runId: msg.runId,
@@ -959,13 +1141,22 @@ export function getUnifiedPanelHtml(): string {
           pipelineSource: msg.pipelineSource || 'unknown',
           outcome: 'running',
           totalCostUsd: 0,
-          invocationPrompt: '',
+          invocationPrompt: msg.invocationPrompt || '',
           isLive: true,
         };
-        runs.set(msg.runId, { summary, steps: new Map() });
+        const entry = { summary, steps: new Map() };
+
+        // Pre-populate steps from manifest (Issue 4)
+        if (msg.stepManifest && msg.stepManifest.length > 0) {
+          for (const s of msg.stepManifest) {
+            entry.steps.set(s.id, makeStepEntry());
+          }
+        }
+
+        runs.set(msg.runId, entry);
         renderHistoryList();
 
-        // Auto-select this run
+        // Auto-select this run (renders col 2 + col 3 sections)
         selectRun(msg.runId, false);
         costDisplay.textContent = 'Cost: —';
         stepDisplay.textContent = 'Steps: 0/' + (msg.totalSteps || '?');
@@ -980,20 +1171,54 @@ export function getUnifiedPanelHtml(): string {
         liveCurrentStepId = msg.stepId;
         liveThinkingPre   = null;
         liveOutputPre     = null;
+        autoScrollPaused  = false; // Resume auto-scroll for new step
 
-        const step = makeStepEntry();
-        step.status = 'running';
-        step.resolvedPrompt = msg.resolvedPrompt || null;
-        entry.steps.set(msg.stepId, step);
+        let step = entry.steps.get(msg.stepId);
+        if (step) {
+          // Step was pre-populated from manifest — update in place
+          step.status = 'running';
+          step.resolvedPrompt = msg.resolvedPrompt || null;
+          updateStepItemGlyph(msg.stepId, 'running');
+          updateSectionGlyph(msg.stepId, 'running');
+          // Add payload block to section if we now have a prompt
+          if (step.resolvedPrompt && renderedRunId === liveRunId) {
+            const section = document.getElementById('section-' + msg.stepId);
+            const header = section?.querySelector('.step-section-header');
+            const existingPayload = section?.querySelector('.payload-block');
+            if (section && header && !existingPayload) {
+              const d = makeDetailsBlock('Inspected Payload', 'payload-block', step.resolvedPrompt, 'payload-content', false);
+              header.insertAdjacentElement('afterend', d);
+            }
+          }
+        } else {
+          // New step not in manifest — create entry
+          step = makeStepEntry();
+          step.status = 'running';
+          step.resolvedPrompt = msg.resolvedPrompt || null;
+          entry.steps.set(msg.stepId, step);
+
+          if (selectedRunId === liveRunId) {
+            // Add to col 2
+            if (stepsList.querySelector('.empty-state')) stepsList.innerHTML = '';
+            renderStepItem(msg.stepId, step, liveRunId);
+          }
+          // Add section to col 3 if sections are already rendered for this run
+          if (renderedRunId === liveRunId) {
+            appendStepSection(msg.stepId, step);
+          }
+        }
 
         stepDisplay.textContent = 'Steps: ' + (msg.stepIndex + 1) + '/' + msg.totalSteps;
 
         if (selectedRunId === liveRunId) {
-          // Add to col 2 and auto-select
-          if (stepsList.querySelector('.empty-state')) stepsList.innerHTML = '';
-          renderStepItem(msg.stepId, step, liveRunId);
+          // selectStep calls ensureRunSections which populates sectionRefs
           selectStep(liveRunId, msg.stepId);
         }
+
+        // Set live streaming refs AFTER selectStep (ensureRunSections may have just created them)
+        const refs = sectionRefs.get(msg.stepId);
+        liveThinkingPre = refs?.thinkPre || null;
+        liveOutputPre   = refs?.outPre || null;
         break;
       }
 
@@ -1016,6 +1241,8 @@ export function getUnifiedPanelHtml(): string {
         }
         updateStepItemGlyph(msg.stepId, 'completed');
         updateStepItemMeta(msg.stepId, step || makeStepEntry());
+        updateSectionGlyph(msg.stepId, 'completed');
+        updateSectionTelemetry(msg.stepId, step?.telemetry || null);
         costDisplay.textContent = 'Cost: $' + ((msg.totalCost || 0).toFixed(4));
         if (selectedRunId === liveRunId && selectedStepId === msg.stepId) {
           renderTelemetryChips(step?.telemetry || null);
@@ -1039,7 +1266,8 @@ export function getUnifiedPanelHtml(): string {
         }
         updateStepItemGlyph(msg.stepId, 'failed');
         updateStepItemMeta(msg.stepId, step || makeStepEntry());
-        if (selectedRunId === liveRunId && selectedStepId === msg.stepId && liveOutputPre) {
+        updateSectionGlyph(msg.stepId, 'failed');
+        if (liveOutputPre) {
           liveOutputPre.insertAdjacentHTML('beforeend',
             '<span class="error-text">✗ ' + esc(msg.error || '') + '</span>');
           const outBlock = liveOutputPre.parentElement;
@@ -1060,6 +1288,7 @@ export function getUnifiedPanelHtml(): string {
         }
         updateStepItemGlyph(msg.stepId, 'skipped');
         updateStepItemMeta(msg.stepId, step || makeStepEntry());
+        updateSectionGlyph(msg.stepId, 'skipped');
         break;
       }
 
@@ -1082,13 +1311,13 @@ export function getUnifiedPanelHtml(): string {
         if (step) {
           step.files = msg.files || [];
           updateStepItemDiffBadge(msg.stepId, step.files.length);
-          // Re-render diff section if this step is currently selected
-          if (selectedStepId === msg.stepId) {
-            // Remove existing diff section (identified by dedicated .diff-section class)
-            const existingDiff = detailBody.querySelector('details.diff-section');
+          // Update diff section inside this step's section div
+          const section = document.getElementById('section-' + msg.stepId);
+          if (section) {
+            const existingDiff = section.querySelector('details.diff-section');
             if (existingDiff) existingDiff.remove();
             const diffEl = renderDiffSection(msg.stepId, step.files);
-            if (diffEl) detailBody.appendChild(diffEl);
+            if (diffEl) section.appendChild(diffEl);
           }
         }
         break;
@@ -1128,10 +1357,11 @@ export function getUnifiedPanelHtml(): string {
         const entry = runs.get(liveRunId);
         if (!entry) break;
         const step = entry.steps.get(liveCurrentStepId);
-        if (step) step.tools.push({ dir: '→', name: msg.toolName });
+        const detail = msg.input != null ? JSON.stringify(msg.input, null, 2) : null;
+        const t = { dir: '→', name: msg.toolName, detail };
+        if (step) step.tools.push(t);
         if (liveThinkingPre) {
-          liveThinkingPre.insertAdjacentHTML('beforeend',
-            '<div><span class="tool-badge">→ ' + esc(msg.toolName) + '</span></div>');
+          liveThinkingPre.insertAdjacentHTML('beforeend', renderToolBadgeHtml(t));
         }
         break;
       }
@@ -1140,10 +1370,11 @@ export function getUnifiedPanelHtml(): string {
         const entry = runs.get(liveRunId);
         if (!entry) break;
         const step = entry.steps.get(liveCurrentStepId);
-        if (step) step.tools.push({ dir: '←', name: msg.toolName });
+        const detail = msg.content != null ? String(msg.content) : null;
+        const t = { dir: '←', name: msg.toolName, detail };
+        if (step) step.tools.push(t);
         if (liveThinkingPre) {
-          liveThinkingPre.insertAdjacentHTML('beforeend',
-            '<div><span class="tool-badge">← ' + esc(msg.toolName) + '</span></div>');
+          liveThinkingPre.insertAdjacentHTML('beforeend', renderToolBadgeHtml(t));
         }
         break;
       }
@@ -1169,7 +1400,8 @@ export function getUnifiedPanelHtml(): string {
           '</div></div>';
         step.hitlHtml = hitlHtml;
         updateStepItemGlyph(msg.stepId, 'paused');
-        if (selectedRunId === liveRunId && selectedStepId === msg.stepId && liveOutputPre) {
+        updateSectionGlyph(msg.stepId, 'paused');
+        if (liveOutputPre) {
           liveOutputPre.insertAdjacentHTML('beforeend', hitlHtml);
           const outBlock = liveOutputPre.parentElement;
           if (outBlock) outBlock.open = true;
@@ -1290,6 +1522,12 @@ export function getUnifiedPanelHtml(): string {
             latencyMs:    completedRow?.latency_ms ?? null,
           };
           entry.steps.set(stepId, step);
+        }
+
+        // Reset rendered state so ensureRunSections rebuilds for this run
+        if (renderedRunId === msg.runId) {
+          renderedRunId = null;
+          sectionRefs.clear();
         }
 
         // Select this run and show its first step
