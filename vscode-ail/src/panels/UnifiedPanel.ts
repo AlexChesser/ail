@@ -82,6 +82,9 @@ export class UnifiedPanel implements IUnifiedPanel {
   /** Step start timestamps for latency calculation. */
   private readonly _stepStartTimes = new Map<string, number>();
 
+  /** The step_id of the most recently started step in the live run. */
+  private _liveCurrentStepId: string | undefined;
+
   /** Running total cost for the current live run. */
   private _liveTotalCost = 0;
 
@@ -165,6 +168,7 @@ export class UnifiedPanel implements IUnifiedPanel {
     instance._writeStdinMap.set(runId, writeStdin);
     instance._liveRunId = runId;
     instance._liveTotalCost = 0;
+    instance._liveCurrentStepId = undefined;
     instance._stepStartTimes.clear();
     instance._panel.reveal(vscode.ViewColumn.Beside, true);
 
@@ -222,6 +226,7 @@ export class UnifiedPanel implements IUnifiedPanel {
       }
       case 'step_started': {
         const e = event as StepStartedEvent;
+        this._liveCurrentStepId = e.step_id;
         this._stepStartTimes.set(e.step_id, Date.now());
         this._post({
           cmd:           'stepStarted',
@@ -326,6 +331,10 @@ export class UnifiedPanel implements IUnifiedPanel {
       }
       case 'pipeline_completed':
         this._panel.title = 'ail: Completed';
+        // Post stepResultCode for break outcome so the step badge shows 'break'
+        if (event.outcome === 'break' && event.step_id) {
+          this._post({ cmd: 'stepResultCode', stepId: event.step_id, resultCode: 'break' });
+        }
         this._post({
           cmd:       'pipelineCompleted',
           outcome:   event.outcome,
@@ -334,6 +343,10 @@ export class UnifiedPanel implements IUnifiedPanel {
         break;
       case 'pipeline_error':
         this._panel.title = 'ail: Error';
+        // Post stepResultCode for aborted pipeline so the most recent step shows 'abort_pipeline'
+        if (event.error_type === 'ail:pipeline/aborted' && this._liveCurrentStepId) {
+          this._post({ cmd: 'stepResultCode', stepId: this._liveCurrentStepId, resultCode: 'abort_pipeline' });
+        }
         this._post({ cmd: 'pipelineError', error: event.error, errorType: event.error_type });
         break;
     }
@@ -343,6 +356,7 @@ export class UnifiedPanel implements IUnifiedPanel {
     this._writeStdinMap.delete(runId);
     if (this._liveRunId === runId) {
       this._liveRunId = undefined;
+      this._liveCurrentStepId = undefined;
       // Clear any lingering HITL escalation timers from this run
       for (const [stepId, timer] of this._hitlTimers) {
         clearTimeout(timer);

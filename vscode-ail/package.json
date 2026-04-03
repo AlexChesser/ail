@@ -51,7 +51,11 @@
         },
         "ail.logLevel": {
           "type": "string",
-          "enum": ["info", "debug", "trace"],
+          "enum": [
+            "info",
+            "debug",
+            "trace"
+          ],
           "default": "info",
           "description": "Verbosity of the ail output channel. 'info' shows step-level events; 'debug' adds tool calls; 'trace' adds thinking blocks."
         },
@@ -62,7 +66,7 @@
         },
         "ail.costRegressionMultiplier": {
           "type": "number",
-          "default": 2.0,
+          "default": 2,
           "description": "Warn when a run costs more than N times the rolling average of the last 10 runs. Set to 0 to disable."
         }
       }
@@ -311,7 +315,10 @@
       "out/src/test/**"
     ],
     "all": false,
-    "reporter": ["text", "lcov"]
+    "reporter": [
+      "text",
+      "lcov"
+    ]
   },
   "config": {
     "ailMinVersion": "0.1.0"

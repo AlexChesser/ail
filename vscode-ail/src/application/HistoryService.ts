@@ -31,6 +31,7 @@ interface LogsSessionStep {
   cost_usd?: number;
   input_tokens?: number;
   output_tokens?: number;
+  latency_ms?: number;
   runner_session_id?: string;
   stdout?: string;
   stderr?: string;
@@ -76,11 +77,13 @@ function sessionToRunRecord(session: LogsSession): RunRecord | null {
   const rawSteps = Array.isArray(session.steps) ? session.steps : [];
   const steps: TurnEntry[] = rawSteps.map((s) => ({
     step_id: typeof s.step_id === 'string' ? s.step_id : '',
+    event_type: typeof s.event_type === 'string' ? s.event_type : null,
     prompt: typeof s.prompt === 'string' ? s.prompt : null,
     response: typeof s.response === 'string' ? s.response : null,
     cost_usd: typeof s.cost_usd === 'number' ? s.cost_usd : null,
     input_tokens: typeof s.input_tokens === 'number' ? s.input_tokens : null,
     output_tokens: typeof s.output_tokens === 'number' ? s.output_tokens : null,
+    latency_ms: typeof s.latency_ms === 'number' ? s.latency_ms : null,
     runner_session_id: typeof s.runner_session_id === 'string' ? s.runner_session_id : null,
     stdout: typeof s.stdout === 'string' ? s.stdout : null,
     stderr: typeof s.stderr === 'string' ? s.stderr : null,
