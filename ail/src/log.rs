@@ -91,6 +91,7 @@ fn run_once(run_id: &str, format: &str) {
 }
 
 /// Stream output: emit current state, then poll for new steps every 500ms.
+/// Retries on SQLITE_BUSY with exponential backoff (max 3 retries per tick).
 fn run_follow(run_id: &str, format: &str) {
     let mut last_recorded_at: i64 = 0;
 
@@ -150,58 +151,83 @@ fn run_follow(run_id: &str, format: &str) {
             while !is_final {
                 std::thread::sleep(std::time::Duration::from_millis(500));
 
-                match get_run_steps(run_id) {
-                    Ok(new_steps) => {
-                        let additional: Vec<_> = new_steps
-                            .iter()
-                            .filter(|s| s.recorded_at > last_recorded_at)
-                            .collect();
+                // Retry loop: up to 3 retries on SQLITE_BUSY
+                let mut tick_success = false;
+                for attempt in 0..=2 {
+                    match get_run_steps(run_id) {
+                        Ok(new_steps) => {
+                            let additional: Vec<_> = new_steps
+                                .iter()
+                                .filter(|s| s.recorded_at > last_recorded_at)
+                                .collect();
 
-                        if !additional.is_empty() {
-                            match format {
-                                "markdown" => {
-                                    let output = format_run_as_ail_log(
-                                        &additional
-                                            .iter()
-                                            .map(|s| (*s).clone())
-                                            .collect::<Vec<_>>(),
-                                    );
-                                    print!("{output}");
-                                }
-                                "json" => {
-                                    for step in &additional {
-                                        let obj = serde_json::json!({
-                                            "run_id": run_id,
-                                            "step_id": step.step_id,
-                                            "event_type": step.event_type,
-                                            "response": step.response,
-                                            "thinking": step.thinking,
-                                            "cost_usd": step.cost_usd,
-                                            "input_tokens": step.input_tokens,
-                                            "output_tokens": step.output_tokens,
-                                            "recorded_at": step.recorded_at,
-                                        });
-                                        println!("{obj}");
+                            if !additional.is_empty() {
+                                match format {
+                                    "markdown" => {
+                                        let output = format_run_as_ail_log(
+                                            &additional
+                                                .iter()
+                                                .map(|s| (*s).clone())
+                                                .collect::<Vec<_>>(),
+                                        );
+                                        print!("{output}");
                                     }
+                                    "json" => {
+                                        for step in &additional {
+                                            let obj = serde_json::json!({
+                                                "run_id": run_id,
+                                                "step_id": step.step_id,
+                                                "event_type": step.event_type,
+                                                "response": step.response,
+                                                "thinking": step.thinking,
+                                                "cost_usd": step.cost_usd,
+                                                "input_tokens": step.input_tokens,
+                                                "output_tokens": step.output_tokens,
+                                                "recorded_at": step.recorded_at,
+                                            });
+                                            println!("{obj}");
+                                        }
+                                    }
+                                    "raw" => {
+                                        // For raw, we re-print the whole thing (or just new entries).
+                                        // For now, we'll skip raw in follow mode for simplicity.
+                                    }
+                                    _ => {}
                                 }
-                                "raw" => {
-                                    // For raw, we re-print the whole thing (or just new entries).
-                                    // For now, we'll skip raw in follow mode for simplicity.
+
+                                if let Some(last_step) = additional.last() {
+                                    last_recorded_at = last_step.recorded_at;
                                 }
-                                _ => {}
                             }
 
-                            if let Some(last_step) = additional.last() {
-                                last_recorded_at = last_step.recorded_at;
+                            is_final = check_is_final(run_id, &new_steps);
+                            tick_success = true;
+                            break;
+                        }
+                        Err(e) => {
+                            // Check if error is SQLITE_BUSY (or similar transient DB error)
+                            let is_transient = e.detail.contains("database is locked")
+                                || e.detail.contains("SQLITE_BUSY");
+
+                            if is_transient && attempt < 2 {
+                                // Retry with 50ms backoff
+                                std::thread::sleep(std::time::Duration::from_millis(50));
+                            } else if !is_transient {
+                                // Non-transient error: exit immediately with code 1
+                                eprintln!("ail: database error: {}", e.detail);
+                                std::process::exit(1);
+                            } else {
+                                // Transient error after max retries: skip this tick
+                                tick_success = true;
+                                break;
                             }
                         }
+                    }
+                }
 
-                        is_final = check_is_final(run_id, &new_steps);
-                    }
-                    Err(_) => {
-                        // DB error during follow; log and retry.
-                        std::thread::sleep(std::time::Duration::from_secs(1));
-                    }
+                if !tick_success {
+                    // Should not reach here, but if we do, skip this tick
+                    continue;
                 }
             }
         }

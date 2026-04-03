@@ -28,8 +28,8 @@ fn load_consistency_fixture() -> Vec<StepRow> {
         .unwrap()
         .join("test-fixtures/consistency-fixture.jsonl");
 
-    let content = fs::read_to_string(&fixture_path)
-        .expect("Failed to read consistency-fixture.jsonl");
+    let content =
+        fs::read_to_string(&fixture_path).expect("Failed to read consistency-fixture.jsonl");
 
     let mut steps = Vec::new();
 
@@ -38,8 +38,8 @@ fn load_consistency_fixture() -> Vec<StepRow> {
             continue;
         }
 
-        let json: serde_json::Value = serde_json::from_str(line)
-            .expect("Failed to parse JSONL line as JSON");
+        let json: serde_json::Value =
+            serde_json::from_str(line).expect("Failed to parse JSONL line as JSON");
 
         // Skip run_started events; they don't map to StepRow.
         let event_type = json["event_type"]
@@ -63,9 +63,7 @@ fn load_consistency_fixture() -> Vec<StepRow> {
         let input_tokens = json["input_tokens"].as_i64();
         let output_tokens = json["output_tokens"].as_i64();
         let prompt = json["prompt"].as_str().map(|s| s.to_string());
-        let recorded_at = json["recorded_at"]
-            .as_i64()
-            .expect("Missing recorded_at");
+        let recorded_at = json["recorded_at"].as_i64().expect("Missing recorded_at");
 
         let step_row = StepRow {
             step_id,

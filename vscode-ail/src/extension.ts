@@ -93,10 +93,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   );
 
   // Register the ail-log URI scheme provider for virtual log documents
-  const logProvider = new AilLogProvider(client);
+  const logProvider = new AilLogProvider(client, binary.path, cwd);
   context.subscriptions.push(
     vscode.workspace.registerTextDocumentContentProvider('ail-log', logProvider)
   );
+  context.subscriptions.push(logProvider);
 
   // Register folding provider for ail-log documents
   const foldingProvider = new AilLogFoldingProvider(context);
