@@ -22,9 +22,12 @@ import { HistoryService } from "./application/HistoryService";
 import { UnifiedPanel } from "./panels/UnifiedPanel";
 import { MonitorViewProvider } from "./panels/MonitorViewProvider";
 import { DiffContentProvider, DIFF_SCHEME } from "./infrastructure/DiffContentProvider";
+import { AilLogFoldingProvider, autoFoldThinkingBlocks } from "./infrastructure/FoldingProvider";
 import { RunCommand } from "./commands/RunCommand";
 import { ValidateCommand } from "./commands/ValidateCommand";
 import { CreatePipelineCommand } from "./commands/CreatePipelineCommand";
+import { AilLogProvider } from "./infrastructure/AilLogProvider";
+import { OpenLogCommand } from "./commands/OpenLogCommand";
 import { resolvePipelinePath } from "./utils/pipelinePath";
 import { discoverPipelines, pipelineLabel } from "./pipeline";
 import { onDidChangeActivePipeline } from "./state";
@@ -89,6 +92,29 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.workspace.registerTextDocumentContentProvider(DIFF_SCHEME, DiffContentProvider.instance)
   );
 
+  // Register the ail-log URI scheme provider for virtual log documents
+  const logProvider = new AilLogProvider(client);
+  context.subscriptions.push(
+    vscode.workspace.registerTextDocumentContentProvider('ail-log', logProvider)
+  );
+
+  // Register folding provider for ail-log documents
+  const foldingProvider = new AilLogFoldingProvider(context);
+  context.subscriptions.push(
+    vscode.languages.registerFoldingRangeProvider('ail-log', foldingProvider)
+  );
+
+  // Auto-fold thinking blocks on ail-log document open if enabled
+  context.subscriptions.push(
+    vscode.window.onDidChangeVisibleTextEditors((editors) => {
+      for (const editor of editors) {
+        if (editor.document.languageId === 'ail-log') {
+          void autoFoldThinkingBlocks(editor);
+        }
+      }
+    })
+  );
+
   // Wire workspace CWD into UnifiedPanel for git snapshot tracking.
   if (cwd) {
     UnifiedPanel.setCwd(cwd);
@@ -140,6 +166,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   const runCommand = new RunCommand(runnerService);
   const validateCommand = new ValidateCommand(services);
+  const openLogCommand = new OpenLogCommand(client, logProvider);
 
   // Register the diagnostic collection for cleanup
   context.subscriptions.push(validateCommand.getDiagnosticCollection());
@@ -258,6 +285,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           out.appendLine(stdout);
         }
       );
+    }),
+
+    vscode.commands.registerCommand("ail.openLog", async (runId?: string) => {
+      await openLogCommand.execute(runId);
     })
   );
 

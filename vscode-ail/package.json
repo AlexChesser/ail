@@ -319,7 +319,15 @@
         ],
         "extensions": [
           ".ail-log"
-        ]
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "ail-log",
+        "scopeName": "source.ail-log",
+        "path": "./syntaxes/ail-log.tmLanguage.json"
       }
     ]
   },
