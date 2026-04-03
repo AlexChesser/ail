@@ -1,152 +1,161 @@
-use std::path::PathBuf;
-use std::time::{SystemTime, UNIX_EPOCH};
+//! SQLite persistence backend for pipeline run logs.
+//!
+//! Stores sessions, steps, FTS-indexed trace content, and arbitrary key/value metadata
+//! in a single SQLite database at `~/.ail/projects/<sha1_of_cwd>/ail.db`.
 
-use rusqlite::Connection;
+use std::path::{Path, PathBuf};
+
+use rusqlite::{params, Connection, Result as SqliteResult};
 use serde_json::Value;
 
-use super::log_provider::project_dir;
+use super::log_provider::{project_dir, LogProvider};
 
-fn now_millis() -> i64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_millis() as i64)
-        .unwrap_or(0)
-}
-
-/// SQLite-backed persistence provider with FTS5 full-text search.
+/// SQLite-backed log provider.
 ///
-/// Database lives at `~/.ail/projects/<sha1_of_cwd>/ail.db` — same project
-/// directory as the JSONL files.
+/// Schema:
+/// - `sessions` — one row per pipeline run
+/// - `steps`    — one row per turn log entry
+/// - `traces`   — FTS5 virtual table for full-text search over step content
+/// - `metadata` — arbitrary key/value annotations per run
 pub struct SqliteProvider {
     conn: Connection,
 }
 
 impl SqliteProvider {
-    /// Open (or create) the default database for the current working directory.
-    pub fn new(run_id: String) -> Result<Self, rusqlite::Error> {
-        let db_path = project_dir().join("ail.db");
-        let _ = run_id; // run_id passed per write_entry call; not stored on struct
-        Self::open(db_path)
+    /// Open (or create) the SQLite database at the default location for the current working
+    /// directory (`~/.ail/projects/<sha1_of_cwd>/ail.db`).
+    pub fn new() -> Result<Self, rusqlite::Error> {
+        let path = project_dir().join("ail.db");
+        Self::open(&path)
     }
 
-    /// Open (or create) a database at an explicit path. Primarily for testing.
-    pub fn open(db_path: PathBuf) -> Result<Self, rusqlite::Error> {
-        // Ensure the parent directory exists (best-effort, same as JsonlProvider).
-        if let Some(parent) = db_path.parent() {
-            std::fs::create_dir_all(parent).ok();
+    /// Open (or create) the SQLite database at an explicit path. Used in tests.
+    pub fn open(path: &Path) -> Result<Self, rusqlite::Error> {
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).map_err(|e| {
+                rusqlite::Error::FromSqlConversionFailure(
+                    0,
+                    rusqlite::types::Type::Text,
+                    Box::new(e),
+                )
+            })?;
         }
-        let conn = Connection::open(db_path)?;
+        let conn = Connection::open(path)?;
         conn.execute_batch("PRAGMA journal_mode=WAL;")?;
-        Self::migrate(&conn)?;
+        Self::create_schema(&conn)?;
         Ok(SqliteProvider { conn })
     }
 
-    fn migrate(conn: &Connection) -> Result<(), rusqlite::Error> {
-        let version: i64 = conn.query_row("PRAGMA user_version", [], |row| row.get(0))?;
+    fn create_schema(conn: &Connection) -> SqliteResult<()> {
+        conn.execute_batch(
+            "
+            CREATE TABLE IF NOT EXISTS sessions (
+                run_id          TEXT PRIMARY KEY,
+                pipeline_source TEXT,
+                started_at      INTEGER,
+                completed_at    INTEGER,
+                total_cost_usd  REAL,
+                status          TEXT
+            );
 
-        if version < 1 {
-            conn.execute_batch(
-                "
-                CREATE TABLE IF NOT EXISTS sessions (
-                    run_id          TEXT PRIMARY KEY,
-                    pipeline_source TEXT,
-                    started_at      INTEGER,
-                    completed_at    INTEGER,
-                    total_cost_usd  REAL,
-                    status          TEXT
-                );
+            CREATE TABLE IF NOT EXISTS steps (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                run_id          TEXT NOT NULL REFERENCES sessions(run_id),
+                step_id         TEXT NOT NULL,
+                event_type      TEXT NOT NULL DEFAULT 'step_completed',
+                prompt          TEXT,
+                response        TEXT,
+                cost_usd        REAL,
+                input_tokens    INTEGER,
+                output_tokens   INTEGER,
+                thinking        TEXT,
+                stdout          TEXT,
+                stderr          TEXT,
+                exit_code       INTEGER,
+                model           TEXT,
+                recorded_at     INTEGER NOT NULL
+            );
 
-                CREATE TABLE IF NOT EXISTS steps (
-                    id            INTEGER PRIMARY KEY AUTOINCREMENT,
-                    run_id        TEXT    NOT NULL REFERENCES sessions(run_id),
-                    step_id       TEXT    NOT NULL,
-                    event_type    TEXT    NOT NULL,
-                    prompt        TEXT,
-                    response      TEXT,
-                    cost_usd      REAL,
-                    input_tokens  INTEGER,
-                    output_tokens INTEGER,
-                    thinking      TEXT,
-                    stdout        TEXT,
-                    stderr        TEXT,
-                    exit_code     INTEGER,
-                    model         TEXT,
-                    recorded_at   INTEGER NOT NULL
-                );
+            CREATE TABLE IF NOT EXISTS traces (
+                run_id  TEXT NOT NULL,
+                step_id TEXT NOT NULL,
+                content TEXT NOT NULL
+            );
 
-                CREATE VIRTUAL TABLE IF NOT EXISTS traces USING fts5(
-                    run_id   UNINDEXED,
-                    step_id  UNINDEXED,
-                    content,
-                    tokenize='porter unicode61'
-                );
+            CREATE VIRTUAL TABLE IF NOT EXISTS traces_fts USING fts5(
+                run_id UNINDEXED,
+                step_id UNINDEXED,
+                content,
+                content='traces',
+                content_rowid='rowid'
+            );
 
-                CREATE TABLE IF NOT EXISTS metadata (
-                    run_id TEXT NOT NULL REFERENCES sessions(run_id),
-                    key    TEXT NOT NULL,
-                    value  TEXT,
-                    PRIMARY KEY (run_id, key)
-                );
+            CREATE TRIGGER IF NOT EXISTS traces_ai AFTER INSERT ON traces BEGIN
+                INSERT INTO traces_fts(rowid, run_id, step_id, content)
+                VALUES (new.rowid, new.run_id, new.step_id, new.content);
+            END;
 
-                PRAGMA user_version = 1;
-                ",
-            )?;
-        }
-
-        Ok(())
+            CREATE TABLE IF NOT EXISTS metadata (
+                run_id  TEXT NOT NULL REFERENCES sessions(run_id),
+                key     TEXT NOT NULL,
+                value   TEXT,
+                PRIMARY KEY (run_id, key)
+            );
+            ",
+        )
     }
 
-    // -------------------------------------------------------------------------
-    // Internal helpers
-    // -------------------------------------------------------------------------
+    /// Ensure a session row exists (upsert). Called on first entry for a run_id.
+    fn ensure_session(&self, run_id: &str, value: &Value) -> SqliteResult<()> {
+        // Extract pipeline_source from the value if present.
+        let pipeline_source = value
+            .get("pipeline_source")
+            .or_else(|| value.get("source"))
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
 
-    fn ensure_session(&self, run_id: &str) -> rusqlite::Result<()> {
+        let now_ms = now_ms();
+
         self.conn.execute(
-            "INSERT OR IGNORE INTO sessions (run_id, started_at, status)
-             VALUES (?1, ?2, 'running')",
-            rusqlite::params![run_id, now_millis()],
+            "INSERT INTO sessions (run_id, pipeline_source, started_at, status)
+             VALUES (?1, ?2, ?3, 'running')
+             ON CONFLICT(run_id) DO NOTHING",
+            params![run_id, pipeline_source, now_ms],
         )?;
         Ok(())
     }
 
-    fn handle_step_started(&self, run_id: &str, value: &Value) -> rusqlite::Result<()> {
-        self.ensure_session(run_id)?;
-
-        let step_id = value["step_id"].as_str().unwrap_or("");
-        let prompt = value["prompt"].as_str();
-
-        self.conn.execute(
-            "INSERT INTO steps
-                (run_id, step_id, event_type, prompt, recorded_at)
-             VALUES (?1, ?2, 'step_started', ?3, ?4)",
-            rusqlite::params![run_id, step_id, prompt, now_millis()],
-        )?;
-        Ok(())
-    }
-
-    fn handle_turn_entry(&self, run_id: &str, value: &Value) -> rusqlite::Result<()> {
-        self.ensure_session(run_id)?;
-
-        let step_id = value["step_id"].as_str().unwrap_or("");
-        let prompt = value["prompt"].as_str();
-        let response = value["response"].as_str();
-        let cost_usd = value["cost_usd"].as_f64();
-        let input_tokens = value["input_tokens"].as_i64();
-        let output_tokens = value["output_tokens"].as_i64();
-        let thinking = value["thinking"].as_str();
-        let stdout = value["stdout"].as_str();
-        let stderr = value["stderr"].as_str();
-        let exit_code = value["exit_code"].as_i64();
+    fn insert_step(&self, run_id: &str, value: &Value) -> SqliteResult<()> {
+        let step_id = value
+            .get("step_id")
+            .and_then(|v| v.as_str())
+            .unwrap_or("unknown");
+        let event_type = value
+            .get("type")
+            .and_then(|v| v.as_str())
+            .unwrap_or("step_completed");
+        let prompt = value.get("prompt").and_then(|v| v.as_str());
+        let response = value.get("response").and_then(|v| v.as_str());
+        let cost_usd = value.get("cost_usd").and_then(|v| v.as_f64());
+        let input_tokens = value.get("input_tokens").and_then(|v| v.as_i64());
+        let output_tokens = value.get("output_tokens").and_then(|v| v.as_i64());
+        let thinking = value.get("thinking").and_then(|v| v.as_str());
+        let stdout = value.get("stdout").and_then(|v| v.as_str());
+        let stderr = value.get("stderr").and_then(|v| v.as_str());
+        let exit_code = value.get("exit_code").and_then(|v| v.as_i64());
+        let model = value.get("model").and_then(|v| v.as_str());
+        let now_ms = now_ms();
 
         self.conn.execute(
             "INSERT INTO steps
-                (run_id, step_id, event_type, prompt, response, cost_usd,
-                 input_tokens, output_tokens, thinking, stdout, stderr,
-                 exit_code, recorded_at)
-             VALUES (?1, ?2, 'turn_entry', ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
-            rusqlite::params![
+             (run_id, step_id, event_type, prompt, response, cost_usd,
+              input_tokens, output_tokens, thinking, stdout, stderr,
+              exit_code, model, recorded_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
+            params![
                 run_id,
                 step_id,
+                event_type,
                 prompt,
                 response,
                 cost_usd,
@@ -156,58 +165,72 @@ impl SqliteProvider {
                 stdout,
                 stderr,
                 exit_code,
-                now_millis(),
+                model,
+                now_ms,
             ],
         )?;
 
-        // Accumulate cost into session total.
-        if let Some(cost) = cost_usd {
+        // Index searchable content in the traces table for FTS.
+        let mut content_parts: Vec<&str> = Vec::new();
+        if let Some(p) = prompt {
+            content_parts.push(p);
+        }
+        if let Some(r) = response {
+            content_parts.push(r);
+        }
+        if let Some(t) = thinking {
+            content_parts.push(t);
+        }
+        if !content_parts.is_empty() {
+            let content = content_parts.join("\n");
             self.conn.execute(
-                "UPDATE sessions
-                 SET total_cost_usd = COALESCE(total_cost_usd, 0.0) + ?1
-                 WHERE run_id = ?2",
-                rusqlite::params![cost, run_id],
+                "INSERT INTO traces (run_id, step_id, content) VALUES (?1, ?2, ?3)",
+                params![run_id, step_id, content],
             )?;
         }
 
-        // FTS index: any non-null searchable content fields.
-        for content in [response, thinking, stdout, stderr].into_iter().flatten() {
-            if !content.is_empty() {
-                self.conn.execute(
-                    "INSERT INTO traces (run_id, step_id, content) VALUES (?1, ?2, ?3)",
-                    rusqlite::params![run_id, step_id, content],
-                )?;
-            }
+        // Update session cost accumulator and status.
+        if event_type == "step_completed" || event_type == "step_failed" {
+            self.conn.execute(
+                "UPDATE sessions SET total_cost_usd = COALESCE(total_cost_usd, 0) + COALESCE(?1, 0)
+                 WHERE run_id = ?2",
+                params![cost_usd, run_id],
+            )?;
         }
 
         Ok(())
     }
 
-    fn handle_pipeline_terminal(&self, run_id: &str, status: &str) -> rusqlite::Result<()> {
+    /// Mark the session as completed with the given status.
+    pub fn finish_session(&self, run_id: &str, status: &str) -> SqliteResult<()> {
+        let now_ms = now_ms();
         self.conn.execute(
-            "UPDATE sessions SET completed_at = ?1, status = ?2 WHERE run_id = ?3",
-            rusqlite::params![now_millis(), status, run_id],
+            "UPDATE sessions SET status = ?1, completed_at = ?2 WHERE run_id = ?3",
+            params![status, now_ms, run_id],
         )?;
         Ok(())
     }
 }
 
-impl super::log_provider::LogProvider for SqliteProvider {
-    fn write_entry(&mut self, run_id: &str, value: &Value) -> std::io::Result<()> {
-        let result = match value["type"].as_str() {
-            Some("step_started") => self.handle_step_started(run_id, value),
-            Some("pipeline_completed") => self.handle_pipeline_terminal(run_id, "completed"),
-            Some("pipeline_error") => self.handle_pipeline_terminal(run_id, "failed"),
-            _ if value.get("step_id").is_some() => self.handle_turn_entry(run_id, value),
-            _ => {
-                tracing::warn!(
-                    run_id = %run_id,
-                    "sqlite_provider: unrecognised event shape, skipping"
-                );
-                Ok(())
-            }
-        };
+fn now_ms() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0)
+}
 
-        result.map_err(std::io::Error::other)
+impl LogProvider for SqliteProvider {
+    fn write_entry(&mut self, run_id: &str, value: &Value) -> std::io::Result<()> {
+        // Ensure the session row exists before writing any step.
+        self.ensure_session(run_id, value)
+            .map_err(std::io::Error::other)?;
+        self.insert_step(run_id, value)
+            .map_err(std::io::Error::other)?;
+        Ok(())
     }
+}
+
+/// Default db path for the current working directory.
+pub fn db_path() -> PathBuf {
+    project_dir().join("ail.db")
 }

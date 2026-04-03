@@ -1,4 +1,5 @@
 mod cli;
+mod logs;
 mod mcp_bridge;
 mod tui;
 
@@ -518,6 +519,15 @@ fn main() {
     tracing::info!(event = "startup", version = ail_core::version());
 
     match cli.command {
+        Some(Commands::Logs {
+            session,
+            query,
+            format,
+            tail,
+            limit,
+        }) => {
+            logs::run_logs_command(session, query, format, tail, limit);
+        }
         Some(Commands::McpBridge { socket }) => {
             // Spawned by Claude CLI to handle tool permission checks.
             // Does not initialise tracing — only stdout must be used for MCP protocol.

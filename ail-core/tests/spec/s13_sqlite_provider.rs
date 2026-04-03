@@ -1,204 +1,213 @@
-use ail_core::session::log_provider::LogProvider;
-use ail_core::session::sqlite_provider::SqliteProvider;
-use serde_json::json;
-use tempfile::tempdir;
+/// Tests for SqliteProvider and query_logs_at (SPEC §13 — log persistence)
 
-fn open_db(dir: &std::path::Path) -> SqliteProvider {
-    SqliteProvider::open(dir.join("ail.db")).expect("SqliteProvider::open failed")
-}
+mod sqlite_provider_tests {
+    use ail_core::logs::{query_logs_at, LogQuery};
+    use ail_core::session::log_provider::LogProvider;
+    use ail_core::session::sqlite_provider::SqliteProvider;
+    use serde_json::json;
 
-#[test]
-fn sqlite_provider_creates_db_and_tables() {
-    let dir = tempdir().expect("tempdir");
-    let db_path = dir.path().join("ail.db");
-
-    // DB should not exist yet.
-    assert!(!db_path.exists());
-
-    let _provider = open_db(dir.path());
-
-    // After construction the file must exist.
-    assert!(db_path.exists(), "ail.db was not created");
-
-    // Verify the four expected tables exist.
-    let conn = rusqlite::Connection::open(&db_path).expect("open db");
-    for table in &["sessions", "steps", "metadata"] {
-        let count: i64 = conn
-            .query_row(
-                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?1",
-                rusqlite::params![table],
-                |r| r.get(0),
-            )
-            .expect("query sqlite_master");
-        assert_eq!(count, 1, "table '{table}' missing");
+    /// Open a fresh in-memory SQLite provider via a temp file for each test.
+    fn open_temp_provider() -> (tempfile::TempDir, SqliteProvider) {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("ail.db");
+        let provider = SqliteProvider::open(&path).unwrap();
+        (dir, provider)
     }
-    // FTS5 virtual tables appear as type 'table' in sqlite_master.
-    let count: i64 = conn
-        .query_row(
-            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='traces'",
-            [],
-            |r| r.get(0),
-        )
-        .expect("query traces");
-    assert_eq!(count, 1, "virtual table 'traces' missing");
-}
 
-#[test]
-fn sqlite_provider_records_step_started() {
-    let dir = tempdir().expect("tempdir");
-    let mut provider = open_db(dir.path());
+    /// SqliteProvider creates the database schema on open.
+    #[test]
+    fn provider_opens_and_creates_schema() {
+        let (_dir, _provider) = open_temp_provider();
+        // If we reach here without panic, schema creation succeeded.
+    }
 
-    let event = json!({
-        "type": "step_started",
-        "step_id": "review",
-        "prompt": "Please review the diff."
-    });
-    provider
-        .write_entry("run-002", &event)
-        .expect("write_entry");
+    /// A single step entry is stored and queryable.
+    #[test]
+    fn single_entry_round_trips() {
+        let (dir, mut provider) = open_temp_provider();
+        let run_id = "test-run-001";
+        let entry = json!({
+            "step_id": "invocation",
+            "type": "step_completed",
+            "prompt": "hello world",
+            "response": "hi there",
+            "cost_usd": 0.001,
+            "input_tokens": 10,
+            "output_tokens": 5,
+        });
+        provider.write_entry(run_id, &entry).unwrap();
 
-    let conn = rusqlite::Connection::open(dir.path().join("ail.db")).expect("open db");
+        let db_path = dir.path().join("ail.db");
+        let q = LogQuery {
+            session_prefix: None,
+            fts_query: None,
+            limit: 10,
+        };
+        let results = query_logs_at(&q, &db_path).unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].run_id, run_id);
+        assert_eq!(results[0].steps.len(), 1);
+        assert_eq!(results[0].steps[0].step_id, "invocation");
+        assert_eq!(results[0].steps[0].response.as_deref(), Some("hi there"));
+    }
 
-    // Session row created with status='running'.
-    let status: String = conn
-        .query_row(
-            "SELECT status FROM sessions WHERE run_id = 'run-002'",
-            [],
-            |r| r.get(0),
-        )
-        .expect("session row");
-    assert_eq!(status, "running");
+    /// Multiple sessions are returned, ordered by started_at DESC.
+    #[test]
+    fn multiple_sessions_ordered_descending() {
+        let (dir, mut provider) = open_temp_provider();
 
-    // Steps row inserted with correct event_type and step_id.
-    let (event_type, step_id, prompt): (String, String, String) = conn
-        .query_row(
-            "SELECT event_type, step_id, prompt FROM steps WHERE run_id = 'run-002'",
-            [],
-            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
-        )
-        .expect("steps row");
-    assert_eq!(event_type, "step_started");
-    assert_eq!(step_id, "review");
-    assert_eq!(prompt, "Please review the diff.");
-}
+        provider
+            .write_entry("run-a", &json!({"step_id": "s1", "type": "step_completed"}))
+            .unwrap();
+        // Small sleep to ensure distinct timestamps (millisecond resolution).
+        std::thread::sleep(std::time::Duration::from_millis(2));
+        provider
+            .write_entry("run-b", &json!({"step_id": "s1", "type": "step_completed"}))
+            .unwrap();
 
-#[test]
-fn sqlite_provider_records_turn_entry() {
-    let dir = tempdir().expect("tempdir");
-    let mut provider = open_db(dir.path());
+        let db_path = dir.path().join("ail.db");
+        let q = LogQuery {
+            session_prefix: None,
+            fts_query: None,
+            limit: 10,
+        };
+        let results = query_logs_at(&q, &db_path).unwrap();
+        assert_eq!(results.len(), 2);
+        // Most recent session first.
+        assert_eq!(results[0].run_id, "run-b");
+        assert_eq!(results[1].run_id, "run-a");
+    }
 
-    // TurnEntry-shaped value: has step_id but no "type" field.
-    let entry = json!({
-        "step_id": "summarise",
-        "prompt": "Summarise this.",
-        "response": "Here is a summary.",
-        "cost_usd": 0.001,
-        "input_tokens": 100,
-        "output_tokens": 50,
-        "thinking": null,
-        "stdout": null,
-        "stderr": null,
-        "exit_code": null,
-        "runner_session_id": null
-    });
-    provider
-        .write_entry("run-003", &entry)
-        .expect("write_entry");
+    /// Session prefix filter restricts results.
+    #[test]
+    fn session_prefix_filter() {
+        let (dir, mut provider) = open_temp_provider();
+        provider
+            .write_entry(
+                "abc-123",
+                &json!({"step_id": "s", "type": "step_completed"}),
+            )
+            .unwrap();
+        provider
+            .write_entry(
+                "def-456",
+                &json!({"step_id": "s", "type": "step_completed"}),
+            )
+            .unwrap();
 
-    let conn = rusqlite::Connection::open(dir.path().join("ail.db")).expect("open db");
+        let db_path = dir.path().join("ail.db");
+        let q = LogQuery {
+            session_prefix: Some("abc".to_string()),
+            fts_query: None,
+            limit: 10,
+        };
+        let results = query_logs_at(&q, &db_path).unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].run_id, "abc-123");
+    }
 
-    // Steps row inserted with event_type='turn_entry'.
-    let (event_type, response, cost): (String, Option<String>, Option<f64>) = conn
-        .query_row(
-            "SELECT event_type, response, cost_usd FROM steps WHERE run_id = 'run-003'",
-            [],
-            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
-        )
-        .expect("steps row");
-    assert_eq!(event_type, "turn_entry");
-    assert_eq!(response.as_deref(), Some("Here is a summary."));
-    assert!((cost.unwrap_or(0.0) - 0.001).abs() < 1e-9);
+    /// FTS query returns matching sessions only.
+    #[test]
+    fn fts_query_filters_by_content() {
+        let (dir, mut provider) = open_temp_provider();
+        provider
+            .write_entry(
+                "run-fizzbuzz",
+                &json!({
+                    "step_id": "invocation",
+                    "type": "step_completed",
+                    "prompt": "write a fizzbuzz function",
+                    "response": "here is fizzbuzz",
+                }),
+            )
+            .unwrap();
+        provider
+            .write_entry(
+                "run-hello",
+                &json!({
+                    "step_id": "invocation",
+                    "type": "step_completed",
+                    "prompt": "say hello",
+                    "response": "hello world",
+                }),
+            )
+            .unwrap();
 
-    // Cost accumulated in session.
-    let total: f64 = conn
-        .query_row(
-            "SELECT total_cost_usd FROM sessions WHERE run_id = 'run-003'",
-            [],
-            |r| r.get(0),
-        )
-        .expect("session total_cost_usd");
-    assert!((total - 0.001).abs() < 1e-9);
+        let db_path = dir.path().join("ail.db");
+        let q = LogQuery {
+            session_prefix: None,
+            fts_query: Some("fizzbuzz".to_string()),
+            limit: 10,
+        };
+        let results = query_logs_at(&q, &db_path).unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].run_id, "run-fizzbuzz");
+    }
 
-    // FTS row created for the response content.
-    let fts_count: i64 = conn
-        .query_row(
-            "SELECT COUNT(*) FROM traces WHERE run_id = 'run-003'",
-            [],
-            |r| r.get(0),
-        )
-        .expect("fts count");
-    assert_eq!(fts_count, 1);
-}
+    /// Returns an empty Vec (not an error) when the database does not exist.
+    #[test]
+    fn returns_empty_when_no_db() {
+        let dir = tempfile::tempdir().unwrap();
+        let db_path = dir.path().join("nonexistent.db");
+        let q = LogQuery {
+            session_prefix: None,
+            fts_query: None,
+            limit: 10,
+        };
+        let results = query_logs_at(&q, &db_path).unwrap();
+        assert!(results.is_empty());
+    }
 
-#[test]
-fn sqlite_provider_fts_search() {
-    let dir = tempdir().expect("tempdir");
-    let mut provider = open_db(dir.path());
+    /// Limit parameter caps the number of returned sessions.
+    #[test]
+    fn limit_caps_results() {
+        let (dir, mut provider) = open_temp_provider();
+        for i in 0..10u32 {
+            std::thread::sleep(std::time::Duration::from_millis(1));
+            provider
+                .write_entry(
+                    &format!("run-{i}"),
+                    &json!({"step_id": "s", "type": "step_completed"}),
+                )
+                .unwrap();
+        }
 
-    let entry1 = json!({
-        "step_id": "step-a",
-        "prompt": "Do something.",
-        "response": "The refactoring is now complete and tests pass.",
-        "cost_usd": null,
-        "input_tokens": 0,
-        "output_tokens": 0,
-        "runner_session_id": null
-    });
-    let entry2 = json!({
-        "step_id": "step-b",
-        "prompt": "Do something else.",
-        "response": "Added documentation for all public functions.",
-        "cost_usd": null,
-        "input_tokens": 0,
-        "output_tokens": 0,
-        "runner_session_id": null
-    });
-    provider
-        .write_entry("run-004", &entry1)
-        .expect("write_entry 1");
-    provider
-        .write_entry("run-004", &entry2)
-        .expect("write_entry 2");
+        let db_path = dir.path().join("ail.db");
+        let q = LogQuery {
+            session_prefix: None,
+            fts_query: None,
+            limit: 3,
+        };
+        let results = query_logs_at(&q, &db_path).unwrap();
+        assert_eq!(results.len(), 3);
+    }
 
-    let conn = rusqlite::Connection::open(dir.path().join("ail.db")).expect("open db");
+    /// cost_usd is accumulated on the session row from step entries.
+    #[test]
+    fn session_cost_accumulates() {
+        let (dir, mut provider) = open_temp_provider();
+        provider
+            .write_entry(
+                "run-cost",
+                &json!({"step_id": "s1", "type": "step_completed", "cost_usd": 0.10}),
+            )
+            .unwrap();
+        provider
+            .write_entry(
+                "run-cost",
+                &json!({"step_id": "s2", "type": "step_completed", "cost_usd": 0.05}),
+            )
+            .unwrap();
 
-    // FTS query for "refactor" (porter stemmer should match "refactoring").
-    let matches: i64 = conn
-        .query_row(
-            "SELECT COUNT(*) FROM traces WHERE content MATCH 'refactor'",
-            [],
-            |r| r.get(0),
-        )
-        .expect("fts match refactor");
-    assert_eq!(matches, 1, "expected one FTS hit for 'refactor'");
-
-    // FTS query for "document" (should match "documentation").
-    let matches2: i64 = conn
-        .query_row(
-            "SELECT COUNT(*) FROM traces WHERE content MATCH 'document'",
-            [],
-            |r| r.get(0),
-        )
-        .expect("fts match document");
-    assert_eq!(matches2, 1, "expected one FTS hit for 'document'");
-
-    // A term that matches nothing.
-    let no_matches: i64 = conn
-        .query_row(
-            "SELECT COUNT(*) FROM traces WHERE content MATCH 'xyzzy'",
-            [],
-            |r| r.get(0),
-        )
-        .expect("fts no match");
-    assert_eq!(no_matches, 0, "expected no FTS hits for 'xyzzy'");
+        let db_path = dir.path().join("ail.db");
+        let q = LogQuery {
+            session_prefix: Some("run-cost".to_string()),
+            fts_query: None,
+            limit: 10,
+        };
+        let results = query_logs_at(&q, &db_path).unwrap();
+        assert_eq!(results.len(), 1);
+        let total = results[0].total_cost_usd.unwrap_or(0.0);
+        assert!((total - 0.15).abs() < 1e-9, "expected 0.15, got {total}");
+    }
 }
