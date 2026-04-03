@@ -18,6 +18,7 @@ import {
   StepCompletedEvent,
   StepFailedEvent,
   RunStartedEvent,
+  HitlGateReachedEvent,
 } from '../types';
 import { RunRecord } from '../application/HistoryService';
 import { HistoryService } from '../application/HistoryService';
@@ -83,6 +84,9 @@ export class UnifiedPanel implements IUnifiedPanel {
 
   /** Running total cost for the current live run. */
   private _liveTotalCost = 0;
+
+  /** Timer handles for HITL gate 2-minute escalation warnings. Keyed by step_id. */
+  private readonly _hitlTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
   // ── Constructor ─────────────────────────────────────────────────────────────
 
@@ -242,6 +246,12 @@ export class UnifiedPanel implements IUnifiedPanel {
           latencyMs,
           totalCost:    this._liveTotalCost,
         });
+        // Cancel any pending HITL escalation timer for this step
+        const pendingTimer = this._hitlTimers.get(e.step_id);
+        if (pendingTimer !== undefined) {
+          clearTimeout(pendingTimer);
+          this._hitlTimers.delete(e.step_id);
+        }
         break;
       }
       case 'step_skipped':
@@ -252,10 +262,37 @@ export class UnifiedPanel implements IUnifiedPanel {
         this._post({ cmd: 'stepFailed', stepId: e.step_id, error: e.error });
         break;
       }
-      case 'hitl_gate_reached':
+      case 'hitl_gate_reached': {
+        const hEvent = event as HitlGateReachedEvent;
         this._panel.title = 'ail: Waiting for approval';
-        this._post({ cmd: 'hitlGate', stepId: event.step_id });
+        this._post({ cmd: 'hitlGate', stepId: hEvent.step_id, message: hEvent.message ?? null });
+
+        // VS Code notification with "Show Panel" shortcut
+        const notifText = hEvent.message
+          ? `ail: Step '${hEvent.step_id}' is waiting for approval — ${hEvent.message}`
+          : `ail: Step '${hEvent.step_id}' is waiting for approval.`;
+        void vscode.window.showInformationMessage(notifText, 'Show Panel').then((choice) => {
+          if (choice === 'Show Panel') {
+            this._panel.reveal(vscode.ViewColumn.Beside, true);
+          }
+        });
+
+        // 2-minute escalation timer (fires once)
+        const stepId = hEvent.step_id;
+        const timer = setTimeout(() => {
+          this._hitlTimers.delete(stepId);
+          void vscode.window.showWarningMessage(
+            `ail: Step '${stepId}' has been waiting for approval for 2 minutes.`,
+            'Show Panel',
+          ).then((choice) => {
+            if (choice === 'Show Panel') {
+              this._panel.reveal(vscode.ViewColumn.Beside, true);
+            }
+          });
+        }, 2 * 60 * 1000);
+        this._hitlTimers.set(stepId, timer);
         break;
+      }
       case 'runner_event': {
         const re = event.event;
         if (re.type === 'stream_delta') {
@@ -274,6 +311,15 @@ export class UnifiedPanel implements IUnifiedPanel {
             cmd:           'permissionReq',
             displayName:   re.display_name,
             displayDetail: re.display_detail,
+          });
+          // VS Code notification with "Show Panel" shortcut
+          void vscode.window.showInformationMessage(
+            `ail: Tool permission requested for '${re.display_name}'.`,
+            'Show Panel',
+          ).then((choice) => {
+            if (choice === 'Show Panel') {
+              this._panel.reveal(vscode.ViewColumn.Beside, true);
+            }
           });
         }
         break;
@@ -297,6 +343,11 @@ export class UnifiedPanel implements IUnifiedPanel {
     this._writeStdinMap.delete(runId);
     if (this._liveRunId === runId) {
       this._liveRunId = undefined;
+      // Clear any lingering HITL escalation timers from this run
+      for (const [stepId, timer] of this._hitlTimers) {
+        clearTimeout(timer);
+        this._hitlTimers.delete(stepId);
+      }
     }
   }
 

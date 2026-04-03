@@ -262,6 +262,7 @@ pub fn validate(dto: PipelineFileDto, source: PathBuf) -> Result<Pipeline, AilEr
         steps.push(Step {
             id: StepId(id_str),
             body,
+            message: step_dto.message,
             tools,
             on_result,
             model: step_dto.model,

@@ -13,6 +13,7 @@ fn prompt_step(id: &str, text: &str) -> Step {
     Step {
         id: StepId(id.to_string()),
         body: StepBody::Prompt(text.to_string()),
+        message: None,
         tools: None,
         model: None,
         on_result: None,
@@ -253,6 +254,7 @@ fn golden_step_failed() {
 fn golden_hitl_gate_reached() {
     let event = ExecutorEvent::HitlGateReached {
         step_id: "approval_gate".into(),
+        message: None,
     };
     assert_eq!(
         serialize_event(&event),

@@ -8,6 +8,7 @@ mod executor {
         Step {
             id: StepId(id.to_string()),
             body: StepBody::Prompt(text.to_string()),
+            message: None,
             tools: None,
             model: None,
             on_result: None,

@@ -795,7 +795,7 @@ impl AppState {
                 self.viewport.lines.push(format!("  [tool: {}]", tool_name));
                 // Do NOT reset viewport scroll — preserves user's scroll position.
             }
-            ExecutorEvent::HitlGateReached { ref step_id } => {
+            ExecutorEvent::HitlGateReached { ref step_id, .. } => {
                 self.phase = ExecutionPhase::HitlGate;
                 for s in &mut self.steps {
                     if s.id == *step_id {
@@ -1155,6 +1155,7 @@ mod tests {
         });
         a.apply_executor_event(ExecutorEvent::HitlGateReached {
             step_id: "gate".to_string(),
+            message: None,
         });
         assert_eq!(a.phase, ExecutionPhase::HitlGate);
         assert_eq!(a.steps[0].glyph, StepGlyph::HitlPaused);

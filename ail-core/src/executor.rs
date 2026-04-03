@@ -88,6 +88,9 @@ pub enum ExecutorEvent {
     /// A `pause_for_human` step was reached — executor is blocked until `hitl_rx` receives a value.
     HitlGateReached {
         step_id: String,
+        /// Optional operator-facing message from the step's `message:` YAML field.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        message: Option<String>,
     },
     /// A streaming event from the runner, nested under `event` so the inner `type` field is
     /// preserved in the NDJSON output. Using a named field avoids the internally-tagged
@@ -701,6 +704,7 @@ pub fn execute_with_control(
                 tracing::info!(run_id = %session.run_id, step_id = %step_id, "pause_for_human — waiting for HITL response");
                 let _ = event_tx.send(ExecutorEvent::HitlGateReached {
                     step_id: step_id.clone(),
+                    message: step.message.clone(),
                 });
                 // Block until the TUI sends a response (or the channel is dropped).
                 let _response = hitl_rx.recv().unwrap_or_default();
@@ -805,6 +809,7 @@ pub fn execute_with_control(
                         );
                         let _ = event_tx.send(ExecutorEvent::HitlGateReached {
                             step_id: step_id.clone(),
+                            message: step.message.clone(),
                         });
                         let _response = hitl_rx.recv().unwrap_or_default();
                         tracing::info!(
@@ -939,6 +944,7 @@ mod tests {
         Step {
             id: StepId(id.to_string()),
             body: StepBody::Prompt(text.to_string()),
+            message: None,
             tools: None,
             on_result: None,
             model: None,

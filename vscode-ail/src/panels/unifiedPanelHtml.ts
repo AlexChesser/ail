@@ -374,6 +374,13 @@ export function getUnifiedPanelHtml(): string {
   let liveThinkingPre  = null;
   let liveOutputPre    = null;
 
+  // Auto-scroll state: paused when the user scrolls up, resumed when they scroll back to bottom.
+  let autoScrollPaused = false;
+  detailBody.addEventListener('scroll', () => {
+    const atBottom = detailBody.scrollHeight - detailBody.scrollTop - detailBody.clientHeight < 40;
+    autoScrollPaused = !atBottom;
+  });
+
   // ── Helpers ──────────────────────────────────────────────────────────────────
 
   function esc(s) {
@@ -578,6 +585,7 @@ export function getUnifiedPanelHtml(): string {
     selectedStepId = stepId;
     liveThinkingPre = null;
     liveOutputPre   = null;
+    autoScrollPaused = false;
 
     // Update col 2 highlight
     stepsList.querySelectorAll('.step-item').forEach((el) => {
@@ -888,7 +896,9 @@ export function getUnifiedPanelHtml(): string {
         if (step) step.output += msg.text;
         if (liveOutputPre) {
           liveOutputPre.insertAdjacentText('beforeend', msg.text);
-          detailBody.scrollTop = detailBody.scrollHeight;
+          if (!autoScrollPaused) {
+            detailBody.scrollTop = detailBody.scrollHeight;
+          }
           const outBlock = liveOutputPre.parentElement;
           if (outBlock && !outBlock.open) outBlock.open = true;
         }
@@ -939,9 +949,13 @@ export function getUnifiedPanelHtml(): string {
         if (!step) break;
         step.status = 'paused';
         const bannerId   = 'hitl-banner-' + msg.stepId;
+        const messageHtml = msg.message
+          ? '<div style="margin:4px 0;color:var(--vscode-foreground)">' + esc(msg.message) + '</div>'
+          : '';
         const hitlHtml =
           '<div class="hitl-banner" id="' + bannerId + '">' +
           '<strong>⏸ HITL Gate</strong> — step paused for human review.' +
+          messageHtml +
           '<textarea id="hitl-text-' + msg.stepId + '" placeholder="Optional guidance text..."></textarea>' +
           '<div class="btn-row">' +
           '<button class="btn-approve" onclick="submitHitl(\\'' + msg.stepId + '\\', true)">Approve</button>' +

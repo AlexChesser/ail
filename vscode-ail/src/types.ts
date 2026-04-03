@@ -103,6 +103,8 @@ export interface StepFailedEvent {
 export interface HitlGateReachedEvent {
   type: "hitl_gate_reached";
   step_id: string;
+  /** Optional operator-facing message from the step's `message:` YAML field. */
+  message?: string;
 }
 
 export interface RunnerEventWrapper {

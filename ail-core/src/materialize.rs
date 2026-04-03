@@ -78,6 +78,7 @@ mod tests {
             steps: vec![Step {
                 id: StepId("test_step".to_string()),
                 body: StepBody::Prompt(prompt.to_string()),
+                message: None,
                 tools: None,
                 on_result: None,
                 model: None,

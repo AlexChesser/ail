@@ -88,6 +88,7 @@ fn invoke_options_carries_resolved_model() {
     let step = Step {
         id: StepId("s".to_string()),
         body: StepBody::Prompt("hello".to_string()),
+        message: None,
         tools: None,
         on_result: None,
         model: None,

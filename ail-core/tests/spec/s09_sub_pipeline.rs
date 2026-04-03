@@ -24,6 +24,7 @@ fn prompt_step(id: &str, text: &str) -> Step {
     Step {
         id: StepId(id.to_string()),
         body: StepBody::Prompt(text.to_string()),
+        message: None,
         tools: None,
         on_result: None,
         model: None,
@@ -35,6 +36,7 @@ fn sub_pipeline_step(id: &str, path: &str) -> Step {
     Step {
         id: StepId(id.to_string()),
         body: StepBody::SubPipeline(path.to_string()),
+        message: None,
         tools: None,
         on_result: None,
         model: None,
@@ -183,6 +185,7 @@ fn on_result_pipeline_action_executes_sub_pipeline_on_match() {
     let trigger = Step {
         id: StepId("trigger".to_string()),
         body: StepBody::Prompt("trigger prompt".to_string()),
+        message: None,
         tools: None,
         on_result: Some(vec![ResultBranch {
             matcher: ResultMatcher::Always,

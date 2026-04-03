@@ -170,6 +170,7 @@ fn context_shell_captures_stdout() {
         steps: vec![Step {
             id: StepId("greet".to_string()),
             body: StepBody::Context(ContextSource::Shell("printf 'hello'".to_string())),
+            message: None,
             tools: None,
             model: None,
             on_result: None,
@@ -201,6 +202,7 @@ fn context_shell_captures_stderr() {
         steps: vec![Step {
             id: StepId("warn".to_string()),
             body: StepBody::Context(ContextSource::Shell("printf 'error msg' >&2".to_string())),
+            message: None,
             tools: None,
             model: None,
             on_result: None,
@@ -235,6 +237,7 @@ fn context_shell_captures_exit_code_zero() {
         steps: vec![Step {
             id: StepId("ok".to_string()),
             body: StepBody::Context(ContextSource::Shell("true".to_string())),
+            message: None,
             tools: None,
             model: None,
             on_result: None,
@@ -264,6 +267,7 @@ fn context_shell_captures_nonzero_exit_code() {
         steps: vec![Step {
             id: StepId("fail".to_string()),
             body: StepBody::Context(ContextSource::Shell("exit 42".to_string())),
+            message: None,
             tools: None,
             model: None,
             on_result: None,
@@ -294,6 +298,7 @@ fn context_shell_does_not_call_runner() {
         steps: vec![Step {
             id: StepId("lint".to_string()),
             body: StepBody::Context(ContextSource::Shell("true".to_string())),
+            message: None,
             tools: None,
             model: None,
             on_result: None,
@@ -330,6 +335,7 @@ fn context_then_prompt_pipeline() {
                 body: StepBody::Context(ContextSource::Shell(
                     "printf 'no issues found'".to_string(),
                 )),
+                message: None,
                 tools: None,
                 model: None,
                 on_result: None,
@@ -338,6 +344,7 @@ fn context_then_prompt_pipeline() {
             Step {
                 id: StepId("review".to_string()),
                 body: StepBody::Prompt("Lint output: {{ step.lint.result }}".to_string()),
+                message: None,
                 tools: None,
                 model: None,
                 on_result: None,
@@ -375,6 +382,7 @@ fn template_step_exit_code_resolves() {
             Step {
                 id: StepId("lint".to_string()),
                 body: StepBody::Context(ContextSource::Shell("exit 3".to_string())),
+                message: None,
                 tools: None,
                 model: None,
                 on_result: None,
@@ -383,6 +391,7 @@ fn template_step_exit_code_resolves() {
             Step {
                 id: StepId("report".to_string()),
                 body: StepBody::Prompt("Exit was: {{ step.lint.exit_code }}".to_string()),
+                message: None,
                 tools: None,
                 model: None,
                 on_result: None,
@@ -421,6 +430,7 @@ fn prompt_file_path_loads_contents() {
         steps: vec![Step {
             id: StepId("review".to_string()),
             body: StepBody::Prompt(prompt_file.to_str().unwrap().to_string()),
+            message: None,
             tools: None,
             model: None,
             on_result: None,
@@ -455,6 +465,7 @@ fn prompt_file_not_found_returns_error() {
         steps: vec![Step {
             id: StepId("review".to_string()),
             body: StepBody::Prompt("./nonexistent_prompt_file.md".to_string()),
+            message: None,
             tools: None,
             model: None,
             on_result: None,
@@ -487,6 +498,7 @@ fn prompt_inline_string_unchanged() {
         steps: vec![Step {
             id: StepId("review".to_string()),
             body: StepBody::Prompt("Please review this code.".to_string()),
+            message: None,
             tools: None,
             model: None,
             on_result: None,

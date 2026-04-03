@@ -29,6 +29,7 @@ fn prompt_step_with_on_result(
     let step = Step {
         id: StepId(id.to_string()),
         body: StepBody::Prompt("test".to_string()),
+        message: None,
         tools: None,
         model: None,
         on_result: Some(branches),
@@ -47,6 +48,7 @@ fn context_step_with_exit(id: &str, exit_code: i32, branches: Vec<ResultBranch>)
     Step {
         id: StepId(id.to_string()),
         body: StepBody::Context(ail_core::config::domain::ContextSource::Shell(cmd)),
+        message: None,
         tools: None,
         model: None,
         on_result: Some(branches),
@@ -58,6 +60,7 @@ fn prompt_step(id: &str, text: &str) -> Step {
     Step {
         id: StepId(id.to_string()),
         body: StepBody::Prompt(text.to_string()),
+        message: None,
         tools: None,
         model: None,
         on_result: None,

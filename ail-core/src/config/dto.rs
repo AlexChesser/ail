@@ -26,6 +26,8 @@ pub struct StepDto {
     pub skill: Option<String>,
     pub pipeline: Option<String>,
     pub action: Option<String>,
+    /// Optional human-readable message shown in the HITL gate banner when `action: pause_for_human`.
+    pub message: Option<String>,
     pub context: Option<ContextDto>,
     pub tools: Option<ToolsDto>,
     pub on_result: Option<Vec<OnResultBranchDto>>,

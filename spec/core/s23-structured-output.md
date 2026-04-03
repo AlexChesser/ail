@@ -92,9 +92,12 @@ These mirror the `ExecutorEvent` enum in `ail-core/src/executor.rs`.
 ```json
 {
   "type": "hitl_gate_reached",
-  "step_id": "human_review"
+  "step_id": "human_review",
+  "message": "Please confirm deployment to production"
 }
 ```
+
+`message` is optional. When present it carries the human-readable string from the step's `message:` YAML field and should be surfaced in any HITL gate UI. When absent the field is omitted from the JSON object (not emitted as `null`).
 
 **`pipeline_completed`**:
 ```json

@@ -57,6 +57,7 @@ mod s9_tool_permissions {
             steps: vec![Step {
                 id: StepId("guarded".to_string()),
                 body: StepBody::Prompt("do something".to_string()),
+                message: None,
                 tools: Some(ToolPolicy {
                     allow: vec!["Read".to_string(), "Edit".to_string()],
                     deny: vec!["Bash".to_string()],
