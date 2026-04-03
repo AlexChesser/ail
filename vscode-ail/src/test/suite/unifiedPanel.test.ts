@@ -117,6 +117,9 @@ suite('UnifiedPanel', () => {
 
   // Reset singleton and inject mock panel factory before each test
   setup(() => {
+    // Dispose any existing instance to clear timers (e.g. HITL 2-min escalation setTimeout)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (UnifiedPanel as any)._instance?.dispose();
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (UnifiedPanel as any)._instance = undefined;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any

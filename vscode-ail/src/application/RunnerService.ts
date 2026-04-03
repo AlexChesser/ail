@@ -402,4 +402,11 @@ export class RunnerService {
     this._statusBarItem.command = 'ail.openUnifiedPanel';
     this._statusBarItem.show();
   }
+
+  dispose(): void {
+    if (this._statusBarHideTimer !== undefined) {
+      clearTimeout(this._statusBarHideTimer);
+      this._statusBarHideTimer = undefined;
+    }
+  }
 }

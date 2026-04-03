@@ -122,7 +122,16 @@ function makeStatusBar() {
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
+// Collect services created in each test so their timers can be cleaned up.
+const createdServices: RunnerService[] = [];
+
 suite('RunnerService', () => {
+
+  teardown(() => {
+    for (const svc of createdServices.splice(0)) {
+      svc.dispose();
+    }
+  });
 
   test('raw events are routed to the panel\'s onEvent()', async () => {
     const ctx = makeCtx();
@@ -135,7 +144,7 @@ suite('RunnerService', () => {
       createPanel: () => mockPanel,
     };
 
-    const service = new RunnerService(ctx as never, bus, deps);
+    const service = createdServices[createdServices.push(new RunnerService(ctx as never, bus, deps)) - 1];
     service.setViews(makeStatusBar() as never);
 
     // Kick off the run (invoke resolves immediately)
@@ -167,7 +176,7 @@ suite('RunnerService', () => {
       createPanel: () => new MockStagePanel(),
     };
 
-    const service = new RunnerService(ctx as never, bus, deps);
+    const service = createdServices[createdServices.push(new RunnerService(ctx as never, bus, deps)) - 1];
     service.setViews(makeStatusBar() as never);
 
     let busEvent: RunnerEvent | undefined;
@@ -201,7 +210,7 @@ suite('RunnerService', () => {
       setStepStatus: (id: string, status: string) => statuses.push({ id, status }),
     };
 
-    const service = new RunnerService(ctx as never, bus, deps);
+    const service = createdServices[createdServices.push(new RunnerService(ctx as never, bus, deps)) - 1];
     service.setViews(makeStatusBar() as never, undefined, stepsViewSpy as never);
 
     await service.startRun('hello', '/fake/.ail.yaml');
@@ -226,7 +235,7 @@ suite('RunnerService', () => {
       createPanel: () => callCount > 1 ? panel2 : panel1,
     };
 
-    const service = new RunnerService(ctx as never, bus, deps);
+    const service = createdServices[createdServices.push(new RunnerService(ctx as never, bus, deps)) - 1];
     service.setViews(makeStatusBar() as never);
 
     // Both start concurrently; neither resolves until we await them.
@@ -265,7 +274,7 @@ suite('RunnerService', () => {
       createPanel: () => mockPanel,
     };
 
-    const service = new RunnerService(ctx as never, bus, deps);
+    const service = createdServices[createdServices.push(new RunnerService(ctx as never, bus, deps)) - 1];
     service.setViews(makeStatusBar() as never);
 
     assert.strictEqual(service.isRunning, false);
@@ -286,7 +295,7 @@ suite('RunnerService', () => {
       createPanel: () => new MockStagePanel(),
     };
 
-    const service = new RunnerService(ctx as never, bus, deps);
+    const service = createdServices[createdServices.push(new RunnerService(ctx as never, bus, deps)) - 1];
     service.setViews(makeStatusBar() as never);
 
     // Should not throw (error is caught inside startRun)
@@ -309,7 +318,7 @@ suite('RunnerService', () => {
       },
     };
 
-    const service = new RunnerService(ctx as never, bus, deps);
+    const service = createdServices[createdServices.push(new RunnerService(ctx as never, bus, deps)) - 1];
     service.setViews(makeStatusBar() as never);
 
     await service.startRun('hello', '/fake/.ail.yaml');

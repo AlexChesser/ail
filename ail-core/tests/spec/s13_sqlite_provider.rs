@@ -1,5 +1,4 @@
 /// Tests for SqliteProvider and query_logs_at (SPEC §13 — log persistence)
-
 mod sqlite_provider_tests {
     use ail_core::logs::{query_logs_at, LogQuery};
     use ail_core::session::log_provider::LogProvider;

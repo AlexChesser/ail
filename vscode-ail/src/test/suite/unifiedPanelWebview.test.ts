@@ -28,6 +28,16 @@ interface WebviewHarness {
   post(msg: object): void;
 }
 
+// Track open JSDOM instances so they can be closed in afterEach to release handles.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const openDoms: any[] = [];
+
+teardown(() => {
+  for (const dom of openDoms.splice(0)) {
+    try { dom.window.close(); } catch { /* no-op */ }
+  }
+});
+
 function createWebview(): WebviewHarness {
   const sent: object[] = [];
   // Pass the HTML directly to the JSDOM constructor so that inline <script> blocks
@@ -44,6 +54,8 @@ function createWebview(): WebviewHarness {
     },
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   }) as any;
+
+  openDoms.push(dom);
 
   function post(msg: object): void {
     dom.window.dispatchEvent(

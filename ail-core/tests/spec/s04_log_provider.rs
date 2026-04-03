@@ -1,5 +1,4 @@
 /// Tests for LogProvider trait and persistence backends (SPEC §4.4)
-
 mod log_provider_tests {
     use ail_core::config::domain::Pipeline;
     use ail_core::session::log_provider::{JsonlProvider, LogProvider, NullProvider};

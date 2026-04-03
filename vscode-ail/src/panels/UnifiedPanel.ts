@@ -419,6 +419,10 @@ export class UnifiedPanel implements IUnifiedPanel {
     if (UnifiedPanel._instance === this) {
       UnifiedPanel._instance = undefined;
     }
+    for (const timer of this._hitlTimers.values()) {
+      clearTimeout(timer);
+    }
+    this._hitlTimers.clear();
     for (const d of this._disposables) d.dispose();
     this._disposables = [];
   }
