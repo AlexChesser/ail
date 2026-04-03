@@ -115,6 +115,7 @@ fn run_once_text_quiet(
             if let ExecuteOutcome::Break { step_id } = outcome {
                 tracing::info!(event = "pipeline_break", step_id = %step_id);
             }
+            session.turn_log.record_run_finished("completed");
             if has_invocation_step {
                 if let Some(resp) = session.turn_log.response_for_step("invocation") {
                     println!("{resp}");
@@ -135,6 +136,7 @@ fn run_once_text_quiet(
             }
         }
         Err(e) => {
+            session.turn_log.record_run_finished("failed");
             eprintln!("{e}");
             std::process::exit(1);
         }
@@ -233,9 +235,13 @@ fn run_once_text_verbose(
         }
     }
 
-    if let Err(e) = result {
-        eprintln!("{e}");
-        std::process::exit(1);
+    match result {
+        Ok(_) => session.turn_log.record_run_finished("completed"),
+        Err(e) => {
+            session.turn_log.record_run_finished("failed");
+            eprintln!("{e}");
+            std::process::exit(1);
+        }
     }
 }
 
@@ -493,8 +499,10 @@ fn run_once_json(session: &mut ail_core::session::Session, runner: &dyn Runner, 
     match result {
         Ok(_) => {
             // PipelineCompleted event already emitted by execute_with_control.
+            session.turn_log.record_run_finished("completed");
         }
         Err(e) => {
+            session.turn_log.record_run_finished("failed");
             let mut out = stdout.lock();
             let _ = serde_json::to_writer(
                 &mut out,

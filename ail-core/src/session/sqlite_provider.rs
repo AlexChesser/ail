@@ -228,6 +228,11 @@ impl LogProvider for SqliteProvider {
             .map_err(std::io::Error::other)?;
         Ok(())
     }
+
+    fn finish(&mut self, run_id: &str, status: &str) -> std::io::Result<()> {
+        self.finish_session(run_id, status)
+            .map_err(std::io::Error::other)
+    }
 }
 
 /// Default db path for the current working directory.

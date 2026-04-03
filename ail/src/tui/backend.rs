@@ -199,8 +199,11 @@ pub fn spawn_backend(
                         exec_tx,
                         hitl_rx,
                     ) {
-                        Ok(_) => {}
+                        Ok(_) => {
+                            session.turn_log.record_run_finished("completed");
+                        }
                         Err(e) => {
+                            session.turn_log.record_run_finished("failed");
                             let _ = event_tx.send(BackendEvent::Error(e.detail.clone()));
                         }
                     }

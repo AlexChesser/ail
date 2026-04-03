@@ -29,6 +29,15 @@ pub struct TurnEntry {
     pub thinking: Option<String>,
 }
 
+/// Written as the first entry for a run. Carries pipeline_source so the SQLite provider
+/// can populate the sessions table correctly.
+#[derive(Serialize)]
+struct RunStartedEvent<'a> {
+    #[serde(rename = "type")]
+    event_type: &'static str,
+    pipeline_source: Option<&'a str>,
+}
+
 /// Written to NDJSON before calling the runner. If the runner crashes or hangs,
 /// this record is the only evidence the step was attempted.
 #[derive(Serialize)]
@@ -57,6 +66,45 @@ impl TurnLog {
             entries: Vec::new(),
             run_id,
             provider,
+        }
+    }
+
+    /// Write a `run_started` event as the first entry. Must be called before any steps.
+    /// Carries `pipeline_source` so the SQLite provider can populate the sessions table.
+    pub fn record_run_started(&mut self, pipeline_source: Option<&str>) {
+        let event = RunStartedEvent {
+            event_type: "run_started",
+            pipeline_source,
+        };
+        match serde_json::to_value(&event) {
+            Ok(json_value) => {
+                if let Err(e) = self.provider.write_entry(&self.run_id, &json_value) {
+                    tracing::warn!(
+                        run_id = %self.run_id,
+                        error = %e,
+                        "failed to persist run_started event"
+                    );
+                }
+            }
+            Err(e) => {
+                tracing::warn!(
+                    run_id = %self.run_id,
+                    error = %e,
+                    "failed to serialize run_started event"
+                );
+            }
+        }
+    }
+
+    /// Mark the run as finished. Delegates to the provider's `finish()` method.
+    pub fn record_run_finished(&mut self, status: &str) {
+        if let Err(e) = self.provider.finish(&self.run_id, status) {
+            tracing::warn!(
+                run_id = %self.run_id,
+                status = %status,
+                error = %e,
+                "failed to finish run in provider"
+            );
         }
     }
 
