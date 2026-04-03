@@ -11,6 +11,7 @@
 import * as vscode from 'vscode';
 import { RunnerService } from '../application/RunnerService';
 import { resolvePipelinePath } from '../utils/pipelinePath';
+import { parseStepsFromYaml } from '../utils/parseYaml';
 
 export class RunCommand {
   constructor(private readonly _service: RunnerService) {}
@@ -32,6 +33,33 @@ export class RunCommand {
 
     if (!prompt) {
       return;
+    }
+
+    // ── Plan & Approval (ail.confirmBeforeRun) ────────────────────────────────
+    const confirmBeforeRun = vscode.workspace
+      .getConfiguration('ail')
+      .get<boolean>('confirmBeforeRun', false);
+
+    if (confirmBeforeRun) {
+      const steps = parseStepsFromYaml(pipelinePath);
+      const stepList =
+        steps.length > 0
+          ? ['invocation', ...steps.map((s) => s.id)].join(' → ')
+          : 'invocation';
+      const totalLabel = steps.length > 0
+        ? `${steps.length + 1} step${steps.length + 1 !== 1 ? 's' : ''}`
+        : '1 step (invocation only)';
+
+      const answer = await vscode.window.showInformationMessage(
+        `About to run: ${stepList} (${totalLabel}). Continue?`,
+        { modal: false },
+        'Run',
+        'Cancel',
+      );
+
+      if (answer !== 'Run') {
+        return;
+      }
     }
 
     // Capture any active editor selection to pass as AIL_SELECTION

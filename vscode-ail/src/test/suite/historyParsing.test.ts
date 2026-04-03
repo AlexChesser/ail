@@ -11,7 +11,7 @@
  */
 
 import * as assert from 'assert';
-import { parseRunFileContent, RunRecord } from '../../application/HistoryService';
+import { parseRunFileContent, RunRecord } from '../../application/parseRunFile';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 

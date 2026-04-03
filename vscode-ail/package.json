@@ -42,6 +42,11 @@
           "type": "string",
           "default": "",
           "description": "Path to the default pipeline file. Leave empty for automatic discovery."
+        },
+        "ail.confirmBeforeRun": {
+          "type": "boolean",
+          "default": false,
+          "description": "Show a confirmation dialog listing pipeline steps before each run."
         }
       }
     },
@@ -128,6 +133,12 @@
         "title": "Ail: Open Run Monitor",
         "category": "ail",
         "icon": "$(history)"
+      },
+      {
+        "command": "ail.searchLogs",
+        "title": "Ail: Search Execution Logs",
+        "category": "ail",
+        "icon": "$(search)"
       }
     ],
     "views": {
@@ -177,6 +188,11 @@
         },
         {
           "command": "ail.refreshHistory",
+          "when": "view == ail.historyView",
+          "group": "navigation"
+        },
+        {
+          "command": "ail.searchLogs",
           "when": "view == ail.historyView",
           "group": "navigation"
         }

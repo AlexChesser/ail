@@ -16,7 +16,7 @@ import { StepsTreeProvider } from '../views/StepsTreeProvider';
 import { AilProcess } from '../infrastructure/AilProcess';
 import { IAilClient } from './IAilClient';
 import { RunnerEvent } from './events';
-import { AilEvent } from '../types';
+import { AilEvent, RunnerEventWrapper } from '../types';
 
 /** Minimal panel interface needed by RunnerService — allows injection in tests. */
 export interface IStagePanel {
@@ -41,6 +41,10 @@ interface RunContext {
   process: IAilClient;
   panel: IStagePanel;
   startTime: number;
+  /** The step currently emitting stream_delta output (for live trace prefixing). */
+  currentStepId: string;
+  /** Whether the current step's OUTPUT: prefix has been emitted yet. */
+  outputPrefixEmitted: boolean;
 }
 
 export class RunnerService {
@@ -98,7 +102,13 @@ export class RunnerService {
       (msg) => proc.writeStdin(msg),
     );
 
-    const runCtx: RunContext = { process: proc, panel, startTime: Date.now() };
+    const runCtx: RunContext = {
+      process: proc,
+      panel,
+      startTime: Date.now(),
+      currentStepId: 'invocation',
+      outputPrefixEmitted: false,
+    };
     this._activeRuns.set(runId, runCtx);
 
     this._updateStatusBar();
@@ -112,9 +122,28 @@ export class RunnerService {
     out.appendLine(`Pipeline: ${pipelinePath}`);
     out.appendLine(`Prompt: ${prompt}`);
 
-    // Feed full-fidelity AilEvents to the panel.
-    const rawDisposable = proc.onRawEvent((ailEvent) => {
+    // Feed full-fidelity AilEvents to the panel and emit live-trace lines for
+    // thinking blocks and tool calls.
+    const rawDisposable = proc.onRawEvent((ailEvent: AilEvent) => {
       panel.onEvent(ailEvent);
+
+      if (ailEvent.type === 'runner_event') {
+        const wrapper = ailEvent as RunnerEventWrapper;
+        const inner = wrapper.event;
+        if (inner.type === 'thinking') {
+          // Emit a THINKING: prefix for each thinking block (collapsed to one line)
+          const summary = inner.text.replace(/\n/g, ' ').slice(0, 120);
+          out.appendLine(`[${runCtx.currentStepId}] THINKING: ${summary}`);
+          // The next stream_delta will need a fresh OUTPUT: prefix
+          runCtx.outputPrefixEmitted = false;
+        } else if (inner.type === 'tool_use') {
+          out.appendLine(`[${runCtx.currentStepId}] TOOL: ${inner.tool_name}`);
+          runCtx.outputPrefixEmitted = false;
+        } else if (inner.type === 'tool_result') {
+          out.appendLine(`[${runCtx.currentStepId}] TOOL RESULT: ${inner.tool_name}`);
+          runCtx.outputPrefixEmitted = false;
+        }
+      }
     });
 
     const disposable = proc.onEvent((runnerEvent: RunnerEvent) => {
@@ -140,28 +169,45 @@ export class RunnerService {
           break;
       }
 
-      // Drive output channel
+      // Drive output channel — live trace with step-prefixed lines
       switch (runnerEvent.type) {
         case 'step_started': {
           const e = runnerEvent as Extract<RunnerEvent, { type: 'step_started' }>;
+          runCtx.currentStepId = e.stepId;
+          runCtx.outputPrefixEmitted = false;
           out.appendLine(`\n[${e.stepIndex + 1}/${e.totalSteps}] ${e.stepId} — running...`);
           break;
         }
         case 'step_completed':
+          // Close any open stream_delta line before printing the completion glyph.
+          if (runCtx.outputPrefixEmitted) {
+            out.appendLine('');
+            runCtx.outputPrefixEmitted = false;
+          }
           out.appendLine(`    ✓ ${runnerEvent.stepId}`);
           break;
         case 'step_skipped':
           out.appendLine(`    ⊘ ${runnerEvent.stepId} (skipped)`);
           break;
         case 'step_failed':
+          if (runCtx.outputPrefixEmitted) {
+            out.appendLine('');
+            runCtx.outputPrefixEmitted = false;
+          }
           out.appendLine(`    ✗ ${runnerEvent.stepId}: ${runnerEvent.error}`);
           break;
         case 'hitl_gate_reached':
           out.appendLine(`\n⏸ HITL gate: ${runnerEvent.stepId} — waiting for approval`);
           break;
-        case 'stream_delta':
+        case 'stream_delta': {
+          // Emit "[step_id] OUTPUT: " prefix before the first fragment of each step.
+          if (!runCtx.outputPrefixEmitted) {
+            out.append(`[${runCtx.currentStepId}] OUTPUT: `);
+            runCtx.outputPrefixEmitted = true;
+          }
           out.append(runnerEvent.text);
           break;
+        }
         case 'pipeline_completed':
           out.appendLine(`\n✓ Pipeline completed`);
           break;

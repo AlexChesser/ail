@@ -60,7 +60,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const services = createServiceContext(context, client, binary.path, cwd);
   const bus = new EventBus();
   const runnerService = new RunnerService(services, bus);
-  const historyService = new HistoryService(context, cwd ?? process.cwd());
+  const historyService = new HistoryService(context, cwd ?? process.cwd(), binary.path);
 
   // Wire HistoryService into the singleton UnifiedPanel so it can load run
   // details when the user clicks a historical run in column 1.
@@ -138,6 +138,49 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
     vscode.commands.registerCommand("ail.validatePipeline", async () => {
       await validateCommand.execute();
+    }),
+
+    vscode.commands.registerCommand("ail.searchLogs", async () => {
+      const query = await vscode.window.showInputBox({
+        prompt: "Search execution logs",
+        placeHolder: "Search execution logs...",
+        ignoreFocusOut: true,
+      });
+
+      if (!query) {
+        return;
+      }
+
+      const records = await historyService.searchLogs(query, 20);
+
+      if (records.length === 0) {
+        void vscode.window.showInformationMessage(`ail: No runs matched "${query}".`);
+        return;
+      }
+
+      // Present results in a QuickPick so the user can navigate to any match.
+      const items = records.map((r) => ({
+        label: r.invocationPrompt
+          ? r.invocationPrompt.slice(0, 80)
+          : r.runId,
+        description: `${r.pipelineSource} — $${r.totalCostUsd.toFixed(4)}`,
+        detail: new Date(r.timestamp).toLocaleString(),
+        runId: r.runId,
+      }));
+
+      const picked = await vscode.window.showQuickPick(items, {
+        title: `ail log search: "${query}" — ${records.length} result(s)`,
+        placeHolder: "Select a run to inspect",
+        matchOnDescription: true,
+        matchOnDetail: true,
+      });
+
+      if (picked) {
+        const record = records.find((r) => r.runId === picked.runId);
+        if (record) {
+          UnifiedPanel.openReview(context, record);
+        }
+      }
     }),
 
     vscode.commands.registerCommand("ail.materializePipeline", async () => {

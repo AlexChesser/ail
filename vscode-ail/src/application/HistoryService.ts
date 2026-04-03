@@ -1,131 +1,92 @@
 /**
- * HistoryService — indexes run logs from ~/.ail/projects/<sha1_of_cwd>/runs/*.jsonl
+ * HistoryService — indexes run logs via `ail logs --format json`.
  *
- * Each .jsonl file is an NDJSON stream of ail events. Lines with a `type` field
- * are `step_started` / other executor events (crash evidence). Lines without a
- * `type` field are completed `TurnEntry` records.
+ * Replaces direct disk reads of ~/.ail/projects/<sha1>/runs/*.jsonl with a
+ * subprocess call to `ail logs --format json [--query <text>] [--limit <n>]`.
+ * The binary emits one JSON object per session (not raw NDJSON turn entries),
+ * so the shape parsed here matches the `ail logs` output schema.
  *
- * The service builds a `RunRecord` index, caches it in workspaceState keyed by
- * file content hash, and only re-parses changed files.
+ * Public types (TurnEntry, RunRecord, RunOutcome) and the legacy
+ * parseRunFileContent() helper are defined in parseRunFile.ts and re-exported
+ * from here for backward compatibility with other modules.
  */
 
 import * as vscode from 'vscode';
-import * as fs from 'fs';
-import * as path from 'path';
-import * as os from 'os';
-import * as crypto from 'crypto';
+import { execFile } from 'child_process';
+import { promisify } from 'util';
 
-// ── Public types ──────────────────────────────────────────────────────────────
+// Re-export types and pure helper for backward compatibility.
+export { TurnEntry, RunRecord, RunOutcome, parseRunFileContent } from './parseRunFile';
+import type { TurnEntry, RunRecord, RunOutcome } from './parseRunFile';
 
-export interface TurnEntry {
-  step_id: string;
-  prompt: string | null;
-  response: string | null;
-  cost_usd: number | null;
-  input_tokens: number | null;
-  output_tokens: number | null;
-  runner_session_id: string | null;
-  stdout: string | null;
-  stderr: string | null;
-  exit_code: string | null;
-  thinking: string | null;
+const execFileAsync = promisify(execFile);
+
+// ── Wire format from `ail logs --format json` ─────────────────────────────────
+
+interface LogsSessionStep {
+  step_id?: string;
+  event_type?: string;
+  response?: string;
+  prompt?: string;
+  cost_usd?: number;
+  input_tokens?: number;
+  output_tokens?: number;
+  runner_session_id?: string;
+  stdout?: string;
+  stderr?: string;
+  exit_code?: string;
+  thinking?: string;
 }
 
-export type RunOutcome = 'completed' | 'failed' | 'unknown';
-
-export interface RunRecord {
-  runId: string;
-  /** File modification time (ms since epoch). */
-  timestamp: number;
-  /** From step_started records' pipeline_source field, or 'unknown'. */
-  pipelineSource: string;
-  outcome: RunOutcome;
-  totalCostUsd: number;
-  /** The original user prompt from the invocation step. */
-  invocationPrompt: string;
-  steps: TurnEntry[];
+interface LogsSession {
+  run_id?: string;
+  pipeline_source?: string;
+  started_at?: number;
+  completed_at?: number;
+  total_cost_usd?: number;
+  status?: string;
+  steps?: LogsSessionStep[];
 }
 
-// ── Cache shape stored in workspaceState ──────────────────────────────────────
+// ── ail logs wire → RunRecord ─────────────────────────────────────────────────
 
-interface CacheEntry {
-  /** sha1 of the file content at read time. */
-  contentHash: string;
-  record: RunRecord;
-}
-
-interface HistoryCache {
-  /** runId → CacheEntry */
-  entries: Record<string, CacheEntry>;
-}
-
-const CACHE_KEY = 'ail.historyCache';
-
-// ── Pure parsing function (exported for testing) ─────────────────────────────
-
-/**
- * Parse trimmed non-empty lines from a single .jsonl run file into a RunRecord.
- * Exported as a standalone function so it can be unit-tested without
- * constructing a full HistoryService (which requires a vscode.ExtensionContext).
- *
- * @returns A RunRecord, or null if no valid TurnEntries were found.
- */
-export function parseRunFileContent(
-  lines: string[],
-  runId: string,
-  timestamp: number,
-): RunRecord | null {
-  const steps: TurnEntry[] = [];
-  let pipelineSource = 'unknown';
-  let outcome: RunOutcome = 'unknown';
-  let totalCostUsd = 0;
-
-  for (const line of lines) {
-    let obj: Record<string, unknown>;
-    try {
-      obj = JSON.parse(line) as Record<string, unknown>;
-    } catch {
-      continue;
-    }
-
-    if (typeof obj['type'] === 'string') {
-      const evType = obj['type'] as string;
-      if (evType === 'step_started') {
-        const src = obj['pipeline_source'];
-        if (typeof src === 'string' && src) {
-          pipelineSource = src;
-        }
-      } else if (evType === 'pipeline_completed') {
-        outcome = 'completed';
-      } else if (evType === 'pipeline_error') {
-        outcome = 'failed';
-      }
-    } else {
-      const entry: TurnEntry = {
-        step_id: typeof obj['step_id'] === 'string' ? obj['step_id'] : '',
-        prompt: typeof obj['prompt'] === 'string' ? obj['prompt'] : null,
-        response: typeof obj['response'] === 'string' ? obj['response'] : null,
-        cost_usd: typeof obj['cost_usd'] === 'number' ? obj['cost_usd'] : null,
-        input_tokens: typeof obj['input_tokens'] === 'number' ? obj['input_tokens'] : null,
-        output_tokens: typeof obj['output_tokens'] === 'number' ? obj['output_tokens'] : null,
-        runner_session_id: typeof obj['runner_session_id'] === 'string' ? obj['runner_session_id'] : null,
-        stdout: typeof obj['stdout'] === 'string' ? obj['stdout'] : null,
-        stderr: typeof obj['stderr'] === 'string' ? obj['stderr'] : null,
-        exit_code: typeof obj['exit_code'] === 'string' ? obj['exit_code'] : null,
-        thinking: typeof obj['thinking'] === 'string' ? obj['thinking'] : null,
-      };
-
-      if (entry.step_id) {
-        steps.push(entry);
-        if (entry.cost_usd != null) {
-          totalCostUsd += entry.cost_usd;
-        }
-      }
-    }
+function sessionToRunRecord(session: LogsSession): RunRecord | null {
+  const runId = session.run_id ?? '';
+  if (!runId) {
+    return null;
   }
 
-  const invocationEntry = steps.find((s) => s.step_id === 'invocation');
-  const invocationPrompt = invocationEntry?.prompt ?? '';
+  const timestamp = typeof session.started_at === 'number'
+    ? session.started_at * 1000
+    : 0;
+
+  const pipelineSource = session.pipeline_source ?? 'unknown';
+
+  let outcome: RunOutcome = 'unknown';
+  if (session.status === 'completed') {
+    outcome = 'completed';
+  } else if (session.status === 'failed') {
+    outcome = 'failed';
+  }
+
+  const totalCostUsd = typeof session.total_cost_usd === 'number'
+    ? session.total_cost_usd
+    : 0;
+
+  const rawSteps = Array.isArray(session.steps) ? session.steps : [];
+  const steps: TurnEntry[] = rawSteps.map((s) => ({
+    step_id: typeof s.step_id === 'string' ? s.step_id : '',
+    prompt: typeof s.prompt === 'string' ? s.prompt : null,
+    response: typeof s.response === 'string' ? s.response : null,
+    cost_usd: typeof s.cost_usd === 'number' ? s.cost_usd : null,
+    input_tokens: typeof s.input_tokens === 'number' ? s.input_tokens : null,
+    output_tokens: typeof s.output_tokens === 'number' ? s.output_tokens : null,
+    runner_session_id: typeof s.runner_session_id === 'string' ? s.runner_session_id : null,
+    stdout: typeof s.stdout === 'string' ? s.stdout : null,
+    stderr: typeof s.stderr === 'string' ? s.stderr : null,
+    exit_code: typeof s.exit_code === 'string' ? s.exit_code : null,
+    thinking: typeof s.thinking === 'string' ? s.thinking : null,
+  })).filter((e) => e.step_id.length > 0);
 
   if (outcome === 'unknown' && steps.length > 0) {
     outcome = 'completed';
@@ -135,108 +96,102 @@ export function parseRunFileContent(
     return null;
   }
 
+  const invocationEntry = steps.find((s) => s.step_id === 'invocation');
+  const invocationPrompt = invocationEntry?.prompt ?? '';
+
   return { runId, timestamp, pipelineSource, outcome, totalCostUsd, invocationPrompt, steps };
 }
 
 // ── HistoryService ────────────────────────────────────────────────────────────
 
 export class HistoryService {
-  private readonly _context: vscode.ExtensionContext;
-  private readonly _runsDir: string;
+  private readonly _binaryPath: string;
+  private readonly _cwd: string | undefined;
 
-  constructor(context: vscode.ExtensionContext, cwd: string) {
-    this._context = context;
-    const cwdHash = crypto.createHash('sha1').update(cwd).digest('hex');
-    this._runsDir = path.join(os.homedir(), '.ail', 'projects', cwdHash, 'runs');
+  constructor(_context: vscode.ExtensionContext, cwd: string | undefined, binaryPath?: string) {
+    this._cwd = cwd || undefined;
+    if (binaryPath !== undefined) {
+      this._binaryPath = binaryPath;
+    } else {
+      // No binary path provided — read from workspace config or fall back to 'ail'.
+      const configPath = vscode.workspace
+        .getConfiguration('ail')
+        .get<string>('binaryPath', '');
+      this._binaryPath = configPath || 'ail';
+    }
   }
 
   /** Return all run records sorted newest-first. */
-  async getHistory(): Promise<RunRecord[]> {
-    return this._loadAll();
+  async getHistory(limit = 50): Promise<RunRecord[]> {
+    return this._fetchLogs({ limit });
   }
 
   /** Return a single run record by runId. */
   async getRunDetail(runId: string): Promise<RunRecord | undefined> {
-    const all = await this._loadAll();
-    return all.find((r) => r.runId === runId);
+    // Search by session prefix — ail logs --session <prefix>
+    const records = await this._fetchLogs({ session: runId, limit: 1 });
+    return records.find((r) => r.runId === runId) ?? records[0];
+  }
+
+  /**
+   * Search run history by free-text query.
+   * Returns up to `limit` records sorted newest-first.
+   */
+  async searchLogs(query: string, limit = 20): Promise<RunRecord[]> {
+    return this._fetchLogs({ query, limit });
   }
 
   // ── Private ─────────────────────────────────────────────────────────────────
 
-  private async _loadAll(): Promise<RunRecord[]> {
-    let files: string[];
+  private async _fetchLogs(opts: {
+    limit?: number;
+    session?: string;
+    query?: string;
+  }): Promise<RunRecord[]> {
+    const args: string[] = ['logs', '--format', 'json'];
+    if (opts.limit !== undefined) {
+      args.push('--limit', String(opts.limit));
+    }
+    if (opts.session) {
+      args.push('--session', opts.session);
+    }
+    if (opts.query) {
+      args.push('--query', opts.query);
+    }
+
+    let stdout: string;
     try {
-      files = fs.readdirSync(this._runsDir)
-        .filter((f) => f.endsWith('.jsonl'))
-        .map((f) => path.join(this._runsDir, f));
+      const result = await execFileAsync(this._binaryPath, args, {
+        timeout: 15000,
+        cwd: this._cwd,
+      });
+      stdout = result.stdout;
     } catch {
-      // Runs directory doesn't exist yet — no history.
+      // Binary not available or no logs yet — return empty list.
       return [];
     }
 
-    const cache = this._readCache();
-    const updated: Record<string, CacheEntry> = {};
     const records: RunRecord[] = [];
-
-    for (const filePath of files) {
-      const runId = path.basename(filePath, '.jsonl');
-      let stat: fs.Stats;
+    for (const line of stdout.split('\n')) {
+      const trimmed = line.trim();
+      if (!trimmed) {
+        continue;
+      }
+      let session: LogsSession;
       try {
-        stat = fs.statSync(filePath);
+        session = JSON.parse(trimmed) as LogsSession;
       } catch {
         continue;
       }
-
-      // Compute content hash for cache invalidation
-      let contentHash: string;
-      try {
-        const content = fs.readFileSync(filePath);
-        contentHash = crypto.createHash('sha1').update(content).digest('hex');
-      } catch {
-        continue;
-      }
-
-      // Check cache
-      const cached = cache.entries[runId];
-      if (cached && cached.contentHash === contentHash) {
-        updated[runId] = cached;
-        records.push(cached.record);
-        continue;
-      }
-
-      // Parse the file
-      const record = this._parseRunFile(filePath, runId, stat.mtimeMs);
+      const record = sessionToRunRecord(session);
       if (record) {
-        updated[runId] = { contentHash, record };
         records.push(record);
       }
     }
 
-    // Persist updated cache (drop stale entries)
-    this._writeCache({ entries: updated });
-
-    // Sort newest-first
+    // Ensure newest-first ordering (the binary may already guarantee this,
+    // but we sort defensively).
     records.sort((a, b) => b.timestamp - a.timestamp);
     return records;
-  }
-
-  private _parseRunFile(filePath: string, runId: string, timestamp: number): RunRecord | null {
-    let rawContent: string;
-    try {
-      rawContent = fs.readFileSync(filePath, 'utf8');
-    } catch {
-      return null;
-    }
-    const lines = rawContent.split('\n').filter((l) => l.trim().length > 0);
-    return parseRunFileContent(lines, runId, timestamp);
-  }
-
-  private _readCache(): HistoryCache {
-    const raw = this._context.workspaceState.get<HistoryCache>(CACHE_KEY);
-    return raw ?? { entries: {} };
-  }
-
-  private _writeCache(cache: HistoryCache): void {
-    void this._context.workspaceState.update(CACHE_KEY, cache);
   }
 }
