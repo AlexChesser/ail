@@ -12,6 +12,7 @@ mod s09_tool_permissions;
 mod s10_model_config;
 mod s11_template_variables;
 mod s12_step_conditions;
+mod s13_sqlite_provider;
 mod s15_skills;
 mod s17_error_handling;
 mod s18_materialize;
