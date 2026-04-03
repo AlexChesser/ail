@@ -1,6 +1,7 @@
 pub mod config;
 pub mod error;
 pub mod executor;
+pub mod formatter;
 pub mod ipc;
 pub mod logs;
 pub mod materialize;

@@ -1,5 +1,6 @@
 mod chat;
 mod cli;
+mod log;
 mod logs;
 mod mcp_bridge;
 mod tui;
@@ -536,6 +537,13 @@ fn main() {
             limit,
         }) => {
             logs::run_logs_command(session, query, format, tail, limit);
+        }
+        Some(Commands::Log {
+            run_id,
+            format,
+            follow,
+        }) => {
+            log::run_log_command(run_id, &format, follow);
         }
         Some(Commands::McpBridge { socket }) => {
             // Spawned by Claude CLI to handle tool permission checks.

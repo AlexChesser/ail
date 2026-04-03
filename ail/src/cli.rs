@@ -107,6 +107,20 @@ pub enum Commands {
         #[arg(long, default_value_t = 20)]
         limit: usize,
     },
+    /// Display a formatted pipeline run (ail-log format).
+    Log {
+        /// Run ID (UUID). If omitted, shows the most recent run for the current directory.
+        #[arg(value_name = "RUN_ID")]
+        run_id: Option<String>,
+
+        /// Output format: `markdown` (default, ail-log/1), `json` (NDJSON), or `raw` (stored JSONL).
+        #[arg(long, value_name = "FORMAT", default_value = "markdown")]
+        format: String,
+
+        /// Stream new events as they arrive (500ms polling). Exits when run completes.
+        #[arg(long)]
+        follow: bool,
+    },
     /// Internal: MCP permission bridge. Spawned by Claude CLI to handle tool permission checks.
     /// Not intended for direct use.
     #[command(name = "mcp-bridge", hide = true)]

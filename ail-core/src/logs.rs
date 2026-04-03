@@ -7,7 +7,7 @@
 
 use std::path::Path;
 
-use rusqlite::{params, Connection};
+use rusqlite::{params, Connection, OptionalExtension};
 
 use crate::error::{error_types, AilError};
 use crate::session::sqlite_provider::db_path;
@@ -305,4 +305,157 @@ fn load_steps(conn: &Connection, run_id: &str) -> Result<Vec<StepSummary>, AilEr
         .collect();
 
     Ok(steps)
+}
+
+/// Represents a single step row from the database for use in formatters.
+#[derive(Debug, Clone)]
+pub struct StepRow {
+    pub step_id: String,
+    pub event_type: String,
+    pub prompt: Option<String>,
+    pub response: Option<String>,
+    pub thinking: Option<String>,
+    pub cost_usd: Option<f64>,
+    pub input_tokens: Option<i64>,
+    pub output_tokens: Option<i64>,
+    pub stdout: Option<String>,
+    pub stderr: Option<String>,
+    pub exit_code: Option<i32>,
+    pub recorded_at: i64,
+}
+
+/// Query steps for a specific run from the default database location.
+///
+/// Returns steps ordered by `recorded_at`.
+pub fn get_run_steps(run_id: &str) -> Result<Vec<StepRow>, AilError> {
+    get_run_steps_at(run_id, &db_path())
+}
+
+/// Query steps for a specific run from an explicit database path.
+pub fn get_run_steps_at(run_id: &str, db_path: &Path) -> Result<Vec<StepRow>, AilError> {
+    if !db_path.exists() {
+        return Err(AilError {
+            error_type: error_types::PIPELINE_ABORTED,
+            title: "Database not found",
+            detail: "No ail database found at this location".to_string(),
+            context: None,
+        });
+    }
+
+    let conn = Connection::open(db_path).map_err(|e| AilError {
+        error_type: error_types::PIPELINE_ABORTED,
+        title: "Failed to open log database",
+        detail: e.to_string(),
+        context: None,
+    })?;
+
+    let mut stmt = conn
+        .prepare(
+            "SELECT step_id, event_type, prompt, response, thinking, cost_usd, input_tokens,
+                    output_tokens, stdout, stderr, exit_code, recorded_at
+             FROM steps
+             WHERE run_id = ?1
+             ORDER BY recorded_at ASC",
+        )
+        .map_err(|e| AilError {
+            error_type: error_types::PIPELINE_ABORTED,
+            title: "Failed to prepare steps query",
+            detail: e.to_string(),
+            context: None,
+        })?;
+
+    let rows: Result<Vec<StepRow>, _> = stmt
+        .query_map(params![run_id], |row| {
+            Ok(StepRow {
+                step_id: row.get(0)?,
+                event_type: row.get(1)?,
+                prompt: row.get(2)?,
+                response: row.get(3)?,
+                thinking: row.get(4)?,
+                cost_usd: row.get(5)?,
+                input_tokens: row.get(6)?,
+                output_tokens: row.get(7)?,
+                stdout: row.get(8)?,
+                stderr: row.get(9)?,
+                exit_code: row.get(10)?,
+                recorded_at: row.get(11)?,
+            })
+        })
+        .map_err(|e| AilError {
+            error_type: error_types::PIPELINE_ABORTED,
+            title: "Failed to query steps",
+            detail: e.to_string(),
+            context: None,
+        })?
+        .collect::<Result<Vec<_>, _>>();
+
+    rows.map_err(|e| AilError {
+        error_type: error_types::PIPELINE_ABORTED,
+        title: "Failed to collect step rows",
+        detail: e.to_string(),
+        context: None,
+    })
+}
+
+/// Get the most recent run ID for the current working directory.
+///
+/// Computes the SHA-1 hash of the absolute CWD path and queries the database.
+pub fn get_latest_run_id_for_cwd() -> Result<Option<String>, AilError> {
+    use sha1::{Digest, Sha1};
+    use std::path::PathBuf;
+
+    let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    let mut hasher = Sha1::new();
+    hasher.update(cwd.to_string_lossy().as_bytes());
+    let project_hash = format!("{:x}", hasher.finalize());
+
+    get_latest_run_id(&project_hash)
+}
+
+/// Get the most recent run ID for a given project (identified by SHA-1 of absolute CWD path).
+pub fn get_latest_run_id(project_sha1: &str) -> Result<Option<String>, AilError> {
+    get_latest_run_id_at(project_sha1, &db_path())
+}
+
+/// Get the most recent run ID for a given project from an explicit database path.
+pub fn get_latest_run_id_at(
+    project_sha1: &str,
+    db_path: &Path,
+) -> Result<Option<String>, AilError> {
+    if !db_path.exists() {
+        return Ok(None);
+    }
+
+    let conn = Connection::open(db_path).map_err(|e| AilError {
+        error_type: error_types::PIPELINE_ABORTED,
+        title: "Failed to open log database",
+        detail: e.to_string(),
+        context: None,
+    })?;
+
+    let mut stmt = conn
+        .prepare(
+            "SELECT run_id FROM sessions
+             WHERE project_hash = ?1
+             ORDER BY started_at DESC
+             LIMIT 1",
+        )
+        .map_err(|e| AilError {
+            error_type: error_types::PIPELINE_ABORTED,
+            title: "Failed to prepare query",
+            detail: e.to_string(),
+            context: None,
+        })?;
+
+    let run_id: Option<String> = stmt
+        .query_row(params![project_sha1], |row| row.get(0))
+        .optional()
+        .map_err(|e| AilError {
+            error_type: error_types::PIPELINE_ABORTED,
+            title: "Failed to query latest run",
+            detail: e.to_string(),
+            context: None,
+        })?;
+
+    Ok(run_id)
 }
