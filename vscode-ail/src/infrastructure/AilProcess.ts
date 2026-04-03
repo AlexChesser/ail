@@ -166,4 +166,35 @@ export class AilProcess implements IAilClient {
       clearTimeout(timeout);
     });
   }
+
+  /**
+   * Fetch formatted log output for a run.
+   * Spawns `ail log [runId] --format markdown` and returns stdout as string.
+   * If runId is omitted, the binary resolves to the latest run for the current working directory.
+   *
+   * @param runId Optional run ID; if omitted, fetches the latest run
+   * @returns Promise resolving to the full ail-log/1 formatted output
+   * @throws Error if the binary exits with non-zero code or spawn fails
+   */
+  log(runId?: string): Promise<string> {
+    return new Promise<string>((resolve, reject) => {
+      const args = ['log', '--format', 'markdown'];
+      if (runId) {
+        args.push(runId);
+      }
+
+      execFile(
+        this._binaryPath,
+        args,
+        { timeout: 30000, cwd: this._cwd, maxBuffer: 10 * 1024 * 1024 },
+        (err, stdout, stderr) => {
+          if (err) {
+            reject(new Error(`ail log failed: ${stderr || err.message}`));
+            return;
+          }
+          resolve(stdout);
+        }
+      );
+    });
+  }
 }

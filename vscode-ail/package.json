@@ -75,6 +75,11 @@
           "type": "number",
           "default": 2,
           "description": "Warn when a run costs more than N times the rolling average of the last 10 runs. Set to 0 to disable."
+        },
+        "ail.autoFoldThinking": {
+          "type": "boolean",
+          "default": true,
+          "description": "Auto-collapse thinking blocks when opening log viewer"
         }
       }
     },
@@ -173,6 +178,21 @@
         "title": "Ail: Create Pipeline from Template",
         "category": "ail",
         "icon": "$(add)"
+      },
+      {
+        "command": "ail.openLog",
+        "title": "AIL: Open Log",
+        "category": "ail"
+      },
+      {
+        "command": "ail.followTail",
+        "title": "AIL: Follow Tail",
+        "category": "ail"
+      },
+      {
+        "command": "ail.toggleView",
+        "title": "AIL: Toggle View",
+        "category": "ail"
       }
     ],
     "views": {
@@ -291,6 +311,15 @@
           ".ail.yaml"
         ],
         "configuration": "./language-configuration.json"
+      },
+      {
+        "id": "ail-log",
+        "aliases": [
+          "AIL Log"
+        ],
+        "extensions": [
+          ".ail-log"
+        ]
       }
     ]
   },

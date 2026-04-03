@@ -140,3 +140,28 @@ export type AilEvent =
   | RunnerEventWrapper
   | PipelineCompletedEvent
   | PipelineErrorEvent;
+
+// ── ail-log Format Types ─────────────────────────────────────────────────────
+
+/**
+ * Directive type taxonomy for ail-log/1 format.
+ * Parsers and grammar processors MUST recognize these types.
+ * Source: spec/runner/r04-ail-log-format.md
+ */
+export type AilLogDirectiveType = 'thinking' | 'tool-call' | 'tool-result' | 'stdio';
+
+/**
+ * Represents a parsed directive block from ail-log output.
+ * Directives use the syntax:
+ *   :::directive-name key="value" key2="value2"
+ *   ... content ...
+ *   :::
+ */
+export interface AilLogDirective {
+  /** Directive type: 'thinking', 'tool-call', 'tool-result', 'stdio' */
+  name: AilLogDirectiveType;
+  /** Attributes from directive opening line, e.g. { "name": "fetch_weather" } */
+  attributes: Record<string, string>;
+  /** Text content between opening and closing ::: markers */
+  content: string;
+}
