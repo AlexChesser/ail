@@ -29,6 +29,13 @@
           "title": "AIL Pipelines",
           "icon": "images/ail-sidebar.svg"
         }
+      ],
+      "panel": [
+        {
+          "id": "ail-panel",
+          "title": "AIL Monitor",
+          "icon": "images/ail-sidebar.svg"
+        }
       ]
     },
     "configuration": {
@@ -172,7 +179,7 @@
       "ail-sidebar": [
         {
           "id": "ail.chatView",
-          "name": "Invocation",
+          "name": "Chat",
           "type": "webview"
         },
         {
@@ -186,6 +193,13 @@
         {
           "id": "ail.historyView",
           "name": "Run History"
+        }
+      ],
+      "ail-panel": [
+        {
+          "id": "ail.monitorView",
+          "name": "Monitor",
+          "type": "webview"
         }
       ]
     },

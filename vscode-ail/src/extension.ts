@@ -20,6 +20,7 @@ import { EventBus } from "./application/EventBus";
 import { RunnerService } from "./application/RunnerService";
 import { HistoryService } from "./application/HistoryService";
 import { UnifiedPanel } from "./panels/UnifiedPanel";
+import { MonitorViewProvider } from "./panels/MonitorViewProvider";
 import { DiffContentProvider, DIFF_SCHEME } from "./infrastructure/DiffContentProvider";
 import { RunCommand } from "./commands/RunCommand";
 import { ValidateCommand } from "./commands/ValidateCommand";
@@ -77,6 +78,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // details when the user clicks a historical run in column 1.
   UnifiedPanel.setHistoryService(historyService);
 
+  // Wire HistoryService and CWD into MonitorViewProvider for live run monitoring.
+  MonitorViewProvider.setHistoryService(historyService);
+  if (cwd) {
+    MonitorViewProvider.setCwd(cwd);
+  }
+
   // Register the ail-diff URI scheme provider for per-step file diff viewing.
   context.subscriptions.push(
     vscode.workspace.registerTextDocumentContentProvider(DIFF_SCHEME, DiffContentProvider.instance)
@@ -97,6 +104,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.window.registerWebviewViewProvider(ChatViewProvider.viewId, chatProvider)
   );
 
+  const monitorProvider = MonitorViewProvider.getInstance();
+  context.subscriptions.push(
+    vscode.window.registerWebviewViewProvider(
+      MonitorViewProvider.viewId,
+      monitorProvider,
+      { webviewOptions: { retainContextWhenHidden: true } }
+    )
+  );
+
   registerPipelineExplorer(context, binary);
   const stepsProvider = registerStepsView(context);
   const historyProvider = registerHistoryView(context, historyService);
@@ -104,10 +120,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // Inject views into the runner service
   runnerService.setViews(statusBarItem, chatProvider, stepsProvider);
 
-  // Refresh history sidebar tree and unified panel column 1 after each run completes
+  // Refresh history sidebar tree and monitor view column 1 after each run completes
   runnerService.setOnRunComplete(() => {
     historyProvider.refresh();
-    void UnifiedPanel.refreshHistory();
+    void MonitorViewProvider.refreshHistory();
   });
 
   // Keep the pipeline context indicator and run button state in sync.

@@ -11,6 +11,7 @@ import { randomUUID } from 'crypto';
 import { ServiceContext } from './ServiceContext';
 import { EventBus } from './EventBus';
 import { UnifiedPanel, IUnifiedPanel } from '../panels/UnifiedPanel';
+import { MonitorViewProvider } from '../panels/MonitorViewProvider';
 import { ChatViewProvider } from '../views/ChatViewProvider';
 import { StepsTreeProvider } from '../views/StepsTreeProvider';
 import { AilProcess } from '../infrastructure/AilProcess';
@@ -79,8 +80,11 @@ export class RunnerService {
     this._bus = bus;
     this._deps = deps ?? {
       createProcess: (bin, cwd) => new AilProcess(bin, cwd),
-      createPanel: (extCtx, runId, writeStdin, prompt, pipelinePath) =>
-        UnifiedPanel.startLiveRun(extCtx, runId, writeStdin, prompt, pipelinePath) as unknown as IStagePanel,
+      createPanel: (extCtx, runId, writeStdin, prompt, pipelinePath) => {
+        const monitor = MonitorViewProvider.getInstance();
+        monitor.startLiveRun(extCtx, runId, writeStdin, prompt || '', pipelinePath || '');
+        return monitor;
+      },
     };
   }
 
