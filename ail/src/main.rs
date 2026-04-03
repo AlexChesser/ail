@@ -1,3 +1,4 @@
+mod chat;
 mod cli;
 mod logs;
 mod mcp_bridge;
@@ -608,6 +609,52 @@ fn main() {
                         std::process::exit(1);
                     }
                 },
+            }
+        }
+        Some(Commands::Chat {
+            message,
+            stream,
+            pipeline,
+            model,
+            provider_url,
+            provider_token,
+        }) => {
+            tracing::info!(
+                event = "chat",
+                one_shot = message.is_some(),
+                stream = stream
+            );
+            let pipeline_path = ail_core::config::discovery::discover(cli.pipeline.or(pipeline));
+            let discovered_pipeline = match pipeline_path {
+                Some(ref path) => match ail_core::config::load(path) {
+                    Ok(p) => p,
+                    Err(e) => {
+                        eprintln!("{e}");
+                        std::process::exit(1);
+                    }
+                },
+                None => ail_core::config::domain::Pipeline::passthrough(),
+            };
+            let cli_provider = ail_core::config::domain::ProviderConfig {
+                model,
+                base_url: provider_url,
+                auth_token: provider_token,
+            };
+            let runner = match RunnerFactory::build_default(true) {
+                Ok(r) => r,
+                Err(e) => {
+                    eprintln!("{e}");
+                    std::process::exit(1);
+                }
+            };
+            let result = if stream {
+                chat::run_chat_stream(discovered_pipeline, cli_provider, runner.as_ref(), message)
+            } else {
+                chat::run_chat_text(discovered_pipeline, cli_provider, runner.as_ref(), message)
+            };
+            if let Err(e) = result {
+                eprintln!("chat error: {e}");
+                std::process::exit(1);
             }
         }
         None => {
