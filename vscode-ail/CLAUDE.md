@@ -139,6 +139,7 @@ run_started → step_started → runner_event* → step_completed → ... → pi
 - Use `RunnerEvent` in application layer; only `UnifiedPanel` needs `AilEvent`
 - `resolvePipelinePath()` is the single source of truth for pipeline discovery
 - `UnifiedPanel._createWebviewPanel` is the injectable factory for VS Code panel creation — override in tests instead of mocking the entire vscode module
+- **Shared type changes require updating all consumers:** `TurnEntry` and `RunRecord` (in `parseRunFile.ts`) are imported by both production code and test helpers. Adding or removing fields must be reflected in every inline object literal that constructs those types — check `src/test/suite/*.test.ts` in addition to production callers. Run `npm run compile` to catch mismatches immediately.
 
 ## Known Issues / Planned Work
 

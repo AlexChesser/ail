@@ -57,8 +57,8 @@ function makeRecord(overrides: Partial<RunRecord> = {}): RunRecord {
     outcome: 'completed',
     totalCostUsd: 0.1,
     invocationPrompt: 'hello',
-    steps: [{ step_id: 'invocation', prompt: 'hello', response: 'hi', cost_usd: 0.1,
-      input_tokens: 10, output_tokens: 5, runner_session_id: null,
+    steps: [{ step_id: 'invocation', event_type: null, prompt: 'hello', response: 'hi', cost_usd: 0.1,
+      input_tokens: 10, output_tokens: 5, latency_ms: null, runner_session_id: null,
       stdout: null, stderr: null, exit_code: null, thinking: null }],
     ...overrides,
   };
