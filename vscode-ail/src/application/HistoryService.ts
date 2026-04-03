@@ -126,6 +126,21 @@ export class HistoryService {
     return this._fetchLogs({ limit });
   }
 
+  /**
+   * Return the rolling average cost (in USD) of the N most recent completed
+   * runs that have a positive cost. Returns 0 if there are no such runs.
+   */
+  async getRecentAverageCost(n: number): Promise<number> {
+    const records = await this._fetchLogs({ limit: n });
+    const costs = records
+      .filter((r) => r.outcome === 'completed' && r.totalCostUsd > 0)
+      .map((r) => r.totalCostUsd);
+    if (costs.length === 0) {
+      return 0;
+    }
+    return costs.reduce((sum, c) => sum + c, 0) / costs.length;
+  }
+
   /** Return a single run record by runId. */
   async getRunDetail(runId: string): Promise<RunRecord | undefined> {
     // Search by session prefix — ail logs --session <prefix>
@@ -143,7 +158,7 @@ export class HistoryService {
 
   // ── Private ─────────────────────────────────────────────────────────────────
 
-  private async _fetchLogs(opts: {
+  protected async _fetchLogs(opts: {
     limit?: number;
     session?: string;
     query?: string;
