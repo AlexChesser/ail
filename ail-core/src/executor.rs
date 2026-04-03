@@ -252,6 +252,8 @@ fn execute_inner(
                         model: step.model.clone(),
                         base_url: None,
                         auth_token: None,
+                        input_cost_per_1k: None,
+                        output_cost_per_1k: None,
                     })
                     .merge(session.cli_provider.clone());
 
@@ -562,6 +564,8 @@ pub fn execute_with_control(
                         model: step.model.clone(),
                         base_url: None,
                         auth_token: None,
+                        input_cost_per_1k: None,
+                        output_cost_per_1k: None,
                     })
                     .merge(session.cli_provider.clone());
 
