@@ -237,7 +237,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             return;
           }
           const out = services.outputChannel;
-          out.show(true);
           out.appendLine(`\n${"─".repeat(60)}`);
           out.appendLine(`Resolved pipeline: ${finalPath}`);
           out.appendLine(stdout);
