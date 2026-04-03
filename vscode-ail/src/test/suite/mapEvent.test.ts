@@ -60,6 +60,19 @@ suite('mapAilEvent', () => {
     assert.deepStrictEqual(mapAilEvent(event), { type: 'stream_delta', text: 'hello' });
   });
 
+  test('runner_event with cost_update maps to cost_update', () => {
+    const event: AilEvent = {
+      type: 'runner_event',
+      event: { type: 'cost_update', cost_usd: 0.05, input_tokens: 1000, output_tokens: 500 },
+    };
+    assert.deepStrictEqual(mapAilEvent(event), {
+      type: 'cost_update',
+      costUsd: 0.05,
+      inputTokens: 1000,
+      outputTokens: 500,
+    });
+  });
+
   test('runner_event with thinking returns undefined', () => {
     const event: AilEvent = {
       type: 'runner_event',

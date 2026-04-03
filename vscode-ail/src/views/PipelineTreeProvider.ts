@@ -56,13 +56,26 @@ class BrowseItem extends vscode.TreeItem {
   }
 }
 
+class CreatePipelineItem extends vscode.TreeItem {
+  constructor() {
+    super("Create a pipeline…", vscode.TreeItemCollapsibleState.None);
+    this.iconPath = new vscode.ThemeIcon("add");
+    this.tooltip = "Create a new .ail.yaml pipeline from a template";
+    this.contextValue = "ailCreatePipeline";
+    this.command = {
+      command: "ail.createPipeline",
+      title: "Create Pipeline from Template",
+    };
+  }
+}
+
 // ── Provider ─────────────────────────────────────────────────────────────────
 
 export class PipelineTreeProvider
-  implements vscode.TreeDataProvider<PipelineItem | BrowseItem>
+  implements vscode.TreeDataProvider<PipelineItem | BrowseItem | CreatePipelineItem>
 {
   private _onDidChangeTreeData = new vscode.EventEmitter<
-    PipelineItem | BrowseItem | undefined | null
+    PipelineItem | BrowseItem | CreatePipelineItem | undefined | null
   >();
   readonly onDidChangeTreeData = this._onDidChangeTreeData.event;
 
@@ -91,11 +104,11 @@ export class PipelineTreeProvider
     this._onDidChangeTreeData.fire(undefined);
   }
 
-  getTreeItem(element: PipelineItem | BrowseItem): vscode.TreeItem {
+  getTreeItem(element: PipelineItem | BrowseItem | CreatePipelineItem): vscode.TreeItem {
     return element;
   }
 
-  getChildren(): (PipelineItem | BrowseItem)[] {
+  getChildren(): (PipelineItem | BrowseItem | CreatePipelineItem)[] {
     if (this._pipelines.length === 0) {
       this._pipelines = discoverPipelines();
     }
@@ -108,9 +121,12 @@ export class PipelineTreeProvider
       if (!all.includes(extra)) all.push(extra);
     }
 
-    const items: (PipelineItem | BrowseItem)[] = all.map(
+    const items: (PipelineItem | BrowseItem | CreatePipelineItem)[] = all.map(
       (p) => new PipelineItem(p, p === active)
     );
+    if (all.length === 0) {
+      items.push(new CreatePipelineItem());
+    }
     items.push(new BrowseItem());
     return items;
   }

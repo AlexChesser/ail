@@ -45,6 +45,14 @@ interface RunContext {
   currentStepId: string;
   /** Whether the current step's OUTPUT: prefix has been emitted yet. */
   outputPrefixEmitted: boolean;
+  /** Cumulative cost in USD for this run. */
+  costUsd: number;
+  /** Number of steps that have completed (or failed/skipped). */
+  completedSteps: number;
+  /** Total steps in this run (set from the first step_started event). */
+  totalSteps: number;
+  /** Whether the cost warning threshold has already fired for this run. */
+  costWarningSent: boolean;
 }
 
 export class RunnerService {
@@ -57,6 +65,10 @@ export class RunnerService {
   private _stepsView: StepsTreeProvider | undefined;
   private _statusBarItem: vscode.StatusBarItem | undefined;
   private _onRunComplete: (() => void) | undefined;
+  /** Summary of the most recently completed run, for post-run status bar display. */
+  private _lastRunSummary: { costUsd: number; completed: number; total: number } | undefined;
+  /** Timer to hide the status bar after a completed run. */
+  private _statusBarHideTimer: ReturnType<typeof setTimeout> | undefined;
 
   constructor(ctx: ServiceContext, bus: EventBus, deps?: RunnerDeps) {
     this._ctx = ctx;
@@ -108,6 +120,10 @@ export class RunnerService {
       startTime: Date.now(),
       currentStepId: 'invocation',
       outputPrefixEmitted: false,
+      costUsd: 0,
+      completedSteps: 0,
+      totalSteps: 0,
+      costWarningSent: false,
     };
     this._activeRuns.set(runId, runCtx);
 
@@ -116,11 +132,12 @@ export class RunnerService {
     this._stepsView?.resetStatuses();
 
     const out = this._ctx.outputChannel;
-    out.show(true);
+    const ts = () => new Date().toLocaleTimeString('en', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    const logLine = (stepId: string, text: string) => out.appendLine(`[${ts()}] [${stepId}] ${text}`);
     out.appendLine(`\n${'─'.repeat(60)}`);
-    out.appendLine(`ail run [${runId}] — ${new Date().toLocaleTimeString()}`);
-    out.appendLine(`Pipeline: ${pipelinePath}`);
-    out.appendLine(`Prompt: ${prompt}`);
+    logLine('ail', `run [${runId}]`);
+    logLine('ail', `pipeline: ${pipelinePath}`);
+    logLine('ail', `prompt: ${prompt}`);
 
     // Feed full-fidelity AilEvents to the panel and emit live-trace lines for
     // thinking blocks and tool calls.
@@ -133,14 +150,14 @@ export class RunnerService {
         if (inner.type === 'thinking') {
           // Emit a THINKING: prefix for each thinking block (collapsed to one line)
           const summary = inner.text.replace(/\n/g, ' ').slice(0, 120);
-          out.appendLine(`[${runCtx.currentStepId}] THINKING: ${summary}`);
+          logLine(runCtx.currentStepId, `THINKING: ${summary}`);
           // The next stream_delta will need a fresh OUTPUT: prefix
           runCtx.outputPrefixEmitted = false;
         } else if (inner.type === 'tool_use') {
-          out.appendLine(`[${runCtx.currentStepId}] TOOL: ${inner.tool_name}`);
+          logLine(runCtx.currentStepId, `TOOL: ${inner.tool_name}`);
           runCtx.outputPrefixEmitted = false;
         } else if (inner.type === 'tool_result') {
-          out.appendLine(`[${runCtx.currentStepId}] TOOL RESULT: ${inner.tool_name}`);
+          logLine(runCtx.currentStepId, `TOOL RESULT: ${inner.tool_name}`);
           runCtx.outputPrefixEmitted = false;
         }
       }
@@ -150,23 +167,44 @@ export class RunnerService {
       // Drive EventBus
       this._bus.emit(runnerEvent);
 
-      // Drive steps view
+      // Drive steps view + cost/progress tracking
       switch (runnerEvent.type) {
         case 'step_started':
           this._stepsView?.setStepStatus(runnerEvent.stepId, 'running');
+          runCtx.totalSteps = runnerEvent.totalSteps;
+          this._updateStatusBar();
           break;
         case 'step_completed':
           this._stepsView?.setStepStatus(runnerEvent.stepId, 'completed');
+          runCtx.completedSteps++;
+          this._updateStatusBar();
           break;
         case 'step_failed':
           this._stepsView?.setStepStatus(runnerEvent.stepId, 'failed');
+          runCtx.completedSteps++;
+          this._updateStatusBar();
           break;
         case 'step_skipped':
           this._stepsView?.setStepStatus(runnerEvent.stepId, 'skipped');
+          runCtx.completedSteps++;
+          this._updateStatusBar();
           break;
         case 'hitl_gate_reached':
           this._stepsView?.setStepStatus(runnerEvent.stepId, 'hitl');
           break;
+        case 'cost_update': {
+          runCtx.costUsd = runnerEvent.costUsd;
+          this._updateStatusBar();
+          // Cost warning threshold
+          const threshold = vscode.workspace.getConfiguration('ail').get<number>('costWarningThreshold', 0);
+          if (threshold > 0 && runnerEvent.costUsd >= threshold && !runCtx.costWarningSent) {
+            runCtx.costWarningSent = true;
+            void vscode.window.showWarningMessage(
+              `ail: Run cost $${runnerEvent.costUsd.toFixed(2)} has exceeded the warning threshold of $${threshold.toFixed(2)}.`
+            );
+          }
+          break;
+        }
       }
 
       // Drive output channel — live trace with step-prefixed lines
@@ -175,7 +213,7 @@ export class RunnerService {
           const e = runnerEvent as Extract<RunnerEvent, { type: 'step_started' }>;
           runCtx.currentStepId = e.stepId;
           runCtx.outputPrefixEmitted = false;
-          out.appendLine(`\n[${e.stepIndex + 1}/${e.totalSteps}] ${e.stepId} — running...`);
+          logLine('ail', `[${e.stepIndex + 1}/${e.totalSteps}] ${e.stepId} — running`);
           break;
         }
         case 'step_completed':
@@ -184,35 +222,35 @@ export class RunnerService {
             out.appendLine('');
             runCtx.outputPrefixEmitted = false;
           }
-          out.appendLine(`    ✓ ${runnerEvent.stepId}`);
+          logLine(runnerEvent.stepId, '✓ completed');
           break;
         case 'step_skipped':
-          out.appendLine(`    ⊘ ${runnerEvent.stepId} (skipped)`);
+          logLine(runnerEvent.stepId, '⊘ skipped');
           break;
         case 'step_failed':
           if (runCtx.outputPrefixEmitted) {
             out.appendLine('');
             runCtx.outputPrefixEmitted = false;
           }
-          out.appendLine(`    ✗ ${runnerEvent.stepId}: ${runnerEvent.error}`);
+          logLine(runnerEvent.stepId, `✗ failed: ${runnerEvent.error}`);
           break;
         case 'hitl_gate_reached':
-          out.appendLine(`\n⏸ HITL gate: ${runnerEvent.stepId} — waiting for approval`);
+          logLine(runnerEvent.stepId, '⏸ waiting for approval');
           break;
         case 'stream_delta': {
           // Emit "[step_id] OUTPUT: " prefix before the first fragment of each step.
           if (!runCtx.outputPrefixEmitted) {
-            out.append(`[${runCtx.currentStepId}] OUTPUT: `);
+            out.append(`[${ts()}] [${runCtx.currentStepId}] OUTPUT: `);
             runCtx.outputPrefixEmitted = true;
           }
           out.append(runnerEvent.text);
           break;
         }
         case 'pipeline_completed':
-          out.appendLine(`\n✓ Pipeline completed`);
+          logLine('ail', '✓ pipeline completed');
           break;
         case 'error':
-          out.appendLine(`\n✗ Error: ${runnerEvent.message}`);
+          logLine('ail', `✗ error: ${runnerEvent.message}`);
           break;
       }
     });
@@ -233,6 +271,12 @@ export class RunnerService {
       rawDisposable.dispose();
       disposable.dispose();
       panel.onRunComplete(runId);
+      // Save summary before deleting the run context
+      this._lastRunSummary = {
+        costUsd: runCtx.costUsd,
+        completed: runCtx.completedSteps,
+        total: runCtx.totalSteps,
+      };
       this._activeRuns.delete(runId);
       this._updateStatusBar();
       if (this._activeRuns.size === 0) {
@@ -270,19 +314,53 @@ export class RunnerService {
 
   private _updateStatusBar(): void {
     if (!this._statusBarItem) return;
-    const count = this._activeRuns.size;
-    if (count === 0) {
-      this._statusBarItem.hide();
-    } else if (count === 1) {
-      this._statusBarItem.text = '$(loading~spin) ail: running';
-      this._statusBarItem.tooltip = 'ail pipeline is running — click to stop';
-      this._statusBarItem.command = 'ail.stopPipeline';
-      this._statusBarItem.show();
-    } else {
-      this._statusBarItem.text = `$(loading~spin) ail: ${count} running`;
-      this._statusBarItem.tooltip = `${count} ail pipelines are running — click to stop the most recent`;
-      this._statusBarItem.command = 'ail.stopPipeline';
-      this._statusBarItem.show();
+
+    // Cancel any pending hide timer — a new run starting should reset it.
+    if (this._statusBarHideTimer !== undefined) {
+      clearTimeout(this._statusBarHideTimer);
+      this._statusBarHideTimer = undefined;
     }
+
+    const count = this._activeRuns.size;
+
+    if (count === 0) {
+      // Show last run summary for 30 seconds after completion.
+      if (this._lastRunSummary) {
+        const s = this._lastRunSummary;
+        const costStr = s.costUsd > 0 ? `$${s.costUsd.toFixed(2)}` : '—';
+        const stepStr = s.total > 0 ? `${s.completed}/${s.total}` : '';
+        this._statusBarItem.text = `ail: ${costStr}${stepStr ? ` | ${stepStr} ✓` : ' ✓'}`;
+        this._statusBarItem.tooltip = 'ail: last run complete — click to open run monitor';
+        this._statusBarItem.command = 'ail.openUnifiedPanel';
+        this._statusBarItem.show();
+        this._statusBarHideTimer = setTimeout(() => {
+          this._statusBarItem?.hide();
+          this._statusBarHideTimer = undefined;
+        }, 30_000);
+      } else {
+        this._statusBarItem.hide();
+      }
+      return;
+    }
+
+    // Aggregate cost and step progress across all active runs.
+    let totalCost = 0;
+    let completedSteps = 0;
+    let totalSteps = 0;
+    for (const ctx of this._activeRuns.values()) {
+      totalCost += ctx.costUsd;
+      completedSteps += ctx.completedSteps;
+      totalSteps += ctx.totalSteps;
+    }
+
+    const costStr = totalCost > 0 ? `$${totalCost.toFixed(2)}` : '—';
+    const stepStr = totalSteps > 0 ? ` | ${completedSteps}/${totalSteps}` : '';
+    const prefix = count === 1 ? '$(loading~spin) ail:' : `$(loading~spin) ail (${count}):`;
+    this._statusBarItem.text = `${prefix} ${costStr}${stepStr}`;
+    this._statusBarItem.tooltip = count === 1
+      ? 'ail pipeline running — click to open run monitor'
+      : `${count} ail pipelines running — click to open run monitor`;
+    this._statusBarItem.command = 'ail.openUnifiedPanel';
+    this._statusBarItem.show();
   }
 }

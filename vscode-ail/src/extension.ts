@@ -22,11 +22,21 @@ import { HistoryService } from "./application/HistoryService";
 import { UnifiedPanel } from "./panels/UnifiedPanel";
 import { RunCommand } from "./commands/RunCommand";
 import { ValidateCommand } from "./commands/ValidateCommand";
+import { CreatePipelineCommand } from "./commands/CreatePipelineCommand";
 import { resolvePipelinePath } from "./utils/pipelinePath";
+import { discoverPipelines, pipelineLabel } from "./pipeline";
+import { onDidChangeActivePipeline } from "./state";
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
   // Persistent active pipeline state
   initState(context);
+
+  // Register CreatePipelineCommand before binary resolution so it works
+  // even in workspaces where the ail binary is not yet installed.
+  const createPipelineCmd = new CreatePipelineCommand(context);
+  context.subscriptions.push(
+    vscode.commands.registerCommand("ail.createPipeline", () => createPipelineCmd.execute())
+  );
 
   // Status bar item — shows running state.
   const statusBarItem = vscode.window.createStatusBarItem(
@@ -85,6 +95,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     historyProvider.refresh();
     void UnifiedPanel.refreshHistory();
   });
+
+  // Keep the pipeline context indicator and run button state in sync.
+  const updateChatPipelineContext = () => {
+    const pipelinePath = resolvePipelinePath();
+    chatProvider.setPipelineContext(pipelinePath ? pipelineLabel(pipelinePath) : undefined);
+    chatProvider.setEnabled(!!pipelinePath, pipelinePath ? undefined : 'No pipeline');
+  };
+  context.subscriptions.push(onDidChangeActivePipeline(updateChatPipelineContext));
+  // Set initial state once the webview is likely ready (defer one tick).
+  setTimeout(updateChatPipelineContext, 0);
 
   // ── Commands ───────────────────────────────────────────────────────────────
 
@@ -224,6 +244,24 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   );
 
   registerCompletions(context);
+
+  // First-run onboarding: if the user has never created a pipeline and there are none
+  // in the workspace, prompt them to create one. Uses globalState so it fires at most
+  // once across all workspaces (the user already knows about templates after that).
+  const hasCreatedPipeline = context.globalState.get<boolean>('ail.hasCreatedPipeline', false);
+  if (!hasCreatedPipeline && discoverPipelines().length === 0) {
+    const action = await vscode.window.showInformationMessage(
+      'Welcome to ail! No pipeline found in this workspace.',
+      'Create Pipeline',
+      'Dismiss'
+    );
+    if (action === 'Create Pipeline') {
+      await vscode.commands.executeCommand('ail.createPipeline');
+    } else if (action === 'Dismiss') {
+      // Suppress future welcome messages even without creating a pipeline.
+      await context.globalState.update('ail.hasCreatedPipeline', true);
+    }
+  }
 
   console.log(`ail extension activated — binary: ${binary.path} (${binary.version})`);
 }

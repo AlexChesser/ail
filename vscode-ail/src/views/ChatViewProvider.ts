@@ -23,12 +23,26 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         void vscode.commands.executeCommand("ail.runWithPrompt", msg.prompt);
       } else if (msg.type === "stop") {
         void vscode.commands.executeCommand("ail.stopPipeline");
+      } else if (msg.type === "openPipeline") {
+        void vscode.commands.executeCommand("ail.browsePipeline");
+      } else if (msg.type === "createPipeline") {
+        void vscode.commands.executeCommand("ail.createPipeline");
       }
     });
   }
 
   setRunning(running: boolean): void {
     this._view?.webview.postMessage({ type: "setRunning", running });
+  }
+
+  /** Update the pipeline context indicator below the Run button. */
+  setPipelineContext(label: string | undefined): void {
+    this._view?.webview.postMessage({ type: "setPipelineContext", label: label ?? null });
+  }
+
+  /** Enable or disable the Run button with an explanatory reason label. */
+  setEnabled(enabled: boolean, reason?: string): void {
+    this._view?.webview.postMessage({ type: "setEnabled", enabled, reason: reason ?? null });
   }
 
   /** Pre-populate the textarea with a prompt (used by Fork from history). */
@@ -101,21 +115,54 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     font-size: 11px;
     color: var(--vscode-descriptionForeground);
   }
+  #pipelineCtx {
+    margin-top: 6px;
+    font-size: 11px;
+    color: var(--vscode-descriptionForeground);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  #pipelineCtx a {
+    color: var(--vscode-textLink-foreground);
+    cursor: pointer;
+    text-decoration: none;
+  }
+  #pipelineCtx a:hover { text-decoration: underline; }
+  #runReason {
+    font-size: 11px;
+    color: var(--vscode-descriptionForeground);
+    margin-top: 2px;
+    min-height: 14px;
+  }
 </style>
 </head>
 <body>
-<textarea id="prompt" placeholder="Enter prompt for ail pipeline…"></textarea>
+<textarea id="prompt" placeholder="Enter your prompt — ail will run the pipeline after the agent responds."></textarea>
 <div class="row">
   <button id="runBtn">Run</button>
   <button id="stopBtn">Stop</button>
 </div>
+<div id="runReason"></div>
 <p class="hint">Ctrl+Enter to send</p>
+<div id="pipelineCtx"></div>
 
 <script>
   const vscode = acquireVsCodeApi();
-  const textarea = document.getElementById('prompt');
-  const runBtn   = document.getElementById('runBtn');
-  const stopBtn  = document.getElementById('stopBtn');
+  const textarea    = document.getElementById('prompt');
+  const runBtn      = document.getElementById('runBtn');
+  const stopBtn     = document.getElementById('stopBtn');
+  const runReason   = document.getElementById('runReason');
+  const pipelineCtx = document.getElementById('pipelineCtx');
+
+  // Track disabled reason separately from running state
+  let _disabledReason = null;
+
+  function setRunBtnState() {
+    const disabled = !!_disabledReason;
+    runBtn.disabled = disabled;
+    runReason.textContent = _disabledReason || '';
+  }
 
   function send() {
     const prompt = textarea.value.trim();
@@ -140,11 +187,27 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   window.addEventListener('message', (e) => {
     const msg = e.data;
     if (msg.type === 'setRunning') {
-      runBtn.disabled = msg.running;
+      _disabledReason = msg.running ? 'Running…' : null;
       stopBtn.classList.toggle('visible', msg.running);
+      setRunBtnState();
+    } else if (msg.type === 'setEnabled') {
+      _disabledReason = msg.enabled ? null : (msg.reason || 'Unavailable');
+      setRunBtnState();
     } else if (msg.type === 'populate') {
       textarea.value = msg.prompt || '';
       textarea.focus();
+    } else if (msg.type === 'setPipelineContext') {
+      if (msg.label) {
+        pipelineCtx.innerHTML = 'Pipeline: <a id="pipelineLink">' + msg.label + '</a>';
+        document.getElementById('pipelineLink').addEventListener('click', () => {
+          vscode.postMessage({ type: 'openPipeline' });
+        });
+      } else {
+        pipelineCtx.innerHTML = '<a id="createLink">No pipeline found — Create one?</a>';
+        document.getElementById('createLink').addEventListener('click', () => {
+          vscode.postMessage({ type: 'createPipeline' });
+        });
+      }
     }
   });
 </script>

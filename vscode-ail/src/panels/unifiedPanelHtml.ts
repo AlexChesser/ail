@@ -680,7 +680,7 @@ export function getUnifiedPanelHtml(): string {
     if (!telemetry) { detailChips.innerHTML = ''; return; }
     const parts = [];
     if (telemetry.inputTokens != null || telemetry.outputTokens != null) {
-      parts.push('<span class="chip">⬆' + (telemetry.inputTokens || 0) + ' ⬇' + (telemetry.outputTokens || 0) + '</span>');
+      parts.push('<span class="chip">⬆' + (telemetry.inputTokens ?? '—') + ' ⬇' + (telemetry.outputTokens ?? '—') + '</span>');
     }
     if (telemetry.costUsd != null && telemetry.costUsd > 0) {
       parts.push('<span class="chip">$' + telemetry.costUsd.toFixed(4) + '</span>');

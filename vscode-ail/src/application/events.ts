@@ -14,4 +14,5 @@ export type RunnerEvent =
   | { type: 'step_failed'; stepId: string; error: string }
   | { type: 'hitl_gate_reached'; stepId: string }
   | { type: 'pipeline_completed' }
-  | { type: 'error'; message: string };
+  | { type: 'error'; message: string }
+  | { type: 'cost_update'; costUsd: number; inputTokens: number; outputTokens: number };

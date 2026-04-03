@@ -40,6 +40,14 @@ export function mapAilEvent(event: AilEvent): RunnerEvent | undefined {
       if (event.event.type === 'stream_delta') {
         return { type: 'stream_delta', text: event.event.text };
       }
+      if (event.event.type === 'cost_update') {
+        return {
+          type: 'cost_update',
+          costUsd: event.event.cost_usd,
+          inputTokens: event.event.input_tokens,
+          outputTokens: event.event.output_tokens,
+        };
+      }
       return undefined;
     case 'pipeline_completed':
       return { type: 'pipeline_completed' };
