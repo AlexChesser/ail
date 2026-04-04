@@ -52,7 +52,9 @@ pub trait Runner { fn invoke(&self, prompt: &str, options: InvokeOptions) -> Res
 pub struct RunnerFactory;
 // RunnerFactory::build(name, headless) -> Result<Box<dyn Runner + Send>, AilError>
 // RunnerFactory::build_default(headless) -> Result<Box<dyn Runner + Send>, AilError>
-pub struct RunResult { pub response: String, pub cost_usd: Option<f64>, pub session_id: Option<String>, pub input_tokens: u64, pub output_tokens: u64 }
+pub struct ToolEvent { pub event_type: String, pub tool_name: String, pub tool_id: String, pub content_json: String, pub seq: i64 }
+// event_type: "tool_call" or "tool_result"; tool_name is empty for tool_result (not in wire format)
+pub struct RunResult { pub response: String, pub cost_usd: Option<f64>, pub session_id: Option<String>, pub input_tokens: u64, pub output_tokens: u64, pub thinking: Option<String>, pub model: Option<String>, pub tool_events: Vec<ToolEvent> }
 pub type PermissionResponder = Arc<dyn Fn(PermissionRequest) -> PermissionResponse + Send + Sync>;
 pub struct PermissionRequest { pub display_name: String, pub display_detail: String }
 // display_detail is pre-formatted by the runner from its native tool input format.
@@ -77,7 +79,8 @@ pub enum ExecuteOutcome { Completed, Break { step_id: String } }
 
 // Session
 pub struct Session { pub run_id: String, pub pipeline: Pipeline, pub invocation_prompt: String, pub turn_log: TurnLog, pub cli_provider: ProviderConfig }
-// TurnEntry carries both prompt-step fields (response, runner_session_id) and context-step fields (stdout, stderr, exit_code)
+// TurnEntry carries prompt-step fields (response, runner_session_id, thinking, tool_events) and context-step fields (stdout, stderr, exit_code)
+// tool_events: Vec<ToolEvent> — populated from RunResult.tool_events for prompt steps; empty for context/action/sub-pipeline steps
 
 // Error
 pub struct AilError { pub error_type: &'static str, pub title: &'static str, pub detail: String, pub context: Option<ErrorContext> }

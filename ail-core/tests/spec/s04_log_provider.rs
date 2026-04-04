@@ -20,6 +20,7 @@ mod log_provider_tests {
             stderr: None,
             exit_code: None,
             thinking: None,
+            tool_events: vec![],
         }
     }
 

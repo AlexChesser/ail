@@ -21,6 +21,7 @@ fn test_version_header_is_first_line() {
         stderr: None,
         exit_code: None,
         recorded_at: 1000,
+        tool_events: vec![],
     }];
 
     let output = format_run_as_ail_log(&steps);
@@ -44,6 +45,7 @@ fn test_turn_header_format() {
         stderr: None,
         exit_code: None,
         recorded_at: 1000,
+        tool_events: vec![],
     }];
 
     let output = format_run_as_ail_log(&steps);
@@ -69,6 +71,7 @@ fn test_multiple_turns_numbered_sequentially() {
             stderr: None,
             exit_code: None,
             recorded_at: 1000,
+            tool_events: vec![],
         },
         StepRow {
             step_id: "step_2".to_string(),
@@ -83,6 +86,7 @@ fn test_multiple_turns_numbered_sequentially() {
             stderr: None,
             exit_code: None,
             recorded_at: 2000,
+            tool_events: vec![],
         },
     ];
 
@@ -106,6 +110,7 @@ fn test_thinking_block_format() {
         stderr: None,
         exit_code: None,
         recorded_at: 1000,
+        tool_events: vec![],
     }];
 
     let output = format_run_as_ail_log(&steps);
@@ -130,6 +135,7 @@ fn test_response_text_is_plain() {
         stderr: None,
         exit_code: None,
         recorded_at: 1000,
+        tool_events: vec![],
     }];
 
     let output = format_run_as_ail_log(&steps);
@@ -156,6 +162,7 @@ fn test_cost_line_format_with_tokens() {
         stderr: None,
         exit_code: None,
         recorded_at: 1000,
+        tool_events: vec![],
     }];
 
     let output = format_run_as_ail_log(&steps);
@@ -180,6 +187,7 @@ fn test_cost_line_formatting_four_decimals() {
         stderr: None,
         exit_code: None,
         recorded_at: 1000,
+        tool_events: vec![],
     }];
 
     let output = format_run_as_ail_log(&steps);
@@ -202,6 +210,7 @@ fn test_error_callout_format() {
         stderr: None,
         exit_code: None,
         recorded_at: 1000,
+        tool_events: vec![],
     }];
 
     let output = format_run_as_ail_log(&steps);
@@ -234,6 +243,7 @@ fn test_no_html_in_any_format() {
         stderr: None,
         exit_code: None,
         recorded_at: 1000,
+        tool_events: vec![],
     }];
 
     let output = format_run_as_ail_log(&steps);
@@ -280,6 +290,7 @@ fn test_multiple_rows_per_step_aggregated() {
             stderr: None,
             exit_code: None,
             recorded_at: 1000,
+            tool_events: vec![],
         },
         StepRow {
             step_id: "my_step".to_string(),
@@ -294,6 +305,7 @@ fn test_multiple_rows_per_step_aggregated() {
             stderr: None,
             exit_code: None,
             recorded_at: 2000,
+            tool_events: vec![],
         },
     ];
 
@@ -325,6 +337,7 @@ fn test_step_without_response() {
         stderr: None,
         exit_code: None,
         recorded_at: 1000,
+        tool_events: vec![],
     }];
 
     let output = format_run_as_ail_log(&steps);
@@ -347,6 +360,7 @@ fn test_cost_line_placement_after_response() {
         stderr: None,
         exit_code: None,
         recorded_at: 1000,
+        tool_events: vec![],
     }];
 
     let output = format_run_as_ail_log(&steps);
@@ -374,6 +388,7 @@ fn test_real_world_pipeline_output() {
             stderr: None,
             exit_code: None,
             recorded_at: 1000,
+            tool_events: vec![],
         },
         StepRow {
             step_id: "code_review".to_string(),
@@ -388,6 +403,7 @@ fn test_real_world_pipeline_output() {
             stderr: None,
             exit_code: None,
             recorded_at: 2000,
+            tool_events: vec![],
         },
     ];
 

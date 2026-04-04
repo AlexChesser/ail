@@ -122,6 +122,21 @@ impl SqliteProvider {
             conn.execute("ALTER TABLE sessions ADD COLUMN project_hash TEXT", [])?;
         }
 
+        // Create run_events table if it doesn't exist.
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS run_events (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                run_id       TEXT NOT NULL,
+                step_id      TEXT NOT NULL,
+                seq          INTEGER NOT NULL,
+                event_type   TEXT NOT NULL,
+                tool_name    TEXT NOT NULL,
+                tool_id      TEXT NOT NULL,
+                content_json TEXT NOT NULL,
+                recorded_at  TEXT NOT NULL
+            )",
+        )?;
+
         Ok(())
     }
 
@@ -223,6 +238,45 @@ impl SqliteProvider {
                  WHERE run_id = ?2",
                 params![cost_usd, run_id],
             )?;
+        }
+
+        // Insert tool events into run_events table.
+        if let Some(tool_events) = value.get("tool_events").and_then(|v| v.as_array()) {
+            let recorded_at = now_ms.to_string();
+            for te in tool_events {
+                let te_seq = te.get("seq").and_then(|v| v.as_i64()).unwrap_or(0);
+                let te_event_type = te
+                    .get("event_type")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+                let te_tool_name = te
+                    .get("tool_name")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+                let te_tool_id = te
+                    .get("tool_id")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+                let te_content_json = te
+                    .get("content_json")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+                self.conn.execute(
+                    "INSERT INTO run_events
+                     (run_id, step_id, seq, event_type, tool_name, tool_id, content_json, recorded_at)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                    params![
+                        run_id,
+                        step_id,
+                        te_seq,
+                        te_event_type,
+                        te_tool_name,
+                        te_tool_id,
+                        te_content_json,
+                        recorded_at,
+                    ],
+                )?;
+            }
         }
 
         Ok(())

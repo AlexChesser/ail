@@ -69,10 +69,10 @@ The following directives are **required** for parsers to recognize:
 
 | Directive | Attributes | Content | Purpose |
 |-----------|-----------|---------|---------|
-| `:::thinking` | (none) | Plain text | Model's internal reasoning; only in v1 if thinking was enabled |
-| `:::tool-call` | `name="<tool_name>"` | JSON | Outbound tool invocation (deferred to v2; v1 does not emit) |
-| `:::tool-result` | `name="<tool_name>"` | Plain text or JSON | Tool result returned to model (deferred to v2; v1 does not emit) |
-| `:::stdio` | `stream="stdout\|stderr"` | Plain text | Subprocess output from context steps (deferred to v2; v1 does not emit) |
+| `:::thinking` | (none) | Plain text | Model's internal reasoning; only emitted if thinking was enabled |
+| `:::tool-call` | `name="<tool_name>"` | JSON | Outbound tool invocation; emitted in seq order within a turn |
+| `:::tool-result` | `name="<tool_name>"` | Plain text or JSON | Tool result returned to model; emitted in seq order within a turn |
+| `:::stdio` | `stream="stdout\|stderr"` | Plain text | Subprocess output from `context: shell:` steps |
 
 ### Version Compatibility Rules
 
@@ -207,29 +207,50 @@ Example:
 
 ---
 
-## 4.7 Version 1 Scope and Deferred Directives
+## 4.7 Version 1 Scope
 
 ### What v1 Emits
 
-In version 1.0, the ail-log formatter emits **only**:
+In version 1.0, the ail-log formatter emits:
 
 - Turn headers
 - Thinking blocks (`:::thinking` directive) — when extended thinking is enabled
+- Tool call/result pairs (`:::tool-call` / `:::tool-result` directives) — in seq order within a turn, from the `run_events` table
 - Response text (plain Markdown) — the model's final output
+- Subprocess stdio (`:::stdio` directives) — stdout and stderr from `context: shell:` steps
 - Cost lines
 - Error callouts (if step failed)
 
-### Deferred to v2
+### Turn Block Ordering
 
-The following directives are **specified in this document for forward compatibility** but are **not emitted in v1** because they require a future database schema (`run_events` table):
+Within each turn block the elements appear in this order:
 
-- `:::tool-call` — requires storing individual tool invocations
-- `:::tool-result` — requires storing tool result payloads
-- `:::stdio` — requires storing subprocess I/O streams
+1. `:::thinking` block (if thinking was present)
+2. `:::tool-call` / `:::tool-result` pairs, interleaved in `seq` order (if any tool calls occurred)
+3. Response text (plain Markdown)
+4. `:::stdio stream="stdout"` block (if non-empty stdout from a context step)
+5. `:::stdio stream="stderr"` block (if non-empty stderr from a context step)
+6. `---` + cost line (or `> [!WARNING]` error callout if the step failed)
 
-In v1, the SQLite `steps` table aggregates `thinking` + `response` per turn. Individual tool calls and results are not recorded. When the `run_events` table is added in v2, the formatter will emit these directives.
+### Database Schema: `run_events` Table
 
-**Implication for parsers:** v1 parsers will never encounter `:::tool-call`, `:::tool-result`, or `:::stdio` in real v1 output. But they must recognize these directive names (per §4.2) to remain compatible with v2 documents.
+Tool call and result events are stored in the `run_events` table in the SQLite database. The table is created automatically on first use and is backward-compatible with existing databases (the `get_run_steps_at` query guards against its absence for old databases).
+
+```sql
+CREATE TABLE IF NOT EXISTS run_events (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id       TEXT NOT NULL,
+    step_id      TEXT NOT NULL,
+    seq          INTEGER NOT NULL,
+    event_type   TEXT NOT NULL,   -- "tool_call" or "tool_result"
+    tool_name    TEXT NOT NULL,
+    tool_id      TEXT NOT NULL,
+    content_json TEXT NOT NULL,
+    recorded_at  TEXT NOT NULL
+)
+```
+
+**Backward compatibility:** Databases created before this table was added do not have `run_events`. The formatter checks for the table's existence before querying it and silently omits tool event directives if the table is absent.
 
 ---
 
@@ -431,7 +452,10 @@ v1 does not include timestamps. If needed in v2, a `recorded_at` directive or me
 | Version header | `ail-log/1` on line 1 | Yes | `ail-log/1` |
 | Turn header | `## Turn {n} — \`{step_id}\`` | Yes | `## Turn 1 — \`invocation\`` |
 | Thinking directive | `:::thinking` … `:::` | Only if enabled | `:::thinking\nReasoning...\n:::` |
+| Tool call directive | `:::tool-call name="…"` … `:::` | Only if tools used | `:::tool-call name="Read"\n{…}\n:::` |
+| Tool result directive | `:::tool-result name="…"` … `:::` | Only if tools used | `:::tool-result name="Read"\n…\n:::` |
 | Response text | Plain Markdown | Optional | `Here's the code...` |
+| Stdio directive | `:::stdio stream="stdout\|stderr"` … `:::` | Only if context step | `:::stdio stream="stderr"\n…\n:::` |
 | Cost line | `---\n_Cost: $X.XXXX \| {in}in / {out}out tokens_` | Yes | `_Cost: $0.001 \| 50in / 25out tokens_` |
 | Error callout | `> [!WARNING]\n> **Step failed:** {msg}` | Only if failed | `> [!WARNING]\n> **Step failed:** ...` |
 

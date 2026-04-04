@@ -202,6 +202,7 @@ mod tests {
             stderr: None,
             exit_code: None,
             thinking: None,
+            tool_events: vec![],
         });
     }
 
@@ -220,6 +221,7 @@ mod tests {
             stderr: Some(stderr.to_string()),
             exit_code: Some(code),
             thinking: None,
+            tool_events: vec![],
         });
     }
 

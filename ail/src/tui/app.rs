@@ -1174,6 +1174,7 @@ mod tests {
                 output_tokens: 0,
                 thinking: None,
                 model: None,
+                tool_events: vec![],
             }),
         });
         assert_eq!(a.stats.last_session_id.as_deref(), Some("abc123"));

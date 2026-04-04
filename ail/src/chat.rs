@@ -152,6 +152,7 @@ fn run_turn_stream(
                     stderr: None,
                     exit_code: None,
                     thinking: result.thinking,
+                    tool_events: result.tool_events,
                 });
             }
             Err(e) => {
@@ -538,6 +539,7 @@ pub fn run_chat_text(
                         stderr: None,
                         exit_code: None,
                         thinking: result.thinking,
+                        tool_events: result.tool_events,
                     });
                 }
                 Err(e) => return Err(e.detail),

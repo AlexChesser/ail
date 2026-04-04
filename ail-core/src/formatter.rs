@@ -64,8 +64,13 @@ fn format_step(output: &mut String, turn_number: usize, step_id: &str, rows: &[&
     let mut cost_usd: Option<f64> = None;
     let mut input_tokens: Option<i64> = None;
     let mut output_tokens: Option<i64> = None;
+    let mut stdout: Option<String> = None;
+    let mut stderr: Option<String> = None;
     let mut failed = false;
     let mut failure_detail = String::new();
+    // tool_events: collect from the step_completed row (has the richest data).
+    // Use the first row with non-empty tool_events.
+    let mut tool_events: &[crate::runner::ToolEvent] = &[];
 
     for row in rows {
         if let Some(t) = &row.thinking {
@@ -87,27 +92,67 @@ fn format_step(output: &mut String, turn_number: usize, step_id: &str, rows: &[&
         if row.output_tokens.is_some() {
             output_tokens = row.output_tokens;
         }
+        if row.stdout.is_some() {
+            stdout = row.stdout.clone();
+        }
+        if row.stderr.is_some() {
+            stderr = row.stderr.clone();
+        }
         if row.event_type == "step_failed" {
             failed = true;
             failure_detail = row.response.as_deref().unwrap_or("Step failed").to_string();
         }
+        if !row.tool_events.is_empty() {
+            tool_events = &row.tool_events;
+        }
     }
 
-    // Emit thinking block if present
+    // 1. Emit thinking block if present
     if !thinking.is_empty() {
         output.push_str("\n:::thinking\n");
         output.push_str(&thinking);
         output.push_str("\n:::\n");
     }
 
-    // Emit response text if present
+    // 2. Emit tool call/result pairs in seq order
+    for te in tool_events {
+        if te.event_type == "tool_call" {
+            output.push_str(&format!(
+                "\n:::tool-call name=\"{}\"\n{}\n:::\n",
+                te.tool_name, te.content_json
+            ));
+        } else if te.event_type == "tool_result" {
+            output.push_str(&format!(
+                "\n:::tool-result name=\"{}\"\n{}\n:::\n",
+                te.tool_name, te.content_json
+            ));
+        }
+    }
+
+    // 3. Emit response text if present
     if !response.is_empty() && !failed {
         output.push('\n');
         output.push_str(&response);
         output.push('\n');
     }
 
-    // Emit cost line or error callout
+    // 4. Emit stdio blocks for context steps
+    if let Some(ref out) = stdout {
+        if !out.is_empty() {
+            output.push_str("\n:::stdio stream=\"stdout\"\n");
+            output.push_str(out);
+            output.push_str("\n:::\n");
+        }
+    }
+    if let Some(ref err) = stderr {
+        if !err.is_empty() {
+            output.push_str("\n:::stdio stream=\"stderr\"\n");
+            output.push_str(err);
+            output.push_str("\n:::\n");
+        }
+    }
+
+    // 5. Emit cost line or error callout
     if failed {
         output.push_str("\n> [!WARNING]\n");
         output.push_str(&format!("> **Step failed:** {failure_detail}\n"));

@@ -27,6 +27,7 @@ impl Runner for StubRunner {
             output_tokens: 0,
             thinking: None,
             model: None,
+            tool_events: vec![],
         })
     }
 }
@@ -61,6 +62,7 @@ impl Runner for CountingStubRunner {
             output_tokens: 0,
             thinking: None,
             model: None,
+            tool_events: vec![],
         })
     }
 }

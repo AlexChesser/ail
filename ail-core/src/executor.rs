@@ -203,6 +203,7 @@ fn execute_sub_pipeline(
         stderr: None,
         exit_code: None,
         thinking: None,
+        tool_events: vec![],
     })
 }
 
@@ -303,6 +304,7 @@ fn execute_inner(
                     stderr: None,
                     exit_code: None,
                     thinking: result.thinking,
+                    tool_events: result.tool_events,
                 }
             }
 
@@ -360,6 +362,7 @@ fn execute_inner(
                     stderr: Some(stderr),
                     exit_code: Some(exit_code),
                     thinking: None,
+                    tool_events: vec![],
                 }
             }
 
@@ -630,6 +633,7 @@ pub fn execute_with_control(
                             stderr: None,
                             exit_code: None,
                             thinking: result.thinking,
+                            tool_events: result.tool_events,
                         }
                     }
                     Err(e) => {
@@ -706,6 +710,7 @@ pub fn execute_with_control(
                     stderr: Some(stderr),
                     exit_code: Some(exit_code),
                     thinking: None,
+                    tool_events: vec![],
                 }
             }
 

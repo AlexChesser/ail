@@ -163,6 +163,7 @@ pub fn spawn_backend(
                                     stderr: None,
                                     exit_code: None,
                                     thinking: result.thinking,
+                                    tool_events: result.tool_events,
                                 });
                                 let _ = event_tx.send(BackendEvent::Executor(
                                     ExecutorEvent::StepCompleted {
