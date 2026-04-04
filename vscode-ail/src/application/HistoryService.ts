@@ -58,7 +58,7 @@ function sessionToRunRecord(session: LogsSession): RunRecord | null {
   }
 
   const timestamp = typeof session.started_at === 'number'
-    ? session.started_at * 1000
+    ? session.started_at
     : 0;
 
   const pipelineSource = session.pipeline_source || 'unknown';
