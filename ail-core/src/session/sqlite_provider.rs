@@ -245,18 +245,9 @@ impl SqliteProvider {
             let recorded_at = now_ms.to_string();
             for te in tool_events {
                 let te_seq = te.get("seq").and_then(|v| v.as_i64()).unwrap_or(0);
-                let te_event_type = te
-                    .get("event_type")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("");
-                let te_tool_name = te
-                    .get("tool_name")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("");
-                let te_tool_id = te
-                    .get("tool_id")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("");
+                let te_event_type = te.get("event_type").and_then(|v| v.as_str()).unwrap_or("");
+                let te_tool_name = te.get("tool_name").and_then(|v| v.as_str()).unwrap_or("");
+                let te_tool_id = te.get("tool_id").and_then(|v| v.as_str()).unwrap_or("");
                 let te_content_json = te
                     .get("content_json")
                     .and_then(|v| v.as_str())

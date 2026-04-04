@@ -1014,7 +1014,7 @@ mod tests {
         let mut session = make_session(vec![
             prompt_step("step_a", "First prompt"),
             prompt_step("step_b", "Second prompt"),
-        ]);
+        ]).with_pipeline("subpipeline");
         let runner = StubRunner::new("stub");
         execute(&mut session, &runner).unwrap();
 

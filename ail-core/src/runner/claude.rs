@@ -89,13 +89,13 @@ fn accumulate_tool_events(event: &serde_json::Value, buf: &mut Vec<ToolEvent>, s
             if let Some(content) = event["message"]["content"].as_array() {
                 for item in content {
                     if item["type"].as_str() == Some("tool_result") {
-                        let tool_id =
-                            item["tool_use_id"].as_str().unwrap_or("").to_string();
+                        let tool_id = item["tool_use_id"].as_str().unwrap_or("").to_string();
                         // Content can be a string or an array of content blocks.
                         let content_json = match &item["content"] {
                             serde_json::Value::String(s) => s.clone(),
-                            other => serde_json::to_string(other)
-                                .unwrap_or_else(|_| "{}".to_string()),
+                            other => {
+                                serde_json::to_string(other).unwrap_or_else(|_| "{}".to_string())
+                            }
                         };
                         buf.push(ToolEvent {
                             event_type: "tool_result".to_string(),
@@ -129,8 +129,12 @@ fn parse_stream_event(
     match event_type {
         "assistant" => {
             // Extract usage (token counts) from the message if available.
-            let input_tokens = event["message"]["usage"]["input_tokens"].as_u64().unwrap_or(0);
-            let output_tokens = event["message"]["usage"]["output_tokens"].as_u64().unwrap_or(0);
+            let input_tokens = event["message"]["usage"]["input_tokens"]
+                .as_u64()
+                .unwrap_or(0);
+            let output_tokens = event["message"]["usage"]["output_tokens"]
+                .as_u64()
+                .unwrap_or(0);
             if input_tokens > 0 || output_tokens > 0 {
                 tracing::debug!(
                     event_type,
