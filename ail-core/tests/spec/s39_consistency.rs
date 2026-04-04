@@ -78,6 +78,7 @@ fn load_consistency_fixture() -> Vec<StepRow> {
             stderr: None,
             exit_code: None,
             recorded_at,
+            tool_events: vec![],
         };
 
         steps.push(step_row);

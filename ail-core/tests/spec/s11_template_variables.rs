@@ -21,6 +21,7 @@ fn append_response(session: &mut Session, step_id: &str, response: &str) {
         stderr: None,
         exit_code: None,
         thinking: None,
+        tool_events: vec![],
     });
 }
 

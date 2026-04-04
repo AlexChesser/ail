@@ -23,11 +23,28 @@ pub mod claude;
 pub mod factory;
 pub mod stub;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
 use crate::error::AilError;
+
+/// A single tool call or tool result event captured during a runner invocation.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ToolEvent {
+    /// `"tool_call"` or `"tool_result"`.
+    pub event_type: String,
+    /// Tool name (e.g. `"Read"`, `"Bash"`). Empty string for tool_result events where
+    /// the name is not available in the wire format.
+    pub tool_name: String,
+    /// Tool call ID from the assistant message (`tool_use.id`) or tool result message
+    /// (`tool_result.tool_use_id`).
+    pub tool_id: String,
+    /// JSON-serialised input (for tool_call) or plain-text/JSON content (for tool_result).
+    pub content_json: String,
+    /// Monotonically increasing sequence number within this invocation.
+    pub seq: i64,
+}
 
 /// Result of a single runner invocation.
 #[derive(Debug, Clone, Serialize)]
@@ -43,6 +60,8 @@ pub struct RunResult {
     /// Model name used for this invocation, if available.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
+    /// Ordered list of tool call and tool result events captured during this invocation.
+    pub tool_events: Vec<ToolEvent>,
 }
 
 /// A tool permission request emitted by the runner when it requires a human decision before
@@ -219,6 +238,7 @@ mod tests {
             output_tokens: 5,
             thinking: None,
             model: None,
+            tool_events: vec![],
         });
         let json: serde_json::Value =
             serde_json::from_str(&serde_json::to_string(&event).unwrap()).unwrap();
@@ -237,6 +257,7 @@ mod tests {
             output_tokens: 0,
             thinking: None,
             model: None,
+            tool_events: vec![],
         };
         let json: serde_json::Value =
             serde_json::from_str(&serde_json::to_string(&result).unwrap()).unwrap();

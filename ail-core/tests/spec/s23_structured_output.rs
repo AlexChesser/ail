@@ -382,6 +382,7 @@ fn golden_runner_event_completed() {
         output_tokens: 50,
         thinking: None,
         model: None,
+        tool_events: vec![],
     });
     assert_eq!(
         serialize_runner_wrapped(inner),

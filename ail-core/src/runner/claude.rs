@@ -12,7 +12,7 @@ use std::process::{Command, Stdio};
 
 use super::{
     InvokeOptions, PermissionRequest, PermissionResponder, RunResult, Runner, RunnerEvent,
-    ToolPermissionPolicy,
+    ToolEvent, ToolPermissionPolicy,
 };
 use crate::error::{error_types, AilError};
 
@@ -55,6 +55,61 @@ fn accumulate_thinking(event: &serde_json::Value, buf: &mut String) {
                 }
             }
         }
+    }
+}
+
+/// Accumulate tool call and tool result events from a stream-json event into `buf`.
+///
+/// - `assistant` events with `tool_use` content blocks → `ToolEvent { event_type: "tool_call" }`
+/// - `user` events with `tool_result` content items → `ToolEvent { event_type: "tool_result" }`
+fn accumulate_tool_events(event: &serde_json::Value, buf: &mut Vec<ToolEvent>, seq: &mut i64) {
+    let event_type = event["type"].as_str().unwrap_or("");
+    match event_type {
+        "assistant" => {
+            if let Some(content) = event["message"]["content"].as_array() {
+                for item in content {
+                    if item["type"].as_str() == Some("tool_use") {
+                        let tool_name = item["name"].as_str().unwrap_or("").to_string();
+                        let tool_id = item["id"].as_str().unwrap_or("").to_string();
+                        let content_json = serde_json::to_string(&item["input"])
+                            .unwrap_or_else(|_| "{}".to_string());
+                        buf.push(ToolEvent {
+                            event_type: "tool_call".to_string(),
+                            tool_name,
+                            tool_id,
+                            content_json,
+                            seq: *seq,
+                        });
+                        *seq += 1;
+                    }
+                }
+            }
+        }
+        "user" => {
+            if let Some(content) = event["message"]["content"].as_array() {
+                for item in content {
+                    if item["type"].as_str() == Some("tool_result") {
+                        let tool_id =
+                            item["tool_use_id"].as_str().unwrap_or("").to_string();
+                        // Content can be a string or an array of content blocks.
+                        let content_json = match &item["content"] {
+                            serde_json::Value::String(s) => s.clone(),
+                            other => serde_json::to_string(other)
+                                .unwrap_or_else(|_| "{}".to_string()),
+                        };
+                        buf.push(ToolEvent {
+                            event_type: "tool_result".to_string(),
+                            tool_name: String::new(),
+                            tool_id,
+                            content_json,
+                            seq: *seq,
+                        });
+                        *seq += 1;
+                    }
+                }
+            }
+        }
+        _ => {}
     }
 }
 
@@ -583,6 +638,8 @@ impl Runner for ClaudeCliRunner {
         let mut result_model: Option<String> = None;
         let mut error_detail: Option<String> = None;
         let mut thinking_buf = String::new();
+        let mut tool_events_buf: Vec<ToolEvent> = Vec::new();
+        let mut tool_seq: i64 = 0;
 
         for line in reader.lines() {
             let line = line.map_err(|e| AilError {
@@ -606,6 +663,7 @@ impl Runner for ClaudeCliRunner {
             tracing::trace!(line = %line, "stream-json raw line");
 
             accumulate_thinking(&event, &mut thinking_buf);
+            accumulate_tool_events(&event, &mut tool_events_buf, &mut tool_seq);
 
             match parse_stream_event(&event, None) {
                 StreamParseAction::Continue => {}
@@ -696,6 +754,7 @@ impl Runner for ClaudeCliRunner {
                 Some(thinking_buf)
             },
             model: result_model,
+            tool_events: tool_events_buf,
         })
     }
 
@@ -781,6 +840,8 @@ impl Runner for ClaudeCliRunner {
         let mut result_model: Option<String> = None;
         let mut error_detail: Option<String> = None;
         let mut thinking_buf = String::new();
+        let mut tool_events_buf: Vec<ToolEvent> = Vec::new();
+        let mut tool_seq: i64 = 0;
 
         // Use match-and-break rather than `?` so the done flag is always set before return.
         for line in reader.lines() {
@@ -808,6 +869,7 @@ impl Runner for ClaudeCliRunner {
             tracing::trace!(line = %line, "stream-json raw line");
 
             accumulate_thinking(&event, &mut thinking_buf);
+            accumulate_tool_events(&event, &mut tool_events_buf, &mut tool_seq);
 
             match parse_stream_event(&event, Some(&tx)) {
                 StreamParseAction::Continue => {}
@@ -938,6 +1000,7 @@ impl Runner for ClaudeCliRunner {
                 Some(thinking_buf)
             },
             model: result_model,
+            tool_events: tool_events_buf,
         };
         let _ = tx.send(RunnerEvent::Completed(result.clone()));
         Ok(result)

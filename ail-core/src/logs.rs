@@ -8,8 +8,10 @@
 use std::path::Path;
 
 use rusqlite::{params, Connection, OptionalExtension};
+use std::collections::HashMap;
 
 use crate::error::{error_types, AilError};
+use crate::runner::ToolEvent;
 use crate::session::sqlite_provider::db_path;
 
 /// Parameters for a log query.
@@ -322,6 +324,8 @@ pub struct StepRow {
     pub stderr: Option<String>,
     pub exit_code: Option<i32>,
     pub recorded_at: i64,
+    /// Tool call and result events for this step, ordered by seq.
+    pub tool_events: Vec<ToolEvent>,
 }
 
 /// Query steps for a specific run from the default database location.
@@ -379,6 +383,7 @@ pub fn get_run_steps_at(run_id: &str, db_path: &Path) -> Result<Vec<StepRow>, Ai
                 stderr: row.get(9)?,
                 exit_code: row.get(10)?,
                 recorded_at: row.get(11)?,
+                tool_events: vec![],
             })
         })
         .map_err(|e| AilError {
@@ -389,12 +394,79 @@ pub fn get_run_steps_at(run_id: &str, db_path: &Path) -> Result<Vec<StepRow>, Ai
         })?
         .collect::<Result<Vec<_>, _>>();
 
-    rows.map_err(|e| AilError {
+    let mut rows = rows.map_err(|e| AilError {
         error_type: error_types::PIPELINE_ABORTED,
         title: "Failed to collect step rows",
         detail: e.to_string(),
         context: None,
-    })
+    })?;
+
+    // Populate tool_events from run_events table, if it exists.
+    // Guard with a table-existence check so old databases (without run_events) still work.
+    let run_events_exists: bool = conn
+        .query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='run_events'",
+            [],
+            |row| row.get::<_, u32>(0).map(|c| c > 0),
+        )
+        .unwrap_or(false);
+
+    if run_events_exists {
+        let mut ev_stmt = conn
+            .prepare(
+                "SELECT step_id, seq, event_type, tool_name, tool_id, content_json
+                 FROM run_events WHERE run_id = ?1 ORDER BY seq ASC",
+            )
+            .map_err(|e| AilError {
+                error_type: error_types::PIPELINE_ABORTED,
+                title: "Failed to prepare run_events query",
+                detail: e.to_string(),
+                context: None,
+            })?;
+
+        let event_rows: Result<Vec<(String, ToolEvent)>, _> = ev_stmt
+            .query_map(params![run_id], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    ToolEvent {
+                        tool_id: row.get(4)?,
+                        tool_name: row.get(3)?,
+                        event_type: row.get(2)?,
+                        content_json: row.get(5)?,
+                        seq: row.get(1)?,
+                    },
+                ))
+            })
+            .map_err(|e| AilError {
+                error_type: error_types::PIPELINE_ABORTED,
+                title: "Failed to query run_events",
+                detail: e.to_string(),
+                context: None,
+            })?
+            .collect::<Result<Vec<_>, _>>();
+
+        let event_rows = event_rows.map_err(|e| AilError {
+            error_type: error_types::PIPELINE_ABORTED,
+            title: "Failed to collect run_events rows",
+            detail: e.to_string(),
+            context: None,
+        })?;
+
+        // Build a map of step_id → Vec<ToolEvent>.
+        let mut ev_map: HashMap<String, Vec<ToolEvent>> = HashMap::new();
+        for (step_id, te) in event_rows {
+            ev_map.entry(step_id).or_default().push(te);
+        }
+
+        // Attach tool events to matching StepRow entries.
+        for row in &mut rows {
+            if let Some(events) = ev_map.remove(&row.step_id) {
+                row.tool_events = events;
+            }
+        }
+    }
+
+    Ok(rows)
 }
 
 /// Get the most recent run ID for the current working directory.

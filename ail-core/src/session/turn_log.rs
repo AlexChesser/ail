@@ -5,6 +5,7 @@ use serde::Serialize;
 use sha1::{Digest, Sha1};
 
 use super::log_provider::{JsonlProvider, LogProvider};
+use crate::runner::ToolEvent;
 
 #[derive(Serialize)]
 pub struct TurnEntry {
@@ -28,6 +29,9 @@ pub struct TurnEntry {
     /// Concatenated thinking/reasoning text from extended thinking blocks, if any.
     /// `None` when no thinking blocks were present (non-prompt steps, or model without thinking).
     pub thinking: Option<String>,
+    /// Ordered list of tool call and tool result events captured during this step.
+    /// Empty for context:shell steps, sub-pipeline steps, and action steps.
+    pub tool_events: Vec<ToolEvent>,
 }
 
 /// Written as the first entry for a run. Carries pipeline_source and project_hash so the SQLite provider

@@ -1,1 +1,1 @@
-{"type":"runner_event","event":{"type":"completed","response":"All done!","cost_usd":0.0042,"session_id":"ses_abc123","input_tokens":100,"output_tokens":50,"thinking":null}}
+{"type":"runner_event","event":{"type":"completed","response":"All done!","cost_usd":0.0042,"session_id":"ses_abc123","input_tokens":100,"output_tokens":50,"thinking":null,"tool_events":[]}}
