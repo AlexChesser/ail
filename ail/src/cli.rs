@@ -150,6 +150,20 @@ pub enum Commands {
         #[arg(long, value_name = "TOKEN")]
         provider_token: Option<String>,
     },
+    /// Delete a pipeline run from the history.
+    Delete {
+        /// Run ID to delete.
+        #[arg(value_name = "RUN_ID")]
+        run_id: String,
+
+        /// Skip validation — delete even if the JSONL file is missing.
+        #[arg(long)]
+        force: bool,
+
+        /// Output result as JSON.
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 #[cfg(test)]

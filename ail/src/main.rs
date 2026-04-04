@@ -1,5 +1,6 @@
 mod chat;
 mod cli;
+mod delete;
 mod log;
 mod logs;
 mod mcp_bridge;
@@ -531,6 +532,16 @@ fn main() {
     tracing::info!(event = "startup", version = ail_core::version());
 
     match cli.command {
+        Some(Commands::Delete {
+            run_id,
+            force,
+            json,
+        }) => {
+            if let Err(e) = delete::handle_delete(run_id, force, json) {
+                eprintln!("{e}");
+                std::process::exit(1);
+            }
+        }
         Some(Commands::Logs {
             session,
             query,
