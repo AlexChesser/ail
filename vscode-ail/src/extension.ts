@@ -290,6 +290,21 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
     vscode.commands.registerCommand("ail.openLog", async (runId?: string) => {
       await openLogCommand.execute(runId);
+    }),
+
+    vscode.commands.registerCommand("ail.followTail", async (runId: string) => {
+      await openLogCommand.execute(runId);
+    }),
+
+    vscode.commands.registerCommand("ail.toggleView", async () => {
+      const activeEditor = vscode.window.activeTextEditor;
+      if (activeEditor?.document.languageId === 'ail-log') {
+        // Currently in native view — switch to Markdown preview
+        await vscode.commands.executeCommand('markdown.showPreview', activeEditor.document.uri);
+      } else {
+        // Try to open the latest run in native view
+        await openLogCommand.execute(undefined);
+      }
     })
   );
 

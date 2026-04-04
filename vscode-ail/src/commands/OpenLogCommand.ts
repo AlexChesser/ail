@@ -33,16 +33,10 @@ export class OpenLogCommand {
       // Construct the virtual document URI
       const uri = vscode.Uri.parse(`ail-log://${effectiveRunId || ''}`);
 
-      // Open the virtual document
+      // Open the virtual document in the native ail-log viewer.
+      // The ail-log language ID is set by the provider so grammar/folding activate automatically.
       const doc = await vscode.workspace.openTextDocument(uri);
-      await vscode.window.showTextDocument(doc, {
-        preview: false,
-        preserveFocus: false,
-      });
-
-      // Show Markdown preview
-      // The markdown.showPreview command opens a preview pane alongside the editor.
-      await vscode.commands.executeCommand('markdown.showPreview', uri);
+      await vscode.window.showTextDocument(doc, { preview: false });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       void vscode.window.showErrorMessage(`Failed to open log: ${message}`);

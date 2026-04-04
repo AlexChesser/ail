@@ -33,7 +33,7 @@ export class HistoryItem extends vscode.TreeItem {
     this.contextValue = 'ailHistoryRun';
     this.iconPath = outcomeIcon(record.outcome);
     this.command = {
-      command: 'ail.openHistoryRun',
+      command: 'ail.openLog',
       title: 'Open Run',
       arguments: [record.runId],
     };
