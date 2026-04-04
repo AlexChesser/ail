@@ -43,6 +43,7 @@ impl SqliteProvider {
         let conn = Connection::open(path)?;
         conn.execute_batch("PRAGMA journal_mode=WAL;")?;
         Self::create_schema(&conn)?;
+        Self::migrate_schema(&conn)?;
         Ok(SqliteProvider { conn })
     }
 
@@ -55,7 +56,8 @@ impl SqliteProvider {
                 started_at      INTEGER,
                 completed_at    INTEGER,
                 total_cost_usd  REAL,
-                status          TEXT
+                status          TEXT,
+                project_hash    TEXT
             );
 
             CREATE TABLE IF NOT EXISTS steps (
@@ -105,6 +107,24 @@ impl SqliteProvider {
         )
     }
 
+    /// Migrate schema for existing databases. Adds missing columns if needed.
+    fn migrate_schema(conn: &Connection) -> SqliteResult<()> {
+        // Add project_hash column to sessions table if it doesn't exist
+        let has_project_hash: bool = conn
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('sessions') WHERE name='project_hash'",
+                [],
+                |row| row.get::<_, u32>(0).map(|c| c > 0),
+            )
+            .unwrap_or(false);
+
+        if !has_project_hash {
+            conn.execute("ALTER TABLE sessions ADD COLUMN project_hash TEXT", [])?;
+        }
+
+        Ok(())
+    }
+
     /// Ensure a session row exists (upsert). Called on first entry for a run_id.
     fn ensure_session(&self, run_id: &str, value: &Value) -> SqliteResult<()> {
         // Extract pipeline_source from the value if present.
@@ -114,14 +134,21 @@ impl SqliteProvider {
             .and_then(|v| v.as_str())
             .map(|s| s.to_string());
 
+        // Extract project_hash from the value if present.
+        let project_hash = value
+            .get("project_hash")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+
         let now_ms = now_ms();
 
         self.conn.execute(
-            "INSERT INTO sessions (run_id, pipeline_source, started_at, status)
-             VALUES (?1, ?2, ?3, 'running')
+            "INSERT INTO sessions (run_id, pipeline_source, started_at, status, project_hash)
+             VALUES (?1, ?2, ?3, 'running', ?4)
              ON CONFLICT(run_id) DO NOTHING",
-            params![run_id, pipeline_source, now_ms],
+            params![run_id, pipeline_source, now_ms, project_hash],
         )?;
+
         Ok(())
     }
 

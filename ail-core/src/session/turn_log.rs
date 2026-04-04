@@ -2,6 +2,7 @@ use std::path::PathBuf;
 use std::time::SystemTime;
 
 use serde::Serialize;
+use sha1::{Digest, Sha1};
 
 use super::log_provider::{JsonlProvider, LogProvider};
 
@@ -29,13 +30,14 @@ pub struct TurnEntry {
     pub thinking: Option<String>,
 }
 
-/// Written as the first entry for a run. Carries pipeline_source so the SQLite provider
+/// Written as the first entry for a run. Carries pipeline_source and project_hash so the SQLite provider
 /// can populate the sessions table correctly.
 #[derive(Serialize)]
 struct RunStartedEvent<'a> {
     #[serde(rename = "type")]
     event_type: &'static str,
     pipeline_source: Option<&'a str>,
+    project_hash: String,
 }
 
 /// Written to NDJSON before calling the runner. If the runner crashes or hangs,
@@ -70,11 +72,18 @@ impl TurnLog {
     }
 
     /// Write a `run_started` event as the first entry. Must be called before any steps.
-    /// Carries `pipeline_source` so the SQLite provider can populate the sessions table.
+    /// Carries `pipeline_source` and `project_hash` so the SQLite provider can populate the sessions table.
     pub fn record_run_started(&mut self, pipeline_source: Option<&str>) {
+        // Compute project_hash from the current working directory.
+        let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+        let mut hasher = Sha1::new();
+        hasher.update(cwd.to_string_lossy().as_bytes());
+        let project_hash = format!("{:x}", hasher.finalize());
+
         let event = RunStartedEvent {
             event_type: "run_started",
             pipeline_source,
+            project_hash,
         };
         match serde_json::to_value(&event) {
             Ok(json_value) => {
