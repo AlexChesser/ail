@@ -24,7 +24,7 @@ import {
 import { RunRecord } from '../application/HistoryService';
 import { HistoryService } from '../application/HistoryService';
 import { MessageBuffer } from './MessageBuffer';
-import { getUnifiedPanelHtml } from './unifiedPanelHtml';
+import { getChatPanelHtml } from './unifiedPanelHtml';
 import { GitDiffService, GitSnapshot, FileDiff } from '../infrastructure/GitDiffService';
 import { DiffContentProvider } from '../infrastructure/DiffContentProvider';
 import { parseStepsFromYaml } from '../utils/parseYaml';
@@ -120,7 +120,7 @@ export class UnifiedPanel implements IUnifiedPanel {
     this._buffer = new MessageBuffer((msg) => {
       void this._panel.webview.postMessage(msg);
     });
-    this._panel.webview.html = getUnifiedPanelHtml();
+    this._panel.webview.html = getChatPanelHtml();
 
     this._panel.onDidDispose(() => this.dispose(), null, this._disposables);
 

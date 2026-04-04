@@ -19,7 +19,7 @@ import {
 } from '../types';
 import { HistoryService, RunRecord } from '../application/HistoryService';
 import { MessageBuffer } from './MessageBuffer';
-import { getUnifiedPanelHtml } from './unifiedPanelHtml';
+import { getChatPanelHtml } from './unifiedPanelHtml';
 import { parseStepsFromYaml } from '../utils/parseYaml';
 
 // ── RunSummary: lightweight run descriptor ──────────────────────────────────
@@ -138,7 +138,7 @@ export class MonitorViewProvider implements vscode.WebviewViewProvider {
     });
 
     webviewView.webview.options = { enableScripts: true };
-    webviewView.webview.html = getUnifiedPanelHtml();
+    webviewView.webview.html = getChatPanelHtml();
 
     // Post cached history immediately if available
     if (MonitorViewProvider._cachedHistory.length > 0) {
