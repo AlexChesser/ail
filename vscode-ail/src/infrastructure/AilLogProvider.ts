@@ -55,7 +55,7 @@ export class AilLogProvider implements vscode.TextDocumentContentProvider {
       if (runId && this._streams.has(runId)) {
         // Stream is active; return cached content
         const lines = this._contentCache.get(runId) || [];
-        return lines.join('\n');
+        return this._transformDirectivesToHtml(lines.join('\n'));
       }
 
       // Fetch initial content one-shot first (to determine if run is in-progress)
@@ -73,7 +73,7 @@ export class AilLogProvider implements vscode.TextDocumentContentProvider {
         }
       }
 
-      return content;
+      return this._transformDirectivesToHtml(content);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       return this._formatError(message);
@@ -146,6 +146,27 @@ export class AilLogProvider implements vscode.TextDocumentContentProvider {
     );
 
     this._streams.set(runId, stream);
+  }
+
+  /**
+   * Transform ail-log directive blocks to HTML <details> for collapsible rendering.
+   *
+   * Converts :::directive syntax to <details><summary> tags so VS Code's
+   * Markdown preview renders them as collapsible sections.
+   *
+   * Transforms:
+   * - :::thinking → <details><summary>Thinking</summary>
+   * - :::tool-call → <details><summary>Tool Call</summary>
+   * - :::tool-result → <details><summary>Tool Result</summary>
+   * - :::stdio → <details><summary>Stdio</summary>
+   * - closing ::: → </details>
+   */
+  private _transformDirectivesToHtml(content: string): string {
+    return content
+      .replace(/^:::thinking\n([\s\S]*?)\n:::/gm, '<details><summary>Thinking</summary>\n\n$1\n\n</details>')
+      .replace(/^:::tool-call\n([\s\S]*?)\n:::/gm, '<details><summary>Tool Call</summary>\n\n$1\n\n</details>')
+      .replace(/^:::tool-result\n([\s\S]*?)\n:::/gm, '<details><summary>Tool Result</summary>\n\n$1\n\n</details>')
+      .replace(/^:::stdio\n([\s\S]*?)\n:::/gm, '<details><summary>Stdio</summary>\n\n$1\n\n</details>');
   }
 
   /**
