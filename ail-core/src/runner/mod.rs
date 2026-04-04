@@ -99,7 +99,12 @@ pub enum RunnerEvent {
     /// A tool call was started.
     ToolUse { tool_name: String },
     /// A tool call completed.
-    ToolResult { tool_name: String },
+    ToolResult {
+        tool_name: String,
+        tool_use_id: Option<String>,
+        content: Option<String>,
+        is_error: Option<bool>,
+    },
     /// Cost / token update.
     CostUpdate {
         cost_usd: f64,

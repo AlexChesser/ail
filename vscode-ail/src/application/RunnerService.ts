@@ -176,7 +176,8 @@ export class RunnerService {
           logLine(runCtx.currentStepId, `TOOL: ${inner.tool_name}`);
           runCtx.outputPrefixEmitted = false;
         } else if (inner.type === 'tool_result') {
-          logLine(runCtx.currentStepId, `TOOL RESULT: ${inner.tool_name}`);
+          const contentPreview = inner.content ? inner.content.substring(0, 100) : '';
+          logLine(runCtx.currentStepId, `TOOL RESULT: ${contentPreview}`);
           runCtx.outputPrefixEmitted = false;
         }
       }

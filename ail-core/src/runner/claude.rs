@@ -212,8 +212,20 @@ fn parse_stream_event(
                 for item in content {
                     if item["type"].as_str() == Some("tool_result") {
                         if let Some(tx) = tx {
+                            let tool_use_id = item["tool_use_id"].as_str().map(str::to_string);
+                            let content = item["content"]
+                                .as_str()
+                                .or_else(|| item["content"].as_object().map(|_| ""))
+                                .map(str::to_string);
+                            let is_error = item["is_error"].as_bool();
                             let _ = tx.send(RunnerEvent::ToolResult {
-                                tool_name: String::new(),
+                                tool_name: item["tool_name"]
+                                    .as_str()
+                                    .unwrap_or("")
+                                    .to_string(),
+                                tool_use_id,
+                                content,
+                                is_error,
                             });
                         }
                     }
