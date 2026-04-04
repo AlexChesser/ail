@@ -145,6 +145,7 @@ fn on_result_break_exits_as_ok_not_err() {
     match result.unwrap() {
         ExecuteOutcome::Break { step_id } => assert_eq!(step_id, "tests"),
         ExecuteOutcome::Completed => panic!("expected Break, got Completed"),
+        ExecuteOutcome::Error(e) => panic!("expected Break, got Error: {}", e),
     }
     // step2 must NOT have run
     assert_eq!(session.turn_log.entries().len(), 1);

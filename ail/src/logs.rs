@@ -136,6 +136,7 @@ fn print_session_json(session: &SessionSummary) {
             serde_json::json!({
                 "step_id": s.step_id,
                 "event_type": s.event_type,
+                "prompt": s.prompt,
                 "response": s.response,
                 "cost_usd": s.cost_usd,
                 "input_tokens": s.input_tokens,

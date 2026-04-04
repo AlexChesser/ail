@@ -43,6 +43,7 @@ pub struct SessionSummary {
 pub struct StepSummary {
     pub step_id: String,
     pub event_type: String,
+    pub prompt: Option<String>,
     pub response: Option<String>,
     pub cost_usd: Option<f64>,
     pub input_tokens: Option<i64>,
@@ -220,6 +221,7 @@ fn load_sessions(
 struct RawStepRow {
     step_id: String,
     event_type: String,
+    prompt: Option<String>,
     response: Option<String>,
     cost_usd: Option<f64>,
     input_tokens: Option<i64>,
@@ -231,7 +233,7 @@ struct RawStepRow {
 fn load_steps(conn: &Connection, run_id: &str) -> Result<Vec<StepSummary>, AilError> {
     let mut stmt = conn
         .prepare(
-            "SELECT step_id, event_type, response, cost_usd, input_tokens,
+            "SELECT step_id, event_type, prompt, response, cost_usd, input_tokens,
                     output_tokens, thinking, recorded_at
              FROM steps
              WHERE run_id = ?1
@@ -249,12 +251,13 @@ fn load_steps(conn: &Connection, run_id: &str) -> Result<Vec<StepSummary>, AilEr
             Ok(RawStepRow {
                 step_id: row.get(0)?,
                 event_type: row.get(1)?,
-                response: row.get(2)?,
-                cost_usd: row.get(3)?,
-                input_tokens: row.get(4)?,
-                output_tokens: row.get(5)?,
-                thinking: row.get(6)?,
-                recorded_at: row.get(7)?,
+                prompt: row.get(2)?,
+                response: row.get(3)?,
+                cost_usd: row.get(4)?,
+                input_tokens: row.get(5)?,
+                output_tokens: row.get(6)?,
+                thinking: row.get(7)?,
+                recorded_at: row.get(8)?,
             })
         })
         .map_err(|e| AilError {
@@ -295,6 +298,7 @@ fn load_steps(conn: &Connection, run_id: &str) -> Result<Vec<StepSummary>, AilEr
             StepSummary {
                 step_id: row.step_id,
                 event_type: row.event_type,
+                prompt: row.prompt,
                 response: row.response,
                 cost_usd: row.cost_usd,
                 input_tokens: row.input_tokens,
