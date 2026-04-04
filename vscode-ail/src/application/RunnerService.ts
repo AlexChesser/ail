@@ -142,6 +142,10 @@ export class RunnerService {
     };
     this._activeRuns.set(runId, runCtx);
 
+    // Open the native ail-log viewer for this run alongside the existing panel.
+    // AilLogProvider handles in-progress runs with live-tail automatically.
+    void vscode.commands.executeCommand('ail.openLog', runId);
+
     this._updateStatusBar();
     this._chatView?.setRunning(true);
     this._stepsView?.resetStatuses();
