@@ -58,4 +58,13 @@ impl Session {
         self.turn_log.record_run_started(pipeline_source);
         self
     }
+
+    /// Set the pipeline source name for this session (useful in tests and sub-pipeline contexts).
+    /// Re-emits `run_started` so the turn log provider records the correct source.
+    pub fn with_pipeline(mut self, name: &str) -> Self {
+        self.pipeline.source = Some(std::path::PathBuf::from(name));
+        let pipeline_source = self.pipeline.source.as_deref().and_then(|p| p.to_str());
+        self.turn_log.record_run_started(pipeline_source);
+        self
+    }
 }

@@ -28,6 +28,8 @@ pub enum ExecuteOutcome {
     Completed,
     /// A `break` action fired; remaining steps were skipped. This is not an error.
     Break { step_id: String },
+    /// An error occurred during execution.
+    Error(String),
 }
 
 /// Signals the executor can receive from the TUI while a pipeline is running.
@@ -1014,7 +1016,8 @@ mod tests {
         let mut session = make_session(vec![
             prompt_step("step_a", "First prompt"),
             prompt_step("step_b", "Second prompt"),
-        ]).with_pipeline("subpipeline");
+        ])
+        .with_pipeline("subpipeline");
         let runner = StubRunner::new("stub");
         execute(&mut session, &runner).unwrap();
 
