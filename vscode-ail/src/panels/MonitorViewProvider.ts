@@ -42,6 +42,7 @@ export class MonitorViewProvider implements vscode.WebviewViewProvider {
   private static _instance: MonitorViewProvider | undefined;
   private static _historyService: HistoryService | undefined;
   private static _cwd: string = process.cwd();
+  private static _cachedHistory: RunSummary[] = [];
 
   private _view?: vscode.WebviewView;
   private _buffer?: MessageBuffer;
@@ -88,6 +89,24 @@ export class MonitorViewProvider implements vscode.WebviewViewProvider {
     MonitorViewProvider._cwd = cwd;
   }
 
+  static async initializeHistory(historyService: HistoryService): Promise<void> {
+    if (!historyService) return;
+    try {
+      const records = await historyService.getHistory();
+      MonitorViewProvider._cachedHistory = records.map((r) => ({
+        runId: r.runId,
+        timestamp: r.timestamp,
+        pipelineSource: r.pipelineSource,
+        outcome: r.outcome,
+        totalCostUsd: r.totalCostUsd,
+        invocationPrompt: r.invocationPrompt,
+        isLive: false,
+      }));
+    } catch (e) {
+      // Silently fail — fallback to loading on first view
+    }
+  }
+
   static async refreshHistory(): Promise<void> {
     const instance = MonitorViewProvider._instance;
     if (!instance || !instance._buffer || !MonitorViewProvider._historyService) return;
@@ -102,6 +121,7 @@ export class MonitorViewProvider implements vscode.WebviewViewProvider {
       invocationPrompt: r.invocationPrompt,
       isLive: false,
     }));
+    MonitorViewProvider._cachedHistory = summaries;
     instance._post({ cmd: 'historyUpdated', runs: summaries });
   }
 
@@ -119,6 +139,11 @@ export class MonitorViewProvider implements vscode.WebviewViewProvider {
 
     webviewView.webview.options = { enableScripts: true };
     webviewView.webview.html = getUnifiedPanelHtml();
+
+    // Post cached history immediately if available
+    if (MonitorViewProvider._cachedHistory.length > 0) {
+      this._post({ cmd: 'historyUpdated', runs: MonitorViewProvider._cachedHistory });
+    }
 
     webviewView.webview.onDidReceiveMessage(
       (msg: { type: string; runId?: string; stepId?: string; text?: string; allowed?: boolean; reason?: string; filePath?: string }) => {

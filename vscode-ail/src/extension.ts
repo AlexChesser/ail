@@ -86,6 +86,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   if (cwd) {
     MonitorViewProvider.setCwd(cwd);
   }
+  // Load history on startup (fire-and-forget async)
+  void MonitorViewProvider.initializeHistory(historyService);
 
   // Register the ail-diff URI scheme provider for per-step file diff viewing.
   context.subscriptions.push(
