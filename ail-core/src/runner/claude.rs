@@ -20,13 +20,16 @@ use crate::error::{error_types, AilError};
 enum StreamParseAction {
     /// Non-terminal event — any `RunnerEvent`s were already sent through `tx`.
     Continue,
+    /// An `assistant` event carried token usage — accumulate into running totals.
+    TokensObserved {
+        input_tokens: u64,
+        output_tokens: u64,
+    },
     /// The `result` event arrived with a successful response.
     ResultReceived {
         response: Option<String>,
         cost_usd: Option<f64>,
         session_id: Option<String>,
-        input_tokens: u64,
-        output_tokens: u64,
         model: Option<String>,
     },
     /// The `result` event arrived indicating an error.
@@ -70,6 +73,25 @@ fn parse_stream_event(
 
     match event_type {
         "assistant" => {
+            // Extract usage (token counts) from the message if available.
+            let input_tokens = event["message"]["usage"]["input_tokens"].as_u64().unwrap_or(0);
+            let output_tokens = event["message"]["usage"]["output_tokens"].as_u64().unwrap_or(0);
+            if input_tokens > 0 || output_tokens > 0 {
+                tracing::debug!(
+                    event_type,
+                    input_tokens,
+                    output_tokens,
+                    "stream-json assistant event with usage"
+                );
+                // Return immediately with token counts if usage is present.
+                // Callers will accumulate these across multiple assistant events.
+                return StreamParseAction::TokensObserved {
+                    input_tokens,
+                    output_tokens,
+                };
+            }
+
+            // Process content blocks (text, thinking, tool_use).
             if let Some(content) = event["message"]["content"].as_array() {
                 let block_types: Vec<&str> = content
                     .iter()
@@ -166,22 +188,12 @@ fn parse_stream_event(
                         .to_string(),
                 )
             } else {
-                let input_tokens = event["input_tokens"].as_u64().unwrap_or(0);
-                let output_tokens = event["output_tokens"].as_u64().unwrap_or(0);
-                // Emit a cost update so the status bar can show live cost/token data.
-                if let (Some(cost), Some(tx)) = (cost, tx) {
-                    let _ = tx.send(RunnerEvent::CostUpdate {
-                        cost_usd: cost,
-                        input_tokens,
-                        output_tokens,
-                    });
-                }
+                // Note: tokens are extracted from assistant events' message.usage,
+                // not from the result event. The result event only carries cost.
                 StreamParseAction::ResultReceived {
                     response: event["result"].as_str().map(str::to_string),
                     cost_usd: cost,
                     session_id: session_id.map(str::to_string),
-                    input_tokens,
-                    output_tokens,
                     model: model.map(str::to_string),
                 }
             }
@@ -597,19 +609,23 @@ impl Runner for ClaudeCliRunner {
 
             match parse_stream_event(&event, None) {
                 StreamParseAction::Continue => {}
+                StreamParseAction::TokensObserved {
+                    input_tokens,
+                    output_tokens,
+                } => {
+                    // Accumulate tokens from assistant events.
+                    result_input_tokens = result_input_tokens.saturating_add(input_tokens);
+                    result_output_tokens = result_output_tokens.saturating_add(output_tokens);
+                }
                 StreamParseAction::ResultReceived {
                     response,
                     cost_usd,
                     session_id,
-                    input_tokens,
-                    output_tokens,
                     model,
                 } => {
                     result_response = response;
                     result_cost = cost_usd;
                     result_session_id = session_id;
-                    result_input_tokens = input_tokens;
-                    result_output_tokens = output_tokens;
                     result_model = model;
                     break;
                 }
@@ -795,19 +811,23 @@ impl Runner for ClaudeCliRunner {
 
             match parse_stream_event(&event, Some(&tx)) {
                 StreamParseAction::Continue => {}
+                StreamParseAction::TokensObserved {
+                    input_tokens,
+                    output_tokens,
+                } => {
+                    // Accumulate tokens from assistant events.
+                    result_input_tokens = result_input_tokens.saturating_add(input_tokens);
+                    result_output_tokens = result_output_tokens.saturating_add(output_tokens);
+                }
                 StreamParseAction::ResultReceived {
                     response,
                     cost_usd,
                     session_id,
-                    input_tokens,
-                    output_tokens,
                     model,
                 } => {
                     result_response = response;
                     result_cost = cost_usd;
                     result_session_id = session_id;
-                    result_input_tokens = input_tokens;
-                    result_output_tokens = output_tokens;
                     result_model = model;
                     break;
                 }

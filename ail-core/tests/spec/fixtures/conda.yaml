@@ -1,0 +1,10 @@
+prompt:
+  - |
+    Python 3.11 is the latest version.
+    Is there any package I can install?
+
+pipeline:
+  - prompt:
+      - |
+        I need to run this command.
+        What does `os.system("ls")` return?

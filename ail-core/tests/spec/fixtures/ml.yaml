@@ -1,0 +1,10 @@
+prompt:
+  - |
+    Hello, world!
+    What is 2 + 2?
+
+pipeline:
+  - prompt:
+      - |
+        I'm a test model.
+        How about 1 + 1?

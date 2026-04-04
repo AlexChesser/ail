@@ -1,0 +1,20 @@
+prompt:
+  - |
+    How many seconds is 60 * 60?
+    Is there any way to change this?
+
+pipeline:
+  - prompt:
+      - |
+        I need to run this command.
+        What does `os.system("ls")` return?
+
+invoke:
+  response:
+    - |
+      60 * 60 is the number of seconds in one minute.
+      Yes, there are many ways to change a setting.
+    - exit_code:
+      - 0
+      - 1
+      - "invalid input"

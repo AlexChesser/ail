@@ -1,0 +1,9 @@
+invoke:
+  response:
+    - |
+      I need to run this command.
+      What does `os.system("ls")` return?
+    - exit_code:
+      - 0
+      - 1
+      - "invalid input"
