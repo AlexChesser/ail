@@ -192,7 +192,8 @@
       {
         "command": "ail.toggleView",
         "title": "AIL: Toggle View",
-        "category": "ail"
+        "category": "ail",
+        "icon": "$(eye)"
       }
     ],
     "views": {
@@ -233,6 +234,11 @@
         {
           "command": "ail.runPipeline",
           "when": "resourceExtname == .yaml && resourceFilename =~ /\\.ail\\.yaml$/",
+          "group": "navigation"
+        },
+        {
+          "command": "ail.toggleView",
+          "when": "editorLangId == ail-log",
           "group": "navigation"
         }
       ],
@@ -298,6 +304,13 @@
           "command": "ail.forkHistoryRun",
           "when": "viewItem == ailHistoryRun",
           "group": "1_actions@2"
+        }
+      ],
+      "editor/title/context": [
+        {
+          "command": "ail.toggleView",
+          "when": "editorLangId == ail-log",
+          "group": "1_actions"
         }
       ]
     },
