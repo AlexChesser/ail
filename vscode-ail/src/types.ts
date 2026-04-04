@@ -93,6 +93,8 @@ export interface StepCompletedEvent {
   output_tokens: number;
   /** Runner response text. null for non-prompt steps. */
   response: string | null;
+  /** Model used for this step, if available. */
+  model?: string;
 }
 
 export interface StepSkippedEvent {

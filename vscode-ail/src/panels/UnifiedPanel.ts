@@ -292,6 +292,7 @@ export class UnifiedPanel implements IUnifiedPanel {
           inputTokens:  e.input_tokens,
           outputTokens: e.output_tokens,
           latencyMs,
+          model:        e.model,
           totalCost:    this._liveTotalCost,
         });
         // Cancel any pending HITL escalation timer for this step

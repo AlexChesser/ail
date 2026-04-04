@@ -1073,6 +1073,7 @@ mod tests {
             input_tokens: 0,
             output_tokens: 0,
             response: None,
+            model: None,
         });
         assert_eq!(a.steps[0].glyph, StepGlyph::Completed);
         assert!((a.stats.cumulative_cost_usd - 0.005).abs() < 1e-9);
@@ -1172,6 +1173,7 @@ mod tests {
                 input_tokens: 0,
                 output_tokens: 0,
                 thinking: None,
+                model: None,
             }),
         });
         assert_eq!(a.stats.last_session_id.as_deref(), Some("abc123"));

@@ -26,6 +26,7 @@ impl Runner for StubRunner {
             input_tokens: 0,
             output_tokens: 0,
             thinking: None,
+            model: None,
         })
     }
 }
@@ -59,6 +60,7 @@ impl Runner for CountingStubRunner {
             input_tokens: 0,
             output_tokens: 0,
             thinking: None,
+            model: None,
         })
     }
 }

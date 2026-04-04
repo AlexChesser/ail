@@ -40,6 +40,9 @@ pub struct RunResult {
     /// Concatenated thinking/reasoning text from extended thinking blocks, if any.
     /// `None` when no thinking blocks were present in the response.
     pub thinking: Option<String>,
+    /// Model name used for this invocation, if available.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
 }
 
 /// A tool permission request emitted by the runner when it requires a human decision before
@@ -215,6 +218,7 @@ mod tests {
             input_tokens: 10,
             output_tokens: 5,
             thinking: None,
+            model: None,
         });
         let json: serde_json::Value =
             serde_json::from_str(&serde_json::to_string(&event).unwrap()).unwrap();
@@ -232,6 +236,7 @@ mod tests {
             input_tokens: 0,
             output_tokens: 0,
             thinking: None,
+            model: None,
         };
         let json: serde_json::Value =
             serde_json::from_str(&serde_json::to_string(&result).unwrap()).unwrap();

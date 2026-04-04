@@ -77,6 +77,9 @@ pub enum ExecutorEvent {
         /// The runner's response text.
         /// `None` for non-prompt steps (context:shell, action, sub-pipeline).
         response: Option<String>,
+        /// Model used for this step, if available.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        model: Option<String>,
     },
     StepSkipped {
         step_id: String,
@@ -611,6 +614,7 @@ pub fn execute_with_control(
                             input_tokens: result.input_tokens,
                             output_tokens: result.output_tokens,
                             response: Some(result.response.clone()),
+                            model: result.model.clone(),
                         });
 
                         TurnEntry {
@@ -686,6 +690,7 @@ pub fn execute_with_control(
                     input_tokens: 0,
                     output_tokens: 0,
                     response: None,
+                    model: None,
                 });
 
                 TurnEntry {
@@ -719,6 +724,7 @@ pub fn execute_with_control(
                     input_tokens: 0,
                     output_tokens: 0,
                     response: None,
+                    model: None,
                 });
                 continue;
             }
@@ -735,6 +741,7 @@ pub fn execute_with_control(
                             input_tokens: 0,
                             output_tokens: 0,
                             response: None,
+                            model: None,
                         });
                         entry
                     }
@@ -1077,6 +1084,7 @@ mod tests {
             input_tokens: 100,
             output_tokens: 50,
             response: Some("Looks good!".into()),
+            model: None,
         };
         let json: serde_json::Value =
             serde_json::from_str(&serde_json::to_string(&event).unwrap()).unwrap();

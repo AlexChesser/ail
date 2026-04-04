@@ -171,6 +171,7 @@ pub fn spawn_backend(
                                         input_tokens: 0,
                                         output_tokens: 0,
                                         response: None,
+                                        model: None,
                                     },
                                 ));
                             }

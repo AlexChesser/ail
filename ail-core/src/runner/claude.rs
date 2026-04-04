@@ -27,6 +27,7 @@ enum StreamParseAction {
         session_id: Option<String>,
         input_tokens: u64,
         output_tokens: u64,
+        model: Option<String>,
     },
     /// The `result` event arrived indicating an error.
     ResultError(String),
@@ -146,6 +147,7 @@ fn parse_stream_event(
             let result_len = event["result"].as_str().map(|s| s.len());
             let cost = event["total_cost_usd"].as_f64();
             let session_id = event["session_id"].as_str();
+            let model = event["model"].as_str();
             tracing::debug!(
                 event_type,
                 subtype,
@@ -153,6 +155,7 @@ fn parse_stream_event(
                 result_len,
                 has_cost = cost.is_some(),
                 has_session_id = session_id.is_some(),
+                has_model = model.is_some(),
                 "stream-json result event"
             );
             if is_error {
@@ -179,6 +182,7 @@ fn parse_stream_event(
                     session_id: session_id.map(str::to_string),
                     input_tokens,
                     output_tokens,
+                    model: model.map(str::to_string),
                 }
             }
         }
@@ -564,6 +568,7 @@ impl Runner for ClaudeCliRunner {
         let mut result_session_id: Option<String> = None;
         let mut result_input_tokens: u64 = 0;
         let mut result_output_tokens: u64 = 0;
+        let mut result_model: Option<String> = None;
         let mut error_detail: Option<String> = None;
         let mut thinking_buf = String::new();
 
@@ -598,12 +603,14 @@ impl Runner for ClaudeCliRunner {
                     session_id,
                     input_tokens,
                     output_tokens,
+                    model,
                 } => {
                     result_response = response;
                     result_cost = cost_usd;
                     result_session_id = session_id;
                     result_input_tokens = input_tokens;
                     result_output_tokens = output_tokens;
+                    result_model = model;
                     break;
                 }
                 StreamParseAction::ResultError(detail) => {
@@ -672,6 +679,7 @@ impl Runner for ClaudeCliRunner {
             } else {
                 Some(thinking_buf)
             },
+            model: result_model,
         })
     }
 
@@ -754,6 +762,7 @@ impl Runner for ClaudeCliRunner {
         let mut result_session_id: Option<String> = None;
         let mut result_input_tokens: u64 = 0;
         let mut result_output_tokens: u64 = 0;
+        let mut result_model: Option<String> = None;
         let mut error_detail: Option<String> = None;
         let mut thinking_buf = String::new();
 
@@ -792,12 +801,14 @@ impl Runner for ClaudeCliRunner {
                     session_id,
                     input_tokens,
                     output_tokens,
+                    model,
                 } => {
                     result_response = response;
                     result_cost = cost_usd;
                     result_session_id = session_id;
                     result_input_tokens = input_tokens;
                     result_output_tokens = output_tokens;
+                    result_model = model;
                     break;
                 }
                 StreamParseAction::ResultError(detail) => {
@@ -906,6 +917,7 @@ impl Runner for ClaudeCliRunner {
             } else {
                 Some(thinking_buf)
             },
+            model: result_model,
         };
         let _ = tx.send(RunnerEvent::Completed(result.clone()));
         Ok(result)

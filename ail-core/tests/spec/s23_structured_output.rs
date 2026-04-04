@@ -210,6 +210,7 @@ fn golden_step_completed() {
         input_tokens: 100,
         output_tokens: 50,
         response: Some("LGTM \u{2014} no issues found.".into()),
+        model: None,
     };
     assert_eq!(serialize_event(&event), load_fixture("step_completed.json"));
 }
@@ -223,6 +224,7 @@ fn golden_step_completed_no_cost() {
         input_tokens: 0,
         output_tokens: 0,
         response: None,
+        model: None,
     };
     assert_eq!(
         serialize_event(&event),
@@ -379,6 +381,7 @@ fn golden_runner_event_completed() {
         input_tokens: 100,
         output_tokens: 50,
         thinking: None,
+        model: None,
     });
     assert_eq!(
         serialize_runner_wrapped(inner),

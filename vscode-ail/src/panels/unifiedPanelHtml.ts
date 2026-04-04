@@ -842,19 +842,21 @@ export function getUnifiedPanelHtml(): string {
     metaDetails.appendChild(metaSummary);
     const table = document.createElement('table');
     table.className = 'meta-table';
-    function addRow(lbl, val) {
+    function addRow(lbl, val, key) {
       const tr = document.createElement('tr');
       const td1 = document.createElement('td'); td1.textContent = lbl;
-      const td2 = document.createElement('td'); td2.textContent = val;
+      const td2 = document.createElement('td');
+      if (key) td2.id = 'meta-' + stepId + '-' + key;
+      td2.textContent = val;
       tr.appendChild(td1); tr.appendChild(td2); table.appendChild(tr);
     }
-    addRow('Result code', step.resultCode ?? '—');
+    addRow('Result code', step.resultCode ?? '—', 'result-code');
     const lat = formatLatency(step.telemetry?.latencyMs ?? null);
-    addRow('Latency', lat ?? '—');
-    addRow('Input tokens', step.telemetry?.inputTokens != null ? String(step.telemetry.inputTokens) : '—');
-    addRow('Output tokens', step.telemetry?.outputTokens != null ? String(step.telemetry.outputTokens) : '—');
-    addRow('Cost', step.telemetry?.costUsd != null && step.telemetry.costUsd > 0 ? '$' + step.telemetry.costUsd.toFixed(4) : '—');
-    addRow('Model', '—');
+    addRow('Latency', lat ?? '—', 'latency');
+    addRow('Input tokens', step.telemetry?.inputTokens != null ? String(step.telemetry.inputTokens) : '—', 'input-tokens');
+    addRow('Output tokens', step.telemetry?.outputTokens != null ? String(step.telemetry.outputTokens) : '—', 'output-tokens');
+    addRow('Cost', step.telemetry?.costUsd != null && step.telemetry.costUsd > 0 ? '$' + step.telemetry.costUsd.toFixed(4) : '—', 'cost');
+    addRow('Model', '—', 'model');
     metaDetails.appendChild(table);
     if (step.rawEventData) {
       const rawPre = document.createElement('pre');
@@ -913,6 +915,26 @@ export function getUnifiedPanelHtml(): string {
     glyphEl.innerHTML = status === 'running'
       ? '<span class="spinning">◌</span>'
       : glyphChar(status);
+  }
+
+  /**
+   * Update the DETAILS meta-table rows for a step.
+   */
+  function updateSectionMeta(stepId, resultCode, telemetry) {
+    const set = (key, val) => {
+      const el = document.getElementById('meta-' + stepId + '-' + key);
+      if (el) el.textContent = val;
+    };
+    if (resultCode != null) set('result-code', resultCode);
+    if (telemetry) {
+      const lat = formatLatency(telemetry.latencyMs ?? null);
+      if (lat) set('latency', lat);
+      if (telemetry.inputTokens != null)  set('input-tokens', String(telemetry.inputTokens));
+      if (telemetry.outputTokens != null) set('output-tokens', String(telemetry.outputTokens));
+      if (telemetry.costUsd != null && telemetry.costUsd > 0)
+        set('cost', '$' + telemetry.costUsd.toFixed(4));
+      if (telemetry.model) set('model', telemetry.model);
+    }
   }
 
   /**
@@ -1234,6 +1256,7 @@ export function getUnifiedPanelHtml(): string {
             outputTokens: msg.outputTokens,
             costUsd: msg.costUsd,
             latencyMs: msg.latencyMs,
+            model: msg.model ?? null,
           };
         }
         if (entry.summary) {
@@ -1242,6 +1265,7 @@ export function getUnifiedPanelHtml(): string {
         updateStepItemGlyph(msg.stepId, 'completed');
         updateStepItemMeta(msg.stepId, step || makeStepEntry());
         updateSectionGlyph(msg.stepId, 'completed');
+        updateSectionMeta(msg.stepId, 'completed', step?.telemetry || null);
         updateSectionTelemetry(msg.stepId, step?.telemetry || null);
         costDisplay.textContent = 'Cost: $' + ((msg.totalCost || 0).toFixed(4));
         if (selectedRunId === liveRunId && selectedStepId === msg.stepId) {
@@ -1267,6 +1291,7 @@ export function getUnifiedPanelHtml(): string {
         updateStepItemGlyph(msg.stepId, 'failed');
         updateStepItemMeta(msg.stepId, step || makeStepEntry());
         updateSectionGlyph(msg.stepId, 'failed');
+        updateSectionMeta(msg.stepId, 'error', null);
         if (liveOutputPre) {
           liveOutputPre.insertAdjacentHTML('beforeend',
             '<span class="error-text">✗ ' + esc(msg.error || '') + '</span>');
@@ -1289,6 +1314,7 @@ export function getUnifiedPanelHtml(): string {
         updateStepItemGlyph(msg.stepId, 'skipped');
         updateStepItemMeta(msg.stepId, step || makeStepEntry());
         updateSectionGlyph(msg.stepId, 'skipped');
+        updateSectionMeta(msg.stepId, 'skipped', null);
         break;
       }
 
