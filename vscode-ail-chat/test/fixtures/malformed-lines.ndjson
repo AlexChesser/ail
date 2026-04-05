@@ -1,0 +1,7 @@
+{"type":"run_started","run_id":"run-008","pipeline_source":".ail.yaml","total_steps":1}
+not valid json at all
+{"type":"step_started","step_id":"invocation","step_index":0,"total_steps":1,"resolved_prompt":"Test"}
+{broken json
+{"type":"runner_event","event":{"type":"stream_delta","text":"Still works!"}}
+{"type":"step_completed","step_id":"invocation","cost_usd":0.0005,"input_tokens":5,"output_tokens":3,"response":"Still works!"}
+{"type":"pipeline_completed","outcome":"completed"}

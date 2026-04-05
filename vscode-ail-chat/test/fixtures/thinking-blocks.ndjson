@@ -1,0 +1,6 @@
+{"type":"run_started","run_id":"run-003","pipeline_source":".ail.yaml","total_steps":1}
+{"type":"step_started","step_id":"invocation","step_index":0,"total_steps":1,"resolved_prompt":"What is 17 * 23?"}
+{"type":"runner_event","event":{"type":"thinking","text":"Let me calculate: 17 * 23 = 17 * 20 + 17 * 3 = 340 + 51 = 391"}}
+{"type":"runner_event","event":{"type":"stream_delta","text":"17 * 23 = 391"}}
+{"type":"step_completed","step_id":"invocation","cost_usd":0.0008,"input_tokens":8,"output_tokens":5,"response":"17 * 23 = 391"}
+{"type":"pipeline_completed","outcome":"completed"}

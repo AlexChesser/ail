@@ -1,0 +1,2 @@
+{"type":"run_started","run_id":"run-007","pipeline_source":"bad.ail.yaml","total_steps":0}
+{"type":"pipeline_error","error":"Pipeline file not found: bad.ail.yaml","error_type":"PIPELINE_NOT_FOUND"}
