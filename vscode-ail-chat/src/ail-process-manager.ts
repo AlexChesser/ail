@@ -229,6 +229,7 @@ export function mapAilEventToMessages(event: AilEvent): HostToWebviewMessage[] {
             type: 'permissionRequested',
             displayName: inner.display_name,
             displayDetail: inner.display_detail,
+            toolInput: inner.tool_input,
           }];
         default:
           return [];

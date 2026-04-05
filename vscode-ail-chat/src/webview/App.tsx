@@ -13,6 +13,7 @@ import { ThinkingBlock } from './components/ThinkingBlock';
 import { ToolCallCard, ToolCallData } from './components/ToolCallCard';
 import { HitlCard, HitlCardState } from './components/HitlCard';
 import { PermissionCard, PermissionCardState } from './components/PermissionCard';
+import { AskUserQuestionCard, AskUserQuestion, AskUserCardState } from './components/AskUserQuestionCard';
 import { StepProgress, StepInfo, StepStatus } from './components/StepProgress';
 import { ChatInput } from './components/ChatInput';
 import { SessionList } from './components/SessionList';
@@ -46,6 +47,7 @@ export type DisplayItem =
   | { kind: 'tool-call'; id: string; data: ToolCallData }
   | { kind: 'hitl'; id: string; stepId: string; message?: string; cardState: HitlCardState; resolvedText?: string }
   | { kind: 'permission'; id: string; displayName: string; displayDetail: string; cardState: PermissionCardState; resolvedAllowed?: boolean }
+  | { kind: 'ask-user-question'; id: string; questions: AskUserQuestion[]; cardState: AskUserCardState; resolvedAnswer?: string }
   | { kind: 'error'; id: string; message: string };
 
 // ── State ──────────────────────────────────────────────────────────────────────
@@ -94,6 +96,8 @@ type Action =
   | { type: 'HITL_REJECT'; stepId: string }
   | { type: 'PERMISSION_ALLOW' }
   | { type: 'PERMISSION_DENY' }
+  | { type: 'ASK_USER_SUBMIT'; answer: string }
+  | { type: 'ASK_USER_DENY' }
   | { type: 'STOP' }
   | { type: 'SELECT_SESSION'; id: string }
   | { type: 'NEW_SESSION' }
@@ -133,6 +137,14 @@ function findHitlId(items: DisplayItem[], stepId: string): string | null {
 function findPermissionId(items: DisplayItem[]): string | null {
   for (const it of items) {
     if (it.kind === 'permission' && it.cardState === 'pending') return it.id;
+  }
+  return null;
+}
+
+/** Find pending ask-user-question card id. */
+function findAskUserId(items: DisplayItem[]): string | null {
+  for (const it of items) {
+    if (it.kind === 'ask-user-question' && it.cardState === 'pending') return it.id;
   }
   return null;
 }
@@ -293,6 +305,22 @@ function reducer(state: ChatState, action: Action): ChatState {
         }
 
         case 'permissionRequested': {
+          // Detect AskUserQuestion tool by displayName
+          if (msg.displayName === 'AskUserQuestion' && msg.toolInput != null) {
+            const input = msg.toolInput as { questions?: AskUserQuestion[] };
+            if (input.questions && Array.isArray(input.questions)) {
+              const [id, s2] = nextId(state);
+              return {
+                ...s2,
+                items: [...s2.items, {
+                  kind: 'ask-user-question',
+                  id,
+                  questions: input.questions,
+                  cardState: 'pending' as AskUserCardState,
+                }],
+              };
+            }
+          }
           const [id, s2] = nextId(state);
           return {
             ...s2,
@@ -307,13 +335,16 @@ function reducer(state: ChatState, action: Action): ChatState {
         }
 
         case 'pipelineCompleted': {
-          // Cancel any pending HITL/permission cards
+          // Cancel any pending HITL/permission/ask-user cards
           const cancelledItems = state.items.map((it) => {
             if (it.kind === 'hitl' && it.cardState === 'pending') {
               return { ...it, cardState: 'cancelled' as HitlCardState };
             }
             if (it.kind === 'permission' && it.cardState === 'pending') {
               return { ...it, cardState: 'resolved' as PermissionCardState };
+            }
+            if (it.kind === 'ask-user-question' && it.cardState === 'pending') {
+              return { ...it, cardState: 'resolved' as AskUserCardState };
             }
             if (it.kind === 'assistant-stream' && it.streaming) {
               return { ...it, streaming: false };
@@ -397,6 +428,28 @@ function reducer(state: ChatState, action: Action): ChatState {
       };
     }
 
+    case 'ASK_USER_SUBMIT': {
+      const auId = findAskUserId(state.items);
+      if (auId === null) return state;
+      return {
+        ...state,
+        items: updateItem(state.items, auId, (it) =>
+          it.kind === 'ask-user-question' ? { ...it, cardState: 'resolved', resolvedAnswer: action.answer } : it
+        ),
+      };
+    }
+
+    case 'ASK_USER_DENY': {
+      const auId = findAskUserId(state.items);
+      if (auId === null) return state;
+      return {
+        ...state,
+        items: updateItem(state.items, auId, (it) =>
+          it.kind === 'ask-user-question' ? { ...it, cardState: 'resolved' } : it
+        ),
+      };
+    }
+
     case 'STOP':
       return { ...state, isRunning: false, runStartTime: null };
 
@@ -472,6 +525,16 @@ export const App: React.FC = () => {
     postToHost({ type: 'permissionResponse', allowed: false });
   };
 
+  const handleAskUserSubmit = (answer: string) => {
+    dispatch({ type: 'ASK_USER_SUBMIT', answer });
+    postToHost({ type: 'permissionResponse', allowed: false, reason: answer });
+  };
+
+  const handleAskUserDeny = () => {
+    dispatch({ type: 'ASK_USER_DENY' });
+    postToHost({ type: 'permissionResponse', allowed: false, reason: 'User dismissed the question' });
+  };
+
   const handleSelectSession = (id: string) => {
     dispatch({ type: 'SELECT_SESSION', id });
     postToHost({ type: 'switchSession', sessionId: id });
@@ -489,7 +552,8 @@ export const App: React.FC = () => {
 
   const hasPendingHitl = state.items.some((it) => it.kind === 'hitl' && it.cardState === 'pending');
   const hasPendingPermission = state.items.some((it) => it.kind === 'permission' && it.cardState === 'pending');
-  const inputDisabled = hasPendingHitl || hasPendingPermission;
+  const hasPendingAskUser = state.items.some((it) => it.kind === 'ask-user-question' && it.cardState === 'pending');
+  const inputDisabled = hasPendingHitl || hasPendingPermission || hasPendingAskUser;
 
   return (
     <>
@@ -553,6 +617,17 @@ export const App: React.FC = () => {
                     onDeny={handlePermissionDeny}
                   />
                 );
+              case 'ask-user-question':
+                return (
+                  <AskUserQuestionCard
+                    key={item.id}
+                    questions={item.questions}
+                    cardState={item.cardState}
+                    resolvedAnswer={item.resolvedAnswer}
+                    onSubmit={handleAskUserSubmit}
+                    onDeny={handleAskUserDeny}
+                  />
+                );
               case 'error':
                 return (
                   <div key={item.id} className="error-message">
@@ -577,6 +652,7 @@ export const App: React.FC = () => {
           placeholder={
             hasPendingHitl ? 'Waiting for your review…'
             : hasPendingPermission ? 'Waiting for permission response…'
+            : hasPendingAskUser ? 'Waiting for your answer…'
             : undefined
           }
         />

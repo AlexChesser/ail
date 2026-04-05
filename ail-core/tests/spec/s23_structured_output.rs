@@ -377,6 +377,7 @@ fn golden_runner_event_permission_requested() {
     let inner = RunnerEvent::PermissionRequested(PermissionRequest {
         display_name: "Bash".into(),
         display_detail: "rm -rf /tmp/test-build".into(),
+        tool_input: None,
     });
     assert_eq!(
         serialize_runner_wrapped(inner),

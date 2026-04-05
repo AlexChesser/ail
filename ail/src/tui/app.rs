@@ -1378,6 +1378,7 @@ mod tests {
         let effects = a.handle_permission_request(PermissionRequest {
             display_name: "Bash".to_string(),
             display_detail: String::new(),
+            tool_input: None,
         });
         assert_eq!(
             effects,
@@ -1394,6 +1395,7 @@ mod tests {
         let effects = a.handle_permission_request(PermissionRequest {
             display_name: "Write".to_string(),
             display_detail: " path=/foo".to_string(),
+            tool_input: None,
         });
         assert!(effects.is_empty());
         assert!(a.permissions.modal_open);
@@ -1406,6 +1408,7 @@ mod tests {
         a.permissions.request = Some(PermissionRequest {
             display_name: "Bash".to_string(),
             display_detail: String::new(),
+            tool_input: None,
         });
         a.permissions.modal_open = true;
         let effects = a.perm_approve_once();
@@ -1425,6 +1428,7 @@ mod tests {
         a.permissions.request = Some(PermissionRequest {
             display_name: "Bash".to_string(),
             display_detail: String::new(),
+            tool_input: None,
         });
         a.permissions.modal_open = true;
         let effects = a.perm_approve_session();
@@ -1443,6 +1447,7 @@ mod tests {
         a.permissions.request = Some(PermissionRequest {
             display_name: "Bash".to_string(),
             display_detail: String::new(),
+            tool_input: None,
         });
         a.permissions.modal_open = true;
         let effects = a.perm_deny();

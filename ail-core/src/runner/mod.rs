@@ -73,6 +73,10 @@ pub struct PermissionRequest {
     pub display_name: String,
     /// Human-readable summary of the tool's arguments, pre-formatted by the runner.
     pub display_detail: String,
+    /// Raw tool input JSON from the runner, if available. Used by consumers that need
+    /// structured access to the tool arguments (e.g. AskUserQuestion intercept).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tool_input: Option<serde_json::Value>,
 }
 
 /// The user's decision on a `PermissionRequest`.
@@ -276,6 +280,7 @@ mod tests {
         let event = RunnerEvent::PermissionRequested(PermissionRequest {
             display_name: "Bash".into(),
             display_detail: "rm -rf /tmp/test".into(),
+            tool_input: None,
         });
         let json: serde_json::Value =
             serde_json::from_str(&serde_json::to_string(&event).unwrap()).unwrap();
