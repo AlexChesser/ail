@@ -497,6 +497,12 @@ impl ClaudeCliRunner {
                     Ok(v) => v,
                     Err(_) => continue,
                 };
+                // Shutdown signal sent by invoke_streaming after Claude CLI exits.
+                // This unblocks the listener so it drops its runner_tx clone, allowing
+                // the fwd_handle in execute_with_control to drain and join.
+                if req_val.get("__close__").is_some() {
+                    break;
+                }
                 // Retain tool_input for the MCP response; translate to generic display fields.
                 let tool_input = req_val["tool_input"].clone();
                 let display_name = req_val["tool_name"].as_str().unwrap_or("").to_string();
@@ -965,6 +971,21 @@ impl Runner for ClaudeCliRunner {
 
         // Wait for the stderr drain thread now that stdout is exhausted.
         let stderr_output = stderr_reader.join().unwrap_or_default();
+
+        // Signal the permission listener thread to stop.
+        //
+        // The listener holds a clone of `tx` (runner_tx) and blocks indefinitely on
+        // `listener.incoming()`. Without this signal, the clone is never dropped, so
+        // `runner_rx` in execute_with_control's fwd_handle never gets EOF, and
+        // `fwd_handle.join()` blocks forever — preventing step transitions.
+        //
+        // Claude CLI has already exited at this point (child.wait() completed), so no
+        // more connections to the socket are expected.
+        if let Some(ref sock) = permission_socket_path {
+            if let Ok(mut s) = crate::ipc::connect_local(sock) {
+                let _ = s.write_all(b"{\"__close__\":true}\n");
+            }
+        }
 
         if was_cancelled {
             tracing::info!("runner invocation cancelled by user");
