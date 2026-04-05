@@ -21,7 +21,10 @@ export const PermissionCard: React.FC<PermissionCardProps> = ({
 }) => {
   return (
     <div className="permission-card">
-      <div className="permission-card-title">🔒 Permission requested: {displayName}</div>
+      <div className="permission-card-title">
+        <span className="permission-card-icon codicon codicon-lock" />
+        <span>Permission requested: {displayName}</span>
+      </div>
       <div className="permission-card-detail">{displayDetail}</div>
       {cardState === 'pending' && (
         <div className="permission-card-actions">
@@ -30,8 +33,8 @@ export const PermissionCard: React.FC<PermissionCardProps> = ({
         </div>
       )}
       {cardState === 'resolved' && (
-        <div className="hitl-card-resolved">
-          {resolvedAllowed ? '✓ Allowed' : '✗ Denied'}
+        <div className="permission-card-resolved">
+          {resolvedAllowed ? '\u2713 Allowed' : '\u2717 Denied'}
         </div>
       )}
     </div>

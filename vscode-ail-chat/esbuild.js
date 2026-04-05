@@ -33,6 +33,25 @@ const webviewOptions = {
   minify: production,
 };
 
+function copyCodiconAssets() {
+  const dist = path.join(__dirname, 'dist');
+  if (!fs.existsSync(dist)) fs.mkdirSync(dist, { recursive: true });
+
+  // Copy codicon CSS (rewrite font url to point to local file)
+  const codiconCssSrc = path.join(__dirname, 'node_modules', '@vscode', 'codicons', 'dist', 'codicon.css');
+  const codiconFontSrc = path.join(__dirname, 'node_modules', '@vscode', 'codicons', 'dist', 'codicon.ttf');
+
+  if (fs.existsSync(codiconCssSrc)) {
+    let css = fs.readFileSync(codiconCssSrc, 'utf8');
+    // Ensure the font URL points to the same dist directory
+    css = css.replace(/url\(['"]?([^'")\s]+)['"]?\)/g, "url('./codicon.ttf')");
+    fs.writeFileSync(path.join(dist, 'codicon.css'), css);
+  }
+  if (fs.existsSync(codiconFontSrc)) {
+    fs.copyFileSync(codiconFontSrc, path.join(dist, 'codicon.ttf'));
+  }
+}
+
 async function build() {
   if (!watch) {
     // Clean dist before every non-watch build (rmdirSync works on Node ≥12.10)
@@ -41,6 +60,8 @@ async function build() {
       (fs.rmSync || fs.rmdirSync)(dist, { recursive: true, force: true });
     } catch (_) {}
   }
+
+  copyCodiconAssets();
 
   if (watch) {
     const [extCtx, webCtx] = await Promise.all([

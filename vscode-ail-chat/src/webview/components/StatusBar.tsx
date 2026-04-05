@@ -29,15 +29,14 @@ export const StatusBar: React.FC<StatusBarProps> = ({ isRunning, startTime, tota
 
   const parts: string[] = [];
   if (elapsed > 0) parts.push(`${elapsed}s`);
-  if (totalTokens > 0) parts.push(`↑ ${totalTokens.toLocaleString()} tokens`);
-  const metrics = parts.length > 0 ? ` (${parts.join(' · ')})` : '';
+  if (totalTokens > 0) parts.push(`${totalTokens.toLocaleString()} tokens`);
+  const metrics = parts.length > 0 ? ` (${parts.join(' \u00B7 ')})` : '';
 
   return (
-    <div className="status-bar">
-      <span className="status-bar-sparkle">✦</span>
-      <span className="status-bar-label">Working...</span>
-      {metrics && <span className="status-bar-metrics">{metrics}</span>}
-      <button className="status-bar-stop" onClick={onStop}>esc to interrupt</button>
+    <div className="chat-input-status">
+      <span className="chat-input-status-sparkle codicon codicon-sparkle" />
+      <span className="chat-input-status-label">Working...{metrics}</span>
+      <button className="chat-input-status-stop" onClick={onStop}>esc to interrupt</button>
     </div>
   );
 };
