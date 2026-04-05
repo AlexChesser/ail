@@ -132,11 +132,136 @@ pub fn execute_with_control(
                     resolved_prompt: Some(resolved.clone()),
                 });
 
-                let resume_id = session
-                    .turn_log
-                    .last_runner_session_id()
-                    .map(|s| s.to_string());
+                let resume_id = if step.resume {
+                    session
+                        .turn_log
+                        .last_runner_session_id()
+                        .map(|s| s.to_string())
+                } else {
+                    None
+                };
                 session.turn_log.record_step_started(&step_id, &resolved);
+
+                // Resolve system_prompt if set
+                let resolved_system_prompt = match step
+                    .system_prompt
+                    .as_deref()
+                    .map(|sp| {
+                        let content = resolve_prompt_file(sp, &step_id)?;
+                        template::resolve(&content, session).map_err(|mut e| {
+                            e.context = Some(crate::error::ErrorContext {
+                                pipeline_run_id: Some(session.run_id.clone()),
+                                step_id: Some(step_id.clone()),
+                                source: None,
+                            });
+                            e
+                        })
+                    })
+                    .transpose()
+                {
+                    Ok(v) => v,
+                    Err(e) => {
+                        let _ = event_tx.send(ExecutorEvent::StepFailed {
+                            step_id: step_id.clone(),
+                            error: e.detail.clone(),
+                        });
+                        return Err(e);
+                    }
+                };
+
+                // Resolve append_system_prompt entries
+                let mut resolved_append_system_prompt: Vec<String> = Vec::new();
+                if let Some(entries) = &step.append_system_prompt {
+                    for entry in entries {
+                        let text = match entry {
+                            crate::config::domain::SystemPromptEntry::Text(s) => {
+                                match template::resolve(s, session) {
+                                    Ok(t) => t,
+                                    Err(mut e) => {
+                                        e.context = Some(crate::error::ErrorContext {
+                                            pipeline_run_id: Some(session.run_id.clone()),
+                                            step_id: Some(step_id.clone()),
+                                            source: None,
+                                        });
+                                        let _ = event_tx.send(ExecutorEvent::StepFailed {
+                                            step_id: step_id.clone(),
+                                            error: e.detail.clone(),
+                                        });
+                                        return Err(e);
+                                    }
+                                }
+                            }
+                            crate::config::domain::SystemPromptEntry::File(path) => {
+                                let content = match std::fs::read_to_string(path) {
+                                    Ok(c) => c,
+                                    Err(e) => {
+                                        let err = AilError {
+                                            error_type: error_types::CONFIG_FILE_NOT_FOUND,
+                                            title: "append_system_prompt file not found",
+                                            detail: format!(
+                                                "Step '{step_id}' append_system_prompt file '{}' could not be read: {e}",
+                                                path.display()
+                                            ),
+                                            context: Some(crate::error::ErrorContext {
+                                                pipeline_run_id: Some(session.run_id.clone()),
+                                                step_id: Some(step_id.clone()),
+                                                source: None,
+                                            }),
+                                        };
+                                        let _ = event_tx.send(ExecutorEvent::StepFailed {
+                                            step_id: step_id.clone(),
+                                            error: err.detail.clone(),
+                                        });
+                                        return Err(err);
+                                    }
+                                };
+                                match template::resolve(&content, session) {
+                                    Ok(t) => t,
+                                    Err(mut e) => {
+                                        e.context = Some(crate::error::ErrorContext {
+                                            pipeline_run_id: Some(session.run_id.clone()),
+                                            step_id: Some(step_id.clone()),
+                                            source: None,
+                                        });
+                                        let _ = event_tx.send(ExecutorEvent::StepFailed {
+                                            step_id: step_id.clone(),
+                                            error: e.detail.clone(),
+                                        });
+                                        return Err(e);
+                                    }
+                                }
+                            }
+                            crate::config::domain::SystemPromptEntry::Shell(cmd) => {
+                                let resolved_cmd = match template::resolve(cmd, session) {
+                                    Ok(c) => c,
+                                    Err(mut e) => {
+                                        e.context = Some(crate::error::ErrorContext {
+                                            pipeline_run_id: Some(session.run_id.clone()),
+                                            step_id: Some(step_id.clone()),
+                                            source: None,
+                                        });
+                                        let _ = event_tx.send(ExecutorEvent::StepFailed {
+                                            step_id: step_id.clone(),
+                                            error: e.detail.clone(),
+                                        });
+                                        return Err(e);
+                                    }
+                                };
+                                match run_shell_command(&session.run_id, &step_id, &resolved_cmd) {
+                                    Ok((stdout, _stderr, _exit_code)) => stdout,
+                                    Err(e) => {
+                                        let _ = event_tx.send(ExecutorEvent::StepFailed {
+                                            step_id: step_id.clone(),
+                                            error: e.detail.clone(),
+                                        });
+                                        return Err(e);
+                                    }
+                                }
+                            }
+                        };
+                        resolved_append_system_prompt.push(text);
+                    }
+                }
 
                 let resolved_provider = resolve_step_provider(session, step);
                 let effective_tools = step
@@ -157,6 +282,8 @@ pub fn execute_with_control(
                     extensions,
                     permission_responder: control.permission_responder.clone(),
                     cancel_token: Some(Arc::clone(&control.kill_requested)),
+                    system_prompt: resolved_system_prompt,
+                    append_system_prompt: resolved_append_system_prompt,
                 };
 
                 // Create a sub-channel for runner events.

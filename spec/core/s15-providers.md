@@ -1,6 +1,6 @@
 ## 15. Providers
 
-> **Implementation status:** Partial. `defaults.model`, `defaults.provider.base_url`, and `defaults.provider.auth_token` are parsed and applied. Per-step `model:` override is implemented. Named provider aliases (`providers:` block), provider string format (`vendor/model`), and `resume:` per-step field are not yet implemented.
+> **Implementation status:** Partial. `defaults.model`, `defaults.provider.base_url`, and `defaults.provider.auth_token` are parsed and applied. Per-step `model:` and `resume:` overrides are implemented. Named provider aliases (`providers:` block) and provider string format (`vendor/model`) are not yet implemented.
 
 ### 15.1 Provider String Format
 

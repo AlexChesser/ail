@@ -153,11 +153,89 @@ pub(super) fn execute_inner(
                     e
                 })?;
 
-                let resume_id = session
-                    .turn_log
-                    .last_runner_session_id()
-                    .map(|s| s.to_string());
+                let resume_id = if step.resume {
+                    session
+                        .turn_log
+                        .last_runner_session_id()
+                        .map(|s| s.to_string())
+                } else {
+                    None
+                };
                 session.turn_log.record_step_started(&step_id, &resolved);
+
+                // Resolve system_prompt if set
+                let resolved_system_prompt = step
+                    .system_prompt
+                    .as_deref()
+                    .map(|sp| {
+                        let content = resolve_prompt_file(sp, &step_id)?;
+                        template::resolve(&content, session).map_err(|mut e| {
+                            e.context = Some(crate::error::ErrorContext {
+                                pipeline_run_id: Some(session.run_id.clone()),
+                                step_id: Some(step_id.clone()),
+                                source: None,
+                            });
+                            e
+                        })
+                    })
+                    .transpose()?;
+
+                // Resolve append_system_prompt entries
+                let mut resolved_append_system_prompt: Vec<String> = Vec::new();
+                if let Some(entries) = &step.append_system_prompt {
+                    for entry in entries {
+                        let text = match entry {
+                            crate::config::domain::SystemPromptEntry::Text(s) => {
+                                template::resolve(s, session).map_err(|mut e| {
+                                    e.context = Some(crate::error::ErrorContext {
+                                        pipeline_run_id: Some(session.run_id.clone()),
+                                        step_id: Some(step_id.clone()),
+                                        source: None,
+                                    });
+                                    e
+                                })?
+                            }
+                            crate::config::domain::SystemPromptEntry::File(path) => {
+                                let content = std::fs::read_to_string(path).map_err(|e| AilError {
+                                    error_type: error_types::CONFIG_FILE_NOT_FOUND,
+                                    title: "append_system_prompt file not found",
+                                    detail: format!(
+                                        "Step '{step_id}' append_system_prompt file '{}' could not be read: {e}",
+                                        path.display()
+                                    ),
+                                    context: Some(crate::error::ErrorContext {
+                                        pipeline_run_id: Some(session.run_id.clone()),
+                                        step_id: Some(step_id.clone()),
+                                        source: None,
+                                    }),
+                                })?;
+                                template::resolve(&content, session).map_err(|mut e| {
+                                    e.context = Some(crate::error::ErrorContext {
+                                        pipeline_run_id: Some(session.run_id.clone()),
+                                        step_id: Some(step_id.clone()),
+                                        source: None,
+                                    });
+                                    e
+                                })?
+                            }
+                            crate::config::domain::SystemPromptEntry::Shell(cmd) => {
+                                let resolved_cmd =
+                                    template::resolve(cmd, session).map_err(|mut e| {
+                                        e.context = Some(crate::error::ErrorContext {
+                                            pipeline_run_id: Some(session.run_id.clone()),
+                                            step_id: Some(step_id.clone()),
+                                            source: None,
+                                        });
+                                        e
+                                    })?;
+                                let (stdout, _stderr, _exit_code) =
+                                    run_shell_command(&session.run_id, &step_id, &resolved_cmd)?;
+                                stdout
+                            }
+                        };
+                        resolved_append_system_prompt.push(text);
+                    }
+                }
 
                 let resolved_provider = resolve_step_provider(session, step);
                 let effective_tools = step
@@ -178,6 +256,8 @@ pub(super) fn execute_inner(
                     extensions,
                     permission_responder: None,
                     cancel_token: None,
+                    system_prompt: resolved_system_prompt,
+                    append_system_prompt: resolved_append_system_prompt,
                 };
 
                 let result = effective_runner

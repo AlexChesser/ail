@@ -18,7 +18,6 @@ pipeline:
   # The classification token (TRIVIAL/EXPLICIT/EXPLORATORY/AMBIGUOUS) MUST be the first word
   # of the response so on_result can branch correctly.
   - id: sisyphus_gate
-    # TODO: system_prompt: not yet wired in executor — loaded via prompt field instead
     system_prompt: ./prompts/sisyphus.md
     prompt: |
       You are Sisyphus. Read ./prompts/sisyphus.md for your full role definition.

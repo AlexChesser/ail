@@ -18,6 +18,14 @@ pub fn materialize(pipeline: &Pipeline) -> String {
         out.push_str(&format!("  # origin: [{}] {}\n", idx + 1, source_label));
         out.push_str(&format!("  - id: {}\n", step.id.as_str()));
 
+        if let Some(ref sp) = step.system_prompt {
+            let escaped = sp.replace('\\', "\\\\").replace('"', "\\\"");
+            out.push_str(&format!("    system_prompt: \"{escaped}\"\n"));
+        }
+        if step.resume {
+            out.push_str("    resume: true\n");
+        }
+
         match &step.body {
             StepBody::Prompt(text) => {
                 // Inline prompts use double-quote scalar; escape backslashes and quotes.
@@ -85,6 +93,8 @@ mod tests {
                 runner: None,
                 condition: None,
                 append_system_prompt: None,
+                system_prompt: None,
+                resume: false,
             }],
             source: Some(std::path::PathBuf::from("test.ail.yaml")),
             defaults: Default::default(),

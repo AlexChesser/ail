@@ -579,6 +579,14 @@ impl ClaudeCliRunner {
             args.push("--model".into());
             args.push(model.clone());
         }
+        if let Some(ref sp) = options.system_prompt {
+            args.push("--system-prompt".into());
+            args.push(sp.clone());
+        }
+        for entry in &options.append_system_prompt {
+            args.push("--append-system-prompt".into());
+            args.push(entry.clone());
+        }
 
         // Permission HITL: configure MCP bridge when a permission socket is provided and we
         // are not in headless mode. The --permission-prompt-tool mechanism is internal to

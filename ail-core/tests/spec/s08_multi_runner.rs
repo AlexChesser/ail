@@ -148,6 +148,8 @@ fn executor_dispatches_per_step_runner() {
         runner: None,
         condition: None,
         append_system_prompt: None,
+        system_prompt: None,
+        resume: false,
     };
     // Step B: runner: "stub" — executor builds StubRunner via RunnerFactory.
     let step_b = Step {
@@ -160,6 +162,8 @@ fn executor_dispatches_per_step_runner() {
         runner: Some("stub".to_string()),
         condition: None,
         append_system_prompt: None,
+        system_prompt: None,
+        resume: false,
     };
 
     let pipeline = Pipeline {

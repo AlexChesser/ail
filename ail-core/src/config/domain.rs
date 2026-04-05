@@ -77,6 +77,8 @@ impl Pipeline {
                 runner: None,
                 condition: None,
                 append_system_prompt: None,
+                system_prompt: None,
+                resume: false,
             }],
             source: None,
             defaults: ProviderConfig::default(),
@@ -117,6 +119,13 @@ pub struct Step {
     pub condition: Option<Condition>,
     /// Ordered list of system context additions appended to the system prompt at step runtime (SPEC §5.9).
     pub append_system_prompt: Option<Vec<SystemPromptEntry>>,
+    /// Optional system prompt override for this step (SPEC §5.9).
+    /// When set, replaces the runner's default system prompt entirely.
+    /// May be an inline string or a file path (resolved via `resolve_prompt_file`).
+    pub system_prompt: Option<String>,
+    /// Whether this step resumes the previous runner session (SPEC §15.4).
+    /// `false` (default) starts a fresh session for each step.
+    pub resume: bool,
 }
 
 #[derive(Debug, Default, Clone)]

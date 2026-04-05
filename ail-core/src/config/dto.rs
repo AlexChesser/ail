@@ -44,6 +44,12 @@ pub struct StepDto {
     pub condition: Option<String>,
     /// Optional list of system prompt additions for this step (SPEC §5.9).
     pub append_system_prompt: Option<Vec<AppendSystemPromptEntryDto>>,
+    /// Optional system prompt override for this step (SPEC §5.9).
+    /// When set, replaces the runner's default system prompt entirely.
+    pub system_prompt: Option<String>,
+    /// Whether this step should resume the previous runner session (SPEC §15.4).
+    /// Defaults to `false` — each step starts a fresh session.
+    pub resume: Option<bool>,
 }
 
 #[derive(Deserialize)]

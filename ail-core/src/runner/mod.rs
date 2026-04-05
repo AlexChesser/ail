@@ -169,6 +169,14 @@ pub struct InvokeOptions {
     /// Ctrl+K both cancel mid-invocation requests. Runners that do not support cancellation
     /// ignore this field.
     pub cancel_token: Option<Arc<AtomicBool>>,
+    /// System prompt override for this invocation (SPEC §5.9).
+    /// When set, replaces the runner's default system prompt entirely.
+    /// Runners that do not support system prompt overrides ignore this field.
+    pub system_prompt: Option<String>,
+    /// Additional text to append to the runner's system prompt (SPEC §5.9).
+    /// Each entry is appended in order after the default system prompt.
+    /// Runners that do not support system prompt appending ignore this field.
+    pub append_system_prompt: Vec<String>,
 }
 
 pub trait Runner {

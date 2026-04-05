@@ -20,6 +20,8 @@ fn prompt_step(id: &str, text: &str) -> Step {
         runner: None,
         condition: None,
         append_system_prompt: None,
+        system_prompt: None,
+        resume: false,
     }
 }
 

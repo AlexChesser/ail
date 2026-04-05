@@ -5,7 +5,6 @@ meta:
 
 pipeline:
   - id: atlas_decompose
-    # TODO: system_prompt: not yet wired in executor — prompt includes system context inline
     system_prompt: ../prompts/atlas.md
     prompt: |
       You are Atlas, the todo orchestrator. Read ../prompts/atlas.md for your full role definition.
@@ -24,7 +23,6 @@ pipeline:
         - Bash
 
   - id: atlas_execute
-    # TODO: resume: not yet wired in executor
     resume: true
     prompt: |
       Now execute the task list you produced. For each task:

@@ -31,6 +31,8 @@ fn prompt_step_with_condition(id: &str, text: &str, condition: Option<Condition>
         runner: None,
         condition,
         append_system_prompt: None,
+        system_prompt: None,
+        resume: false,
     }
 }
 

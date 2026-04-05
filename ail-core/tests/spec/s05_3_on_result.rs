@@ -38,6 +38,8 @@ fn prompt_step_with_on_result(
         runner: None,
         condition: None,
         append_system_prompt: None,
+        system_prompt: None,
+        resume: false,
     };
     (step, StubRunner::new(response))
 }
@@ -59,6 +61,8 @@ fn context_step_with_exit(id: &str, exit_code: i32, branches: Vec<ResultBranch>)
         runner: None,
         condition: None,
         append_system_prompt: None,
+        system_prompt: None,
+        resume: false,
     }
 }
 
@@ -73,6 +77,8 @@ fn prompt_step(id: &str, text: &str) -> Step {
         runner: None,
         condition: None,
         append_system_prompt: None,
+        system_prompt: None,
+        resume: false,
     }
 }
 

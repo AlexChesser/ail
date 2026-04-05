@@ -43,6 +43,8 @@ mod tests {
             runner: None,
             condition: None,
             append_system_prompt: None,
+            system_prompt: None,
+            resume: false,
         }
     }
 

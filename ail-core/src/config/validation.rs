@@ -331,6 +331,8 @@ pub fn validate(dto: PipelineFileDto, source: PathBuf) -> Result<Pipeline, AilEr
             runner: step_dto.runner,
             condition,
             append_system_prompt,
+            system_prompt: step_dto.system_prompt,
+            resume: step_dto.resume.unwrap_or(false),
         });
     }
 

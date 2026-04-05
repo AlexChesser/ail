@@ -36,6 +36,8 @@ fn prompt_step(id: &str, text: &str) -> Step {
         runner: None,
         condition: None,
         append_system_prompt: None,
+        system_prompt: None,
+        resume: false,
     }
 }
 
@@ -50,6 +52,8 @@ fn sub_pipeline_step(id: &str, path: &str) -> Step {
         runner: None,
         condition: None,
         append_system_prompt: None,
+        system_prompt: None,
+        resume: false,
     }
 }
 
@@ -204,6 +208,8 @@ fn on_result_pipeline_action_executes_sub_pipeline_on_match() {
         runner: None,
         condition: None,
         append_system_prompt: None,
+        system_prompt: None,
+        resume: false,
     };
     let mut session = make_session(vec![trigger]);
 

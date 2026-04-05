@@ -88,6 +88,4 @@ cargo run -- validate --pipeline demo/oh-my-ail/agents/hephaestus.ail.yaml
 
 ## Known Limitations (v0.1)
 
-- **`system_prompt:` is not yet wired in the executor.** The YAML field is present for structural correctness but is silently ignored at runtime. Each agent prompt instead instructs the model to read its prompt file inline.
-- **`resume: true` is not yet in the DTO.** Atlas's two-step pipeline would benefit from session resumption; this is a no-op today.
 - **Sub-pipeline context passing is limited.** Each workflow step passes only the final output of the previous agent (`{{ step.<id>.response }}`). In a future version, richer context threading between agents would improve coherence.
