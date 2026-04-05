@@ -504,6 +504,7 @@ impl ClaudeCliRunner {
                 let perm_req = PermissionRequest {
                     display_name,
                     display_detail,
+                    tool_input: Some(tool_input.clone()),
                 };
                 let _ = event_tx.send(RunnerEvent::PermissionRequested(perm_req.clone()));
                 let response = responder(perm_req);

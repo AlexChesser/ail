@@ -94,6 +94,36 @@ The socket lifecycle is entirely encapsulated in `ClaudeCliRunner::invoke_stream
 
 Claude CLI supports `--permission-mode` values including `default`, `accept_edits`, `plan`, `bypass_permissions`, `delegate`, and `dont_ask`. Exposing these as session-level options is deferred to v0.2.
 
+#### AskUserQuestion Intercept
+
+When a `PermissionRequest` arrives with `display_name == "AskUserQuestion"`, the VS Code extension (and any other UI consumer) intercepts it as a structured question rather than a generic permission prompt. The `tool_input` field on `PermissionRequest` carries the raw JSON tool input, which for `AskUserQuestion` contains:
+
+```json
+{
+  "questions": [
+    {
+      "header": "Clarification needed",
+      "question": "Which framework should I use?",
+      "multiSelect": false,
+      "options": [
+        { "label": "React", "description": "Component-based UI library" },
+        { "label": "Vue", "description": "Progressive framework" }
+      ]
+    }
+  ]
+}
+```
+
+The UI renders this as a radio/checkbox question card instead of a permission modal. When the user selects an option or types a free-text answer, the response is sent as a **deny** with the answer text as the reason:
+
+```json
+{ "behavior": "deny", "message": "<user's answer>" }
+```
+
+This leverages the existing permission deny-with-reason mechanism to pass structured user input back to the model without requiring a new wire protocol. The model receives the denial message containing the answer and can proceed accordingly.
+
+The `tool_input` field was added to `PermissionRequest` (as `Option<serde_json::Value>`, serialised with `skip_serializing_if = "Option::is_none"`) specifically to support this pattern. `ClaudeCliRunner` populates it from the MCP bridge request; other runners may leave it as `None`.
+
 #### `PreToolUse` Hook (Alternative Intercept)
 
 As an alternative to `--permission-prompt-tool`, Claude CLI supports a `PreToolUse` hook — a process that runs synchronously after Claude creates tool parameters but before the tool executes. This is more suitable for automated validation than for interactive HITL; `ail`'s primary HITL mechanism is the MCP bridge.

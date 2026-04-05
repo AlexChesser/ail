@@ -60,8 +60,9 @@ pub struct ToolEvent { pub event_type: String, pub tool_name: String, pub tool_i
 // event_type: "tool_call" or "tool_result"; tool_name is empty for tool_result (not in wire format)
 pub struct RunResult { pub response: String, pub cost_usd: Option<f64>, pub session_id: Option<String>, pub input_tokens: u64, pub output_tokens: u64, pub thinking: Option<String>, pub model: Option<String>, pub tool_events: Vec<ToolEvent> }
 pub type PermissionResponder = Arc<dyn Fn(PermissionRequest) -> PermissionResponse + Send + Sync>;
-pub struct PermissionRequest { pub display_name: String, pub display_detail: String }
+pub struct PermissionRequest { pub display_name: String, pub display_detail: String, pub tool_input: Option<serde_json::Value> }
 // display_detail is pre-formatted by the runner from its native tool input format.
+// tool_input: raw JSON tool input from the runner; used by AskUserQuestion intercept. ClaudeCliRunner populates; others may leave None.
 pub enum ToolPermissionPolicy { RunnerDefault, Allowlist(Vec<String>), Denylist(Vec<String>), Mixed { allow: Vec<String>, deny: Vec<String> } }
 pub struct InvokeOptions { pub resume_session_id: Option<String>, pub tool_policy: ToolPermissionPolicy, pub model: Option<String>, pub extensions: Option<Box<dyn Any + Send>>, pub permission_responder: Option<PermissionResponder> }
 // extensions: runners downcast to their own type (e.g. ClaudeInvokeExtensions { base_url, auth_token, permission_socket }).

@@ -49,6 +49,7 @@ export interface PermissionRequestedEvent {
   type: 'permission_requested';
   display_name: string;
   display_detail: string;
+  tool_input?: unknown;
 }
 
 export interface RunCompletedEvent {
@@ -167,7 +168,7 @@ export type HostToWebviewMessage =
   | { type: 'stepSkipped'; stepId: string }
   | { type: 'stepFailed'; stepId: string; error: string }
   | { type: 'hitlGate'; stepId: string; message?: string }
-  | { type: 'permissionRequested'; displayName: string; displayDetail: string }
+  | { type: 'permissionRequested'; displayName: string; displayDetail: string; toolInput?: unknown }
   | { type: 'pipelineCompleted' }
   | { type: 'pipelineError'; error: string }
   | { type: 'processError'; message: string }
