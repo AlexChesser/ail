@@ -34,6 +34,7 @@ fn prompt_step_with_on_result(
         model: None,
         on_result: Some(branches),
         runner: None,
+        condition: None,
     };
     (step, StubRunner::new(response))
 }
@@ -53,6 +54,7 @@ fn context_step_with_exit(id: &str, exit_code: i32, branches: Vec<ResultBranch>)
         model: None,
         on_result: Some(branches),
         runner: None,
+        condition: None,
     }
 }
 
@@ -65,6 +67,7 @@ fn prompt_step(id: &str, text: &str) -> Step {
         model: None,
         on_result: None,
         runner: None,
+        condition: None,
     }
 }
 

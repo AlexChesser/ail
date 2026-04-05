@@ -37,6 +37,9 @@ pub struct StepDto {
     /// Optional runner name override for this step. Overrides `AIL_DEFAULT_RUNNER` and the
     /// pipeline-level default. See §19 and `RunnerFactory`.
     pub runner: Option<String>,
+    /// Optional condition controlling whether this step executes (SPEC §12).
+    /// Supported values: `"always"` (default), `"never"`.
+    pub condition: Option<String>,
 }
 
 #[derive(Deserialize)]

@@ -58,11 +58,21 @@ impl Pipeline {
                 on_result: None,
                 model: None,
                 runner: None,
+                condition: None,
             }],
             source: None,
             defaults: ProviderConfig::default(),
         }
     }
+}
+
+/// Controls whether a step executes (SPEC §12).
+#[derive(Debug, Clone, PartialEq)]
+pub enum Condition {
+    /// Step always executes (same as omitting `condition:`).
+    Always,
+    /// Step is unconditionally skipped.
+    Never,
 }
 
 #[derive(Debug, Clone)]
@@ -82,6 +92,9 @@ pub struct Step {
     /// Optional runner name override for this step (SPEC §19).
     /// Selection hierarchy: per-step `runner:` → `AIL_DEFAULT_RUNNER` env → `"claude"`.
     pub runner: Option<String>,
+    /// Optional condition controlling whether this step executes (SPEC §12).
+    /// `None` means always execute (same as `Some(Condition::Always)`).
+    pub condition: Option<Condition>,
 }
 
 #[derive(Debug, Default, Clone)]
