@@ -15,12 +15,18 @@ export interface StepProgressProps {
 
 function glyph(status: StepStatus): React.ReactElement {
   switch (status) {
-    case 'running':   return <span className="step-glyph running">⟳</span>;
-    case 'completed': return <span className="step-glyph">✓</span>;
-    case 'failed':    return <span className="step-glyph" style={{ color: 'var(--vscode-errorForeground)' }}>✗</span>;
-    case 'skipped':   return <span className="step-glyph" style={{ opacity: 0.5 }}>–</span>;
-    default:          return <span className="step-glyph" style={{ opacity: 0.4 }}>○</span>;
+    case 'running':   return <span className="step-glyph running">●</span>;
+    case 'completed': return <span className="step-glyph completed">●</span>;
+    case 'failed':    return <span className="step-glyph failed">●</span>;
+    case 'skipped':   return <span className="step-glyph skipped">○</span>;
+    default:          return <span className="step-glyph pending">○</span>;
   }
+}
+
+function rowClass(index: number, total: number): string {
+  if (total === 1) return 'step-row step-row--only';
+  if (index === total - 1) return 'step-row step-row--last';
+  return 'step-row';
 }
 
 export const StepProgress: React.FC<StepProgressProps> = ({ steps, totalCostUsd }) => {
@@ -28,9 +34,8 @@ export const StepProgress: React.FC<StepProgressProps> = ({ steps, totalCostUsd 
 
   return (
     <div className="step-progress">
-      <div className="step-progress-title">Steps</div>
-      {steps.map((step) => (
-        <div key={step.stepId} className="step-row">
+      {steps.map((step, i) => (
+        <div key={step.stepId} className={rowClass(i, steps.length)}>
           {glyph(step.status)}
           <span className="step-id">{step.stepId}</span>
           {step.costUsd !== undefined && step.costUsd > 0 && (
@@ -40,7 +45,7 @@ export const StepProgress: React.FC<StepProgressProps> = ({ steps, totalCostUsd 
       ))}
       {totalCostUsd !== undefined && totalCostUsd > 0 && (
         <div className="run-summary">
-          Total cost: ${totalCostUsd.toFixed(4)}
+          Total: ${totalCostUsd.toFixed(4)}
         </div>
       )}
     </div>

@@ -130,6 +130,6 @@ describe('App webview', () => {
   it('shows thinking block', () => {
     render(<App />);
     postMessage({ type: 'thinking', text: 'Deep thought here' });
-    expect(screen.getByText('Thinking')).toBeTruthy();
+    expect(screen.getByText('Thinking...')).toBeTruthy();
   });
 });

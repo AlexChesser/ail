@@ -16,6 +16,7 @@ import { PermissionCard, PermissionCardState } from './components/PermissionCard
 import { StepProgress, StepInfo, StepStatus } from './components/StepProgress';
 import { ChatInput } from './components/ChatInput';
 import { SessionList } from './components/SessionList';
+import { StatusBar } from './components/StatusBar';
 
 // ── VS Code API ────────────────────────────────────────────────────────────────
 
@@ -52,6 +53,9 @@ interface ChatState {
   items: DisplayItem[];
   steps: StepInfo[];
   totalCostUsd: number;
+  totalInputTokens: number;
+  totalOutputTokens: number;
+  runStartTime: number | null;
   isRunning: boolean;
   sessions: SessionSummary[];
   activeSessionId: string | null;
@@ -64,6 +68,9 @@ const initialState: ChatState = {
   items: [],
   steps: [],
   totalCostUsd: 0,
+  totalInputTokens: 0,
+  totalOutputTokens: 0,
+  runStartTime: null,
   isRunning: false,
   sessions: [],
   activeSessionId: null,
@@ -145,7 +152,7 @@ function reducer(state: ChatState, action: Action): ChatState {
       const msg = action.msg;
       switch (msg.type) {
         case 'runStarted': {
-          return { ...state, isRunning: true, steps: [], totalCostUsd: 0 };
+          return { ...state, isRunning: true, steps: [], totalCostUsd: 0, totalInputTokens: 0, totalOutputTokens: 0, runStartTime: Date.now() };
         }
 
         case 'stepStarted': {
@@ -223,6 +230,8 @@ function reducer(state: ChatState, action: Action): ChatState {
           return {
             ...state,
             totalCostUsd: state.totalCostUsd + costDelta,
+            totalInputTokens: state.totalInputTokens + (msg.inputTokens ?? 0),
+            totalOutputTokens: state.totalOutputTokens + (msg.outputTokens ?? 0),
             steps: updateStep(state.steps, msg.stepId, { status: 'completed', costUsd: msg.costUsd ?? undefined }),
             // Mark any pending stream item as no longer streaming
             items: state.items.map((it) =>
@@ -289,7 +298,7 @@ function reducer(state: ChatState, action: Action): ChatState {
             }
             return it;
           });
-          return { ...state, isRunning: false, items: cancelledItems };
+          return { ...state, isRunning: false, runStartTime: null, items: cancelledItems };
         }
 
         case 'pipelineError':
@@ -299,6 +308,7 @@ function reducer(state: ChatState, action: Action): ChatState {
           return {
             ...s2,
             isRunning: false,
+            runStartTime: null,
             items: [...s2.items.map((it) =>
               it.kind === 'assistant-stream' && it.streaming ? { ...it, streaming: false } : it
             ), { kind: 'error', id, message: errorMsg }],
@@ -359,13 +369,13 @@ function reducer(state: ChatState, action: Action): ChatState {
     }
 
     case 'STOP':
-      return { ...state, isRunning: false };
+      return { ...state, isRunning: false, runStartTime: null };
 
     case 'SELECT_SESSION':
       return { ...state, activeSessionId: action.id };
 
     case 'NEW_SESSION':
-      return { ...state, items: [], steps: [], totalCostUsd: 0, isRunning: false, activeSessionId: null };
+      return { ...state, items: [], steps: [], totalCostUsd: 0, totalInputTokens: 0, totalOutputTokens: 0, runStartTime: null, isRunning: false, activeSessionId: null };
 
     case 'TOGGLE_SESSIONS':
       return { ...state, showSessions: !state.showSessions };
@@ -502,10 +512,17 @@ export const App: React.FC = () => {
           })}
           {state.items.length === 0 && (
             <div className="status-banner">
-              Send a prompt to get started.
+              <span className="status-banner-prompt">&gt;_</span>
+              <span>Send a prompt to get started.</span>
             </div>
           )}
         </div>
+        <StatusBar
+          isRunning={state.isRunning}
+          startTime={state.runStartTime}
+          totalTokens={state.totalInputTokens + state.totalOutputTokens}
+          onStop={handleStop}
+        />
         <ChatInput
           onSubmit={handleSubmit}
           onStop={handleStop}
