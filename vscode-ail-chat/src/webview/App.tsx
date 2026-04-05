@@ -14,6 +14,7 @@ import { ToolCallCard, ToolCallData } from './components/ToolCallCard';
 import { HitlCard, HitlCardState } from './components/HitlCard';
 import { PermissionCard, PermissionCardState } from './components/PermissionCard';
 import { AskUserQuestionCard, AskUserQuestion, AskUserCardState } from './components/AskUserQuestionCard';
+import { ErrorBoundary } from './components/ErrorBoundary';
 import { StepProgress, StepInfo, StepStatus } from './components/StepProgress';
 import { ChatInput } from './components/ChatInput';
 import { SessionList } from './components/SessionList';
@@ -307,15 +308,31 @@ function reducer(state: ChatState, action: Action): ChatState {
         case 'permissionRequested': {
           // Detect AskUserQuestion tool by displayName
           if (msg.displayName === 'AskUserQuestion' && msg.toolInput != null) {
-            const input = msg.toolInput as { questions?: AskUserQuestion[] };
-            if (input.questions && Array.isArray(input.questions)) {
+            const input = msg.toolInput as {
+              questions?: AskUserQuestion[];
+              question?: string;
+              options?: (AskUserQuestion['options'][number] | string)[];
+            };
+            // Support both the canonical {questions:[...]} format and the flat {question, options} format
+            let questions: AskUserQuestion[] | null = null;
+            if (input.questions && Array.isArray(input.questions) && input.questions.length > 0) {
+              questions = input.questions;
+            } else if (typeof input.question === 'string') {
+              questions = [{
+                header: 'Question',
+                question: input.question,
+                multiSelect: false,
+                options: (input.options ?? []) as AskUserQuestion['options'],
+              }];
+            }
+            if (questions !== null) {
               const [id, s2] = nextId(state);
               return {
                 ...s2,
                 items: [...s2.items, {
                   kind: 'ask-user-question',
                   id,
-                  questions: input.questions,
+                  questions,
                   cardState: 'pending' as AskUserCardState,
                 }],
               };
@@ -619,14 +636,15 @@ export const App: React.FC = () => {
                 );
               case 'ask-user-question':
                 return (
-                  <AskUserQuestionCard
-                    key={item.id}
-                    questions={item.questions}
-                    cardState={item.cardState}
-                    resolvedAnswer={item.resolvedAnswer}
-                    onSubmit={handleAskUserSubmit}
-                    onDeny={handleAskUserDeny}
-                  />
+                  <ErrorBoundary key={item.id}>
+                    <AskUserQuestionCard
+                      questions={item.questions}
+                      cardState={item.cardState}
+                      resolvedAnswer={item.resolvedAnswer}
+                      onSubmit={handleAskUserSubmit}
+                      onDeny={handleAskUserDeny}
+                    />
+                  </ErrorBoundary>
                 );
               case 'error':
                 return (

@@ -39,6 +39,10 @@ export const AskUserQuestionCard: React.FC<AskUserQuestionCardProps> = ({
   }
 
   const isMultiSelect = question.multiSelect ?? false;
+  // Normalize options: Claude may send string[] or {label,description}[]
+  const options: AskUserQuestionOption[] = (question.options ?? []).map((opt) =>
+    typeof opt === 'string' ? { label: opt } : opt
+  );
 
   const handleOptionToggle = (label: string) => {
     setSomethingElse(false);
@@ -81,7 +85,7 @@ export const AskUserQuestionCard: React.FC<AskUserQuestionCardProps> = ({
       <div className="permission-card-detail">{question.question}</div>
       {cardState === 'pending' && (
         <div className="ask-user-options">
-          {question.options.map((opt) => (
+          {options.map((opt) => (
             <label
               key={opt.label}
               className={`ask-user-option ${selected.has(opt.label) ? 'ask-user-option-selected' : ''}`}
