@@ -36,4 +36,14 @@ The caller sees only the called pipeline's final output. Internal steps, interme
 
 If the called pipeline aborts internally, `ail` surfaces a pipeline stack trace to the TUI — equivalent to a call stack — showing which pipeline failed, at which step, and why. The caller's `on_error` field governs what happens next. The full internal trace is written to the pipeline run log.
 
+### 9.4 Depth Guard
+
+Sub-pipeline nesting is limited to `MAX_SUB_PIPELINE_DEPTH = 16` levels. If a chain of `pipeline:` steps (or `on_result: pipeline:` actions) would exceed this depth, execution aborts with a `PIPELINE_ABORTED` error before the offending step runs.
+
+This guard applies equally to both execution paths:
+- `execute()` — simple mode (`--once`)
+- `execute_with_control()` — controlled mode (TUI, `--output-format json`)
+
+A sub-pipeline called from a top-level pipeline starts at depth 1. Each further level increments the counter. Depth 0 is reserved for `execute_inner` when called directly from `execute()` or `execute_with_control()`.
+
 ---

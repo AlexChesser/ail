@@ -48,11 +48,7 @@ pub fn delete_run(run_id: &str, force: bool) -> Result<(), AilError> {
 /// If `force` is false, returns an error if the JSONL file does not exist (protecting against
 /// accidental deletion of records without corresponding log files). If `force` is true, deletes
 /// the database records even if the JSONL file is missing.
-fn delete_run_at(
-    run_id: &str,
-    cwd_hash: &str,
-    force: bool,
-) -> Result<(), AilError> {
+fn delete_run_at(run_id: &str, cwd_hash: &str, force: bool) -> Result<(), AilError> {
     let db_path = project_dir_for_hash(cwd_hash).join("ail.db");
 
     // Check JSONL file existence unless force is set.
@@ -167,11 +163,7 @@ fn delete_run_at(
         std::fs::remove_file(&jsonl_path).map_err(|e| AilError {
             error_type: error_types::PIPELINE_ABORTED,
             title: "Failed to delete JSONL file",
-            detail: format!(
-                "Could not delete {}: {}",
-                jsonl_path.display(),
-                e
-            ),
+            detail: format!("Could not delete {}: {}", jsonl_path.display(), e),
             context: None,
         })?;
     }
@@ -186,10 +178,7 @@ fn delete_run_at(
 /// deleting even if some JSONL files are missing.
 ///
 /// Returns the count of successfully deleted runs.
-pub fn delete_runs(
-    run_ids: &[String],
-    force: bool,
-) -> Result<usize, AilError> {
+pub fn delete_runs(run_ids: &[String], force: bool) -> Result<usize, AilError> {
     let mut deleted_count = 0;
 
     for run_id in run_ids {

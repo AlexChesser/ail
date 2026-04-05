@@ -740,7 +740,7 @@ pub fn execute_with_control(
                 session
                     .turn_log
                     .record_step_started(&step_id, path_template);
-                match execute_sub_pipeline(path_template, &step_id, session, runner, 0) {
+                match execute_sub_pipeline(path_template, &step_id, session, runner, 1) {
                     Ok(entry) => {
                         let _ = event_tx.send(ExecutorEvent::StepCompleted {
                             step_id: step_id.clone(),
@@ -837,7 +837,7 @@ pub fn execute_with_control(
                         );
                     }
                     ResultAction::Pipeline(ref path_template) => {
-                        match execute_sub_pipeline(path_template, &step_id, session, runner, 0) {
+                        match execute_sub_pipeline(path_template, &step_id, session, runner, 1) {
                             Ok(entry) => {
                                 session.turn_log.append(entry);
                             }
