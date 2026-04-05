@@ -41,7 +41,7 @@ function postToHost(msg: WebviewToHostMessage): void {
 /** A single item in the chat display list. */
 export type DisplayItem =
   | { kind: 'user-message'; id: string; text: string }
-  | { kind: 'assistant-stream'; id: string; text: string; streaming: boolean }
+  | { kind: 'assistant-stream'; id: string; text: string; streaming: boolean; stepId?: string }
   | { kind: 'thinking'; id: string; text: string }
   | { kind: 'tool-call'; id: string; data: ToolCallData }
   | { kind: 'hitl'; id: string; stepId: string; message?: string; cardState: HitlCardState; resolvedText?: string }
@@ -65,6 +65,8 @@ interface ChatState {
   activePipeline: { path: string; displayName: string } | null;
   /** Counter to generate unique IDs for display items. */
   _idCounter: number;
+  /** The step ID currently being processed — set on stepStarted, cleared on completion. */
+  currentStepId: string | null;
 }
 
 const initialState: ChatState = {
@@ -80,6 +82,7 @@ const initialState: ChatState = {
   showSessions: false,
   activePipeline: null,
   _idCounter: 0,
+  currentStepId: null,
 };
 
 // ── Actions ────────────────────────────────────────────────────────────────────
@@ -107,10 +110,13 @@ function updateItem(items: DisplayItem[], id: string, updater: (item: DisplayIte
 }
 
 /** Find the last assistant-stream item id that is still actively streaming. */
-function lastStreamId(items: DisplayItem[]): string | null {
+function lastStreamId(items: DisplayItem[], stepId?: string | null): string | null {
   for (let i = items.length - 1; i >= 0; i--) {
     const item = items[i];
-    if (item.kind === 'assistant-stream' && item.streaming) return item.id;
+    if (item.kind === 'assistant-stream' && item.streaming) {
+      if (stepId && item.stepId && item.stepId !== stepId) continue;
+      return item.id;
+    }
   }
   return null;
 }
@@ -164,16 +170,17 @@ function reducer(state: ChatState, action: Action): ChatState {
         case 'stepStarted': {
           const existing = state.steps.find((s) => s.stepId === msg.stepId);
           if (existing) {
-            return { ...state, steps: updateStep(state.steps, msg.stepId, { status: 'running' }) };
+            return { ...state, currentStepId: msg.stepId, steps: updateStep(state.steps, msg.stepId, { status: 'running' }) };
           }
           return {
             ...state,
+            currentStepId: msg.stepId,
             steps: [...state.steps, { stepId: msg.stepId, status: 'running' }],
           };
         }
 
         case 'streamDelta': {
-          const streamId = lastStreamId(state.items);
+          const streamId = lastStreamId(state.items, state.currentStepId);
           if (streamId !== null) {
             return {
               ...state,
@@ -188,7 +195,7 @@ function reducer(state: ChatState, action: Action): ChatState {
           const [id, s2] = nextId(state);
           return {
             ...s2,
-            items: [...s2.items, { kind: 'assistant-stream', id, text: msg.text, streaming: true }],
+            items: [...s2.items, { kind: 'assistant-stream', id, text: msg.text, streaming: true, stepId: state.currentStepId ?? undefined }],
           };
         }
 
@@ -313,7 +320,7 @@ function reducer(state: ChatState, action: Action): ChatState {
             }
             return it;
           });
-          return { ...state, isRunning: false, runStartTime: null, items: cancelledItems };
+          return { ...state, isRunning: false, runStartTime: null, currentStepId: null, items: cancelledItems };
         }
 
         case 'pipelineError':
@@ -324,6 +331,7 @@ function reducer(state: ChatState, action: Action): ChatState {
             ...s2,
             isRunning: false,
             runStartTime: null,
+            currentStepId: null,
             items: [...s2.items.map((it) =>
               it.kind === 'assistant-stream' && it.streaming ? { ...it, streaming: false } : it
             ), { kind: 'error', id, message: errorMsg }],
@@ -396,7 +404,7 @@ function reducer(state: ChatState, action: Action): ChatState {
       return { ...state, activeSessionId: action.id };
 
     case 'NEW_SESSION':
-      return { ...state, items: [], steps: [], totalCostUsd: 0, totalInputTokens: 0, totalOutputTokens: 0, runStartTime: null, isRunning: false, activeSessionId: null };
+      return { ...state, items: [], steps: [], totalCostUsd: 0, totalInputTokens: 0, totalOutputTokens: 0, runStartTime: null, isRunning: false, activeSessionId: null, currentStepId: null };
 
     case 'TOGGLE_SESSIONS':
       return { ...state, showSessions: !state.showSessions };
