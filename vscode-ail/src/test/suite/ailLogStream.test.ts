@@ -79,14 +79,11 @@ suite('AilLogStream', () => {
 
     const promise = stream.start();
 
-    // Wait for readline to be set up, then emit fake lines
+    // Wait for data listener to be set up, then emit raw data chunks
     await new Promise((resolve) => {
       setImmediate(() => {
-        // Emit 'line' events (as readline.Interface would)
-        (mockProcess.stdout as any).emit('line', 'ail-log/1');
-        (mockProcess.stdout as any).emit('line', '');
-        (mockProcess.stdout as any).emit('line', '## Turn 1 — `invocation`');
-        (mockProcess.stdout as any).emit('line', 'Response text');
+        // Emit raw data (newline-delimited) as the process stdout would
+        (mockProcess.stdout as any).emit('data', 'ail-log/1\n\n## Turn 1 — `invocation`\nResponse text\n');
 
         // Wait a bit for callbacks to fire
         setImmediate(() => {

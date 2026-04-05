@@ -1,0 +1,11 @@
+{"type":"run_started","run_id":"run-009","pipeline_source":".ail.yaml","total_steps":3}
+{"type":"step_started","step_id":"invocation","step_index":0,"total_steps":3,"resolved_prompt":"Add a new feature"}
+{"type":"runner_event","event":{"type":"stream_delta","text":"I'll implement the feature."}}
+{"type":"step_completed","step_id":"invocation","cost_usd":0.004,"input_tokens":40,"output_tokens":30,"response":"I'll implement the feature."}
+{"type":"step_started","step_id":"test","step_index":1,"total_steps":3,"resolved_prompt":"Run the test suite and report results"}
+{"type":"runner_event","event":{"type":"stream_delta","text":"All 42 tests pass."}}
+{"type":"step_completed","step_id":"test","cost_usd":0.002,"input_tokens":20,"output_tokens":15,"response":"All 42 tests pass."}
+{"type":"step_started","step_id":"commit","step_index":2,"total_steps":3,"resolved_prompt":"Create a git commit"}
+{"type":"runner_event","event":{"type":"stream_delta","text":"Committed as abc1234."}}
+{"type":"step_completed","step_id":"commit","cost_usd":0.0015,"input_tokens":15,"output_tokens":10,"response":"Committed as abc1234."}
+{"type":"pipeline_completed","outcome":"completed"}

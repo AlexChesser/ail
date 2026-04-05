@@ -10,7 +10,6 @@
  */
 
 import { spawn, ChildProcess } from 'child_process';
-import * as readline from 'readline';
 
 export class AilLogStream {
   private readonly _runId: string;
@@ -19,7 +18,6 @@ export class AilLogStream {
   private readonly _onNewLine: (line: string) => void;
   private readonly _spawnFn: typeof spawn;
   private _process: ChildProcess | undefined;
-  private _rl: readline.Interface | undefined;
 
   /**
    * Create a new AilLogStream.
@@ -62,14 +60,16 @@ export class AilLogStream {
           cwd: this._cwd,
         });
 
-        // Set up line reader for stdout
-        this._rl = readline.createInterface({
-          input: this._process.stdout!,
-          crlfDelay: Infinity, // Handle both LF and CRLF line endings
-        });
-
-        this._rl.on('line', (line: string) => {
-          this._onNewLine(line);
+        // Line-buffer stdout manually (mirrors ndjson.ts; avoids readline.Interface dependency)
+        let buf = '';
+        this._process.stdout?.setEncoding?.('utf-8');
+        this._process.stdout?.on('data', (chunk: Buffer | string) => {
+          buf += typeof chunk === 'string' ? chunk : chunk.toString('utf-8');
+          const lines = buf.split('\n');
+          buf = lines.pop() ?? '';
+          for (const line of lines) {
+            this._onNewLine(line);
+          }
         });
 
         // Consume stderr silently (errors are logged to stderr by the binary)
@@ -77,7 +77,11 @@ export class AilLogStream {
 
         // Handle process exit
         this._process.on('close', (code: number | null) => {
-          this._rl?.close();
+          // Flush any remaining buffered content
+          if (buf) {
+            this._onNewLine(buf);
+            buf = '';
+          }
           if (code === 1) {
             // Error exit code from binary (e.g., run not found, DB error)
             reject(new Error(`ail log --follow exited with code ${code}`));
@@ -91,7 +95,6 @@ export class AilLogStream {
 
         // Handle spawn error
         this._process.on('error', (err: Error) => {
-          this._rl?.close();
           reject(new Error(`Failed to spawn ail log --follow: ${err.message}`));
         });
       } catch (err) {
@@ -107,9 +110,6 @@ export class AilLogStream {
    * Safe to call multiple times or after process has already exited.
    */
   dispose(): void {
-    if (this._rl) {
-      this._rl.close();
-    }
     if (this._process) {
       this._process.kill('SIGTERM');
       // Hard kill after 2 seconds if still running

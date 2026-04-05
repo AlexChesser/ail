@@ -33,6 +33,10 @@ Module._load = function (request: string, ...args: unknown[]) {
       },
       ViewColumn: { Beside: 2, One: 1, Two: 2, Active: -1 },
       Uri: { joinPath: (..._a: unknown[]) => ({ fsPath: '/fake/out' }) },
+      commands: {
+        executeCommand: () => Promise.resolve(undefined),
+        registerCommand: () => ({ dispose: () => { /* no-op */ } }),
+      },
     };
   }
   return _origLoad(request, ...args);

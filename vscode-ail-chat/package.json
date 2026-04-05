@@ -1,0 +1,89 @@
+{
+  "name": "vscode-ail-chat",
+  "displayName": "ail Chat",
+  "description": "Streaming chat interface for ail pipelines",
+  "version": "0.1.0",
+  "publisher": "alexchesser",
+  "license": "AGPL-3.0-only",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/alexchesser/ail"
+  },
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "workspaceContains:.ail.yaml",
+    "workspaceContains:.ail/*.yaml"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "configuration": {
+      "title": "ail Chat",
+      "properties": {
+        "ail-chat.binaryPath": {
+          "type": "string",
+          "default": "",
+          "description": "Path to the ail binary. Leave empty to use the bundled binary or search PATH."
+        },
+        "ail-chat.defaultPipeline": {
+          "type": "string",
+          "default": "",
+          "description": "Path to the default pipeline file. Leave empty for automatic discovery."
+        },
+        "ail-chat.headless": {
+          "type": "boolean",
+          "default": false,
+          "description": "Run ail with --headless (--dangerously-skip-permissions). Use only in trusted workspaces."
+        }
+      }
+    },
+    "commands": [
+      {
+        "command": "ail-chat.open",
+        "title": "ail Chat: Open Chat Panel",
+        "category": "ail Chat"
+      },
+      {
+        "command": "ail-chat.newSession",
+        "title": "ail Chat: New Session",
+        "category": "ail Chat"
+      }
+    ]
+  },
+  "scripts": {
+    "vscode:prepublish": "node esbuild.js --production",
+    "build": "node esbuild.js",
+    "compile": "tsc -p ./",
+    "watch": "node esbuild.js --watch",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "eslint src --ext ts,tsx",
+    "check": "npm run compile && npm run lint && npm test"
+  },
+  "devDependencies": {
+    "@testing-library/react": "^16.0.0",
+    "@testing-library/user-event": "^14.0.0",
+    "@types/node": "^20.0.0",
+    "@types/react": "^18.0.0",
+    "@types/react-dom": "^18.0.0",
+    "@types/vscode": "^1.85.0",
+    "@typescript-eslint/eslint-plugin": "^6.0.0",
+    "@typescript-eslint/parser": "^6.0.0",
+    "esbuild": "^0.27.5",
+    "eslint": "^8.0.0",
+    "jsdom": "^29.0.1",
+    "typescript": "^5.3.0",
+    "vitest": "^2.0.0"
+  },
+  "dependencies": {
+    "react": "^18.0.0",
+    "react-dom": "^18.0.0"
+  },
+  "config": {
+    "ailMinVersion": "0.1.0"
+  }
+}

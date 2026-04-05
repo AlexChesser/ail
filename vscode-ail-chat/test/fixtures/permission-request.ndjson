@@ -1,0 +1,4 @@
+{"type":"run_started","run_id":"run-005","pipeline_source":".ail.yaml","total_steps":1}
+{"type":"step_started","step_id":"invocation","step_index":0,"total_steps":1,"resolved_prompt":"Delete old logs"}
+{"type":"runner_event","event":{"type":"stream_delta","text":"I need to delete some files."}}
+{"type":"runner_event","event":{"type":"permission_requested","display_name":"Delete files","display_detail":"rm -rf /var/log/app/*.log.old"}}

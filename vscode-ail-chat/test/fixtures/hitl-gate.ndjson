@@ -1,0 +1,6 @@
+{"type":"run_started","run_id":"run-004","pipeline_source":".ail.yaml","total_steps":2}
+{"type":"step_started","step_id":"invocation","step_index":0,"total_steps":2,"resolved_prompt":"Refactor the auth module"}
+{"type":"runner_event","event":{"type":"stream_delta","text":"I've analyzed the auth module. Here's my plan..."}}
+{"type":"step_completed","step_id":"invocation","cost_usd":0.003,"input_tokens":30,"output_tokens":25,"response":"I've analyzed the auth module. Here's my plan..."}
+{"type":"step_started","step_id":"review","step_index":1,"total_steps":2,"resolved_prompt":null}
+{"type":"hitl_gate_reached","step_id":"review","message":"Please review the proposed changes before I proceed with the refactor."}

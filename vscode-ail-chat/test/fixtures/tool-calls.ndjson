@@ -1,0 +1,8 @@
+{"type":"run_started","run_id":"run-002","pipeline_source":".ail.yaml","total_steps":1}
+{"type":"step_started","step_id":"invocation","step_index":0,"total_steps":1,"resolved_prompt":"List files in /tmp"}
+{"type":"runner_event","event":{"type":"stream_delta","text":"I'll list the files for you."}}
+{"type":"runner_event","event":{"type":"tool_use","tool_name":"bash","tool_use_id":"tu-abc","input":{"command":"ls /tmp"}}}
+{"type":"runner_event","event":{"type":"tool_result","tool_name":"bash","tool_use_id":"tu-abc","content":"file1.txt\nfile2.log","is_error":false}}
+{"type":"runner_event","event":{"type":"stream_delta","text":" Found 2 files: file1.txt and file2.log."}}
+{"type":"step_completed","step_id":"invocation","cost_usd":0.002,"input_tokens":20,"output_tokens":15,"response":"I'll list the files for you. Found 2 files: file1.txt and file2.log."}
+{"type":"pipeline_completed","outcome":"completed"}

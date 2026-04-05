@@ -170,16 +170,19 @@ export class AilLogProvider implements vscode.TextDocumentContentProvider {
   }
 
   /**
-   * Extract run_id from URI path.
+   * Extract run_id from URI.
    *
    * URI format: ail-log://{run_id}
-   * If run_id is empty or missing, return undefined to fetch the latest run.
+   * The run_id lives in the authority component (the host-like part after //).
+   * Falls back to the path component (with leading slash stripped) for
+   * forward-compatibility with URIs that may use ail-log:///{run_id} instead.
+   * If both are empty, returns undefined to fetch the latest run.
    */
   private _extractRunId(uri: vscode.Uri): string | undefined {
-    const path = uri.path;
-    // Remove leading slash if present
-    const runId = path.startsWith('/') ? path.slice(1) : path;
-    return runId || undefined;
+    const fromAuthority = uri.authority || undefined;
+    if (fromAuthority) return fromAuthority;
+    const fromPath = uri.path.startsWith('/') ? uri.path.slice(1) : uri.path;
+    return fromPath || undefined;
   }
 
   /**
