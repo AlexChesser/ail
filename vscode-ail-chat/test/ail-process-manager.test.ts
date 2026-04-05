@@ -57,7 +57,7 @@ describe('mapAilEventToMessages', () => {
     const msgs = mapAilEventToMessages(event);
     expect(msgs[0]).toEqual({
       type: 'stepCompleted', stepId: 'invocation',
-      costUsd: 0.0012, inputTokens: 10, outputTokens: 8,
+      costUsd: 0.0012, inputTokens: 10, outputTokens: 8, response: 'hi',
     });
   });
 
