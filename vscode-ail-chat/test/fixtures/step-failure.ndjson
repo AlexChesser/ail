@@ -1,0 +1,7 @@
+{"type":"run_started","run_id":"run-006","pipeline_source":".ail.yaml","total_steps":2}
+{"type":"step_started","step_id":"invocation","step_index":0,"total_steps":2,"resolved_prompt":"Run tests"}
+{"type":"runner_event","event":{"type":"stream_delta","text":"Running the test suite..."}}
+{"type":"step_completed","step_id":"invocation","cost_usd":0.001,"input_tokens":10,"output_tokens":8,"response":"Running the test suite..."}
+{"type":"step_started","step_id":"check","step_index":1,"total_steps":2,"resolved_prompt":"Verify the test output"}
+{"type":"step_failed","step_id":"check","error":"Template variable '{{ step.invocation.result }}' is unresolved: step 'invocation' has no result field"}
+{"type":"pipeline_completed","outcome":"break","step_id":"check"}

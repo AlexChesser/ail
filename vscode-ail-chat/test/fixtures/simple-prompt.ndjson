@@ -1,0 +1,6 @@
+{"type":"run_started","run_id":"run-001","pipeline_source":".ail.yaml","total_steps":1}
+{"type":"step_started","step_id":"invocation","step_index":0,"total_steps":1,"resolved_prompt":"Hello"}
+{"type":"runner_event","event":{"type":"stream_delta","text":"Hello! "}}
+{"type":"runner_event","event":{"type":"stream_delta","text":"How can I help you today?"}}
+{"type":"step_completed","step_id":"invocation","cost_usd":0.0012,"input_tokens":10,"output_tokens":8,"response":"Hello! How can I help you today?"}
+{"type":"pipeline_completed","outcome":"completed"}

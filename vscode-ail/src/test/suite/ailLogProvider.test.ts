@@ -45,9 +45,14 @@ _Cost: $0.001 | 10in / 5out tokens_
     const uri = vscode.Uri.parse('ail-log://test-run-123');
     const content = await provider.provideTextDocumentContent(uri);
 
-    assert.strictEqual(content, mockOutput);
+    // Content is processed through _transformDirectivesToHtml before being returned.
+    // Verify key invariants rather than strict equality.
     assert.ok(content.startsWith('ail-log/1'));
     assert.ok(content.includes('Turn 1'));
+    assert.ok(content.includes('This is the invocation response.'));
+    // Thinking directive is transformed to a collapsible <details> block
+    assert.ok(content.includes('<details>'));
+    assert.ok(content.includes('Let me think about this.'));
   });
 
   test('provideTextDocumentContent extracts run_id from URI', async () => {
@@ -120,7 +125,8 @@ _Cost: $0.001 | 10in / 5out tokens_
     const uri = vscode.Uri.parse('ail-log://test-run');
     const content = await provider.provideTextDocumentContent(uri);
 
-    assert.ok(content.includes(':::thinking'));
+    // :::thinking is transformed to <details> by _transformDirectivesToHtml
+    assert.ok(content.includes('<details>'));
     assert.ok(content.includes('Internal reasoning block'));
   });
 
