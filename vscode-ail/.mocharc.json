@@ -1,5 +1,6 @@
 {
   "ui": "tdd",
   "timeout": 10000,
-  "color": true
+  "color": true,
+  "require": ["./src/test/vscode-stub.js"]
 }
