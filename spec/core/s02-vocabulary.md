@@ -3,8 +3,9 @@
 | Term | Definition |
 |---|---|
 | `pipeline` | A named, ordered sequence of steps defined in a `.ail.yaml` file. One pipeline is "active" per session. |
-| `step` | A single unit of work within a pipeline. A step invokes a prompt, skill, sub-pipeline, or action, then optionally branches on the result. |
+| `step` | A single unit of work within a pipeline. A step invokes a prompt, skill, context gather, sub-pipeline, or action, then optionally branches on the result. |
 | `invocation` | The implicit first step of every pipeline. Represents the triggering event — a human prompt, an agent call, or a scheduler firing — and the runner's response to it. |
+| `context` | A deterministic information-gathering step that executes without calling an AI model (e.g., a shell command or MCP tool call). Costs zero tokens. Results available via `{{ step.<id>.result }}`. |
 | `skill` | A directory containing a `SKILL.md` file — natural language instructions that tell the model how to perform a specialised task. Read by the LLM, not the runtime. |
 | `trigger` | The event that causes the pipeline to begin executing. The default trigger is `invocation_prompt_complete`. |
 | `session` | One running instance of an underlying agent (e.g. Aider, Claude Code) managed by `ail`. |

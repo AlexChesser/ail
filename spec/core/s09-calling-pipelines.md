@@ -1,5 +1,7 @@
 ## 9. Calling Pipelines as Steps
 
+> **Implementation status:** Implemented. Sub-pipeline isolation, depth guards (MAX_SUB_PIPELINE_DEPTH = 16), template variable resolution in pipeline paths, failure propagation, and `on_result: pipeline:` action all work. See `ail-core/src/executor.rs` for the implementation.
+
 A pipeline may call another as a step using the `pipeline:` primary field.
 
 ### 9.1 Isolation Model
