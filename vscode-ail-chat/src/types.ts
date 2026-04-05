@@ -159,7 +159,7 @@ export interface SessionSummary {
 export type HostToWebviewMessage =
   | { type: 'runStarted'; runId: string; totalSteps: number }
   | { type: 'stepStarted'; stepId: string; stepIndex: number; totalSteps: number }
-  | { type: 'streamDelta'; text: string }
+  | { type: 'streamDelta'; text: string; stepId?: string }
   | { type: 'thinking'; text: string }
   | { type: 'toolUse'; toolName: string; toolUseId: string; input: unknown }
   | { type: 'toolResult'; toolUseId: string; content: string; isError: boolean }

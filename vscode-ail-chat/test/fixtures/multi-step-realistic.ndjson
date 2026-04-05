@@ -1,0 +1,19 @@
+{"type":"run_started","run_id":"run-010","pipeline_source":".ail.yaml","total_steps":2}
+{"type":"step_started","step_id":"invocation","step_index":0,"total_steps":3,"resolved_prompt":null}
+{"type":"runner_event","event":{"type":"thinking","text":"Let me analyze this request..."}}
+{"type":"runner_event","event":{"type":"stream_delta","text":"I'll "}}
+{"type":"runner_event","event":{"type":"stream_delta","text":"implement "}}
+{"type":"runner_event","event":{"type":"stream_delta","text":"the feature."}}
+{"type":"runner_event","event":{"type":"tool_use","tool_name":"bash","tool_use_id":"tu-1","input":{"command":"ls"}}}
+{"type":"runner_event","event":{"type":"tool_result","tool_name":"bash","tool_use_id":"tu-1","content":"file1.ts\nfile2.ts","is_error":false}}
+{"type":"runner_event","event":{"type":"stream_delta","text":" Files found."}}
+{"type":"runner_event","event":{"type":"cost_update","cost_usd":0.004,"input_tokens":40,"output_tokens":30}}
+{"type":"step_completed","step_id":"invocation","cost_usd":0.004,"input_tokens":40,"output_tokens":30}
+{"type":"step_started","step_id":"review","step_index":0,"total_steps":2,"resolved_prompt":"Review the implementation"}
+{"type":"runner_event","event":{"type":"thinking","text":"Reviewing the changes..."}}
+{"type":"runner_event","event":{"type":"stream_delta","text":"All "}}
+{"type":"runner_event","event":{"type":"stream_delta","text":"looks "}}
+{"type":"runner_event","event":{"type":"stream_delta","text":"good."}}
+{"type":"runner_event","event":{"type":"cost_update","cost_usd":0.002,"input_tokens":20,"output_tokens":15}}
+{"type":"step_completed","step_id":"review","cost_usd":0.002,"input_tokens":20,"output_tokens":15,"response":"All looks good."}
+{"type":"pipeline_completed","outcome":"completed"}

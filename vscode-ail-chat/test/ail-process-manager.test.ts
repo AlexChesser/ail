@@ -4,7 +4,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { mapAilEventToMessages } from '../src/ail-process-manager';
+import { mapAilEventToMessages, AilEventMapper } from '../src/ail-process-manager';
 import { AilEvent } from '../src/types';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -181,6 +181,17 @@ describe('mapAilEventToMessages', () => {
       expect(msgs.filter((m) => m.type === 'stepStarted')).toHaveLength(3);
       expect(msgs.filter((m) => m.type === 'stepCompleted')).toHaveLength(3);
     });
+
+    it('multi-step-realistic: handles interleaved tool calls and thinking blocks', () => {
+      const msgs = fixtureToMessages('multi-step-realistic.ndjson');
+      const stepStarteds = msgs.filter(m => m.type === 'stepStarted');
+      expect(stepStarteds).toHaveLength(2);
+      expect(msgs.filter(m => m.type === 'thinking')).toHaveLength(2);
+      expect(msgs.some(m => m.type === 'toolUse')).toBe(true);
+      expect(msgs.some(m => m.type === 'toolResult')).toBe(true);
+      const deltas = msgs.filter(m => m.type === 'streamDelta');
+      expect(deltas.length).toBeGreaterThanOrEqual(7);
+    });
   });
 
   describe('CLAUDECODE env removal', () => {
@@ -193,5 +204,43 @@ describe('mapAilEventToMessages', () => {
       );
       expect(source).toContain("delete env['CLAUDECODE']");
     });
+  });
+});
+
+describe('AilEventMapper', () => {
+  it('includes stepId in streamDelta messages', () => {
+    const mapper = new AilEventMapper();
+
+    const started: AilEvent = { type: 'step_started', step_id: 'review', step_index: 0, total_steps: 1, resolved_prompt: null };
+    mapper.map(started);
+
+    const delta: AilEvent = { type: 'runner_event', event: { type: 'stream_delta', text: 'hello' } };
+    const msgs = mapper.map(delta);
+
+    expect(msgs).toHaveLength(1);
+    expect(msgs[0]).toMatchObject({ type: 'streamDelta', text: 'hello', stepId: 'review' });
+  });
+
+  it('resets stepId on run_started', () => {
+    const mapper = new AilEventMapper();
+
+    mapper.map({ type: 'step_started', step_id: 'old', step_index: 0, total_steps: 1, resolved_prompt: null } as AilEvent);
+    mapper.map({ type: 'run_started', run_id: 'r2', pipeline_source: null, total_steps: 1 } as AilEvent);
+
+    const msgs = mapper.map({ type: 'runner_event', event: { type: 'stream_delta', text: 'x' } } as AilEvent);
+    expect(msgs[0]).toEqual({ type: 'streamDelta', text: 'x' });
+    expect((msgs[0] as any).stepId).toBeUndefined();
+  });
+
+  it('updates stepId when step changes', () => {
+    const mapper = new AilEventMapper();
+
+    mapper.map({ type: 'step_started', step_id: 'step1', step_index: 0, total_steps: 2, resolved_prompt: null } as AilEvent);
+    let msgs = mapper.map({ type: 'runner_event', event: { type: 'stream_delta', text: 'a' } } as AilEvent);
+    expect(msgs[0]).toMatchObject({ stepId: 'step1' });
+
+    mapper.map({ type: 'step_started', step_id: 'step2', step_index: 1, total_steps: 2, resolved_prompt: null } as AilEvent);
+    msgs = mapper.map({ type: 'runner_event', event: { type: 'stream_delta', text: 'b' } } as AilEvent);
+    expect(msgs[0]).toMatchObject({ stepId: 'step2' });
   });
 });

@@ -275,6 +275,7 @@ fn run_once_json(session: &mut ail_core::session::Session, runner: &dyn Runner, 
             }),
         );
         let _ = writeln!(out);
+        let _ = out.flush();
     }
 
     // Build the HITL and permission infrastructure before any step runs so that
@@ -388,6 +389,7 @@ fn run_once_json(session: &mut ail_core::session::Session, runner: &dyn Runner, 
                 }),
             );
             let _ = writeln!(out);
+            let _ = out.flush();
         }
 
         let invocation_options = InvokeOptions {
@@ -430,9 +432,11 @@ fn run_once_json(session: &mut ail_core::session::Session, runner: &dyn Runner, 
                             "cost_usd": result.cost_usd,
                             "input_tokens": result.input_tokens,
                             "output_tokens": result.output_tokens,
+                            "response": result.response,
                         }),
                     );
                     let _ = writeln!(out);
+                    let _ = out.flush();
                 }
                 session.turn_log.append(ail_core::session::TurnEntry {
                     step_id: "invocation".to_string(),

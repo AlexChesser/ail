@@ -79,10 +79,11 @@ export class AilProcessManager {
       const proc = spawn(this._binaryPath, args, { cwd: this._cwd, env });
       this._activeProcess = proc;
 
+      const mapper = new AilEventMapper();
       parseNdjsonStream(
         proc.stdout!,
         (event: AilEvent) => {
-          const msgs = mapAilEventToMessages(event);
+          const msgs = mapper.map(event);
           for (const msg of msgs) {
             this._emit(msg);
           }
@@ -126,6 +127,37 @@ export class AilProcessManager {
     }, 5000);
 
     proc.once('close', () => clearTimeout(timeout));
+  }
+}
+
+/**
+ * Stateful event mapper that tracks the current step ID and annotates
+ * streamDelta messages so the webview reducer can route deltas to the
+ * correct step.
+ */
+export class AilEventMapper {
+  private _currentStepId: string | null = null;
+
+  map(event: AilEvent): HostToWebviewMessage[] {
+    if (event.type === 'step_started') {
+      this._currentStepId = event.step_id;
+    } else if (event.type === 'run_started') {
+      this._currentStepId = null;
+    }
+
+    const msgs = mapAilEventToMessages(event);
+
+    // Annotate streamDelta messages with current step ID
+    if (this._currentStepId) {
+      return msgs.map(msg =>
+        msg.type === 'streamDelta' ? { ...msg, stepId: this._currentStepId! } : msg
+      );
+    }
+    return msgs;
+  }
+
+  reset(): void {
+    this._currentStepId = null;
   }
 }
 
