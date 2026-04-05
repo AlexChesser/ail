@@ -27,6 +27,7 @@ use serde::{Deserialize, Serialize};
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
+use crate::config::domain::ProviderConfig;
 use crate::error::AilError;
 
 /// A single tool call or tool result event captured during a runner invocation.
@@ -180,6 +181,19 @@ pub trait Runner {
         let result = self.invoke(prompt, options)?;
         let _ = tx.send(RunnerEvent::Completed(result.clone()));
         Ok(result)
+    }
+
+    /// Build runner-specific extension data from a resolved provider config.
+    ///
+    /// The executor calls this before constructing [`InvokeOptions`] so that
+    /// runner-specific config (e.g., `ANTHROPIC_BASE_URL`) stays inside the runner
+    /// and does not leak into the executor. The default returns `None`. Runners
+    /// that require provider env vars override this.
+    fn build_extensions(
+        &self,
+        _provider: &ProviderConfig,
+    ) -> Option<Box<dyn std::any::Any + Send>> {
+        None
     }
 }
 

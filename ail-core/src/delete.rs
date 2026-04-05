@@ -8,9 +8,9 @@
 use std::path::PathBuf;
 
 use rusqlite::Connection;
-use sha1::{Digest, Sha1};
 
 use crate::error::{error_types, AilError};
+use crate::session::cwd_hash as compute_cwd_hash;
 
 /// Delete a single run from the database and remove its JSONL file.
 ///
@@ -29,18 +29,7 @@ use crate::error::{error_types, AilError};
 /// accidental deletion of records without corresponding log files). If `force` is true, deletes
 /// the database records even if the JSONL file is missing.
 pub fn delete_run(run_id: &str, force: bool) -> Result<(), AilError> {
-    let cwd = std::env::current_dir().map_err(|e| AilError {
-        error_type: "ail:io/cwd-access",
-        title: "Failed to determine current working directory",
-        detail: e.to_string(),
-        context: None,
-    })?;
-
-    let mut hasher = Sha1::new();
-    hasher.update(cwd.to_string_lossy().as_bytes());
-    let cwd_hash = format!("{:x}", hasher.finalize());
-
-    delete_run_at(run_id, &cwd_hash, force)
+    delete_run_at(run_id, &compute_cwd_hash(), force)
 }
 
 /// Delete a single run with explicit CWD hash. Used internally and for testing.

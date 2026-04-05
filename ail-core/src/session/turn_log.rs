@@ -2,9 +2,8 @@ use std::path::PathBuf;
 use std::time::SystemTime;
 
 use serde::Serialize;
-use sha1::{Digest, Sha1};
 
-use super::log_provider::{JsonlProvider, LogProvider};
+use super::log_provider::{cwd_hash, JsonlProvider, LogProvider};
 use crate::runner::ToolEvent;
 
 #[derive(Serialize)]
@@ -78,11 +77,7 @@ impl TurnLog {
     /// Write a `run_started` event as the first entry. Must be called before any steps.
     /// Carries `pipeline_source` and `project_hash` so the SQLite provider can populate the sessions table.
     pub fn record_run_started(&mut self, pipeline_source: Option<&str>) {
-        // Compute project_hash from the current working directory.
-        let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-        let mut hasher = Sha1::new();
-        hasher.update(cwd.to_string_lossy().as_bytes());
-        let project_hash = format!("{:x}", hasher.finalize());
+        let project_hash = cwd_hash();
 
         let event = RunStartedEvent {
             event_type: "run_started",

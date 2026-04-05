@@ -16,19 +16,24 @@ pub trait LogProvider: Send {
     }
 }
 
+/// SHA-1 hex digest of the current working directory path.
+/// Used to partition project data under `~/.ail/projects/<hash>/` (SPEC §4.4).
+pub fn cwd_hash() -> String {
+    let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    let mut hasher = Sha1::new();
+    hasher.update(cwd.to_string_lossy().as_bytes());
+    format!("{:x}", hasher.finalize())
+}
+
 /// `~/.ail/projects/<sha1_of_cwd>` — one directory per working directory.
 /// Deterministic: same project root always maps to the same bucket, so all
 /// runs within a project share a session history directory (SPEC §4.4).
 pub fn project_dir() -> PathBuf {
-    let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-    let mut hasher = Sha1::new();
-    hasher.update(cwd.to_string_lossy().as_bytes());
-    let hash = format!("{:x}", hasher.finalize());
     dirs::home_dir()
         .unwrap_or_else(|| PathBuf::from("."))
         .join(".ail")
         .join("projects")
-        .join(hash)
+        .join(cwd_hash())
 }
 
 /// Full path to the NDJSON run log file for a given run_id.

@@ -633,6 +633,17 @@ impl Default for ClaudeCliRunner {
 }
 
 impl Runner for ClaudeCliRunner {
+    fn build_extensions(
+        &self,
+        provider: &crate::config::domain::ProviderConfig,
+    ) -> Option<Box<dyn std::any::Any + Send>> {
+        Some(Box::new(ClaudeInvokeExtensions {
+            base_url: provider.base_url.clone(),
+            auth_token: provider.auth_token.clone(),
+            permission_socket: None,
+        }))
+    }
+
     fn invoke(&self, prompt: &str, options: InvokeOptions) -> Result<RunResult, AilError> {
         let (mut child, mcp_config) = self.spawn_process(prompt, &options)?;
 

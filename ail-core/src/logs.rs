@@ -12,6 +12,7 @@ use std::collections::HashMap;
 
 use crate::error::{error_types, AilError};
 use crate::runner::ToolEvent;
+use crate::session::cwd_hash;
 use crate::session::sqlite_provider::db_path;
 
 /// Parameters for a log query.
@@ -477,15 +478,7 @@ pub fn get_run_steps_at(run_id: &str, db_path: &Path) -> Result<Vec<StepRow>, Ai
 ///
 /// Computes the SHA-1 hash of the absolute CWD path and queries the database.
 pub fn get_latest_run_id_for_cwd() -> Result<Option<String>, AilError> {
-    use sha1::{Digest, Sha1};
-    use std::path::PathBuf;
-
-    let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-    let mut hasher = Sha1::new();
-    hasher.update(cwd.to_string_lossy().as_bytes());
-    let project_hash = format!("{:x}", hasher.finalize());
-
-    get_latest_run_id(&project_hash)
+    get_latest_run_id(&cwd_hash())
 }
 
 /// Get the most recent run ID for a given project (identified by SHA-1 of absolute CWD path).
