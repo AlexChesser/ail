@@ -60,6 +60,65 @@ body {
   min-width: 0;
 }
 
+/* ── Pipeline bar ── */
+
+.pipeline-bar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border-bottom: 1px solid var(--vscode-panel-border);
+  background: var(--vscode-sideBarSectionHeader-background, transparent);
+  flex-shrink: 0;
+  min-height: 26px;
+}
+
+.pipeline-bar-icon {
+  font-size: 12px;
+  color: var(--vscode-foreground);
+  opacity: 0.6;
+  flex-shrink: 0;
+}
+
+.pipeline-bar-name {
+  flex: 1;
+  background: none;
+  border: none;
+  color: var(--vscode-foreground);
+  font-size: 11px;
+  font-family: inherit;
+  cursor: pointer;
+  text-align: left;
+  padding: 0;
+  opacity: 0.8;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pipeline-bar-name:hover {
+  opacity: 1;
+  text-decoration: underline;
+}
+
+.pipeline-bar-load {
+  background: none;
+  border: none;
+  color: var(--vscode-foreground);
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 3px;
+  opacity: 0.6;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+}
+
+.pipeline-bar-load:hover {
+  opacity: 1;
+  background: var(--vscode-toolbar-hoverBackground);
+}
+
 /* ── Session list ── */
 
 .session-list-header {

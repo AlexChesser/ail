@@ -54,19 +54,19 @@ export class AilProcessManager {
   }
 
   /**
-   * Spawn `ail --once <prompt> --pipeline <pipeline> --output-format json`.
+   * Spawn `ail --once <prompt> [--pipeline <pipeline>] --output-format json`.
+   * When pipeline is omitted, ail runs in passthrough mode (no pipeline steps).
    * Rejects immediately if a process is already running.
    */
-  start(prompt: string, pipeline: string, options: StartOptions = {}): Promise<void> {
+  start(prompt: string, pipeline?: string, options: StartOptions = {}): Promise<void> {
     if (this._activeProcess) {
       return Promise.reject(new Error('A pipeline is already running'));
     }
 
-    const args = [
-      '--once', prompt,
-      '--pipeline', pipeline,
-      '--output-format', 'json',
-    ];
+    const args = ['--once', prompt, '--output-format', 'json'];
+    if (pipeline) {
+      args.push('--pipeline', pipeline);
+    }
     if (options.headless) {
       args.push('--headless');
     }

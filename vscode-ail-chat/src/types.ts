@@ -171,7 +171,8 @@ export type HostToWebviewMessage =
   | { type: 'pipelineCompleted' }
   | { type: 'pipelineError'; error: string }
   | { type: 'processError'; message: string }
-  | { type: 'sessionsUpdated'; sessions: SessionSummary[] };
+  | { type: 'sessionsUpdated'; sessions: SessionSummary[] }
+  | { type: 'pipelineChanged'; path: string | null; displayName: string | null };
 
 /**
  * Messages sent FROM the webview TO the extension host.
@@ -183,4 +184,5 @@ export type WebviewToHostMessage =
   | { type: 'permissionResponse'; allowed: boolean; reason?: string }
   | { type: 'killProcess' }
   | { type: 'switchSession'; sessionId: string }
-  | { type: 'newSession' };
+  | { type: 'newSession' }
+  | { type: 'loadPipeline' };

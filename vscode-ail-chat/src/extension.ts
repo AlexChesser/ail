@@ -39,54 +39,5 @@ export function activate(context: vscode.ExtensionContext): void {
   );
 }
 
-export function deactivate(): void {
-  processManager?.cancel();
-  panel?.dispose();
-}
-
-function getWebviewHtml(webview: vscode.Webview, context: vscode.ExtensionContext): string {
-  const scriptUri = webview.asWebviewUri(
-    vscode.Uri.file(path.join(context.extensionPath, 'dist', 'webview.js'))
-  );
-
-  const codiconUri = webview.asWebviewUri(
-    vscode.Uri.file(path.join(context.extensionPath, 'dist', 'codicon.css'))
-  );
-
-  // Content Security Policy: only allow scripts from our extension origin.
-  const nonce = generateNonce();
-
-  return `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta http-equiv="Content-Security-Policy" content="
-    default-src 'none';
-    script-src 'nonce-${nonce}';
-    style-src ${webview.cspSource} 'unsafe-inline';
-    font-src ${webview.cspSource};
-  ">
-  <title>ail Chat</title>
-  <link rel="stylesheet" href="${codiconUri.toString()}">
-  <style>
-    body, html { margin: 0; padding: 0; height: 100vh; overflow: hidden; }
-    #root { display: flex; height: 100%; }
-  </style>
-</head>
-<body>
-  <div id="root"></div>
-  <script nonce="${nonce}" src="${scriptUri.toString()}"></script>
-</body>
-</html>`;
-}
-
-function generateNonce(): string {
-  let text = '';
-  const possible = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-  for (let i = 0; i < 32; i++) {
-    text += possible.charAt(Math.floor(Math.random() * possible.length));
-  }
-  return text;
-  // Process manager cleanup is handled by the view's onDidDispose.
-}
+// Process manager cleanup is handled by the view's onDidDispose.
+export function deactivate(): void {}
