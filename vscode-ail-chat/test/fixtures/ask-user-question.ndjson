@@ -1,0 +1,5 @@
+{"type":"run_started","run_id":"run-ask-001","pipeline_source":null,"total_steps":1}
+{"type":"step_started","step_id":"invocation","step_index":0,"total_steps":1,"resolved_prompt":"What should we work on?"}
+{"type":"runner_event","event":{"type":"stream_delta","text":"Let me ask you a question."}}
+{"type":"runner_event","event":{"type":"tool_use","tool_name":"AskUserQuestion","tool_use_id":"toolu_ask001","input":{"questions":[{"header":"Next Work","question":"What should we work on?","multiSelect":false,"options":[{"label":"Add tests","description":"Create new test files"},{"label":"Fix a bug","description":"Correct a bug"},{"label":"Update docs","description":"Fix documentation"}]}]}}}
+{"type":"runner_event","event":{"type":"permission_requested","display_name":"AskUserQuestion","display_detail":"What should we work on?","tool_input":{"questions":[{"header":"Next Work","question":"What should we work on?","multiSelect":false,"options":[{"label":"Add tests","description":"Create new test files"},{"label":"Fix a bug","description":"Correct a bug"},{"label":"Update docs","description":"Fix documentation"}]}]}}}

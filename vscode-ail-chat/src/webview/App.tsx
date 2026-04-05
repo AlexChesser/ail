@@ -105,6 +105,69 @@ type Action =
   | { type: 'TOGGLE_SESSIONS' }
   | { type: 'LOAD_PIPELINE' };
 
+/**
+ * Normalise a raw `AskUserQuestion` options value into `AskUserQuestionOption[]`.
+ * Handles: proper array of objects, string array, JSON-encoded string, null/undefined.
+ */
+function normalizeOptions(raw: unknown): AskUserQuestion['options'] {
+  let arr: unknown = raw;
+  if (typeof arr === 'string') {
+    try { arr = JSON.parse(arr); } catch { arr = []; }
+  }
+  if (!Array.isArray(arr)) return [];
+  return arr.map((opt) => {
+    if (opt == null) return { label: '' };
+    if (typeof opt === 'string') return { label: opt };
+    if (typeof opt === 'object') {
+      const o = opt as Record<string, unknown>;
+      return { label: String(o['label'] ?? ''), description: o['description'] != null ? String(o['description']) : undefined };
+    }
+    return { label: String(opt) };
+  });
+}
+
+/**
+ * Normalise a raw `AskUserQuestion` question item into a clean `AskUserQuestion`.
+ * Handles string/boolean coercions for multiSelect and stringified options.
+ */
+function normalizeQuestion(raw: unknown): AskUserQuestion | null {
+  if (raw == null || typeof raw !== 'object') return null;
+  const q = raw as Record<string, unknown>;
+  const question = typeof q['question'] === 'string' ? q['question'] : '';
+  if (!question) return null;
+  const multiSelect = q['multiSelect'] === true || String(q['multiSelect']).toLowerCase() === 'true';
+  return {
+    header: typeof q['header'] === 'string' ? q['header'] : '',
+    question,
+    multiSelect,
+    options: normalizeOptions(q['options']),
+  };
+}
+
+/**
+ * Extract a `AskUserQuestion[]` from the raw `toolInput` of a permissionRequested event.
+ * Handles both the canonical `{questions:[...]}` wrapper and flat `{question, options}` forms.
+ * Returns null when the input is not recognisable as an AskUserQuestion payload.
+ */
+function parseAskUserQuestions(toolInput: unknown): AskUserQuestion[] | null {
+  if (toolInput == null || typeof toolInput !== 'object') return null;
+  const inp = toolInput as Record<string, unknown>;
+
+  // Canonical format: { questions: [...] }
+  if (Array.isArray(inp['questions']) && inp['questions'].length > 0) {
+    const questions = inp['questions'].map(normalizeQuestion).filter((q): q is AskUserQuestion => q !== null);
+    if (questions.length > 0) return questions;
+  }
+
+  // Flat format: { question: "...", options: [...] }
+  if (typeof inp['question'] === 'string' && inp['question']) {
+    const q = normalizeQuestion(inp);
+    if (q) return [q];
+  }
+
+  return null;
+}
+
 function nextId(state: ChatState): [string, ChatState] {
   const id = String(state._idCounter);
   return [id, { ...state, _idCounter: state._idCounter + 1 }];
@@ -306,25 +369,9 @@ function reducer(state: ChatState, action: Action): ChatState {
         }
 
         case 'permissionRequested': {
-          // Detect AskUserQuestion tool by displayName
-          if (msg.displayName === 'AskUserQuestion' && msg.toolInput != null) {
-            const input = msg.toolInput as {
-              questions?: AskUserQuestion[];
-              question?: string;
-              options?: (AskUserQuestion['options'][number] | string)[];
-            };
-            // Support both the canonical {questions:[...]} format and the flat {question, options} format
-            let questions: AskUserQuestion[] | null = null;
-            if (input.questions && Array.isArray(input.questions) && input.questions.length > 0) {
-              questions = input.questions;
-            } else if (typeof input.question === 'string') {
-              questions = [{
-                header: 'Question',
-                question: input.question,
-                multiSelect: false,
-                options: (input.options ?? []) as AskUserQuestion['options'],
-              }];
-            }
+          // Detect AskUserQuestion tool by displayName — intercept as structured question UI
+          if (msg.displayName === 'AskUserQuestion') {
+            const questions = parseAskUserQuestions(msg.toolInput);
             if (questions !== null) {
               const [id, s2] = nextId(state);
               return {
@@ -601,19 +648,23 @@ export const App: React.FC = () => {
             </div>
           )}
           {state.items.map((item) => {
+            let content: React.ReactNode;
             switch (item.kind) {
               case 'user-message':
-                return <ChatMessage key={item.id} role="user" content={item.text} />;
+                content = <ChatMessage role="user" content={item.text} />;
+                break;
               case 'assistant-stream':
-                return <ChatMessage key={item.id} role="assistant" content={item.text} streaming={item.streaming} />;
+                content = <ChatMessage role="assistant" content={item.text} streaming={item.streaming} />;
+                break;
               case 'thinking':
-                return <ThinkingBlock key={item.id} text={item.text} />;
+                content = <ThinkingBlock text={item.text} />;
+                break;
               case 'tool-call':
-                return <ToolCallCard key={item.id} data={item.data} />;
+                content = <ToolCallCard data={item.data} />;
+                break;
               case 'hitl':
-                return (
+                content = (
                   <HitlCard
-                    key={item.id}
                     stepId={item.stepId}
                     message={item.message}
                     cardState={item.cardState}
@@ -622,10 +673,10 @@ export const App: React.FC = () => {
                     onReject={handleHitlReject}
                   />
                 );
+                break;
               case 'permission':
-                return (
+                content = (
                   <PermissionCard
-                    key={item.id}
                     displayName={item.displayName}
                     displayDetail={item.displayDetail}
                     cardState={item.cardState}
@@ -634,26 +685,28 @@ export const App: React.FC = () => {
                     onDeny={handlePermissionDeny}
                   />
                 );
+                break;
               case 'ask-user-question':
-                return (
-                  <ErrorBoundary key={item.id}>
-                    <AskUserQuestionCard
-                      questions={item.questions}
-                      cardState={item.cardState}
-                      resolvedAnswer={item.resolvedAnswer}
-                      onSubmit={handleAskUserSubmit}
-                      onDeny={handleAskUserDeny}
-                    />
-                  </ErrorBoundary>
+                content = (
+                  <AskUserQuestionCard
+                    questions={item.questions}
+                    cardState={item.cardState}
+                    resolvedAnswer={item.resolvedAnswer}
+                    onSubmit={handleAskUserSubmit}
+                    onDeny={handleAskUserDeny}
+                  />
                 );
+                break;
               case 'error':
-                return (
-                  <div key={item.id} className="error-message">
+                content = (
+                  <div className="error-message">
                     <span className="error-message-icon codicon codicon-error" />
                     <span>{item.message}</span>
                   </div>
                 );
+                break;
             }
+            return <ErrorBoundary key={item.id}>{content}</ErrorBoundary>;
           })}
         </div>
         <StatusBar

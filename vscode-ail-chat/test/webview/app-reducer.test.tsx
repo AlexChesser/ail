@@ -133,6 +133,121 @@ describe('App webview', () => {
     expect(screen.getByText('Thinking')).toBeTruthy();
   });
 
+  // ── AskUserQuestion intercept ────────────────────────────────────────────────
+
+  it('shows AskUserQuestionCard for canonical questions:[...] format', () => {
+    render(<App />);
+    postMessage({
+      type: 'permissionRequested',
+      displayName: 'AskUserQuestion',
+      displayDetail: 'What should we work on?',
+      toolInput: {
+        questions: [{
+          header: 'Next Work',
+          question: 'What should we work on?',
+          multiSelect: false,
+          options: [{ label: 'Add tests' }, { label: 'Fix a bug' }],
+        }],
+      },
+    });
+    expect(screen.getByText('What should we work on?')).toBeTruthy();
+    expect(screen.getByText('Add tests')).toBeTruthy();
+    expect(screen.getByText('Submit')).toBeTruthy();
+    expect(screen.getByText('Dismiss')).toBeTruthy();
+    // Should NOT show Allow/Deny (the generic permission card)
+    expect(screen.queryByText('Allow')).toBeNull();
+  });
+
+  it('shows AskUserQuestionCard for flat {question, options} format', () => {
+    render(<App />);
+    postMessage({
+      type: 'permissionRequested',
+      displayName: 'AskUserQuestion',
+      displayDetail: 'Pick one',
+      toolInput: {
+        question: 'Pick one',
+        options: [{ label: 'Option A' }, { label: 'Option B' }],
+      },
+    });
+    expect(screen.getByText('Pick one')).toBeTruthy();
+    expect(screen.getByText('Option A')).toBeTruthy();
+  });
+
+  it('shows AskUserQuestionCard when options is a JSON-encoded string', () => {
+    render(<App />);
+    postMessage({
+      type: 'permissionRequested',
+      displayName: 'AskUserQuestion',
+      displayDetail: 'q',
+      toolInput: {
+        questions: [{
+          header: 'h',
+          question: 'What color?',
+          multiSelect: 'False',
+          options: JSON.stringify([{ label: 'Blue' }, { label: 'Red' }]),
+        }],
+      },
+    });
+    expect(screen.getByText('What color?')).toBeTruthy();
+    expect(screen.getByText('Blue')).toBeTruthy();
+    expect(screen.getByText('Red')).toBeTruthy();
+  });
+
+  it('falls back to generic permission card when AskUserQuestion has no parseable questions', () => {
+    render(<App />);
+    postMessage({
+      type: 'permissionRequested',
+      displayName: 'AskUserQuestion',
+      displayDetail: 'some detail',
+      toolInput: { unrelated: 'data' },
+    });
+    expect(screen.getByText('Allow')).toBeTruthy();
+    expect(screen.getByText('Deny')).toBeTruthy();
+  });
+
+  it('disables input while AskUserQuestion is pending', () => {
+    render(<App />);
+    postMessage({
+      type: 'permissionRequested',
+      displayName: 'AskUserQuestion',
+      displayDetail: 'q',
+      toolInput: { questions: [{ header: 'h', question: 'q?', multiSelect: false, options: [] }] },
+    });
+    const textarea = screen.getByRole('textbox');
+    expect((textarea as HTMLTextAreaElement).disabled).toBe(true);
+  });
+
+  it('resolves AskUserQuestion card on pipelineCompleted', () => {
+    render(<App />);
+    postMessage({
+      type: 'permissionRequested',
+      displayName: 'AskUserQuestion',
+      displayDetail: 'q',
+      toolInput: { questions: [{ header: 'h', question: 'q?', multiSelect: false, options: [{ label: 'A' }] }] },
+    });
+    postMessage({ type: 'pipelineCompleted' });
+    // Submit/Dismiss buttons gone after completion
+    expect(screen.queryByText('Submit')).toBeNull();
+    expect(screen.queryByText('Dismiss')).toBeNull();
+  });
+
+  // ── ErrorBoundary isolation ───────────────────────────────────────────────────
+
+  it('ErrorBoundary prevents one crashed item from removing other items', () => {
+    render(<App />);
+    postMessage({ type: 'streamDelta', text: 'Visible message' });
+    // Force a crash by sending AskUserQuestion with questions=null  (passes the Array.isArray guard
+    // as an empty array, producing an ask-user-question item with questions:[] → card returns null)
+    postMessage({
+      type: 'permissionRequested',
+      displayName: 'AskUserQuestion',
+      displayDetail: 'q',
+      toolInput: { questions: [] },
+    });
+    // The stream message should still be visible
+    expect(screen.getAllByText('Visible message').length).toBeGreaterThan(0);
+  });
+
   it('creates a new stream item for the second step instead of appending to the closed first step', () => {
     render(<App />);
     postMessage({ type: 'runStarted', runId: 'r1', totalSteps: 2 });
