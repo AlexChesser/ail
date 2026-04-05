@@ -55,6 +55,42 @@ Runners that implement the optional capability declarations unlock richer `ail` 
 
 > **Note:** Session continuity behaviour — what "isolated" means per runner, and how session IDs are captured and passed for `resume: true` — is defined in `RUNNER-SPEC.md`, not here. The pipeline language declares intent; the runner contract defines mechanics.
 
+### RunnerFactory and Per-Step Dispatch
+
+`RunnerFactory` (`ail_core::runner::factory`) is the canonical way to obtain a runner by name at runtime. It is used by the executor for per-step runner dispatch.
+
+**Runner selection hierarchy** (highest priority wins):
+
+1. Per-step `runner:` field on the step in the pipeline YAML
+2. `AIL_DEFAULT_RUNNER` environment variable
+3. Hardcoded fallback: `"claude"` → `ClaudeCliRunner`
+
+**Known runner names:**
+
+| Name | Implementation | Notes |
+|---|---|---|
+| `claude` | `ClaudeCliRunner` | First-class; requires the `claude` binary |
+| `stub` | `StubRunner` | Test/development only; returns a fixed response |
+
+**Per-step runner: field**
+
+Any `prompt:` step may declare a `runner:` field to override the default runner for that step only:
+
+```yaml
+pipeline:
+  - id: review
+    prompt: "Review the changes"
+    # no runner: — uses the injected default (AIL_DEFAULT_RUNNER or claude)
+
+  - id: audit
+    prompt: "Security audit"
+    runner: stub   # overrides for this step only
+```
+
+The override is resolved by `RunnerFactory::build(name, true)` — per-step runners are always headless (non-interactive subprocess invocations). An unrecognised runner name aborts the step with `RUNNER_NOT_FOUND` before the runner is called.
+
+The default runner (no `runner:` field) is the runner injected into `execute()` — typically built by `RunnerFactory::build_default(headless)` in the binary entry point.
+
 ### Further Reading
 
 - `RUNNER-SPEC.md` — The AIL Runner Contract. Read this if you are a CLI tool author who wants first-class `ail` compatibility.

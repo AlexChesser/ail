@@ -120,3 +120,78 @@ pipeline:
         step.runner
     );
 }
+
+/// Executor dispatches per-step runner when `runner:` field is set on a step.
+///
+/// Step A uses the injected default runner (returns "default response").
+/// Step B overrides with `runner: "stub"` — RunnerFactory builds a StubRunner
+/// that returns "stub response". Verifies each step records the correct response.
+#[test]
+fn executor_dispatches_per_step_runner() {
+    use ail_core::config::domain::{Pipeline, Step, StepBody, StepId};
+    use ail_core::executor::execute;
+    use ail_core::runner::stub::StubRunner;
+    use ail_core::session::Session;
+
+    let tmp = tempfile::tempdir().unwrap();
+    let orig = std::env::current_dir().unwrap();
+    std::env::set_current_dir(tmp.path()).unwrap();
+
+    // Step A: no runner field — uses injected default.
+    let step_a = Step {
+        id: StepId("step_a".to_string()),
+        body: StepBody::Prompt("prompt A".to_string()),
+        message: None,
+        tools: None,
+        on_result: None,
+        model: None,
+        runner: None,
+        condition: None,
+    };
+    // Step B: runner: "stub" — executor builds StubRunner via RunnerFactory.
+    let step_b = Step {
+        id: StepId("step_b".to_string()),
+        body: StepBody::Prompt("prompt B".to_string()),
+        message: None,
+        tools: None,
+        on_result: None,
+        model: None,
+        runner: Some("stub".to_string()),
+        condition: None,
+    };
+
+    let pipeline = Pipeline {
+        steps: vec![step_a, step_b],
+        source: None,
+        defaults: Default::default(),
+        timeout_seconds: None,
+        default_tools: None,
+    };
+
+    // The default runner returns a distinct response so we can tell it apart from the stub.
+    let default_runner = StubRunner::new("default response");
+    let mut session = Session::new(pipeline, "invocation prompt".to_string());
+
+    execute(&mut session, &default_runner).unwrap();
+
+    let entries = session.turn_log.entries();
+    assert_eq!(entries.len(), 2);
+
+    // Step A used the default runner.
+    assert_eq!(entries[0].step_id, "step_a");
+    assert_eq!(
+        entries[0].response.as_deref(),
+        Some("default response"),
+        "step_a should use the injected default runner"
+    );
+
+    // Step B used the per-step stub runner (RunnerFactory::build("stub", true) returns "stub response").
+    assert_eq!(entries[1].step_id, "step_b");
+    assert_eq!(
+        entries[1].response.as_deref(),
+        Some("stub response"),
+        "step_b should use the per-step stub runner"
+    );
+
+    std::env::set_current_dir(orig).unwrap();
+}

@@ -15,6 +15,7 @@ use crate::config::domain::{
 };
 use crate::error::{error_types, AilError};
 use crate::runner::claude::ClaudeInvokeExtensions;
+use crate::runner::factory::RunnerFactory;
 use crate::runner::{
     InvokeOptions, PermissionResponder, Runner, RunnerEvent, ToolPermissionPolicy,
 };
@@ -274,6 +275,19 @@ fn execute_inner(
                     .tools
                     .as_ref()
                     .or(session.pipeline.default_tools.as_ref());
+
+                // Per-step runner override (SPEC §19).
+                let step_runner_box: Option<Box<dyn Runner + Send>> =
+                    if let Some(ref runner_name) = step.runner {
+                        Some(RunnerFactory::build(runner_name, true)?)
+                    } else {
+                        None
+                    };
+                let effective_runner: &dyn Runner = step_runner_box
+                    .as_deref()
+                    .map(|b| b as &dyn Runner)
+                    .unwrap_or(runner);
+
                 let tool_policy = build_tool_policy(effective_tools);
                 let options = InvokeOptions {
                     resume_session_id: resume_id,
@@ -288,14 +302,16 @@ fn execute_inner(
                     cancel_token: None,
                 };
 
-                let result = runner.invoke(&resolved, options).map_err(|mut e| {
-                    e.context = Some(crate::error::ErrorContext {
-                        pipeline_run_id: Some(session.run_id.clone()),
-                        step_id: Some(step_id.clone()),
-                        source: None,
-                    });
-                    e
-                })?;
+                let result = effective_runner
+                    .invoke(&resolved, options)
+                    .map_err(|mut e| {
+                        e.context = Some(crate::error::ErrorContext {
+                            pipeline_run_id: Some(session.run_id.clone()),
+                            step_id: Some(step_id.clone()),
+                            source: None,
+                        });
+                        e
+                    })?;
 
                 tracing::info!(
                     run_id = %session.run_id,
@@ -601,6 +617,19 @@ pub fn execute_with_control(
                     .tools
                     .as_ref()
                     .or(session.pipeline.default_tools.as_ref());
+
+                // Per-step runner override (SPEC §19).
+                let step_runner_box: Option<Box<dyn Runner + Send>> =
+                    if let Some(ref runner_name) = step.runner {
+                        Some(RunnerFactory::build(runner_name, true)?)
+                    } else {
+                        None
+                    };
+                let effective_runner: &dyn Runner = step_runner_box
+                    .as_deref()
+                    .map(|b| b as &dyn Runner)
+                    .unwrap_or(runner);
+
                 let tool_policy = build_tool_policy(effective_tools);
                 let options = InvokeOptions {
                     resume_session_id: resume_id,
@@ -626,7 +655,8 @@ pub fn execute_with_control(
                     }
                 });
 
-                let invoke_result = runner.invoke_streaming(&resolved, options, runner_tx);
+                let invoke_result =
+                    effective_runner.invoke_streaming(&resolved, options, runner_tx);
                 let _ = fwd_handle.join();
 
                 match invoke_result {
