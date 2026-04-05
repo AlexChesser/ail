@@ -1,0 +1,19 @@
+version: "0.0.1"
+
+meta:
+  name: "Oh My AIL — Exploratory Workflow"
+
+# EXPLORATORY: Clear goal, unclear path. Requires planning before execution.
+# Route: Explore → Prometheus → Momus → Atlas
+pipeline:
+  - id: gather_context
+    pipeline: ../agents/explore.ail.yaml
+
+  - id: plan
+    pipeline: ../agents/prometheus.ail.yaml
+
+  - id: review_plan
+    pipeline: ../agents/momus.ail.yaml
+
+  - id: execute
+    pipeline: ../agents/atlas.ail.yaml

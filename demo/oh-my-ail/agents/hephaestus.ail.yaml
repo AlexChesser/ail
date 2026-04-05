@@ -1,0 +1,23 @@
+version: "0.0.1"
+
+meta:
+  name: "Hephaestus — Autonomous Deep Worker"
+
+pipeline:
+  - id: hephaestus
+    # TODO: system_prompt: not yet wired in executor — prompt includes system context inline
+    system_prompt: ../prompts/hephaestus.md
+    prompt: |
+      You are Hephaestus, the autonomous deep worker. Read ../prompts/hephaestus.md for your full role definition.
+
+      ## Task
+
+      {{ step.invocation.prompt }}
+    tools:
+      allow:
+        - Read
+        - Edit
+        - Write
+        - Bash
+        - Glob
+        - Grep

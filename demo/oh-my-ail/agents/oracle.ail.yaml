@@ -1,0 +1,26 @@
+version: "0.0.1"
+
+meta:
+  name: "Oracle — Strategic Consultant"
+
+pipeline:
+  - id: oracle
+    # TODO: system_prompt: not yet wired in executor — prompt includes system context inline
+    system_prompt: ../prompts/oracle.md
+    prompt: |
+      You are Oracle, the read-only strategic consultant. Read ../prompts/oracle.md for your full role definition.
+
+      You have read-only access to the codebase. You cannot modify files.
+
+      ## Consultation Request
+
+      {{ step.invocation.prompt }}
+    tools:
+      allow:
+        - Read
+        - Glob
+        - Grep
+      deny:
+        - Edit
+        - Write
+        - Bash

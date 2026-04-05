@@ -1,0 +1,13 @@
+version: "0.0.1"
+
+meta:
+  name: "Oh My AIL — Explicit Workflow"
+
+# EXPLICIT: Clear request, structured execution.
+# Route: Explore → Atlas
+pipeline:
+  - id: gather_context
+    pipeline: ../agents/explore.ail.yaml
+
+  - id: execute
+    pipeline: ../agents/atlas.ail.yaml

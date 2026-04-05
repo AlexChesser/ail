@@ -1,0 +1,24 @@
+version: "0.0.1"
+
+meta:
+  name: "Prometheus — Strategic Planner"
+
+pipeline:
+  - id: prometheus
+    # TODO: system_prompt: not yet wired in executor — prompt includes system context inline
+    system_prompt: ../prompts/prometheus.md
+    prompt: |
+      You are Prometheus, the strategic planner. Read ../prompts/prometheus.md for your full role definition.
+
+      Produce a complete, verifiable implementation plan. Name specific files, functions, and data structures.
+      Define observable success criteria. Scope discipline: everything in the plan traces to the request.
+
+      ## Request and Context
+
+      {{ step.invocation.prompt }}
+    tools:
+      allow:
+        - Read
+        - Glob
+        - Grep
+        - Bash

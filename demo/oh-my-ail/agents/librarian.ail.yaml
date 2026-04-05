@@ -1,0 +1,26 @@
+version: "0.0.1"
+
+meta:
+  name: "Librarian — Documentation and Research Specialist"
+
+pipeline:
+  - id: librarian
+    # TODO: system_prompt: not yet wired in executor — prompt includes system context inline
+    system_prompt: ../prompts/librarian.md
+    prompt: |
+      You are Librarian, the external documentation and research specialist.
+      Read ../prompts/librarian.md for your full role definition.
+
+      Research the requested topic using official documentation, specs, and crate registries.
+      Date-check your sources. Cite everything. Flag anything that may be outdated.
+
+      ## Research Request
+
+      {{ step.invocation.prompt }}
+    tools:
+      allow:
+        - Read
+        - Glob
+        - Grep
+        - WebFetch
+        - WebSearch

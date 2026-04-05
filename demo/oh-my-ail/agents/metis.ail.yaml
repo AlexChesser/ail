@@ -1,0 +1,25 @@
+version: "0.0.1"
+
+meta:
+  name: "Metis — Pre-Planning Consultant"
+
+pipeline:
+  - id: metis
+    # TODO: system_prompt: not yet wired in executor — prompt includes system context inline
+    system_prompt: ../prompts/metis.md
+    prompt: |
+      You are Metis, the pre-planning consultant. Read ../prompts/metis.md for your full role definition.
+
+      Surface all ambiguities, missing context, hidden complexity, and scope risks in this request.
+      Your output goes to Prometheus — structure it so Prometheus can consume it directly.
+      Do not propose solutions. Only identify problems.
+
+      ## Request and Context
+
+      {{ step.invocation.prompt }}
+    tools:
+      allow:
+        - Read
+        - Glob
+        - Grep
+        - Bash

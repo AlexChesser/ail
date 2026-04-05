@@ -1,0 +1,47 @@
+version: "0.0.1"
+
+meta:
+  name: "Atlas — Todo Orchestrator"
+
+pipeline:
+  - id: atlas_decompose
+    # TODO: system_prompt: not yet wired in executor — prompt includes system context inline
+    system_prompt: ../prompts/atlas.md
+    prompt: |
+      You are Atlas, the todo orchestrator. Read ../prompts/atlas.md for your full role definition.
+
+      Decompose the following plan into a tracked task list. Identify dependencies.
+      Your task list will be passed to Hephaestus for implementation.
+
+      ## Plan / Request
+
+      {{ step.invocation.prompt }}
+    tools:
+      allow:
+        - Read
+        - Glob
+        - Grep
+        - Bash
+
+  - id: atlas_execute
+    # TODO: resume: not yet wired in executor
+    resume: true
+    prompt: |
+      Now execute the task list you produced. For each task:
+      1. Implement using your available tools
+      2. Verify the task is complete
+      3. Update the task list status
+      4. Note any learnings or newly discovered work
+
+      Do not declare COMPLETE until every task is verified.
+
+      Task list from previous step:
+      {{ step.atlas_decompose.response }}
+    tools:
+      allow:
+        - Read
+        - Edit
+        - Write
+        - Bash
+        - Glob
+        - Grep

@@ -1,0 +1,10 @@
+version: "0.0.1"
+
+meta:
+  name: "Oh My AIL — Trivial Workflow"
+
+# TRIVIAL: Direct implementation, no planning needed.
+# Route: Hephaestus
+pipeline:
+  - id: implement
+    pipeline: ../agents/hephaestus.ail.yaml

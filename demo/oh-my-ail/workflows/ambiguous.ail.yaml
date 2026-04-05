@@ -1,0 +1,19 @@
+version: "0.0.1"
+
+meta:
+  name: "Oh My AIL — Ambiguous Workflow"
+
+# AMBIGUOUS: Unclear requirements. Must surface ambiguity before planning.
+# Route: Metis → Prometheus → Momus → Atlas
+pipeline:
+  - id: surface_ambiguity
+    pipeline: ../agents/metis.ail.yaml
+
+  - id: plan
+    pipeline: ../agents/prometheus.ail.yaml
+
+  - id: review_plan
+    pipeline: ../agents/momus.ail.yaml
+
+  - id: execute
+    pipeline: ../agents/atlas.ail.yaml

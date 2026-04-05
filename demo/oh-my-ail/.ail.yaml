@@ -1,0 +1,45 @@
+version: "0.0.1"
+
+meta:
+  name: "Oh My AIL — Sisyphus Intent Gate"
+
+pipeline:
+  # Step 1: Gather project context for classification
+  - id: project_context
+    context:
+      shell: |
+        echo "=== CLAUDE.md ===" && cat CLAUDE.md 2>/dev/null || echo "(no CLAUDE.md found)"
+        echo ""
+        echo "=== git status ===" && git status --short 2>/dev/null || echo "(not a git repo)"
+        echo ""
+        echo "=== project structure ===" && find . -name "*.rs" -o -name "*.yaml" -o -name "*.toml" | grep -v target | sort | head -60
+
+  # Step 2: Sisyphus classifies the request and routes to a workflow.
+  # The classification token (TRIVIAL/EXPLICIT/EXPLORATORY/AMBIGUOUS) MUST be the first word
+  # of the response so on_result can branch correctly.
+  - id: sisyphus_gate
+    # TODO: system_prompt: not yet wired in executor — loaded via prompt field instead
+    system_prompt: ./prompts/sisyphus.md
+    prompt: |
+      You are Sisyphus. Read ./prompts/sisyphus.md for your full role definition.
+
+      Classify this request and state your classification as the FIRST word of your response
+      (one of: TRIVIAL, EXPLICIT, EXPLORATORY, AMBIGUOUS). Then explain your routing decision.
+
+      ## User Request
+      {{ step.invocation.prompt }}
+
+      ## Project Context
+      {{ step.project_context.result }}
+    on_result:
+      - contains: "TRIVIAL"
+        action: "pipeline: ./workflows/trivial.ail.yaml"
+      - contains: "EXPLICIT"
+        action: "pipeline: ./workflows/explicit.ail.yaml"
+      - contains: "EXPLORATORY"
+        action: "pipeline: ./workflows/exploratory.ail.yaml"
+      - contains: "AMBIGUOUS"
+        action: "pipeline: ./workflows/ambiguous.ail.yaml"
+      # Fallback: if Sisyphus's output doesn't contain a known token, treat as EXPLICIT
+      - always: true
+        action: "pipeline: ./workflows/explicit.ail.yaml"
