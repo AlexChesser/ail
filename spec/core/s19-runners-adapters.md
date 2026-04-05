@@ -57,22 +57,40 @@ Runners that implement the optional capability declarations unlock richer `ail` 
 
 ### RunnerFactory and Per-Step Dispatch
 
-`RunnerFactory` (`ail_core::runner::factory`) is the canonical way to obtain a runner by name at runtime. It is used by the executor for per-step runner dispatch.
+> **Implementation status:** v0.1 — fully implemented in `ail-core/src/runner/factory.rs`.
 
-**Runner selection hierarchy** (highest priority wins):
+`RunnerFactory` (`ail_core::runner::factory`) is the canonical way to obtain a runner by name at runtime. It is used by the executor for per-step runner dispatch and by the binary entry points to build the default runner.
 
-1. Per-step `runner:` field on the step in the pipeline YAML
-2. `AIL_DEFAULT_RUNNER` environment variable
-3. Hardcoded fallback: `"claude"` → `ClaudeCliRunner`
+```rust
+pub struct RunnerFactory;
 
-**Known runner names:**
+impl RunnerFactory {
+    /// Build a runner by explicit name.
+    pub fn build(runner_name: &str, headless: bool) -> Result<Box<dyn Runner + Send>, AilError>;
 
-| Name | Implementation | Notes |
-|---|---|---|
-| `claude` | `ClaudeCliRunner` | First-class; requires the `claude` binary |
-| `stub` | `StubRunner` | Test/development only; returns a fixed response |
+    /// Build the default runner, honouring the `AIL_DEFAULT_RUNNER` env var.
+    pub fn build_default(headless: bool) -> Result<Box<dyn Runner + Send>, AilError>;
+}
+```
 
-**Per-step runner: field**
+#### Selection Hierarchy
+
+The effective runner for a step is determined in priority order (highest first):
+
+1. **Per-step `runner:` field** in the pipeline YAML — resolved by the executor via `RunnerFactory::build(name, true)`.
+2. **`AIL_DEFAULT_RUNNER` environment variable** — if set and non-empty, `build_default()` passes this to `build()`.
+3. **Hardcoded fallback: `"claude"`** — `ClaudeCliRunner` with `ClaudeCliRunnerConfig::default()`.
+
+#### Known Runner Names
+
+| Name | Case-sensitive | Resulting type | Notes |
+|---|---|---|---|
+| `claude` | No (trimmed, lowercased) | `ClaudeCliRunner` | Production runner; shells out to the `claude` binary |
+| `stub` | No | `StubRunner` | Returns a fixed `"stub response"` string; for tests and development |
+
+Any unrecognised name returns `AilError { error_type: "ail:runner/not-found", ... }` and aborts the step.
+
+#### Per-Step runner: Field
 
 Any `prompt:` step may declare a `runner:` field to override the default runner for that step only:
 
@@ -87,9 +105,22 @@ pipeline:
     runner: stub   # overrides for this step only
 ```
 
-The override is resolved by `RunnerFactory::build(name, true)` — per-step runners are always headless (non-interactive subprocess invocations). An unrecognised runner name aborts the step with `RUNNER_NOT_FOUND` before the runner is called.
+Per-step runners are always headless (non-interactive subprocess invocations).
 
-The default runner (no `runner:` field) is the runner injected into `execute()` — typically built by `RunnerFactory::build_default(headless)` in the binary entry point.
+#### Adding a New Runner
+
+1. Implement the `Runner` trait in a new module under `ail-core/src/runner/`.
+2. Add a match arm in `RunnerFactory::build()` mapping the runner name to the new type.
+3. Export the module from `ail-core/src/runner/mod.rs`.
+
+#### Usage in the Binary
+
+```rust
+let runner = RunnerFactory::build_default(cli.headless)?;
+// runner is Box<dyn Runner + Send>
+```
+
+All entry points in `ail/src/main.rs` (`--once`, TUI, `chat`) construct runners exclusively through `RunnerFactory::build_default()`.
 
 ### Further Reading
 
