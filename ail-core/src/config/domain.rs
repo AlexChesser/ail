@@ -42,6 +42,9 @@ pub struct Pipeline {
     pub source: Option<PathBuf>,
     /// Default provider/model config applied to all steps unless overridden (SPEC §3, §15).
     pub defaults: ProviderConfig,
+    /// Optional per-run timeout in seconds declared in `defaults.timeout_seconds` (SPEC §3.2).
+    /// Parsed but not yet enforced at runtime — available for future scheduler use.
+    pub timeout_seconds: Option<u64>,
 }
 
 impl Pipeline {
@@ -62,6 +65,7 @@ impl Pipeline {
             }],
             source: None,
             defaults: ProviderConfig::default(),
+            timeout_seconds: None,
         }
     }
 }

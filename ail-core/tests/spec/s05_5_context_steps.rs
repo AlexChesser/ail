@@ -178,6 +178,7 @@ fn context_shell_captures_stdout() {
             condition: None,
         }],
         defaults: Default::default(),
+        timeout_seconds: None,
         source: None,
     };
     let mut session = ail_core::session::Session::new(pipeline, "p".to_string());
@@ -211,6 +212,7 @@ fn context_shell_captures_stderr() {
             condition: None,
         }],
         defaults: Default::default(),
+        timeout_seconds: None,
         source: None,
     };
     let mut session = ail_core::session::Session::new(pipeline, "p".to_string());
@@ -247,6 +249,7 @@ fn context_shell_captures_exit_code_zero() {
             condition: None,
         }],
         defaults: Default::default(),
+        timeout_seconds: None,
         source: None,
     };
     let mut session = ail_core::session::Session::new(pipeline, "p".to_string());
@@ -278,6 +281,7 @@ fn context_shell_captures_nonzero_exit_code() {
             condition: None,
         }],
         defaults: Default::default(),
+        timeout_seconds: None,
         source: None,
     };
     let mut session = ail_core::session::Session::new(pipeline, "p".to_string());
@@ -310,6 +314,7 @@ fn context_shell_does_not_call_runner() {
             condition: None,
         }],
         defaults: Default::default(),
+        timeout_seconds: None,
         source: None,
     };
     let mut session = ail_core::session::Session::new(pipeline, "p".to_string());
@@ -359,6 +364,7 @@ fn context_then_prompt_pipeline() {
             },
         ],
         defaults: Default::default(),
+        timeout_seconds: None,
         source: None,
     };
     let mut session = ail_core::session::Session::new(pipeline, "p".to_string());
@@ -408,6 +414,7 @@ fn template_step_exit_code_resolves() {
             },
         ],
         defaults: Default::default(),
+        timeout_seconds: None,
         source: None,
     };
     let mut session = ail_core::session::Session::new(pipeline, "p".to_string());
@@ -447,6 +454,7 @@ fn prompt_file_path_loads_contents() {
             condition: None,
         }],
         defaults: Default::default(),
+        timeout_seconds: None,
         source: None,
     };
     let mut session = ail_core::session::Session::new(pipeline, "p".to_string());
@@ -483,6 +491,7 @@ fn prompt_file_not_found_returns_error() {
             condition: None,
         }],
         defaults: Default::default(),
+        timeout_seconds: None,
         source: None,
     };
     let mut session = ail_core::session::Session::new(pipeline, "p".to_string());
@@ -517,6 +526,7 @@ fn prompt_inline_string_unchanged() {
             condition: None,
         }],
         defaults: Default::default(),
+        timeout_seconds: None,
         source: None,
     };
     let mut session = ail_core::session::Session::new(pipeline, "p".to_string());

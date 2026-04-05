@@ -35,6 +35,7 @@ fn events_serialize_to_valid_ndjson() {
             prompt_step("step_b", "Second prompt"),
         ],
         defaults: Default::default(),
+        timeout_seconds: None,
         source: None,
     };
     let mut session = Session::new(pipeline, "user prompt".to_string());
@@ -105,6 +106,7 @@ fn step_started_event_has_correct_fields() {
     let pipeline = Pipeline {
         steps: vec![prompt_step("review", "Review the code")],
         defaults: Default::default(),
+        timeout_seconds: None,
         source: None,
     };
     let mut session = Session::new(pipeline, "user prompt".to_string());

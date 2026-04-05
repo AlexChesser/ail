@@ -68,6 +68,7 @@ mod s9_tool_permissions {
                 condition: None,
             }],
             defaults: Default::default(),
+            timeout_seconds: None,
             source: None,
         };
         let mut session = Session::new(pipeline, "p".to_string());

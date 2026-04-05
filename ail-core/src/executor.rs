@@ -970,6 +970,7 @@ mod tests {
             steps,
             source: None,
             defaults: Default::default(),
+            timeout_seconds: None,
         };
         Session::new(pipeline, "invocation prompt".to_string())
     }
