@@ -2,10 +2,13 @@
 use ail_core::config::domain::{
     Pipeline, ResultAction, ResultBranch, ResultMatcher, Step, StepBody, StepId,
 };
-use ail_core::executor::execute;
+use ail_core::error::error_types;
+use ail_core::executor::{execute, execute_with_control, ExecutionControl};
 use ail_core::runner::stub::StubRunner;
 use ail_core::session::Session;
+use std::collections::HashSet;
 use std::path::PathBuf;
+use std::sync::mpsc;
 
 fn fixtures_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures")
@@ -263,4 +266,145 @@ pipeline:
         err.error_type,
         ail_core::error::error_types::CONFIG_VALIDATION_FAILED
     );
+}
+
+// ── execute_with_control: sub-pipeline depth tracking ──────────────────────
+
+/// Regression test: execute_with_control must pass depth=1 (not 0) to
+/// execute_sub_pipeline so that the MAX_SUB_PIPELINE_DEPTH guard fires
+/// correctly on the controlled (TUI/json) code path.
+#[test]
+fn execute_with_control_sub_pipeline_runs_and_records_entry() {
+    let tmp = tempfile::tempdir().unwrap();
+    let orig = std::env::current_dir().unwrap();
+    std::env::set_current_dir(tmp.path()).unwrap();
+
+    let child_path = fixtures_dir().join("sub_pipeline_child.ail.yaml");
+    let mut session = make_session(vec![sub_pipeline_step(
+        "call_child",
+        child_path.to_str().unwrap(),
+    )]);
+
+    let runner = StubRunner::new("child response");
+    let control = ExecutionControl::new();
+    let disabled = HashSet::new();
+    let (event_tx, _event_rx) = mpsc::channel();
+    let (_hitl_tx, hitl_rx) = mpsc::channel();
+
+    let result = execute_with_control(
+        &mut session,
+        &runner,
+        &control,
+        &disabled,
+        event_tx,
+        hitl_rx,
+    );
+    assert!(result.is_ok(), "Expected Ok, got: {result:?}");
+
+    let entries = session.turn_log.entries();
+    assert_eq!(entries.len(), 1);
+    assert_eq!(entries[0].step_id, "call_child");
+    assert!(
+        entries[0].response.is_some(),
+        "Expected response from sub-pipeline"
+    );
+
+    std::env::set_current_dir(orig).unwrap();
+}
+
+/// Verify that the MAX_SUB_PIPELINE_DEPTH guard is enforced on the
+/// execute_with_control code path. Two temporary pipeline files are written
+/// that call each other, creating an infinite cycle. The depth guard must
+/// abort with PIPELINE_ABORTED before the stack overflows.
+#[test]
+fn execute_with_control_depth_limit_prevents_infinite_recursion() {
+    let tmp = tempfile::tempdir().unwrap();
+    let orig = std::env::current_dir().unwrap();
+    std::env::set_current_dir(tmp.path()).unwrap();
+
+    // Write two mutually-recursive pipelines: a.ail.yaml calls b.ail.yaml
+    // and b.ail.yaml calls a.ail.yaml.
+    let path_a = tmp.path().join("a.ail.yaml");
+    let path_b = tmp.path().join("b.ail.yaml");
+
+    let yaml_a = format!(
+        "version: \"0.0.1\"\npipeline:\n  - id: recurse_a\n    pipeline: {}\n",
+        path_b.display()
+    );
+    let yaml_b = format!(
+        "version: \"0.0.1\"\npipeline:\n  - id: recurse_b\n    pipeline: {}\n",
+        path_a.display()
+    );
+    std::fs::write(&path_a, yaml_a).unwrap();
+    std::fs::write(&path_b, yaml_b).unwrap();
+
+    let mut session = make_session(vec![sub_pipeline_step("root", path_a.to_str().unwrap())]);
+
+    let runner = StubRunner::new("stub");
+    let control = ExecutionControl::new();
+    let disabled = HashSet::new();
+    let (event_tx, _event_rx) = mpsc::channel();
+    let (_hitl_tx, hitl_rx) = mpsc::channel();
+
+    let result = execute_with_control(
+        &mut session,
+        &runner,
+        &control,
+        &disabled,
+        event_tx,
+        hitl_rx,
+    );
+    assert!(
+        result.is_err(),
+        "Expected depth limit error, got: {result:?}"
+    );
+    let err = result.unwrap_err();
+    assert_eq!(
+        err.error_type,
+        error_types::PIPELINE_ABORTED,
+        "Expected PIPELINE_ABORTED for depth limit, got: {}",
+        err.error_type
+    );
+    assert!(
+        err.detail.contains("depth"),
+        "Error detail should mention depth: {}",
+        err.detail
+    );
+
+    std::env::set_current_dir(orig).unwrap();
+}
+
+/// Same depth-limit test on the execute() (simple) code path, for parity.
+#[test]
+fn execute_depth_limit_prevents_infinite_recursion() {
+    let tmp = tempfile::tempdir().unwrap();
+    let orig = std::env::current_dir().unwrap();
+    std::env::set_current_dir(tmp.path()).unwrap();
+
+    let path_a = tmp.path().join("da.ail.yaml");
+    let path_b = tmp.path().join("db.ail.yaml");
+
+    let yaml_a = format!(
+        "version: \"0.0.1\"\npipeline:\n  - id: recurse_a\n    pipeline: {}\n",
+        path_b.display()
+    );
+    let yaml_b = format!(
+        "version: \"0.0.1\"\npipeline:\n  - id: recurse_b\n    pipeline: {}\n",
+        path_a.display()
+    );
+    std::fs::write(&path_a, yaml_a).unwrap();
+    std::fs::write(&path_b, yaml_b).unwrap();
+
+    let mut session = make_session(vec![sub_pipeline_step("root", path_a.to_str().unwrap())]);
+
+    let runner = StubRunner::new("stub");
+    let result = execute(&mut session, &runner);
+    assert!(
+        result.is_err(),
+        "Expected depth limit error, got: {result:?}"
+    );
+    let err = result.unwrap_err();
+    assert_eq!(err.error_type, error_types::PIPELINE_ABORTED);
+
+    std::env::set_current_dir(orig).unwrap();
 }
