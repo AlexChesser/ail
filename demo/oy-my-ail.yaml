@@ -1,0 +1,38 @@
+version: "0.0.1"
+
+meta:
+  name: "oy-my-ail — Solo Developer Quality Loop"
+
+pipeline:
+  - id: lint
+    context:
+      shell: "cargo clippy -- -D warnings"
+    on_result:
+      - exit_code: 0
+        action: continue
+      - exit_code: any
+        action: continue
+
+  - id: tests
+    context:
+      shell: "cargo nextest run"
+    on_result:
+      - exit_code: 0
+        action: continue
+      - exit_code: any
+        action: continue
+
+  - id: review_and_fix
+    prompt: |
+      You just completed: {{ step.invocation.prompt }}
+
+      Here is the current quality gate status:
+
+      LINT (exit {{ step.lint.exit_code }}):
+      {{ step.lint.result }}
+
+      TESTS (exit {{ step.tests.exit_code }}):
+      {{ step.tests.result }}
+
+      If there are lint failures or test failures: fix them now. Be terse.
+      If everything is clean: review your previous work and simplify anything unnecessarily complex.
