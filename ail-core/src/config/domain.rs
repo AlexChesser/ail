@@ -45,6 +45,9 @@ pub struct Pipeline {
     /// Optional per-run timeout in seconds declared in `defaults.timeout_seconds` (SPEC §3.2).
     /// Parsed but not yet enforced at runtime — available for future scheduler use.
     pub timeout_seconds: Option<u64>,
+    /// Pipeline-wide tool policy applied to steps that declare no per-step `tools:` (SPEC §3.2).
+    /// Per-step tools override entirely — if a step declares any tools, the default is ignored.
+    pub default_tools: Option<ToolPolicy>,
 }
 
 impl Pipeline {
@@ -66,6 +69,7 @@ impl Pipeline {
             source: None,
             defaults: ProviderConfig::default(),
             timeout_seconds: None,
+            default_tools: None,
         }
     }
 }

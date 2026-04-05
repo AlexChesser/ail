@@ -29,6 +29,7 @@ mod executor {
             defaults: Default::default(),
             timeout_seconds: None,
             source: None,
+            default_tools: None,
         };
         let mut session = Session::new(pipeline, "p".to_string());
         execute(&mut session, &StubRunner::new("r")).unwrap();

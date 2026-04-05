@@ -132,6 +132,7 @@ fn invoke_options_carries_resolved_model() {
             output_cost_per_1k: None,
         },
         timeout_seconds: None,
+        default_tools: None,
     };
     let mut session = Session::new(pipeline, "prompt".to_string());
     let runner = CountingStubRunner::new("ok");

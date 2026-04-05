@@ -12,6 +12,7 @@ pub struct DefaultsDto {
     pub model: Option<String>,
     pub provider: Option<ProviderDto>,
     pub timeout_seconds: Option<u64>,
+    pub tools: Option<ToolsDto>,
 }
 
 #[derive(Deserialize)]

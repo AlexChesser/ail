@@ -17,6 +17,7 @@ fn make_session(steps: Vec<Step>) -> Session {
             defaults: Default::default(),
             timeout_seconds: None,
             source: None,
+            default_tools: None,
         },
         "prompt".to_string(),
     )

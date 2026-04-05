@@ -20,6 +20,7 @@ fn make_session(steps: Vec<Step>) -> Session {
         source: None,
         defaults: Default::default(),
         timeout_seconds: None,
+        default_tools: None,
     };
     Session::new(pipeline, "invocation prompt".to_string())
 }

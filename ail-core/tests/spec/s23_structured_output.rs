@@ -37,6 +37,7 @@ fn events_serialize_to_valid_ndjson() {
         defaults: Default::default(),
         timeout_seconds: None,
         source: None,
+        default_tools: None,
     };
     let mut session = Session::new(pipeline, "user prompt".to_string());
     let runner = StubRunner::new("stub response");
@@ -108,6 +109,7 @@ fn step_started_event_has_correct_fields() {
         defaults: Default::default(),
         timeout_seconds: None,
         source: None,
+        default_tools: None,
     };
     let mut session = Session::new(pipeline, "user prompt".to_string());
     let runner = StubRunner::new("ok");

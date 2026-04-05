@@ -1,4 +1,4 @@
-use super::{InvokeOptions, RunResult, Runner};
+use super::{InvokeOptions, RunResult, Runner, ToolPermissionPolicy};
 use crate::error::AilError;
 
 /// A deterministic runner for use in unit tests.
@@ -58,6 +58,55 @@ impl Runner for CountingStubRunner {
             response: self.response.clone(),
             cost_usd: Some(0.0),
             session_id: Some("stub-session-id".to_string()),
+            input_tokens: 0,
+            output_tokens: 0,
+            thinking: None,
+            model: None,
+            tool_events: vec![],
+        })
+    }
+}
+
+/// A recorded invocation call — captures the `tool_policy` for assertion in tests.
+pub struct RecordedCall {
+    pub prompt: String,
+    pub tool_policy: ToolPermissionPolicy,
+}
+
+/// A stub runner that records each invocation for inspection in tests.
+/// Used to verify the tool policy passed to the runner.
+pub struct RecordingStubRunner {
+    response: String,
+    calls: std::sync::Mutex<Vec<RecordedCall>>,
+}
+
+impl RecordingStubRunner {
+    pub fn new(response: impl Into<String>) -> Self {
+        RecordingStubRunner {
+            response: response.into(),
+            calls: std::sync::Mutex::new(vec![]),
+        }
+    }
+
+    /// Returns the list of recorded invocation calls.
+    pub fn calls(&self) -> std::sync::MutexGuard<'_, Vec<RecordedCall>> {
+        self.calls.lock().expect("mutex not poisoned")
+    }
+}
+
+impl Runner for RecordingStubRunner {
+    fn invoke(&self, prompt: &str, options: InvokeOptions) -> Result<RunResult, AilError> {
+        self.calls
+            .lock()
+            .expect("mutex not poisoned")
+            .push(RecordedCall {
+                prompt: prompt.to_string(),
+                tool_policy: options.tool_policy,
+            });
+        Ok(RunResult {
+            response: self.response.clone(),
+            cost_usd: Some(0.0),
+            session_id: Some("recording-stub-session-id".to_string()),
             input_tokens: 0,
             output_tokens: 0,
             thinking: None,

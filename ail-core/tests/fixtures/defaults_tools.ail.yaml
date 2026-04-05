@@ -1,0 +1,14 @@
+version: "0.1"
+
+defaults:
+  tools:
+    allow: [Bash, Read]
+
+pipeline:
+  - id: step_with_no_tools
+    prompt: "do something"
+
+  - id: step_with_tools
+    prompt: "do something else"
+    tools:
+      allow: [Edit]

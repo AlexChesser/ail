@@ -88,6 +88,7 @@ mod tests {
             source: Some(std::path::PathBuf::from("test.ail.yaml")),
             defaults: Default::default(),
             timeout_seconds: None,
+            default_tools: None,
         }
     }
 
