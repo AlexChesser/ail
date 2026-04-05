@@ -65,6 +65,7 @@ mod s9_tool_permissions {
                 model: None,
                 on_result: None,
                 runner: None,
+                append_system_prompt: None,
             }],
             defaults: Default::default(),
             source: None,

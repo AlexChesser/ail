@@ -967,6 +967,7 @@ mod tests {
             on_result: None,
             model: None,
             runner: None,
+            append_system_prompt: None,
         }
     }
 

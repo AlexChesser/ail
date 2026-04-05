@@ -101,8 +101,11 @@ pub enum RunnerEvent {
     /// A tool call completed.
     ToolResult {
         tool_name: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
         tool_use_id: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
         content: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
         is_error: Option<bool>,
     },
     /// Cost / token update.
