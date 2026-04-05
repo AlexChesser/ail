@@ -27,7 +27,7 @@ The AIL Pipeline Language Specification — for pipeline authors and implementer
 | [s01-purpose.md](core/s01-purpose.md) | §1 Purpose & Philosophy | Cognitive science grounding; core guarantee; scope discipline; two-layer model | **alpha** |
 | [s02-vocabulary.md](core/s02-vocabulary.md) | §2 Concepts & Vocabulary | Term definitions — pipeline, step, invocation, skill, etc. | reference — needs update for `context:` step type |
 | [s03-file-format.md](core/s03-file-format.md) | §3 File Format | 4-step discovery order (§3.1); top-level YAML schema | partial — §3.1 discovery ✓; `defaults.model`/`defaults.provider` ✓; `FROM`/`meta`/`providers`/`defaults.timeout_seconds`/`defaults.tools` not parsed |
-| [s04-execution-model.md](core/s04-execution-model.md) | §4 Execution Model | invocation step (§4.1); core guarantee (§4.2); §4.4 run log + NDJSON events | partial — §4.1–§4.2 + §4.4 run log ✓; §4.3 hooks/conditions/on_result not impl |
+| [s04-execution-model.md](core/s04-execution-model.md) | §4 Execution Model | invocation step (§4.1); core guarantee (§4.2); §4.4 run log + NDJSON events; §4.5 controlled execution mode | partial — §4.1–§4.2 + §4.4 run log ✓; §4.5 execute_with_control(), ExecutionControl, ExecutorEvent, NDJSON stdin protocol ✓; §4.3 hooks/conditions/on_result not impl |
 | [s05-step-specification.md](core/s05-step-specification.md) | §5 Step Specification | Four step types (prompt/skill/context/pipeline); `skill:` replaces prompt for self-contained invocations; context sources: shell/mcp; on_result; append_system_prompt; tools; then/before | **alpha** — `id`/`prompt`/`tools` impl in v0.0.1; `skill:`/`context:`/`append_system_prompt:`/`on_result`/`before`/`then` not yet impl |
 | [s06-skills.md](core/s06-skills.md) | §6 Skills | SKILL.md format (open standard fields); `skill:` step type; `$ARGUMENTS` substitution; REPL `/skill-name` discovery; Agent Skills compatibility | **alpha** — not yet impl |
 | [s07-pipeline-inheritance.md](core/s07-pipeline-inheritance.md) | §7 Pipeline Inheritance | FROM; hook operations (run_before/run_after/override/disable) | deferred |
@@ -42,12 +42,12 @@ The AIL Pipeline Language Specification — for pipeline authors and implementer
 | [s16-error-handling.md](core/s16-error-handling.md) | §16 Error Handling | on_error: continue / pause_for_human / abort_pipeline / retry | deferred |
 | [s17-materialize.md](core/s17-materialize.md) | §17 materialize | CLI command; output format with origin comments | partial — single-file flatten + origin comments ✓; `FROM` chain traversal/`--expand-pipelines` not impl |
 | [s18-complete-examples.md](core/s18-complete-examples.md) | §18 Complete Examples | Full worked YAML — simplest, solo dev, org base, multi-speed | needs update for new step types |
-| [s19-runners-adapters.md](core/s19-runners-adapters.md) | §19 Runners & Adapters | Three-tier runner model; runner config; contract summary | reference |
+| [s19-runners-adapters.md](core/s19-runners-adapters.md) | §19 Runners & Adapters | Three-tier runner model; runner config; contract summary; RunnerFactory | reference — RunnerFactory (selection hierarchy, known names, AIL_DEFAULT_RUNNER env) ✓ |
 | [s20-mvp.md](core/s20-mvp.md) | §20 MVP v0.0.1 Scope | What is and isn't in scope for v0.0.1 | reference — v0.0.1 complete; alpha scope is next |
 | [s21-planned-extensions.md](core/s21-planned-extensions.md) | §21 Planned Extensions | Structured I/O, parallel steps, multi-provider quality comparison (D-020), self-modifying pipelines (D-019), MCP, plugins, observability | planned |
 | [s22-open-questions.md](core/s22-open-questions.md) | §22 Open Questions | Unresolved design questions (completion detection, hot reload, self-modifying pipeline approval/validation, etc.) | reference |
 | [s23-structured-output.md](core/s23-structured-output.md) | §23 Structured Output | `--output-format json` NDJSON event stream; event schema; ordering guarantees | **v0.1** ✓ |
-| [s24-log-command.md](core/s24-log-command.md) | §24 The `ail log` Command | CLI interface for run inspection; `--format` and `--follow` flags; exit codes; project scoping | **alpha** |
+| [s24-log-command.md](core/s24-log-command.md) | §24–25 The `ail log` and `ail logs` Commands | §24: single-run inspection; `--format` and `--follow` flags; exit codes; project scoping. §25: multi-session listing; `--session`, `--query`, `--tail`, `--limit`, `--format`; FTS search; JSON output schema | **alpha** — both commands fully documented |
 
 ---
 

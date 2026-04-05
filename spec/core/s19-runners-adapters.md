@@ -55,6 +55,54 @@ Runners that implement the optional capability declarations unlock richer `ail` 
 
 > **Note:** Session continuity behaviour — what "isolated" means per runner, and how session IDs are captured and passed for `resume: true` — is defined in `RUNNER-SPEC.md`, not here. The pipeline language declares intent; the runner contract defines mechanics.
 
+### RunnerFactory
+
+> **Implementation status:** v0.1 — fully implemented in `ail-core/src/runner/factory.rs`.
+
+`RunnerFactory` is the single point of runner construction in the binary entry point. It resolves a runner name to a `Box<dyn Runner + Send>`.
+
+```rust
+pub struct RunnerFactory;
+
+impl RunnerFactory {
+    /// Build a runner by explicit name.
+    pub fn build(runner_name: &str, headless: bool) -> Result<Box<dyn Runner + Send>, AilError>;
+
+    /// Build the default runner, honouring the `AIL_DEFAULT_RUNNER` env var.
+    pub fn build_default(headless: bool) -> Result<Box<dyn Runner + Send>, AilError>;
+}
+```
+
+#### Selection Hierarchy
+
+1. **Per-step `runner:` field** in YAML — resolved by the executor at step execution time (planned; per-step dispatch is reserved, not yet wired to `RunnerFactory`).
+2. **`AIL_DEFAULT_RUNNER` environment variable** — if set and non-empty, `build_default()` passes this value to `build()`.
+3. **Hardcoded fallback: `"claude"`** — `ClaudeCliRunner` constructed with `ClaudeCliRunnerConfig::default()`.
+
+#### Known Runner Names
+
+| Name | Case-sensitive | Resulting type | Notes |
+|---|---|---|---|
+| `claude` | No (trimmed, lowercased) | `ClaudeCliRunner` | Production runner; shells out to the `claude` binary |
+| `stub` | No | `StubRunner` | Returns a fixed `"stub response"` string; intended for tests and development |
+
+Any unrecognised name returns `AilError { error_type: "ail:runner/not-found", ... }`.
+
+#### Adding a New Runner
+
+1. Implement the `Runner` trait in a new module under `ail-core/src/runner/`.
+2. Add a match arm in `RunnerFactory::build()` mapping the runner name to the new type.
+3. Export the module from `ail-core/src/runner/mod.rs`.
+
+#### Usage in the Binary
+
+```rust
+let runner = RunnerFactory::build_default(cli.headless)?;
+// runner is Box<dyn Runner + Send>
+```
+
+All entry points in `ail/src/main.rs` (`--once`, TUI, `chat`) construct runners exclusively through `RunnerFactory::build_default()`.
+
 ### Further Reading
 
 - `RUNNER-SPEC.md` — The AIL Runner Contract. Read this if you are a CLI tool author who wants first-class `ail` compatibility.
