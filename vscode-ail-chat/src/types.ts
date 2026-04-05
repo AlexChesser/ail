@@ -163,7 +163,7 @@ export type HostToWebviewMessage =
   | { type: 'thinking'; text: string }
   | { type: 'toolUse'; toolName: string; toolUseId: string; input: unknown }
   | { type: 'toolResult'; toolUseId: string; content: string; isError: boolean }
-  | { type: 'stepCompleted'; stepId: string; costUsd: number | null; inputTokens: number; outputTokens: number }
+  | { type: 'stepCompleted'; stepId: string; costUsd: number | null; inputTokens: number; outputTokens: number; response?: string | null }
   | { type: 'stepSkipped'; stepId: string }
   | { type: 'stepFailed'; stepId: string; error: string }
   | { type: 'hitlGate'; stepId: string; message?: string }
@@ -171,7 +171,8 @@ export type HostToWebviewMessage =
   | { type: 'pipelineCompleted' }
   | { type: 'pipelineError'; error: string }
   | { type: 'processError'; message: string }
-  | { type: 'sessionsUpdated'; sessions: SessionSummary[] };
+  | { type: 'sessionsUpdated'; sessions: SessionSummary[] }
+  | { type: 'pipelineChanged'; path: string | null; displayName: string | null };
 
 /**
  * Messages sent FROM the webview TO the extension host.
@@ -183,4 +184,5 @@ export type WebviewToHostMessage =
   | { type: 'permissionResponse'; allowed: boolean; reason?: string }
   | { type: 'killProcess' }
   | { type: 'switchSession'; sessionId: string }
-  | { type: 'newSession' };
+  | { type: 'newSession' }
+  | { type: 'loadPipeline' };

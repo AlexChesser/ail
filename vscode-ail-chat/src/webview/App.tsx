@@ -17,6 +17,7 @@ import { StepProgress, StepInfo, StepStatus } from './components/StepProgress';
 import { ChatInput } from './components/ChatInput';
 import { SessionList } from './components/SessionList';
 import { StatusBar } from './components/StatusBar';
+import { PipelineBar } from './components/PipelineBar';
 
 // ── VS Code API ────────────────────────────────────────────────────────────────
 
@@ -60,6 +61,8 @@ interface ChatState {
   sessions: SessionSummary[];
   activeSessionId: string | null;
   showSessions: boolean;
+  /** Active pipeline path and display name, or null for passthrough mode. */
+  activePipeline: { path: string; displayName: string } | null;
   /** Counter to generate unique IDs for display items. */
   _idCounter: number;
 }
@@ -75,6 +78,7 @@ const initialState: ChatState = {
   sessions: [],
   activeSessionId: null,
   showSessions: false,
+  activePipeline: null,
   _idCounter: 0,
 };
 
@@ -90,7 +94,8 @@ type Action =
   | { type: 'STOP' }
   | { type: 'SELECT_SESSION'; id: string }
   | { type: 'NEW_SESSION' }
-  | { type: 'TOGGLE_SESSIONS' };
+  | { type: 'TOGGLE_SESSIONS' }
+  | { type: 'LOAD_PIPELINE' };
 
 function nextId(state: ChatState): [string, ChatState] {
   const id = String(state._idCounter);
@@ -227,16 +232,25 @@ function reducer(state: ChatState, action: Action): ChatState {
 
         case 'stepCompleted': {
           const costDelta = msg.costUsd ?? 0;
+          const hasActiveStream = state.items.some((it) => it.kind === 'assistant-stream' && it.streaming);
+          const closedItems = state.items.map((it) =>
+            it.kind === 'assistant-stream' && it.streaming ? { ...it, streaming: false } : it
+          );
+          // Fallback: if no streaming events arrived but the step has a response, add it now.
+          let finalState: ChatState = state;
+          let finalItems: DisplayItem[] = closedItems;
+          if (!hasActiveStream && msg.response) {
+            const [id, s2] = nextId(state);
+            finalState = s2;
+            finalItems = [...closedItems, { kind: 'assistant-stream' as const, id, text: msg.response, streaming: false }];
+          }
           return {
-            ...state,
+            ...finalState,
             totalCostUsd: state.totalCostUsd + costDelta,
             totalInputTokens: state.totalInputTokens + (msg.inputTokens ?? 0),
             totalOutputTokens: state.totalOutputTokens + (msg.outputTokens ?? 0),
             steps: updateStep(state.steps, msg.stepId, { status: 'completed', costUsd: msg.costUsd ?? undefined }),
-            // Mark any pending stream item as no longer streaming
-            items: state.items.map((it) =>
-              it.kind === 'assistant-stream' && it.streaming ? { ...it, streaming: false } : it
-            ),
+            items: finalItems,
           };
         }
 
@@ -318,6 +332,12 @@ function reducer(state: ChatState, action: Action): ChatState {
         case 'sessionsUpdated':
           return { ...state, sessions: msg.sessions };
 
+        case 'pipelineChanged':
+          return {
+            ...state,
+            activePipeline: msg.path ? { path: msg.path, displayName: msg.displayName ?? msg.path } : null,
+          };
+
         default:
           return state;
       }
@@ -379,6 +399,9 @@ function reducer(state: ChatState, action: Action): ChatState {
 
     case 'TOGGLE_SESSIONS':
       return { ...state, showSessions: !state.showSessions };
+
+    case 'LOAD_PIPELINE':
+      return state; // Side-effected in the component via postToHost
 
     default:
       return state;
@@ -450,6 +473,11 @@ export const App: React.FC = () => {
     postToHost({ type: 'newSession' });
   };
 
+  const handleLoadPipeline = () => {
+    dispatch({ type: 'LOAD_PIPELINE' });
+    postToHost({ type: 'loadPipeline' });
+  };
+
   const hasPendingHitl = state.items.some((it) => it.kind === 'hitl' && it.cardState === 'pending');
   const hasPendingPermission = state.items.some((it) => it.kind === 'permission' && it.cardState === 'pending');
   const inputDisabled = hasPendingHitl || hasPendingPermission;
@@ -465,6 +493,10 @@ export const App: React.FC = () => {
         />
       )}
       <div className="chat-panel">
+        <PipelineBar
+          displayName={state.activePipeline?.displayName ?? null}
+          onLoad={handleLoadPipeline}
+        />
         {state.steps.length > 0 && (
           <StepProgress
             steps={state.steps}

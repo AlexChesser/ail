@@ -6,16 +6,26 @@ import { AilProcessManager } from './ail-process-manager';
 import { SessionManager } from './session-manager';
 import { WebviewToHostMessage } from './types';
 
+const LAST_PIPELINE_KEY = 'ail-chat.lastPipeline';
+
 export class ChatViewProvider implements vscode.WebviewViewProvider {
   public static readonly viewId = 'ail-chat.chatView';
 
   private _view?: vscode.WebviewView;
   private _processManager?: AilProcessManager;
+  /** Currently active pipeline path, or null for passthrough mode. */
+  private _currentPipeline: string | null = null;
 
   constructor(
     private readonly _context: vscode.ExtensionContext,
     private readonly _sessionManager: SessionManager
-  ) {}
+  ) {
+    // Restore last pipeline from workspace state.
+    const saved = this._context.workspaceState.get<string>(LAST_PIPELINE_KEY);
+    if (saved && fs.existsSync(saved)) {
+      this._currentPipeline = saved;
+    }
+  }
 
   resolveWebviewView(
     webviewView: vscode.WebviewView,
@@ -46,11 +56,21 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     this._view?.show?.(true);
   }
 
+  private _sendPipelineChanged(): void {
+    const p = this._currentPipeline;
+    void this._view?.webview.postMessage({
+      type: 'pipelineChanged',
+      path: p,
+      displayName: p ? path.basename(p) : null,
+    });
+  }
+
   private async _handleWebviewMessage(msg: WebviewToHostMessage): Promise<void> {
     switch (msg.type) {
       case 'ready': {
         const list = await this._sessionManager.getSessions();
         void this._view?.webview.postMessage({ type: 'sessionsUpdated', sessions: list });
+        this._sendPipelineChanged();
         break;
       }
 
@@ -69,29 +89,16 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
           });
         }
 
+        // Pipeline resolution order:
+        // 1. Explicitly loaded pipeline (_currentPipeline)
+        // 2. ail-chat.defaultPipeline setting
+        // 3. .ail.yaml at workspace root
+        // 4. Passthrough mode (no --pipeline flag)
         const config = vscode.workspace.getConfiguration('ail-chat');
-        const defaultPipeline = config.get<string>('defaultPipeline', '');
         const headless = config.get<boolean>('headless', false);
+        const pipeline = this._resolvedPipeline();
 
-        const cwd = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-        let pipeline = defaultPipeline;
-        if (!pipeline && cwd) {
-          const candidate = path.join(cwd, '.ail.yaml');
-          if (fs.existsSync(candidate)) {
-            pipeline = candidate;
-          }
-        }
-
-        if (!pipeline) {
-          void this._view?.webview.postMessage({
-            type: 'processError',
-            message:
-              'No pipeline file found. Set ail-chat.defaultPipeline or add .ail.yaml to your workspace.',
-          });
-          return;
-        }
-
-        void this._processManager.start(msg.text, pipeline, { headless }).catch((err: Error) => {
+        void this._processManager.start(msg.text, pipeline ?? undefined, { headless }).catch((err: Error) => {
           void this._view?.webview.postMessage({ type: 'processError', message: err.message });
         });
 
@@ -100,6 +107,22 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
             void this._view?.webview.postMessage({ type: 'sessionsUpdated', sessions: list });
           })
         );
+        break;
+      }
+
+      case 'loadPipeline': {
+        const uris = await vscode.window.showOpenDialog({
+          canSelectMany: false,
+          canSelectFolders: false,
+          filters: { 'ail Pipeline': ['yaml', 'yml'] },
+          title: 'Select ail pipeline file',
+          openLabel: 'Load Pipeline',
+        });
+        if (uris && uris.length > 0) {
+          this._currentPipeline = uris[0].fsPath;
+          void this._context.workspaceState.update(LAST_PIPELINE_KEY, this._currentPipeline);
+          this._sendPipelineChanged();
+        }
         break;
       }
 
@@ -135,6 +158,20 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         // Nothing to do on the host side; the webview resets its own state.
         break;
     }
+  }
+
+  /** Returns the effective pipeline path to use, or null for passthrough mode. */
+  private _resolvedPipeline(): string | null {
+    if (this._currentPipeline) return this._currentPipeline;
+    const config = vscode.workspace.getConfiguration('ail-chat');
+    const defaultPipeline = config.get<string>('defaultPipeline', '');
+    if (defaultPipeline) return defaultPipeline;
+    const cwd = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (cwd) {
+      const candidate = path.join(cwd, '.ail.yaml');
+      if (fs.existsSync(candidate)) return candidate;
+    }
+    return null;
   }
 
   private _getWebviewHtml(webview: vscode.Webview): string {

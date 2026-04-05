@@ -39,6 +39,5 @@ export function activate(context: vscode.ExtensionContext): void {
   );
 }
 
-export function deactivate(): void {
-  // Process manager cleanup is handled by the ChatViewProvider's onDidDispose.
-}
+// Process manager cleanup is handled by the view's onDidDispose.
+export function deactivate(): void {}

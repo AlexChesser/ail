@@ -135,22 +135,10 @@ fn parse_stream_event(
             let output_tokens = event["message"]["usage"]["output_tokens"]
                 .as_u64()
                 .unwrap_or(0);
-            if input_tokens > 0 || output_tokens > 0 {
-                tracing::debug!(
-                    event_type,
-                    input_tokens,
-                    output_tokens,
-                    "stream-json assistant event with usage"
-                );
-                // Return immediately with token counts if usage is present.
-                // Callers will accumulate these across multiple assistant events.
-                return StreamParseAction::TokensObserved {
-                    input_tokens,
-                    output_tokens,
-                };
-            }
 
-            // Process content blocks (text, thinking, tool_use).
+            // Process content blocks (text, thinking, tool_use) BEFORE checking usage.
+            // With Ollama and some API configurations, usage and content appear in the same
+            // event — an early return on token counts would silently drop all content blocks.
             if let Some(content) = event["message"]["content"].as_array() {
                 let block_types: Vec<&str> = content
                     .iter()
@@ -205,6 +193,21 @@ fn parse_stream_event(
                     "stream-json assistant event: message.content is not an array"
                 );
             }
+
+            // After processing content, return token counts if usage is present.
+            if input_tokens > 0 || output_tokens > 0 {
+                tracing::debug!(
+                    event_type,
+                    input_tokens,
+                    output_tokens,
+                    "stream-json assistant event with usage"
+                );
+                return StreamParseAction::TokensObserved {
+                    input_tokens,
+                    output_tokens,
+                };
+            }
+
             StreamParseAction::Continue
         }
         "user" => {
