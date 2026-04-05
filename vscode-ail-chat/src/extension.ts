@@ -172,6 +172,10 @@ function getWebviewHtml(webview: vscode.Webview, context: vscode.ExtensionContex
     vscode.Uri.file(path.join(context.extensionPath, 'dist', 'webview.js'))
   );
 
+  const codiconUri = webview.asWebviewUri(
+    vscode.Uri.file(path.join(context.extensionPath, 'dist', 'codicon.css'))
+  );
+
   // Content Security Policy: only allow scripts from our extension origin.
   const nonce = generateNonce();
 
@@ -183,10 +187,11 @@ function getWebviewHtml(webview: vscode.Webview, context: vscode.ExtensionContex
   <meta http-equiv="Content-Security-Policy" content="
     default-src 'none';
     script-src 'nonce-${nonce}';
-    style-src 'unsafe-inline';
+    style-src ${webview.cspSource} 'unsafe-inline';
     font-src ${webview.cspSource};
   ">
   <title>ail Chat</title>
+  <link rel="stylesheet" href="${codiconUri.toString()}">
   <style>
     body, html { margin: 0; padding: 0; height: 100vh; overflow: hidden; }
     #root { display: flex; height: 100%; }

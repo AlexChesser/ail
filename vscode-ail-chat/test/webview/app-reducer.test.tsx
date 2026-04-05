@@ -46,7 +46,7 @@ describe('App webview', () => {
 
   it('renders empty state banner initially', () => {
     render(<App />);
-    expect(screen.getByText(/Send a prompt to get started/i)).toBeTruthy();
+    expect(screen.getByText(/What would you like to build/i)).toBeTruthy();
   });
 
   it('shows streamed text after streamDelta messages', () => {
@@ -130,6 +130,6 @@ describe('App webview', () => {
   it('shows thinking block', () => {
     render(<App />);
     postMessage({ type: 'thinking', text: 'Deep thought here' });
-    expect(screen.getByText('Thinking...')).toBeTruthy();
+    expect(screen.getByText('Thinking')).toBeTruthy();
   });
 });

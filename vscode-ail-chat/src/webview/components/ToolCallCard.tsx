@@ -21,13 +21,13 @@ function extractPrimaryArg(input: unknown): string | null {
     if (typeof obj[key] === 'string') {
       const val = obj[key] as string;
       // Truncate long values
-      return val.length > 60 ? val.slice(0, 57) + '…' : val;
+      return val.length > 60 ? val.slice(0, 57) + '\u2026' : val;
     }
   }
   return null;
 }
 
-/** Derive a short result summary (e.g., "Read 30 lines"). */
+/** Derive a short result summary (e.g., "30 lines"). */
 function resultSummary(result: string | undefined, isError: boolean | undefined): string | null {
   if (result === undefined) return null;
   if (isError) return 'error';
@@ -42,9 +42,25 @@ function resultSummary(result: string | undefined, isError: boolean | undefined)
   return null;
 }
 
+function StatusIcon({ data }: { data: ToolCallData }) {
+  const hasResult = data.result !== undefined;
+  if (!hasResult) {
+    return (
+      <span className="tool-card-status-icon pending codicon codicon-loading" />
+    );
+  }
+  if (data.isError) {
+    return (
+      <span className="tool-card-status-icon error codicon codicon-error" />
+    );
+  }
+  return (
+    <span className="tool-card-status-icon done codicon codicon-check" />
+  );
+}
+
 export const ToolCallCard: React.FC<ToolCallCardProps> = ({ data }) => {
   const [collapsed, setCollapsed] = useState(true);
-  const hasResult = data.result !== undefined;
 
   const inputStr = data.input != null
     ? JSON.stringify(data.input, null, 2)
@@ -52,9 +68,7 @@ export const ToolCallCard: React.FC<ToolCallCardProps> = ({ data }) => {
 
   const primaryArg = extractPrimaryArg(data.input);
   const summary = resultSummary(data.result, data.isError);
-  const statusLabel = hasResult
-    ? (data.isError ? 'error' : 'done')
-    : 'pending';
+  const hasResult = data.result !== undefined;
 
   return (
     <div className="tool-card">
@@ -66,20 +80,15 @@ export const ToolCallCard: React.FC<ToolCallCardProps> = ({ data }) => {
         onKeyDown={(e) => e.key === 'Enter' && setCollapsed((c) => !c)}
         aria-expanded={!collapsed}
       >
-        <span className="tool-card-name">
-          {data.toolName}{primaryArg ? `(${primaryArg})` : ''}
-        </span>
-        {summary && (
-          <span className="tool-card-summary">
-            {summary}
-          </span>
+        <StatusIcon data={data} />
+        <span className={`tool-card-chevron${collapsed ? '' : ' expanded'} codicon codicon-chevron-right`} />
+        <span className="tool-card-name">{data.toolName}</span>
+        {primaryArg && (
+          <span className="tool-card-primary-arg">{primaryArg}</span>
         )}
-        <span className={`tool-card-status${data.isError ? ' error' : ''}`}>
-          {statusLabel}
-        </span>
-        <span className="tool-card-toggle">
-          {collapsed ? '(expand)' : '(collapse)'}
-        </span>
+        {summary && (
+          <span className="tool-card-summary">{summary}</span>
+        )}
       </div>
       <div className={`tool-card-body${collapsed ? ' collapsed' : ''}`}>
         {inputStr && (

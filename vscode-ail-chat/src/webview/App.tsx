@@ -472,6 +472,12 @@ export const App: React.FC = () => {
           />
         )}
         <div className="message-list" ref={messageListRef}>
+          {state.items.length === 0 && (
+            <div className="empty-state">
+              <div className="empty-state-title">What would you like to build?</div>
+              <div className="empty-state-subtitle">Describe a task to get started with your ail pipeline.</div>
+            </div>
+          )}
           {state.items.map((item) => {
             switch (item.kind) {
               case 'user-message':
@@ -507,15 +513,14 @@ export const App: React.FC = () => {
                   />
                 );
               case 'error':
-                return <div key={item.id} className="error-message">{item.message}</div>;
+                return (
+                  <div key={item.id} className="error-message">
+                    <span className="error-message-icon codicon codicon-error" />
+                    <span>{item.message}</span>
+                  </div>
+                );
             }
           })}
-          {state.items.length === 0 && (
-            <div className="status-banner">
-              <span className="status-banner-prompt">&gt;_</span>
-              <span>Send a prompt to get started.</span>
-            </div>
-          )}
         </div>
         <StatusBar
           isRunning={state.isRunning}
