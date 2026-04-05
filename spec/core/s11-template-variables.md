@@ -1,5 +1,7 @@
 ## 11. Template Variables
 
+> **Implementation status:** Implemented. All documented template variables resolve correctly. `step.<id>.result`, `step.<id>.stdout`, `step.<id>.stderr`, and `step.<id>.exit_code` are fully implemented for context steps. Unresolved variables abort with a typed error — never silently empty.
+
 Prompt strings, file-based prompts, and `pipeline:` paths may reference runtime context using `{{ variable }}` syntax. Variables resolve at step execution time from the persisted pipeline run log, not from in-memory state.
 
 | Variable | Value |
