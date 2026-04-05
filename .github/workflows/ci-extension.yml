@@ -93,6 +93,8 @@ jobs:
         run: cargo build --release
 
       - name: Verify --output-format json emits NDJSON
+        env:
+          AIL_DEFAULT_RUNNER: stub
         run: |
           set -euo pipefail
           # Create a minimal passthrough pipeline (no steps — just verifies startup event)
