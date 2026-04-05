@@ -30,6 +30,7 @@ fn prompt_step_with_condition(id: &str, text: &str, condition: Option<Condition>
         model: None,
         runner: None,
         condition,
+        append_system_prompt: None,
     }
 }
 

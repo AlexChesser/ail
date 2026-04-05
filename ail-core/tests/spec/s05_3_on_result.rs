@@ -37,6 +37,7 @@ fn prompt_step_with_on_result(
         on_result: Some(branches),
         runner: None,
         condition: None,
+        append_system_prompt: None,
     };
     (step, StubRunner::new(response))
 }
@@ -57,6 +58,7 @@ fn context_step_with_exit(id: &str, exit_code: i32, branches: Vec<ResultBranch>)
         on_result: Some(branches),
         runner: None,
         condition: None,
+        append_system_prompt: None,
     }
 }
 
@@ -70,6 +72,7 @@ fn prompt_step(id: &str, text: &str) -> Step {
         on_result: None,
         runner: None,
         condition: None,
+        append_system_prompt: None,
     }
 }
 

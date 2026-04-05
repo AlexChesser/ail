@@ -1024,6 +1024,7 @@ mod tests {
             model: None,
             runner: None,
             condition: None,
+            append_system_prompt: None,
         }
     }
 

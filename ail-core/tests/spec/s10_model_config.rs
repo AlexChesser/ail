@@ -120,6 +120,7 @@ fn invoke_options_carries_resolved_model() {
         model: None,
         runner: None,
         condition: None,
+        append_system_prompt: None,
     };
     let pipeline = Pipeline {
         steps: vec![step],

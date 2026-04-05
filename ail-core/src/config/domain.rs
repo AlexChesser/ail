@@ -1,5 +1,16 @@
 use std::path::PathBuf;
 
+/// One entry in an `append_system_prompt:` array (SPEC §5.9).
+#[derive(Debug, Clone, PartialEq)]
+pub enum SystemPromptEntry {
+    /// Inline text, appended verbatim.
+    Text(String),
+    /// Path to a file whose contents are read at step runtime.
+    File(PathBuf),
+    /// Shell command whose stdout+stderr output is injected at step runtime.
+    Shell(String),
+}
+
 /// Maximum depth for nested sub-pipeline calls. Prevents infinite recursion
 /// when pipelines call each other in a cycle.
 pub const MAX_SUB_PIPELINE_DEPTH: usize = 16;
@@ -65,6 +76,7 @@ impl Pipeline {
                 model: None,
                 runner: None,
                 condition: None,
+                append_system_prompt: None,
             }],
             source: None,
             defaults: ProviderConfig::default(),
@@ -103,6 +115,8 @@ pub struct Step {
     /// Optional condition controlling whether this step executes (SPEC §12).
     /// `None` means always execute (same as `Some(Condition::Always)`).
     pub condition: Option<Condition>,
+    /// Ordered list of system context additions appended to the system prompt at step runtime (SPEC §5.9).
+    pub append_system_prompt: Option<Vec<SystemPromptEntry>>,
 }
 
 #[derive(Debug, Default, Clone)]

@@ -42,6 +42,8 @@ pub struct StepDto {
     /// Optional condition controlling whether this step executes (SPEC §12).
     /// Supported values: `"always"` (default), `"never"`.
     pub condition: Option<String>,
+    /// Optional list of system prompt additions for this step (SPEC §5.9).
+    pub append_system_prompt: Option<Vec<AppendSystemPromptEntryDto>>,
 }
 
 #[derive(Deserialize)]
@@ -71,4 +73,20 @@ pub struct ToolsDto {
     pub allow: Vec<String>,
     #[serde(default)]
     pub deny: Vec<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+pub enum AppendSystemPromptEntryDto {
+    /// Bare string shorthand for text entry.
+    Text(String),
+    /// Structured entry with explicit type key.
+    Structured(AppendSystemPromptStructuredDto),
+}
+
+#[derive(Debug, Deserialize)]
+pub struct AppendSystemPromptStructuredDto {
+    pub text: Option<String>,
+    pub file: Option<String>,
+    pub shell: Option<String>,
 }

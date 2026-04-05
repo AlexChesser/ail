@@ -1,5 +1,5 @@
 //! Handler for the `ail delete` subcommand.
-
+#![allow(clippy::result_large_err)]
 #![allow(clippy::result_large_err)]
 
 use ail_core::delete::delete_run;

@@ -5,9 +5,9 @@ use std::path::PathBuf;
 
 use super::domain::{
     ActionKind, Condition, ContextSource, ExitCodeMatch, Pipeline, ProviderConfig, ResultAction,
-    ResultBranch, ResultMatcher, Step, StepBody, StepId, ToolPolicy,
+    ResultBranch, ResultMatcher, Step, StepBody, StepId, SystemPromptEntry, ToolPolicy,
 };
-use super::dto::{ExitCodeDto, PipelineFileDto};
+use super::dto::{AppendSystemPromptEntryDto, ExitCodeDto, PipelineFileDto};
 use crate::error::{error_types, AilError};
 
 pub fn validate(dto: PipelineFileDto, source: PathBuf) -> Result<Pipeline, AilError> {
@@ -283,6 +283,43 @@ pub fn validate(dto: PipelineFileDto, source: PathBuf) -> Result<Pipeline, AilEr
                 })
             }
         };
+        let append_system_prompt = step_dto
+            .append_system_prompt
+            .map(|entries| {
+                entries
+                    .into_iter()
+                    .enumerate()
+                    .map(|(i, entry)| match entry {
+                        AppendSystemPromptEntryDto::Text(s) => Ok(SystemPromptEntry::Text(s)),
+                        AppendSystemPromptEntryDto::Structured(s) => {
+                            let set_count = [s.text.is_some(), s.file.is_some(), s.shell.is_some()]
+                                .iter()
+                                .filter(|&&b| b)
+                                .count();
+                            if set_count != 1 {
+                                return Err(AilError {
+                                    error_type: error_types::CONFIG_VALIDATION_FAILED,
+                                    title: "Invalid append_system_prompt entry",
+                                    detail: format!(
+                                        "Step '{id_str}' append_system_prompt entry {i} must have exactly one key (text, file, or shell); found {set_count}"
+                                    ),
+                                    context: None,
+                                });
+                            }
+                            if let Some(text) = s.text {
+                                Ok(SystemPromptEntry::Text(text))
+                            } else if let Some(file) = s.file {
+                                Ok(SystemPromptEntry::File(std::path::PathBuf::from(file)))
+                            } else if let Some(shell) = s.shell {
+                                Ok(SystemPromptEntry::Shell(shell))
+                            } else {
+                                unreachable!("set_count == 1 enforced above")
+                            }
+                        }
+                    })
+                    .collect::<Result<Vec<_>, AilError>>()
+            })
+            .transpose()?;
 
         steps.push(Step {
             id: StepId(id_str),
@@ -293,6 +330,7 @@ pub fn validate(dto: PipelineFileDto, source: PathBuf) -> Result<Pipeline, AilEr
             model: step_dto.model,
             runner: step_dto.runner,
             condition,
+            append_system_prompt,
         });
     }
 

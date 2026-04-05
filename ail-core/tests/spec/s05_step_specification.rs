@@ -1,3 +1,91 @@
+mod s5_9_append_system_prompt {
+    use ail_core::config::domain::SystemPromptEntry;
+    use ail_core::config::load;
+    use std::path::PathBuf;
+
+    fn fixtures_dir() -> PathBuf {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures")
+    }
+
+    /// SPEC §5.9 — bare string in append_system_prompt parses as SystemPromptEntry::Text
+    #[test]
+    fn append_system_prompt_bare_string_parses() {
+        let yaml = r#"
+version: "0.1"
+pipeline:
+  - id: review
+    prompt: "review this"
+    append_system_prompt:
+      - "Some context"
+"#;
+        let tmp = tempfile::NamedTempFile::with_suffix(".ail.yaml").unwrap();
+        std::fs::write(tmp.path(), yaml).unwrap();
+        let pipeline = load(tmp.path()).unwrap();
+        let entries = pipeline.steps[0].append_system_prompt.as_ref().unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(
+            entries[0],
+            SystemPromptEntry::Text("Some context".to_string())
+        );
+    }
+
+    /// SPEC §5.9 — structured entries (text:, file:, shell:) all parse correctly
+    #[test]
+    fn append_system_prompt_structured_entries_parse() {
+        let yaml = r#"
+version: "0.1"
+pipeline:
+  - id: review
+    prompt: "review this"
+    append_system_prompt:
+      - text: "header"
+      - file: "./context.md"
+      - shell: "echo context"
+"#;
+        let tmp = tempfile::NamedTempFile::with_suffix(".ail.yaml").unwrap();
+        std::fs::write(tmp.path(), yaml).unwrap();
+        let pipeline = load(tmp.path()).unwrap();
+        let entries = pipeline.steps[0].append_system_prompt.as_ref().unwrap();
+        assert_eq!(entries.len(), 3);
+        assert_eq!(entries[0], SystemPromptEntry::Text("header".to_string()));
+        assert_eq!(
+            entries[1],
+            SystemPromptEntry::File(std::path::PathBuf::from("./context.md"))
+        );
+        assert_eq!(
+            entries[2],
+            SystemPromptEntry::Shell("echo context".to_string())
+        );
+    }
+
+    /// SPEC §5.9 — a structured entry with no keys set returns CONFIG_VALIDATION_FAILED
+    #[test]
+    fn append_system_prompt_invalid_structured_entry_is_error() {
+        let yaml = r#"
+version: "0.1"
+pipeline:
+  - id: review
+    prompt: "review this"
+    append_system_prompt:
+      - {}
+"#;
+        let tmp = tempfile::NamedTempFile::with_suffix(".ail.yaml").unwrap();
+        std::fs::write(tmp.path(), yaml).unwrap();
+        let result = load(tmp.path());
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert_eq!(
+            err.error_type,
+            ail_core::error::error_types::CONFIG_VALIDATION_FAILED
+        );
+        assert!(
+            err.detail.contains("append_system_prompt"),
+            "Expected error detail to mention append_system_prompt, got: {}",
+            err.detail
+        );
+    }
+}
+
 mod s5_1_core_fields {
     use ail_core::config::{domain::StepBody, load};
     use std::path::PathBuf;
