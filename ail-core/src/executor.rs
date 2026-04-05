@@ -263,7 +263,11 @@ fn execute_inner(
                     })
                     .merge(session.cli_provider.clone());
 
-                let tool_policy = build_tool_policy(step.tools.as_ref());
+                let effective_tools = step
+                    .tools
+                    .as_ref()
+                    .or(session.pipeline.default_tools.as_ref());
+                let tool_policy = build_tool_policy(effective_tools);
                 let options = InvokeOptions {
                     resume_session_id: resume_id,
                     tool_policy,
@@ -577,7 +581,11 @@ pub fn execute_with_control(
                     })
                     .merge(session.cli_provider.clone());
 
-                let tool_policy = build_tool_policy(step.tools.as_ref());
+                let effective_tools = step
+                    .tools
+                    .as_ref()
+                    .or(session.pipeline.default_tools.as_ref());
+                let tool_policy = build_tool_policy(effective_tools);
                 let options = InvokeOptions {
                     resume_session_id: resume_id,
                     tool_policy,
@@ -954,6 +962,7 @@ mod tests {
             steps,
             source: None,
             defaults: Default::default(),
+            default_tools: None,
         };
         Session::new(pipeline, "invocation prompt".to_string())
     }

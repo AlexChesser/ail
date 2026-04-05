@@ -40,6 +40,115 @@ mod s9_tool_permissions {
         assert!(review.tools.as_ref().unwrap().deny.is_empty());
     }
 
+    /// SPEC §3.2 — default_tools applies when a step has no per-step tools
+    #[test]
+    fn default_tools_applies_when_step_has_no_tools() {
+        use ail_core::config::domain::{Pipeline, Step, StepBody, StepId, ToolPolicy};
+        use ail_core::executor::execute;
+        use ail_core::runner::stub::RecordingStubRunner;
+        use ail_core::session::Session;
+
+        let tmp = tempfile::tempdir().unwrap();
+        let orig = std::env::current_dir().unwrap();
+        std::env::set_current_dir(tmp.path()).unwrap();
+
+        let pipeline = Pipeline {
+            steps: vec![Step {
+                id: StepId("step_a".to_string()),
+                body: StepBody::Prompt("do something".to_string()),
+                message: None,
+                tools: None, // No per-step tools
+                model: None,
+                on_result: None,
+                runner: None,
+            }],
+            defaults: Default::default(),
+            source: None,
+            default_tools: Some(ToolPolicy {
+                allow: vec!["Bash".to_string()],
+                deny: vec![],
+            }),
+        };
+        let mut session = Session::new(pipeline, "p".to_string());
+        let runner = RecordingStubRunner::new("ok");
+        let result = execute(&mut session, &runner);
+        assert!(result.is_ok());
+
+        // Verify the runner received an allowlist with Bash
+        let calls = runner.calls();
+        assert_eq!(calls.len(), 1);
+        use ail_core::runner::ToolPermissionPolicy;
+        match &calls[0].tool_policy {
+            ToolPermissionPolicy::Allowlist(tools) => {
+                assert!(
+                    tools.contains(&"Bash".to_string()),
+                    "default tools should include Bash"
+                );
+            }
+            other => panic!("expected Allowlist, got {:?}", other),
+        }
+
+        std::env::set_current_dir(orig).unwrap();
+    }
+
+    /// SPEC §3.2 — per-step tools override default_tools entirely (no merge)
+    #[test]
+    fn per_step_tools_override_default_tools_entirely() {
+        use ail_core::config::domain::{Pipeline, Step, StepBody, StepId, ToolPolicy};
+        use ail_core::executor::execute;
+        use ail_core::runner::stub::RecordingStubRunner;
+        use ail_core::session::Session;
+
+        let tmp = tempfile::tempdir().unwrap();
+        let orig = std::env::current_dir().unwrap();
+        std::env::set_current_dir(tmp.path()).unwrap();
+
+        let pipeline = Pipeline {
+            steps: vec![Step {
+                id: StepId("step_b".to_string()),
+                body: StepBody::Prompt("do something".to_string()),
+                message: None,
+                tools: Some(ToolPolicy {
+                    allow: vec!["Edit".to_string()],
+                    deny: vec![],
+                }),
+                model: None,
+                on_result: None,
+                runner: None,
+            }],
+            defaults: Default::default(),
+            source: None,
+            default_tools: Some(ToolPolicy {
+                allow: vec!["Bash".to_string()],
+                deny: vec![],
+            }),
+        };
+        let mut session = Session::new(pipeline, "p".to_string());
+        let runner = RecordingStubRunner::new("ok");
+        let result = execute(&mut session, &runner);
+        assert!(result.is_ok());
+
+        // Verify the runner received only the per-step tool (Edit), not the default (Bash)
+        let calls = runner.calls();
+        assert_eq!(calls.len(), 1);
+        use ail_core::runner::ToolPermissionPolicy;
+        match &calls[0].tool_policy {
+            ToolPermissionPolicy::Allowlist(tools) => {
+                assert!(
+                    tools.contains(&"Edit".to_string()),
+                    "per-step tools should include Edit"
+                );
+                assert!(
+                    !tools.contains(&"Bash".to_string()),
+                    "default tools should NOT bleed through"
+                );
+            }
+            other => panic!("expected Allowlist, got {:?}", other),
+        }
+
+        std::env::set_current_dir(orig).unwrap();
+    }
+
     /// SPEC §5.6 — InvokeOptions carries tool lists to runner
     #[test]
     fn invoke_options_carries_tool_policy_to_runner() {
@@ -68,6 +177,7 @@ mod s9_tool_permissions {
             }],
             defaults: Default::default(),
             source: None,
+            default_tools: None,
         };
         let mut session = Session::new(pipeline, "p".to_string());
         // StubRunner ignores tool policy (it's a test double); we verify it doesn't error

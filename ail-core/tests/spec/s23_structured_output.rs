@@ -35,6 +35,7 @@ fn events_serialize_to_valid_ndjson() {
         ],
         defaults: Default::default(),
         source: None,
+        default_tools: None,
     };
     let mut session = Session::new(pipeline, "user prompt".to_string());
     let runner = StubRunner::new("stub response");
@@ -105,6 +106,7 @@ fn step_started_event_has_correct_fields() {
         steps: vec![prompt_step("review", "Review the code")],
         defaults: Default::default(),
         source: None,
+        default_tools: None,
     };
     let mut session = Session::new(pipeline, "user prompt".to_string());
     let runner = StubRunner::new("ok");
@@ -337,6 +339,9 @@ fn golden_runner_event_tool_use() {
 fn golden_runner_event_tool_result() {
     let inner = RunnerEvent::ToolResult {
         tool_name: "Bash".into(),
+        tool_use_id: None,
+        content: None,
+        is_error: None,
     };
     assert_eq!(
         serialize_runner_wrapped(inner),

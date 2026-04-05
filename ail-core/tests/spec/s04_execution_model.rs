@@ -27,6 +27,7 @@ mod executor {
             steps: vec![prompt_step("first", "A"), prompt_step("second", "B")],
             defaults: Default::default(),
             source: None,
+            default_tools: None,
         };
         let mut session = Session::new(pipeline, "p".to_string());
         execute(&mut session, &StubRunner::new("r")).unwrap();

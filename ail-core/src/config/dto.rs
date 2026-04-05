@@ -11,6 +11,7 @@ pub struct PipelineFileDto {
 pub struct DefaultsDto {
     pub model: Option<String>,
     pub provider: Option<ProviderDto>,
+    pub tools: Option<ToolsDto>,
 }
 
 #[derive(Deserialize)]

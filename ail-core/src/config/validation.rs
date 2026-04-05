@@ -11,17 +11,24 @@ use super::dto::{ExitCodeDto, PipelineFileDto};
 use crate::error::{error_types, AilError};
 
 pub fn validate(dto: PipelineFileDto, source: PathBuf) -> Result<Pipeline, AilError> {
-    // Resolve top-level defaults (provider/model config).
-    let defaults = dto
+    // Resolve top-level defaults (provider/model config and tool policy).
+    let (defaults, default_tools) = dto
         .defaults
-        .map(|d| ProviderConfig {
-            model: d.model,
-            base_url: d.provider.as_ref().and_then(|p| p.base_url.clone()),
-            auth_token: d.provider.as_ref().and_then(|p| p.auth_token.clone()),
-            input_cost_per_1k: d.provider.as_ref().and_then(|p| p.input_cost_per_1k),
-            output_cost_per_1k: d.provider.as_ref().and_then(|p| p.output_cost_per_1k),
+        .map(|d| {
+            let provider_config = ProviderConfig {
+                model: d.model,
+                base_url: d.provider.as_ref().and_then(|p| p.base_url.clone()),
+                auth_token: d.provider.as_ref().and_then(|p| p.auth_token.clone()),
+                input_cost_per_1k: d.provider.as_ref().and_then(|p| p.input_cost_per_1k),
+                output_cost_per_1k: d.provider.as_ref().and_then(|p| p.output_cost_per_1k),
+            };
+            let tool_policy = d.tools.map(|t| ToolPolicy {
+                allow: t.allow,
+                deny: t.deny,
+            });
+            (provider_config, tool_policy)
         })
-        .unwrap_or_default();
+        .unwrap_or_else(|| (ProviderConfig::default(), None));
 
     // version must be present and non-empty
     match &dto.version {
@@ -276,5 +283,6 @@ pub fn validate(dto: PipelineFileDto, source: PathBuf) -> Result<Pipeline, AilEr
         steps,
         source: Some(source),
         defaults,
+        default_tools,
     })
 }

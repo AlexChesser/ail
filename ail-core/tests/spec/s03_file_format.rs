@@ -111,6 +111,47 @@ mod s3_1_discover_all {
     }
 }
 
+mod s3_2_defaults_tools {
+    use ail_core::config::load;
+    use std::path::PathBuf;
+
+    fn fixtures_dir() -> PathBuf {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures")
+    }
+
+    /// SPEC §3.2 — `defaults.tools` is parsed into `pipeline.default_tools`
+    #[test]
+    fn defaults_tools_is_parsed() {
+        let pipeline = load(&fixtures_dir().join("defaults_tools.ail.yaml")).unwrap();
+        let default_tools = pipeline
+            .default_tools
+            .as_ref()
+            .expect("defaults.tools should be parsed into pipeline.default_tools");
+        assert!(
+            default_tools.allow.contains(&"Bash".to_string()),
+            "allow list should contain Bash"
+        );
+        assert!(
+            default_tools.allow.contains(&"Read".to_string()),
+            "allow list should contain Read"
+        );
+        assert!(
+            default_tools.deny.is_empty(),
+            "deny list should be empty when not specified"
+        );
+    }
+
+    /// SPEC §3.2 — pipeline with no `defaults.tools` has `default_tools: None`
+    #[test]
+    fn no_defaults_tools_yields_none() {
+        let pipeline = load(&fixtures_dir().join("minimal.ail.yaml")).unwrap();
+        assert!(
+            pipeline.default_tools.is_none(),
+            "pipeline without defaults.tools should have default_tools: None"
+        );
+    }
+}
+
 mod s3_2_top_level_structure {
     use ail_core::config::load;
     use std::path::PathBuf;

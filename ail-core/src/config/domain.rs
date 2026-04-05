@@ -42,6 +42,9 @@ pub struct Pipeline {
     pub source: Option<PathBuf>,
     /// Default provider/model config applied to all steps unless overridden (SPEC §3, §15).
     pub defaults: ProviderConfig,
+    /// Pipeline-wide tool policy applied to steps that declare no per-step `tools:` (SPEC §3.2).
+    /// Per-step tools override entirely — if a step declares any tools, the default is ignored.
+    pub default_tools: Option<ToolPolicy>,
 }
 
 impl Pipeline {
@@ -61,6 +64,7 @@ impl Pipeline {
             }],
             source: None,
             defaults: ProviderConfig::default(),
+            default_tools: None,
         }
     }
 }

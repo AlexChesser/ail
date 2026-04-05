@@ -28,7 +28,8 @@ Consumed by `ail` (the binary) and future language-server / SDK targets.
 
 ```rust
 // Pipeline and its steps
-pub struct Pipeline { pub steps: Vec<Step>, pub source: Option<PathBuf> }
+pub struct Pipeline { pub steps: Vec<Step>, pub source: Option<PathBuf>, pub defaults: ProviderConfig, pub default_tools: Option<ToolPolicy> }
+// default_tools: pipeline-wide fallback; per-step tools override entirely (SPEC §3.2)
 pub struct Step    { pub id: StepId, pub body: StepBody, pub tools: Option<ToolPolicy>, pub on_result: Option<Vec<ResultBranch>>, pub model: Option<String>, pub runner: Option<String> }
 pub enum StepBody  { Prompt(String), Skill(PathBuf), SubPipeline(String), Action(ActionKind), Context(ContextSource) }
 // SubPipeline(String): path may contain {{ variable }} syntax — resolved at execution time (SPEC §11)
