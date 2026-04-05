@@ -132,4 +132,20 @@ describe('App webview', () => {
     postMessage({ type: 'thinking', text: 'Deep thought here' });
     expect(screen.getByText('Thinking')).toBeTruthy();
   });
+
+  it('creates a new stream item for the second step instead of appending to the closed first step', () => {
+    render(<App />);
+    postMessage({ type: 'runStarted', runId: 'r1', totalSteps: 2 });
+    // Step 1: invocation
+    postMessage({ type: 'stepStarted', stepId: 'invocation', stepIndex: 0, totalSteps: 2 });
+    postMessage({ type: 'streamDelta', text: 'Hello!' });
+    postMessage({ type: 'stepCompleted', stepId: 'invocation', costUsd: null, inputTokens: 10, outputTokens: 5, response: 'Hello!' });
+    // Step 2: review — its stream delta must NOT be appended to the closed invocation stream
+    postMessage({ type: 'stepStarted', stepId: 'review', stepIndex: 1, totalSteps: 2 });
+    postMessage({ type: 'streamDelta', text: 'Review result' });
+    // invocation item should still have only its original text
+    expect(screen.getByText('Hello!')).toBeTruthy();
+    // review stream should be visible as its own item
+    expect(screen.getByText('Review result')).toBeTruthy();
+  });
 });

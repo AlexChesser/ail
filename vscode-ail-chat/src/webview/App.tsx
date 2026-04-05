@@ -106,10 +106,11 @@ function updateItem(items: DisplayItem[], id: string, updater: (item: DisplayIte
   return items.map((it) => it.id === id ? updater(it) : it);
 }
 
-/** Find the last assistant-stream item id. */
+/** Find the last assistant-stream item id that is still actively streaming. */
 function lastStreamId(items: DisplayItem[]): string | null {
   for (let i = items.length - 1; i >= 0; i--) {
-    if (items[i].kind === 'assistant-stream') return items[i].id;
+    const item = items[i];
+    if (item.kind === 'assistant-stream' && item.streaming) return item.id;
   }
   return null;
 }
