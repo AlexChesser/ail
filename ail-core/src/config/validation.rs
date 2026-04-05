@@ -11,7 +11,8 @@ use super::dto::{ExitCodeDto, PipelineFileDto};
 use crate::error::{error_types, AilError};
 
 pub fn validate(dto: PipelineFileDto, source: PathBuf) -> Result<Pipeline, AilError> {
-    // Resolve top-level defaults (provider/model config).
+    // Resolve top-level defaults (provider/model config) and timeout.
+    let timeout_seconds = dto.defaults.as_ref().and_then(|d| d.timeout_seconds);
     let defaults = dto
         .defaults
         .map(|d| ProviderConfig {
@@ -276,5 +277,6 @@ pub fn validate(dto: PipelineFileDto, source: PathBuf) -> Result<Pipeline, AilEr
         steps,
         source: Some(source),
         defaults,
+        timeout_seconds,
     })
 }

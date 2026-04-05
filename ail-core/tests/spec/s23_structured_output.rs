@@ -34,6 +34,7 @@ fn events_serialize_to_valid_ndjson() {
             prompt_step("step_b", "Second prompt"),
         ],
         defaults: Default::default(),
+        timeout_seconds: None,
         source: None,
     };
     let mut session = Session::new(pipeline, "user prompt".to_string());
@@ -104,6 +105,7 @@ fn step_started_event_has_correct_fields() {
     let pipeline = Pipeline {
         steps: vec![prompt_step("review", "Review the code")],
         defaults: Default::default(),
+        timeout_seconds: None,
         source: None,
     };
     let mut session = Session::new(pipeline, "user prompt".to_string());
@@ -337,6 +339,9 @@ fn golden_runner_event_tool_use() {
 fn golden_runner_event_tool_result() {
     let inner = RunnerEvent::ToolResult {
         tool_name: "Bash".into(),
+        tool_use_id: None,
+        content: None,
+        is_error: None,
     };
     assert_eq!(
         serialize_runner_wrapped(inner),

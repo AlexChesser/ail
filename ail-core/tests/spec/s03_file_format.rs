@@ -143,4 +143,17 @@ mod s3_2_top_level_structure {
         let err = result.unwrap_err();
         assert!(err.to_string().contains("pipeline"));
     }
+
+    #[test]
+    fn defaults_timeout_seconds_is_parsed() {
+        let tmp = tempfile::tempdir().unwrap();
+        let yaml_path = tmp.path().join("timeout.ail.yaml");
+        std::fs::write(
+            &yaml_path,
+            "version: \"1\"\ndefaults:\n  timeout_seconds: 120\npipeline:\n  - id: step1\n    prompt: hello\n",
+        )
+        .unwrap();
+        let pipeline = load(&yaml_path).expect("should parse successfully");
+        assert_eq!(pipeline.timeout_seconds, Some(120));
+    }
 }

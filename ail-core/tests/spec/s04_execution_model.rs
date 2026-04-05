@@ -26,6 +26,7 @@ mod executor {
         let pipeline = Pipeline {
             steps: vec![prompt_step("first", "A"), prompt_step("second", "B")],
             defaults: Default::default(),
+            timeout_seconds: None,
             source: None,
         };
         let mut session = Session::new(pipeline, "p".to_string());

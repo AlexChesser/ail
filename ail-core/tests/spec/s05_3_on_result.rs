@@ -15,6 +15,7 @@ fn make_session(steps: Vec<Step>) -> Session {
         Pipeline {
             steps,
             defaults: Default::default(),
+            timeout_seconds: None,
             source: None,
         },
         "prompt".to_string(),
