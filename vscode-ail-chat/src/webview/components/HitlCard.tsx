@@ -39,7 +39,7 @@ export const HitlCard: React.FC<HitlCardProps> = ({
   return (
     <div className="hitl-card">
       <div className="hitl-card-title">
-        <span>⏸</span>
+        <span className="hitl-card-icon codicon codicon-debug-pause" />
         <span>Pipeline paused — human review required</span>
       </div>
       {message && <div className="hitl-card-message">{message}</div>}
@@ -52,9 +52,9 @@ export const HitlCard: React.FC<HitlCardProps> = ({
                 className="chat-input-textarea"
                 value={modifyText}
                 onChange={(e) => setModifyText(e.target.value)}
-                placeholder="Type your modified instruction…"
+                placeholder="Type your modified instruction\u2026"
                 rows={3}
-                style={{ width: '100%' }}
+                style={{ width: '100%', border: '1px solid var(--vscode-input-border)', borderRadius: 'var(--ail-radius)', background: 'var(--vscode-input-background)' }}
               />
               <div className="hitl-card-actions">
                 <button className="btn-primary" onClick={handleModifySubmit} disabled={!modifyText.trim()}>
@@ -77,7 +77,7 @@ export const HitlCard: React.FC<HitlCardProps> = ({
 
       {cardState === 'resolved' && (
         <div className="hitl-card-resolved">
-          ✓ {resolvedText ?? 'Approved'}
+          {'\u2713'} {resolvedText ?? 'Approved'}
         </div>
       )}
 

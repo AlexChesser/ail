@@ -17,11 +17,13 @@ export const ThinkingBlock: React.FC<ThinkingBlockProps> = ({ text }) => {
         onKeyDown={(e) => e.key === 'Enter' && setCollapsed((c) => !c)}
         aria-expanded={!collapsed}
       >
-        <span>✦</span>
-        <span>Thinking...</span>
-        {collapsed && <span style={{ marginLeft: 4, fontSize: 10, opacity: 0.7 }}>
-          {text.slice(0, 60).replace(/\n/g, ' ')}{text.length > 60 ? '…' : ''}
-        </span>}
+        <span className={`thinking-block-chevron${collapsed ? '' : ' expanded'} codicon codicon-chevron-right`} />
+        <span className="thinking-block-label">Thinking</span>
+        {collapsed && (
+          <span className="thinking-block-preview">
+            {text.slice(0, 80).replace(/\n/g, ' ')}{text.length > 80 ? '\u2026' : ''}
+          </span>
+        )}
       </div>
       <div className={`thinking-block-content${collapsed ? ' collapsed' : ''}`}>
         {text}
