@@ -1,6 +1,0 @@
-steps:
-  - type: step
-    prompt:
-      text: "What is hello world?"
-    result:
-      response: ""

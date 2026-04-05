@@ -5,9 +5,12 @@
       "name": "Extension Development Host",
       "type": "extensionHost",
       "request": "launch",
-      "args": ["--extensionDevelopmentPath=${workspaceFolder}"],
-      "outFiles": ["${workspaceFolder}/out/**/*.js"],
-      "preLaunchTask": "npm: compile"
+      "args": [
+        "--extensionDevelopmentPath=${workspaceFolder}",
+        "/home/achesser/src/github.com/alexchesser/ail/demo"
+      ],
+      "outFiles": ["${workspaceFolder}/dist/**/*.js"],
+      "preLaunchTask": "npm: build"
     }
   ]
 }

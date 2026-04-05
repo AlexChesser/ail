@@ -2,6 +2,8 @@
 'use strict';
 
 const esbuild = require('esbuild');
+const fs = require('fs');
+const path = require('path');
 
 const production = process.argv.includes('--production');
 const watch = process.argv.includes('--watch');
@@ -32,6 +34,14 @@ const webviewOptions = {
 };
 
 async function build() {
+  if (!watch) {
+    // Clean dist before every non-watch build (rmdirSync works on Node ≥12.10)
+    const dist = path.join(__dirname, 'dist');
+    try {
+      (fs.rmSync || fs.rmdirSync)(dist, { recursive: true, force: true });
+    } catch (_) {}
+  }
+
   if (watch) {
     const [extCtx, webCtx] = await Promise.all([
       esbuild.context(extensionOptions),

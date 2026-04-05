@@ -3,6 +3,21 @@
   "tasks": [
     {
       "type": "shell",
+      "label": "npm: build",
+      "command": "npm run build",
+      "options": {
+        "env": {
+          "PATH": "/home/achesser/.nvm/versions/node/v24.14.1/bin:${env:PATH}"
+        }
+      },
+      "group": "build",
+      "problemMatcher": "$esbuild-watch",
+      "presentation": {
+        "reveal": "silent"
+      }
+    },
+    {
+      "type": "shell",
       "label": "npm: compile",
       "command": "npm run compile",
       "options": {
