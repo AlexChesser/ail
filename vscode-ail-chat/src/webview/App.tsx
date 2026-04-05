@@ -227,16 +227,25 @@ function reducer(state: ChatState, action: Action): ChatState {
 
         case 'stepCompleted': {
           const costDelta = msg.costUsd ?? 0;
+          const hasActiveStream = state.items.some((it) => it.kind === 'assistant-stream' && it.streaming);
+          const closedItems = state.items.map((it) =>
+            it.kind === 'assistant-stream' && it.streaming ? { ...it, streaming: false } : it
+          );
+          // Fallback: if no streaming events arrived but the step has a response, add it now.
+          let finalState: ChatState = state;
+          let finalItems: DisplayItem[] = closedItems;
+          if (!hasActiveStream && msg.response) {
+            const [id, s2] = nextId(state);
+            finalState = s2;
+            finalItems = [...closedItems, { kind: 'assistant-stream' as const, id, text: msg.response, streaming: false }];
+          }
           return {
-            ...state,
+            ...finalState,
             totalCostUsd: state.totalCostUsd + costDelta,
             totalInputTokens: state.totalInputTokens + (msg.inputTokens ?? 0),
             totalOutputTokens: state.totalOutputTokens + (msg.outputTokens ?? 0),
             steps: updateStep(state.steps, msg.stepId, { status: 'completed', costUsd: msg.costUsd ?? undefined }),
-            // Mark any pending stream item as no longer streaming
-            items: state.items.map((it) =>
-              it.kind === 'assistant-stream' && it.streaming ? { ...it, streaming: false } : it
-            ),
+            items: finalItems,
           };
         }
 

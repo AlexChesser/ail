@@ -153,6 +153,7 @@ export function mapAilEventToMessages(event: AilEvent): HostToWebviewMessage[] {
         costUsd: event.cost_usd,
         inputTokens: event.input_tokens,
         outputTokens: event.output_tokens,
+        response: event.response,
       }];
 
     case 'step_skipped':

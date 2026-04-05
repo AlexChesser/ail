@@ -163,7 +163,7 @@ export type HostToWebviewMessage =
   | { type: 'thinking'; text: string }
   | { type: 'toolUse'; toolName: string; toolUseId: string; input: unknown }
   | { type: 'toolResult'; toolUseId: string; content: string; isError: boolean }
-  | { type: 'stepCompleted'; stepId: string; costUsd: number | null; inputTokens: number; outputTokens: number }
+  | { type: 'stepCompleted'; stepId: string; costUsd: number | null; inputTokens: number; outputTokens: number; response?: string | null }
   | { type: 'stepSkipped'; stepId: string }
   | { type: 'stepFailed'; stepId: string; error: string }
   | { type: 'hitlGate'; stepId: string; message?: string }
