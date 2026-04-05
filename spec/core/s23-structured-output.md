@@ -149,9 +149,10 @@ Runner events are nested under `"type": "runner_event"` with the runner event in
 ```json
 {
   "type": "runner_event",
-  "event": { "type": "tool_use", "tool_name": "Bash" }
+  "event": { "type": "tool_use", "tool_name": "Bash", "tool_use_id": "toolu_abc", "input": { "command": "ls -la" } }
 }
 ```
+`tool_use_id` and `input` are omitted when not present in the stream (e.g. from runners that do not support them).
 
 **`tool_result`** — tool invocation completed:
 ```json

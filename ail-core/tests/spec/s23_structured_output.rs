@@ -331,6 +331,8 @@ fn golden_runner_event_thinking() {
 fn golden_runner_event_tool_use() {
     let inner = RunnerEvent::ToolUse {
         tool_name: "Bash".into(),
+        tool_use_id: None,
+        input: None,
     };
     assert_eq!(
         serialize_runner_wrapped(inner),

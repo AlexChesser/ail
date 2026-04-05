@@ -790,7 +790,7 @@ impl AppState {
                 self.stats.cumulative_output_tokens += output_tokens;
             }
             ExecutorEvent::RunnerEvent {
-                event: ail_core::runner::RunnerEvent::ToolUse { ref tool_name },
+                event: ail_core::runner::RunnerEvent::ToolUse { ref tool_name, .. },
             } => {
                 self.viewport.lines.push(format!("  [tool: {}]", tool_name));
                 // Do NOT reset viewport scroll — preserves user's scroll position.

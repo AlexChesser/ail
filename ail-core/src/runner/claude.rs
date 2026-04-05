@@ -175,6 +175,8 @@ fn parse_stream_event(
                                 if let Some(tx) = tx {
                                     let _ = tx.send(RunnerEvent::ToolUse {
                                         tool_name: name.to_string(),
+                                        tool_use_id: item["id"].as_str().map(str::to_string),
+                                        input: item.get("input").cloned(),
                                     });
                                 }
                             }

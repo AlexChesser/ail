@@ -98,7 +98,13 @@ pub enum RunnerEvent {
     /// A reasoning/thinking block from the model (extended thinking).
     Thinking { text: String },
     /// A tool call was started.
-    ToolUse { tool_name: String },
+    ToolUse {
+        tool_name: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        tool_use_id: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        input: Option<serde_json::Value>,
+    },
     /// A tool call completed.
     ToolResult {
         tool_name: String,
@@ -231,11 +237,30 @@ mod tests {
     fn runner_event_serializes_tool_use() {
         let event = RunnerEvent::ToolUse {
             tool_name: "Bash".into(),
+            tool_use_id: None,
+            input: None,
         };
         let json: serde_json::Value =
             serde_json::from_str(&serde_json::to_string(&event).unwrap()).unwrap();
         assert_eq!(json["type"], "tool_use");
         assert_eq!(json["tool_name"], "Bash");
+        assert!(json.get("tool_use_id").is_none() || json["tool_use_id"].is_null());
+        assert!(json.get("input").is_none() || json["input"].is_null());
+    }
+
+    #[test]
+    fn runner_event_serializes_tool_use_with_id_and_input() {
+        let event = RunnerEvent::ToolUse {
+            tool_name: "Write".into(),
+            tool_use_id: Some("toolu_abc123".into()),
+            input: Some(serde_json::json!({ "file_path": "./foo.txt", "content": "hello" })),
+        };
+        let json: serde_json::Value =
+            serde_json::from_str(&serde_json::to_string(&event).unwrap()).unwrap();
+        assert_eq!(json["type"], "tool_use");
+        assert_eq!(json["tool_name"], "Write");
+        assert_eq!(json["tool_use_id"], "toolu_abc123");
+        assert_eq!(json["input"]["file_path"], "./foo.txt");
     }
 
     #[test]
