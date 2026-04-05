@@ -178,6 +178,12 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     const scriptUri = webview.asWebviewUri(
       vscode.Uri.file(path.join(this._context.extensionPath, 'dist', 'webview.js'))
     );
+    const styleUri = webview.asWebviewUri(
+      vscode.Uri.file(path.join(this._context.extensionPath, 'dist', 'webview.css'))
+    );
+    const codiconUri = webview.asWebviewUri(
+      vscode.Uri.file(path.join(this._context.extensionPath, 'dist', 'codicon.css'))
+    );
     const nonce = generateNonce();
 
     return `<!DOCTYPE html>
@@ -188,14 +194,12 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   <meta http-equiv="Content-Security-Policy" content="
     default-src 'none';
     script-src 'nonce-${nonce}';
-    style-src 'unsafe-inline';
+    style-src ${webview.cspSource} 'unsafe-inline';
     font-src ${webview.cspSource};
   ">
   <title>ail Chat</title>
-  <style>
-    body, html { margin: 0; padding: 0; height: 100vh; overflow: hidden; }
-    #root { display: flex; height: 100%; }
-  </style>
+  <link rel="stylesheet" href="${codiconUri.toString()}">
+  <link rel="stylesheet" href="${styleUri.toString()}">
 </head>
 <body>
   <div id="root"></div>
