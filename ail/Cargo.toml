@@ -10,9 +10,7 @@ path = "src/main.rs"
 [dependencies]
 ail-core = { path = "../ail-core" }
 clap = { version = "4", features = ["derive"] }
-crossterm = "0.28"
 dirs = "5"
-ratatui = "0.29"
 serde_json = "1"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["json"] }

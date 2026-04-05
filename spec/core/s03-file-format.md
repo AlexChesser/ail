@@ -1,5 +1,32 @@
 ## 3. File Format
 
+### 3.0 CLI Invocation
+
+The canonical way to run `ail` is a positional prompt argument:
+
+```
+ail "my prompt"
+```
+
+`--once <PROMPT>` is a long-form alias kept for backwards compatibility and for use in scripts where positional arguments may be ambiguous. Both forms are equivalent; they cannot be combined.
+
+```
+ail --once "my prompt"          # identical to the positional form
+```
+
+When a prompt is given and no subcommand is present, `ail` executes that prompt through the pipeline (or in passthrough mode if no pipeline is found). The output mode is selected by flags:
+
+| Flag | Mode | Behaviour |
+|---|---|---|
+| _(none)_ | **lean** (default) | Prints the final response. When stdout is a TTY and the pipeline had at least one non-invocation step, appends `[ail: N steps in X.Xs]`. Omitted entirely for passthrough runs. |
+| `--show-work` | **show-work** | After execution, prints a one-line summary per completed step, then the footer. Useful when you want to see what the pipeline did without the full verbose stream. |
+| `--watch` | **watch** | Streams per-step progress to stderr as steps execute (step index, token counts). Use `--show-thinking` alongside `--watch` to include thinking blocks. |
+| `--output-format json` | **json** | NDJSON event stream to stdout. Used by programmatic consumers (e.g. the VS Code extension). |
+
+`--show-responses` is a hidden alias for `--watch` (kept for backwards compatibility).
+
+If no prompt and no subcommand are given, `ail` prints a short usage hint and exits 0.
+
 ### 3.1 Discovery
 
 `ail` looks for a pipeline definition file using the following resolution order. The first match wins.

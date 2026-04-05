@@ -1,5 +1,24 @@
 # Changelog
 
+## v0.2 — 2026-04-05
+
+### What works (all v0.1 features plus)
+
+- **Transparent passthrough (US-1)** — `ail "my prompt"` works without any flags. Positional `<PROMPT>` is now the canonical invocation form. `--once <PROMPT>` is retained as a backwards-compatible long-form alias. The two forms are mutually exclusive (clap `conflicts_with`).
+- **Lean output mode (US-2, default)** — After printing the final response, appends a subtle `[ail: N steps in X.Xs]` footer when stdout is a TTY and the pipeline had at least one non-invocation step. Passthrough runs (0 steps) get no footer.
+- **`--show-work` summary mode (US-2)** — After execution, prints `[pipeline]` then one `✓ <step_id>  — <first sentence>` line per completed step, followed by the footer. Useful for reviewing what the pipeline did.
+- **`--watch` flag** — Renamed from `--show-responses`. `--show-responses` retained as a hidden alias for backwards compatibility.
+- **TUI removed** — `ratatui`, `crossterm`, and `ail/src/tui/` fully deleted. `init_tracing()` always writes structured JSON logs to stderr.
+- **No-args usage hint** — Running `ail` with no prompt and no subcommand prints a short usage hint and exits 0 (previously launched the TUI).
+
+### Still stubbed
+
+- `skill:` and `pipeline:` step bodies abort with `PIPELINE_ABORTED`
+- Interactive REPL (deferred to v0.5)
+- `pause_for_human` is a no-op in headless mode
+
+---
+
 ## v0.1 — 2026-03-26
 
 ### What works (all v0.0.1 features plus)

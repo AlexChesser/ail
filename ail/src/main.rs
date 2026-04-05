@@ -4,7 +4,6 @@ mod delete;
 mod log;
 mod logs;
 mod mcp_bridge;
-mod tui;
 
 use ail_core::runner::claude::ClaudeInvokeExtensions;
 use ail_core::runner::factory::RunnerFactory;
@@ -12,42 +11,28 @@ use ail_core::runner::{InvokeOptions, Runner};
 use clap::Parser;
 use cli::{Cli, Commands, OutputFormat};
 
-/// Initialise tracing. In TUI mode, write to a log file so output doesn't corrupt the
-/// alternate screen. In all other modes, write to stderr.
-fn init_tracing(tui_mode: bool) {
-    if tui_mode {
-        let log_dir = dirs::home_dir()
-            .unwrap_or_else(|| std::path::PathBuf::from("."))
-            .join(".ail");
-        let _ = std::fs::create_dir_all(&log_dir);
-        let log_file = std::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(log_dir.join("tui.log"))
-            .expect("failed to open ~/.ail/tui.log");
-        tracing_subscriber::fmt()
-            .json()
-            .with_writer(std::sync::Mutex::new(log_file))
-            .init();
-    } else {
-        tracing_subscriber::fmt()
-            .json()
-            .with_writer(std::io::stderr)
-            .init();
-    }
+/// Initialise tracing. Always writes structured JSON logs to stderr.
+fn init_tracing() {
+    tracing_subscriber::fmt()
+        .json()
+        .with_writer(std::io::stderr)
+        .init();
 }
 
-/// Run `--once` with human-readable text output (default behaviour).
+/// Run `--once` / positional prompt with human-readable text output (default lean mode).
 ///
-/// When `show_thinking` or `show_responses` is set, uses streaming execution to print
+/// When `show_thinking` or `watch` is set, uses streaming execution to print
 /// per-step progress, thinking blocks, and/or responses as they arrive.
 fn run_once_text(
     session: &mut ail_core::session::Session,
     runner: &dyn Runner,
     prompt: &str,
     show_thinking: bool,
-    show_responses: bool,
+    watch: bool,
+    show_work: bool,
 ) {
+    let run_start = std::time::Instant::now();
+
     let has_invocation_step = session
         .pipeline
         .steps
@@ -67,7 +52,7 @@ fn run_once_text(
         };
         match runner.invoke(prompt, invocation_options) {
             Ok(result) => {
-                if show_responses {
+                if watch {
                     println!(
                         "[1/{}] invocation ({} in / {} out)",
                         session.pipeline.steps.len() + 1,
@@ -99,18 +84,21 @@ fn run_once_text(
         }
     }
 
-    if show_thinking || show_responses {
-        run_once_text_verbose(session, runner, show_thinking, show_responses);
+    if show_thinking || watch {
+        run_once_text_verbose(session, runner, show_thinking, watch);
+    } else if show_work {
+        run_once_text_show_work(session, runner, has_invocation_step, run_start);
     } else {
-        run_once_text_quiet(session, runner, has_invocation_step);
+        run_once_text_quiet(session, runner, has_invocation_step, run_start);
     }
 }
 
-/// Quiet path: no per-step output, just print the final response(s).
+/// Lean/quiet path: no per-step output, just print the final response(s), with a subtle footer.
 fn run_once_text_quiet(
     session: &mut ail_core::session::Session,
     runner: &dyn Runner,
     has_invocation_step: bool,
+    run_start: std::time::Instant,
 ) {
     match ail_core::executor::execute(session, runner) {
         Ok(outcome) => {
@@ -137,6 +125,18 @@ fn run_once_text_quiet(
                     entry.response.as_deref().unwrap_or("")
                 );
             }
+
+            // Lean footer: only when stdout is a TTY and pipeline had steps (not passthrough).
+            let non_invocation_steps = session
+                .turn_log
+                .entries()
+                .iter()
+                .filter(|e| e.step_id != "invocation")
+                .count();
+            if non_invocation_steps > 0 && std::io::IsTerminal::is_terminal(&std::io::stdout()) {
+                let elapsed = run_start.elapsed().as_secs_f64();
+                println!("[ail: {non_invocation_steps} steps in {elapsed:.1}s]");
+            }
         }
         Err(e) => {
             session.turn_log.record_run_finished("failed");
@@ -146,7 +146,65 @@ fn run_once_text_quiet(
     }
 }
 
-/// Verbose path: print per-step progress + optional thinking/response blocks.
+/// Show-work summary mode: print one line per completed step after execution.
+fn run_once_text_show_work(
+    session: &mut ail_core::session::Session,
+    runner: &dyn Runner,
+    _has_invocation_step: bool,
+    run_start: std::time::Instant,
+) {
+    match ail_core::executor::execute(session, runner) {
+        Ok(outcome) => {
+            use ail_core::executor::ExecuteOutcome;
+            if let ExecuteOutcome::Break { step_id } = outcome {
+                tracing::info!(event = "pipeline_break", step_id = %step_id);
+            }
+            session.turn_log.record_run_finished("completed");
+
+            let non_invocation: Vec<_> = session
+                .turn_log
+                .entries()
+                .iter()
+                .filter(|e| e.step_id != "invocation")
+                .collect();
+
+            if !non_invocation.is_empty() {
+                println!("[pipeline]");
+                for entry in &non_invocation {
+                    let snippet = entry
+                        .response
+                        .as_deref()
+                        .or(entry.stdout.as_deref())
+                        .unwrap_or("")
+                        .lines()
+                        .next()
+                        .unwrap_or("")
+                        .trim();
+                    let snippet = if snippet.len() > 80 {
+                        format!("{}…", &snippet[..79])
+                    } else {
+                        snippet.to_string()
+                    };
+                    println!("✓ {}   — {}", entry.step_id, snippet);
+                }
+                let elapsed = run_start.elapsed().as_secs_f64();
+                println!("[ail: {} steps in {elapsed:.1}s]", non_invocation.len());
+            } else {
+                // Passthrough: print invocation response directly.
+                if let Some(resp) = session.turn_log.response_for_step("invocation") {
+                    println!("{resp}");
+                }
+            }
+        }
+        Err(e) => {
+            session.turn_log.record_run_finished("failed");
+            eprintln!("{e}");
+            std::process::exit(1);
+        }
+    }
+}
+
+/// Verbose/watch path: print per-step progress + optional thinking/response blocks.
 ///
 /// Uses `execute_with_control` so `RunnerEvent::Thinking` and `RunnerEvent::StreamDelta`
 /// events are available for display. The unbounded mpsc channel means execute_with_control
@@ -155,7 +213,7 @@ fn run_once_text_verbose(
     session: &mut ail_core::session::Session,
     runner: &dyn Runner,
     show_thinking: bool,
-    show_responses: bool,
+    watch: bool,
 ) {
     use ail_core::executor::{ExecutionControl, ExecutorEvent};
     use ail_core::runner::RunnerEvent;
@@ -217,7 +275,7 @@ fn run_once_text_verbose(
                     eprintln!("\n  [Thinking]\n{}\n", thinking_buf.trim_end());
                     thinking_buf.clear();
                 }
-                if show_responses && !response_buf.is_empty() {
+                if watch && !response_buf.is_empty() {
                     eprintln!("\n  [Response]\n{}\n", response_buf.trim_end());
                     response_buf.clear();
                 }
@@ -248,7 +306,7 @@ fn run_once_text_verbose(
     }
 }
 
-/// Run `--once` with NDJSON event stream to stdout.
+/// Run `--once` / positional prompt with NDJSON event stream to stdout.
 ///
 /// Uses `execute_with_control()` to receive `ExecutorEvent`s and serializes each
 /// as one JSON line. The invocation step (if host-managed) is also emitted as events.
@@ -529,47 +587,19 @@ fn run_once_json(session: &mut ail_core::session::Session, runner: &dyn Runner, 
 fn main() {
     let cli = Cli::parse();
 
-    // Determine if we're launching the TUI (no subcommand, no --once).
-    let tui_mode = cli.command.is_none() && cli.once.is_none();
-    init_tracing(tui_mode);
+    init_tracing();
 
     tracing::info!(event = "startup", version = ail_core::version());
 
-    match cli.command {
-        Some(Commands::Delete {
-            run_id,
-            force,
-            json,
-        }) => {
-            if let Err(e) = delete::handle_delete(run_id, force, json) {
-                eprintln!("{e}");
-                std::process::exit(1);
-            }
-        }
-        Some(Commands::Logs {
-            session,
-            query,
-            format,
-            tail,
-            limit,
-        }) => {
-            logs::run_logs_command(session, query, format, tail, limit);
-        }
-        Some(Commands::Log {
-            run_id,
-            format,
-            follow,
-        }) => {
-            log::run_log_command(run_id, &format, follow);
-        }
-        Some(Commands::McpBridge { socket }) => {
-            // Spawned by Claude CLI to handle tool permission checks.
-            // Does not initialise tracing — only stdout must be used for MCP protocol.
-            mcp_bridge::run(&socket);
-        }
-        Some(Commands::Materialize { pipeline, out }) => {
-            let pipeline_path = ail_core::config::discovery::discover(pipeline);
-            let p = match pipeline_path {
+    // Effective prompt: positional wins, --once as long-form alias.
+    let effective_prompt = cli.prompt.clone().or(cli.once.clone());
+
+    match (effective_prompt, cli.command) {
+        (Some(prompt), None) => {
+            tracing::info!(event = "once", headless = cli.headless);
+
+            let pipeline_path = ail_core::config::discovery::discover(cli.pipeline);
+            let pipeline = match pipeline_path {
                 Some(ref path) => match ail_core::config::load(path) {
                     Ok(p) => p,
                     Err(e) => {
@@ -579,193 +609,218 @@ fn main() {
                 },
                 None => ail_core::config::domain::Pipeline::passthrough(),
             };
-            let output = ail_core::materialize::materialize(&p);
-            match out {
-                Some(out_path) => {
-                    if let Err(e) = std::fs::write(&out_path, &output) {
-                        eprintln!("Failed to write to {}: {e}", out_path.display());
-                        std::process::exit(1);
-                    }
-                }
-                None => print!("{output}"),
-            }
-        }
-        Some(Commands::Validate {
-            pipeline,
-            output_format,
-        }) => {
-            let path = match ail_core::config::discovery::discover(pipeline) {
-                Some(p) => p,
-                None => {
-                    match output_format {
-                        OutputFormat::Json => {
-                            println!(
-                                "{}",
-                                serde_json::json!({
-                                    "valid": false,
-                                    "errors": [{"message": "No pipeline file found.", "error_type": "ail:config/file-not-found"}]
-                                })
-                            );
-                        }
-                        OutputFormat::Text => {
-                            eprintln!("No pipeline file found.");
-                        }
-                    }
-                    std::process::exit(1);
-                }
-            };
-            match ail_core::config::load(&path) {
-                Ok(p) => match output_format {
-                    OutputFormat::Json => {
-                        println!(
-                            "{}",
-                            serde_json::json!({"valid": true, "step_count": p.steps.len()})
-                        );
-                    }
-                    OutputFormat::Text => {
-                        println!("Pipeline valid: {} step(s)", p.steps.len());
-                    }
-                },
-                Err(e) => match output_format {
-                    OutputFormat::Json => {
-                        println!(
-                            "{}",
-                            serde_json::json!({
-                                "valid": false,
-                                "errors": [{"message": e.detail, "error_type": e.error_type}]
-                            })
-                        );
-                        std::process::exit(1);
-                    }
-                    OutputFormat::Text => {
-                        eprintln!("{e}");
-                        std::process::exit(1);
-                    }
-                },
-            }
-        }
-        Some(Commands::Chat {
-            message,
-            stream,
-            pipeline,
-            model,
-            provider_url,
-            provider_token,
-        }) => {
-            tracing::info!(
-                event = "chat",
-                one_shot = message.is_some(),
-                stream = stream
-            );
-            let pipeline_path = ail_core::config::discovery::discover(cli.pipeline.or(pipeline));
-            let discovered_pipeline = match pipeline_path {
-                Some(ref path) => match ail_core::config::load(path) {
-                    Ok(p) => p,
-                    Err(e) => {
-                        eprintln!("{e}");
-                        std::process::exit(1);
-                    }
-                },
-                None => ail_core::config::domain::Pipeline::passthrough(),
-            };
-            let cli_provider = ail_core::config::domain::ProviderConfig {
-                model,
-                base_url: provider_url,
-                auth_token: provider_token,
+
+            let mut session = ail_core::session::Session::new(pipeline, prompt.clone());
+            session.cli_provider = ail_core::config::domain::ProviderConfig {
+                model: cli.model.clone(),
+                base_url: cli.provider_url.clone(),
+                auth_token: cli.provider_token.clone(),
                 input_cost_per_1k: None,
                 output_cost_per_1k: None,
             };
-            let runner = match RunnerFactory::build_default(true) {
+            let runner = match RunnerFactory::build_default(cli.headless) {
                 Ok(r) => r,
                 Err(e) => {
                     eprintln!("{e}");
                     std::process::exit(1);
                 }
             };
-            let result = if stream {
-                chat::run_chat_stream(discovered_pipeline, cli_provider, runner.as_ref(), message)
-            } else {
-                chat::run_chat_text(discovered_pipeline, cli_provider, runner.as_ref(), message)
-            };
-            if let Err(e) = result {
-                eprintln!("chat error: {e}");
-                std::process::exit(1);
+
+            match cli.output_format {
+                OutputFormat::Text => run_once_text(
+                    &mut session,
+                    runner.as_ref(),
+                    &prompt,
+                    cli.show_thinking,
+                    cli.watch,
+                    cli.show_work,
+                ),
+                OutputFormat::Json => run_once_json(&mut session, runner.as_ref(), &prompt),
             }
         }
-        None => {
-            if let Some(prompt) = cli.once {
-                tracing::info!(event = "once", headless = cli.headless);
-
-                let pipeline_path = ail_core::config::discovery::discover(cli.pipeline);
-                let pipeline = match pipeline_path {
-                    Some(ref path) => match ail_core::config::load(path) {
-                        Ok(p) => p,
-                        Err(e) => {
-                            eprintln!("{e}");
-                            std::process::exit(1);
-                        }
-                    },
-                    None => ail_core::config::domain::Pipeline::passthrough(),
-                };
-
-                let mut session = ail_core::session::Session::new(pipeline, prompt.clone());
-                session.cli_provider = ail_core::config::domain::ProviderConfig {
-                    model: cli.model.clone(),
-                    base_url: cli.provider_url.clone(),
-                    auth_token: cli.provider_token.clone(),
-                    input_cost_per_1k: None,
-                    output_cost_per_1k: None,
-                };
-                let runner = match RunnerFactory::build_default(cli.headless) {
-                    Ok(r) => r,
-                    Err(e) => {
+        (None, Some(cmd)) => {
+            match cmd {
+                Commands::Delete {
+                    run_id,
+                    force,
+                    json,
+                } => {
+                    if let Err(e) = delete::handle_delete(run_id, force, json) {
                         eprintln!("{e}");
                         std::process::exit(1);
                     }
-                };
-
-                match cli.output_format {
-                    OutputFormat::Text => run_once_text(
-                        &mut session,
-                        runner.as_ref(),
-                        &prompt,
-                        cli.show_thinking,
-                        cli.show_responses,
-                    ),
-                    OutputFormat::Json => run_once_json(&mut session, runner.as_ref(), &prompt),
                 }
-            } else {
-                tracing::info!(event = "tui_launch");
-                let pipeline_path = ail_core::config::discovery::discover(cli.pipeline);
-                let pipeline = match pipeline_path {
-                    Some(ref path) => match ail_core::config::load(path) {
-                        Ok(p) => Some(p),
+                Commands::Logs {
+                    session,
+                    query,
+                    format,
+                    tail,
+                    limit,
+                } => {
+                    logs::run_logs_command(session, query, format, tail, limit);
+                }
+                Commands::Log {
+                    run_id,
+                    format,
+                    follow,
+                } => {
+                    log::run_log_command(run_id, &format, follow);
+                }
+                Commands::McpBridge { socket } => {
+                    // Spawned by Claude CLI to handle tool permission checks.
+                    // Does not initialise tracing — only stdout must be used for MCP protocol.
+                    mcp_bridge::run(&socket);
+                }
+                Commands::Materialize { pipeline, out } => {
+                    let pipeline_path = ail_core::config::discovery::discover(pipeline);
+                    let p = match pipeline_path {
+                        Some(ref path) => match ail_core::config::load(path) {
+                            Ok(p) => p,
+                            Err(e) => {
+                                eprintln!("{e}");
+                                std::process::exit(1);
+                            }
+                        },
+                        None => ail_core::config::domain::Pipeline::passthrough(),
+                    };
+                    let output = ail_core::materialize::materialize(&p);
+                    match out {
+                        Some(out_path) => {
+                            if let Err(e) = std::fs::write(&out_path, &output) {
+                                eprintln!("Failed to write to {}: {e}", out_path.display());
+                                std::process::exit(1);
+                            }
+                        }
+                        None => print!("{output}"),
+                    }
+                }
+                Commands::Validate {
+                    pipeline,
+                    output_format,
+                } => {
+                    let path = match ail_core::config::discovery::discover(pipeline) {
+                        Some(p) => p,
+                        None => {
+                            match output_format {
+                                OutputFormat::Json => {
+                                    println!(
+                                        "{}",
+                                        serde_json::json!({
+                                            "valid": false,
+                                            "errors": [{"message": "No pipeline file found.", "error_type": "ail:config/file-not-found"}]
+                                        })
+                                    );
+                                }
+                                OutputFormat::Text => {
+                                    eprintln!("No pipeline file found.");
+                                }
+                            }
+                            std::process::exit(1);
+                        }
+                    };
+                    match ail_core::config::load(&path) {
+                        Ok(p) => match output_format {
+                            OutputFormat::Json => {
+                                println!(
+                                    "{}",
+                                    serde_json::json!({"valid": true, "step_count": p.steps.len()})
+                                );
+                            }
+                            OutputFormat::Text => {
+                                println!("Pipeline valid: {} step(s)", p.steps.len());
+                            }
+                        },
+                        Err(e) => match output_format {
+                            OutputFormat::Json => {
+                                println!(
+                                    "{}",
+                                    serde_json::json!({
+                                        "valid": false,
+                                        "errors": [{"message": e.detail, "error_type": e.error_type}]
+                                    })
+                                );
+                                std::process::exit(1);
+                            }
+                            OutputFormat::Text => {
+                                eprintln!("{e}");
+                                std::process::exit(1);
+                            }
+                        },
+                    }
+                }
+                Commands::Chat {
+                    message,
+                    stream,
+                    pipeline,
+                    model,
+                    provider_url,
+                    provider_token,
+                } => {
+                    tracing::info!(
+                        event = "chat",
+                        one_shot = message.is_some(),
+                        stream = stream
+                    );
+                    let pipeline_path =
+                        ail_core::config::discovery::discover(cli.pipeline.or(pipeline));
+                    let discovered_pipeline = match pipeline_path {
+                        Some(ref path) => match ail_core::config::load(path) {
+                            Ok(p) => p,
+                            Err(e) => {
+                                eprintln!("{e}");
+                                std::process::exit(1);
+                            }
+                        },
+                        None => ail_core::config::domain::Pipeline::passthrough(),
+                    };
+                    let cli_provider = ail_core::config::domain::ProviderConfig {
+                        model,
+                        base_url: provider_url,
+                        auth_token: provider_token,
+                        input_cost_per_1k: None,
+                        output_cost_per_1k: None,
+                    };
+                    let runner = match RunnerFactory::build_default(true) {
+                        Ok(r) => r,
                         Err(e) => {
                             eprintln!("{e}");
                             std::process::exit(1);
                         }
-                    },
-                    None => None,
-                };
-                let cli_provider = ail_core::config::domain::ProviderConfig {
-                    model: cli.model.clone(),
-                    base_url: cli.provider_url.clone(),
-                    auth_token: cli.provider_token.clone(),
-                    input_cost_per_1k: None,
-                    output_cost_per_1k: None,
-                };
-                let runner = match RunnerFactory::build_default(cli.headless) {
-                    Ok(r) => r,
-                    Err(e) => {
-                        eprintln!("{e}");
+                    };
+                    let result = if stream {
+                        chat::run_chat_stream(
+                            discovered_pipeline,
+                            cli_provider,
+                            runner.as_ref(),
+                            message,
+                        )
+                    } else {
+                        chat::run_chat_text(
+                            discovered_pipeline,
+                            cli_provider,
+                            runner.as_ref(),
+                            message,
+                        )
+                    };
+                    if let Err(e) = result {
+                        eprintln!("chat error: {e}");
                         std::process::exit(1);
                     }
-                };
-                if let Err(e) = tui::run(pipeline, cli_provider, runner) {
-                    eprintln!("TUI error: {e}");
-                    std::process::exit(1);
                 }
             }
+        }
+        (None, None) => {
+            // No prompt and no subcommand — print usage hint and exit.
+            eprintln!("Usage: ail <PROMPT> [OPTIONS]");
+            eprintln!("       ail --once <PROMPT> [OPTIONS]");
+            eprintln!("       ail <SUBCOMMAND> [OPTIONS]");
+            eprintln!();
+            eprintln!("Run `ail --help` for full usage.");
+            std::process::exit(0);
+        }
+        (Some(_), Some(_)) => {
+            // clap prevents this via conflicts_with, but handle defensively.
+            unreachable!("clap should have rejected prompt + subcommand combination");
         }
     }
 }

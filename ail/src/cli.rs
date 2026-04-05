@@ -18,7 +18,11 @@ pub enum OutputFormat {
     about = "Artificial Intelligence Loops — the control plane for how agents behave after the human stops typing."
 )]
 pub struct Cli {
-    /// Run a single non-interactive prompt and exit.
+    /// Prompt to run (positional — canonical form). Equivalent to `--once <PROMPT>`.
+    #[arg(value_name = "PROMPT", conflicts_with = "once")]
+    pub prompt: Option<String>,
+
+    /// Run a single non-interactive prompt and exit (long-form alias for the positional argument).
     #[arg(long, value_name = "PROMPT")]
     pub once: Option<String>,
 
@@ -26,7 +30,7 @@ pub struct Cli {
     #[arg(long, value_name = "PATH")]
     pub pipeline: Option<PathBuf>,
 
-    /// Disable TUI and emit structured JSON to stdout.
+    /// Pass `--dangerously-skip-permissions` to the underlying runner.
     #[arg(long)]
     pub headless: bool,
 
@@ -49,13 +53,17 @@ pub struct Cli {
     #[arg(long, value_name = "FORMAT", default_value = "text")]
     pub output_format: OutputFormat,
 
-    /// Include model thinking/reasoning text in --once text output.
+    /// Include model thinking/reasoning text in text output.
     #[arg(long)]
     pub show_thinking: bool,
 
-    /// Include full step response text in --once text output.
+    /// Print one summary line per completed step after execution (show-work mode).
     #[arg(long)]
-    pub show_responses: bool,
+    pub show_work: bool,
+
+    /// Stream per-step progress, thinking blocks, and responses as they arrive.
+    #[arg(long, alias = "show-responses", hide_short_help = false)]
+    pub watch: bool,
 
     #[command(subcommand)]
     pub command: Option<Commands>,
@@ -177,6 +185,18 @@ mod tests {
     }
 
     #[test]
+    fn positional_prompt_parses() {
+        let cli = Cli::try_parse_from(["ail", "hello world"]).unwrap();
+        assert_eq!(cli.prompt.as_deref(), Some("hello world"));
+    }
+
+    #[test]
+    fn positional_and_once_conflict() {
+        let result = Cli::try_parse_from(["ail", "hello", "--once", "world"]);
+        assert!(result.is_err());
+    }
+
+    #[test]
     fn pipeline_flag_parses() {
         let cli = Cli::try_parse_from(["ail", "--pipeline", "/tmp/test.ail.yaml"]).unwrap();
         assert_eq!(cli.pipeline, Some(PathBuf::from("/tmp/test.ail.yaml")));
@@ -251,6 +271,7 @@ mod tests {
     fn no_args_produces_empty_cli() {
         let cli = Cli::try_parse_from(["ail"]).unwrap();
         assert!(cli.once.is_none());
+        assert!(cli.prompt.is_none());
         assert!(cli.pipeline.is_none());
         assert!(!cli.headless);
         assert!(cli.model.is_none());
@@ -291,9 +312,21 @@ mod tests {
     }
 
     #[test]
-    fn show_responses_flag_parses() {
+    fn watch_flag_parses() {
+        let cli = Cli::try_parse_from(["ail", "--once", "hi", "--watch"]).unwrap();
+        assert!(cli.watch);
+    }
+
+    #[test]
+    fn show_responses_alias_parses() {
         let cli = Cli::try_parse_from(["ail", "--once", "hi", "--show-responses"]).unwrap();
-        assert!(cli.show_responses);
+        assert!(cli.watch);
+    }
+
+    #[test]
+    fn show_work_flag_parses() {
+        let cli = Cli::try_parse_from(["ail", "--once", "hi", "--show-work"]).unwrap();
+        assert!(cli.show_work);
     }
 
     #[test]

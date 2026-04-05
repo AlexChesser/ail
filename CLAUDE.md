@@ -51,7 +51,7 @@ cargo clippy -- -D warnings
 cargo fmt --check
 
 # Run the demo (requires release build and claude CLI)
-cd demo && ../target/release/ail --once "add a fizzbuzz function" --pipeline .ail.yaml
+cd demo && ../target/release/ail "add a fizzbuzz function" --pipeline .ail.yaml
 
 # Validate a pipeline file
 cargo run -- validate --pipeline demo/.ail.yaml
@@ -158,11 +158,12 @@ Unresolved variables **abort with a typed error** — never silently empty.
 - `ail-core/tests/fixtures/` — YAML test configs
 - `ClaudeCliRunner` integration tests are `#[ignore]` — cannot run inside a Claude Code session (nested-session guard). CI must run them separately with `--include-ignored`.
 
-## Known Constraints (v0.1)
+## Known Constraints (v0.2)
 
 - `--output-format stream-json` requires `--verbose` with `-p` — documented in `spec/runner/r02-claude-cli.md`
 - Must call `.env_remove("CLAUDECODE")` on the `Command` builder to avoid nested session guard
-- `pause_for_human` is a no-op in `--once` / headless mode (v0.1)
-- `skill:` and `pipeline:` step bodies abort with `PIPELINE_ABORTED` (stubs — v0.2+)
-- Interactive REPL not implemented
+- `pause_for_human` is a no-op in `--once` / headless mode (v0.2)
+- `skill:` and `pipeline:` step bodies abort with `PIPELINE_ABORTED` (stubs — v0.3+)
+- Interactive REPL deferred to v0.5
+- TUI removed in v0.2; all output goes to stdout/stderr
 - `ClaudeCliRunner::new(headless: bool)` — pass `true` for `--headless` mode (`--dangerously-skip-permissions`)
