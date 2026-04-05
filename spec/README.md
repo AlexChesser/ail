@@ -35,7 +35,7 @@ The AIL Pipeline Language Specification — for pipeline authors and implementer
 | [s09-calling-pipelines.md](core/s09-calling-pipelines.md) | §9 Calling Pipelines as Steps | Sub-pipeline isolation; failure propagation | deferred |
 | [s10-named-pipelines.md](core/s10-named-pipelines.md) | §10 Named Pipelines | Multiple named pipelines in one file — syntax reserved, not yet impl | deferred |
 | [s11-template-variables.md](core/s11-template-variables.md) | §11 Template Variables | `{{ }}` syntax; all variable paths incl. `{{ step.<id>.result }}` for context steps | partial — core variables impl; `{{ step.<id>.result }}` specced, not yet impl |
-| [s12-conditions.md](core/s12-conditions.md) | §12 Conditions | `condition:` field; named conditions (if_code_changed, etc.) | deferred |
+| [s12-conditions.md](core/s12-conditions.md) | §12 Conditions | `condition:` field; named conditions (if_code_changed, etc.) | partial — never/always implemented |
 | [s13-hitl-gates.md](core/s13-hitl-gates.md) | §13 HITL Gates | pause_for_human; tool permission flow diagram | deferred |
 | [s14-built-in-modules.md](core/s14-built-in-modules.md) | §14 Built-in Modules | ail/janitor, ail/security-audit, ail/test-writer, etc. | deferred |
 | [s15-providers.md](core/s15-providers.md) | §15 Providers | Provider strings; aliases; `resume:` for session continuity | partial — `defaults.model`/`defaults.provider` ✓; per-step `model:` ✓; provider string format/aliases/`resume:` deferred |

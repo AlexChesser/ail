@@ -10,7 +10,8 @@ use std::time::SystemTime;
 use serde::Serialize;
 
 use crate::config::domain::{
-    ContextSource, ExitCodeMatch, ResultAction, ResultMatcher, StepBody, MAX_SUB_PIPELINE_DEPTH,
+    Condition, ContextSource, ExitCodeMatch, ResultAction, ResultMatcher, StepBody,
+    MAX_SUB_PIPELINE_DEPTH,
 };
 use crate::error::{error_types, AilError};
 use crate::runner::claude::ClaudeInvokeExtensions;
@@ -227,6 +228,12 @@ fn execute_inner(
 
     for step in &steps {
         let step_id = step.id.as_str().to_string();
+
+        // Check condition — skip the step if condition is Never (SPEC §12).
+        if step.condition == Some(Condition::Never) {
+            tracing::info!(run_id = %session.run_id, step_id = %step_id, "step skipped by condition: never");
+            continue;
+        }
 
         tracing::info!(run_id = %session.run_id, step_id = %step_id, "executing step");
 
@@ -502,6 +509,15 @@ pub fn execute_with_control(
 
         // Skip disabled steps.
         if disabled_steps.contains(&step_id) {
+            let _ = event_tx.send(ExecutorEvent::StepSkipped {
+                step_id: step_id.clone(),
+            });
+            continue;
+        }
+
+        // Check condition — skip the step if condition is Never (SPEC §12).
+        if step.condition == Some(Condition::Never) {
+            tracing::info!(run_id = %session.run_id, step_id = %step_id, "step skipped by condition: never");
             let _ = event_tx.send(ExecutorEvent::StepSkipped {
                 step_id: step_id.clone(),
             });
@@ -967,6 +983,7 @@ mod tests {
             on_result: None,
             model: None,
             runner: None,
+            condition: None,
         }
     }
 

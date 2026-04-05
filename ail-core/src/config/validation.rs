@@ -4,8 +4,8 @@ use std::collections::HashSet;
 use std::path::PathBuf;
 
 use super::domain::{
-    ActionKind, ContextSource, ExitCodeMatch, Pipeline, ProviderConfig, ResultAction, ResultBranch,
-    ResultMatcher, Step, StepBody, StepId, ToolPolicy,
+    ActionKind, Condition, ContextSource, ExitCodeMatch, Pipeline, ProviderConfig, ResultAction,
+    ResultBranch, ResultMatcher, Step, StepBody, StepId, ToolPolicy,
 };
 use super::dto::{ExitCodeDto, PipelineFileDto};
 use crate::error::{error_types, AilError};
@@ -261,6 +261,21 @@ pub fn validate(dto: PipelineFileDto, source: PathBuf) -> Result<Pipeline, AilEr
             })
             .transpose()?;
 
+        let condition = match step_dto.condition.as_deref() {
+            None | Some("always") => None,
+            Some("never") => Some(Condition::Never),
+            Some(other) => {
+                return Err(AilError {
+                    error_type: error_types::CONFIG_VALIDATION_FAILED,
+                    title: "Unknown condition value",
+                    detail: format!(
+                        "Step '{id_str}' specifies unknown condition '{other}'; supported values are 'always' and 'never'"
+                    ),
+                    context: None,
+                })
+            }
+        };
+
         steps.push(Step {
             id: StepId(id_str),
             body,
@@ -269,6 +284,7 @@ pub fn validate(dto: PipelineFileDto, source: PathBuf) -> Result<Pipeline, AilEr
             on_result,
             model: step_dto.model,
             runner: step_dto.runner,
+            condition,
         });
     }
 

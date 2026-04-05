@@ -1,0 +1,7 @@
+version: "1"
+pipeline:
+  - id: skip_me
+    condition: never
+    prompt: "this should never run"
+  - id: run_me
+    prompt: "this should run"

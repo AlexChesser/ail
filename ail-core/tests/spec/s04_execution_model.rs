@@ -13,6 +13,7 @@ mod executor {
             model: None,
             on_result: None,
             runner: None,
+            condition: None,
         }
     }
 

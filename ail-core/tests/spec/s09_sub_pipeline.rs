@@ -29,6 +29,7 @@ fn prompt_step(id: &str, text: &str) -> Step {
         on_result: None,
         model: None,
         runner: None,
+        condition: None,
     }
 }
 
@@ -41,6 +42,7 @@ fn sub_pipeline_step(id: &str, path: &str) -> Step {
         on_result: None,
         model: None,
         runner: None,
+        condition: None,
     }
 }
 
@@ -193,6 +195,7 @@ fn on_result_pipeline_action_executes_sub_pipeline_on_match() {
         }]),
         model: None,
         runner: None,
+        condition: None,
     };
     let mut session = make_session(vec![trigger]);
 

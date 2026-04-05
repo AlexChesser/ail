@@ -1,5 +1,7 @@
 ## 12. Conditions
 
+> **Implementation status:** Partial. `never` and `always` conditions are implemented. Named conditions (`if_code_changed`, `if_files_modified`, etc.) are deferred.
+
 The `condition` field allows declarative skip logic. If false, the step is skipped and the pipeline continues.
 
 ### 12.1 Built-in Conditions
