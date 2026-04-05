@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" width="16" height="16">
+  <!-- Pipeline loop icon: circular arrows suggesting a loop/chain -->
+  <path fill-rule="evenodd" clip-rule="evenodd"
+    d="M8 1a7 7 0 1 0 0 14A7 7 0 0 0 8 1zM2 8a6 6 0 1 1 12 0A6 6 0 0 1 2 8z"
+    fill="currentColor" opacity="0.4"/>
+  <!-- Three nodes suggesting pipeline steps -->
+  <circle cx="8" cy="4" r="1.5" fill="currentColor"/>
+  <circle cx="11.5" cy="10" r="1.5" fill="currentColor"/>
+  <circle cx="4.5" cy="10" r="1.5" fill="currentColor"/>
+  <!-- Connecting lines -->
+  <line x1="8" y1="5.5" x2="11" y2="8.8" stroke="currentColor" stroke-width="1" stroke-linecap="round"/>
+  <line x1="11" y1="8.8" x2="5" y2="8.8" stroke="currentColor" stroke-width="1" stroke-linecap="round"/>
+  <line x1="5" y1="8.8" x2="8" y2="5.5" stroke="currentColor" stroke-width="1" stroke-linecap="round"/>
+</svg>

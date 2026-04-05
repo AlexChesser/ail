@@ -16,11 +16,30 @@
     "Other"
   ],
   "activationEvents": [
+    "onView:ail-chat.chatView",
     "workspaceContains:.ail.yaml",
     "workspaceContains:.ail/*.yaml"
   ],
   "main": "./dist/extension.js",
   "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "ail-chat-sidebar",
+          "title": "ail Chat",
+          "icon": "images/ail-sidebar.svg"
+        }
+      ]
+    },
+    "views": {
+      "ail-chat-sidebar": [
+        {
+          "id": "ail-chat.chatView",
+          "name": "Chat",
+          "type": "webview"
+        }
+      ]
+    },
     "configuration": {
       "title": "ail Chat",
       "properties": {
@@ -44,7 +63,7 @@
     "commands": [
       {
         "command": "ail-chat.open",
-        "title": "ail Chat: Open Chat Panel",
+        "title": "ail Chat: Open Chat",
         "category": "ail Chat"
       },
       {
