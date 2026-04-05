@@ -49,6 +49,10 @@ function getWebviewHtml(webview: vscode.Webview, context: vscode.ExtensionContex
     vscode.Uri.file(path.join(context.extensionPath, 'dist', 'webview.js'))
   );
 
+  const styleUri = webview.asWebviewUri(
+    vscode.Uri.file(path.join(context.extensionPath, 'dist', 'webview.css'))
+  );
+
   const codiconUri = webview.asWebviewUri(
     vscode.Uri.file(path.join(context.extensionPath, 'dist', 'codicon.css'))
   );
@@ -69,10 +73,7 @@ function getWebviewHtml(webview: vscode.Webview, context: vscode.ExtensionContex
   ">
   <title>ail Chat</title>
   <link rel="stylesheet" href="${codiconUri.toString()}">
-  <style>
-    body, html { margin: 0; padding: 0; height: 100vh; overflow: hidden; }
-    #root { display: flex; height: 100%; }
-  </style>
+  <link rel="stylesheet" href="${styleUri.toString()}">
 </head>
 <body>
   <div id="root"></div>
