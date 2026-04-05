@@ -39,16 +39,19 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   return (
     <div className="chat-input-area">
       <div className="chat-input-row">
+        <span className="chat-input-prompt">&gt;</span>
         <textarea
           ref={textareaRef}
           className="chat-input-textarea"
-          placeholder={placeholder ?? (isRunning ? 'Running…' : 'Send a prompt (Enter to send, Shift+Enter for newline)')}
+          placeholder={placeholder ?? (isRunning ? 'Running…' : 'Describe what to build')}
           disabled={isRunning || disabled}
           onKeyDown={handleKeyDown}
-          rows={2}
+          rows={1}
         />
         {isRunning ? (
-          <button className="btn-danger" onClick={onStop} title="Stop">■ Stop</button>
+          <button className="btn-stop-hint" onClick={onStop} title="Stop the current run">
+            ■ Stop
+          </button>
         ) : (
           <button
             className="btn-primary"

@@ -12,6 +12,36 @@ export interface ToolCallCardProps {
   data: ToolCallData;
 }
 
+/** Extract the most relevant argument from tool input for compact display. */
+function extractPrimaryArg(input: unknown): string | null {
+  if (input == null || typeof input !== 'object') return null;
+  const obj = input as Record<string, unknown>;
+  // Priority order: file_path, command, query, pattern, path, url
+  for (const key of ['file_path', 'command', 'query', 'pattern', 'path', 'url', 'content']) {
+    if (typeof obj[key] === 'string') {
+      const val = obj[key] as string;
+      // Truncate long values
+      return val.length > 60 ? val.slice(0, 57) + '…' : val;
+    }
+  }
+  return null;
+}
+
+/** Derive a short result summary (e.g., "Read 30 lines"). */
+function resultSummary(result: string | undefined, isError: boolean | undefined): string | null {
+  if (result === undefined) return null;
+  if (isError) return 'error';
+  const lines = result.split('\n').length;
+  if (lines > 1) {
+    return `${lines} lines`;
+  }
+  const chars = result.length;
+  if (chars > 80) {
+    return `${chars} chars`;
+  }
+  return null;
+}
+
 export const ToolCallCard: React.FC<ToolCallCardProps> = ({ data }) => {
   const [collapsed, setCollapsed] = useState(true);
   const hasResult = data.result !== undefined;
@@ -20,6 +50,8 @@ export const ToolCallCard: React.FC<ToolCallCardProps> = ({ data }) => {
     ? JSON.stringify(data.input, null, 2)
     : '';
 
+  const primaryArg = extractPrimaryArg(data.input);
+  const summary = resultSummary(data.result, data.isError);
   const statusLabel = hasResult
     ? (data.isError ? 'error' : 'done')
     : 'pending';
@@ -34,10 +66,19 @@ export const ToolCallCard: React.FC<ToolCallCardProps> = ({ data }) => {
         onKeyDown={(e) => e.key === 'Enter' && setCollapsed((c) => !c)}
         aria-expanded={!collapsed}
       >
-        <span>{collapsed ? '▶' : '▼'}</span>
-        <span className="tool-card-name">{data.toolName}</span>
+        <span className="tool-card-name">
+          {data.toolName}{primaryArg ? `(${primaryArg})` : ''}
+        </span>
+        {summary && (
+          <span className="tool-card-summary">
+            {summary}
+          </span>
+        )}
         <span className={`tool-card-status${data.isError ? ' error' : ''}`}>
           {statusLabel}
+        </span>
+        <span className="tool-card-toggle">
+          {collapsed ? '(expand)' : '(collapse)'}
         </span>
       </div>
       <div className={`tool-card-body${collapsed ? ' collapsed' : ''}`}>
