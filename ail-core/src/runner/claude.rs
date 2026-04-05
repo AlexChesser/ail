@@ -219,10 +219,7 @@ fn parse_stream_event(
                                 .map(str::to_string);
                             let is_error = item["is_error"].as_bool();
                             let _ = tx.send(RunnerEvent::ToolResult {
-                                tool_name: item["tool_name"]
-                                    .as_str()
-                                    .unwrap_or("")
-                                    .to_string(),
+                                tool_name: item["tool_name"].as_str().unwrap_or("").to_string(),
                                 tool_use_id,
                                 content,
                                 is_error,
