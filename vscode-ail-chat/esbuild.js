@@ -33,6 +33,20 @@ const webviewOptions = {
   minify: production,
 };
 
+/** @type {import('esbuild').BuildOptions} */
+const graphWebviewOptions = {
+  entryPoints: ['src/webview-graph/index.tsx'],
+  bundle: true,
+  outfile: 'dist/graphWebview.js',
+  format: 'iife',
+  platform: 'browser',
+  target: 'es2020',
+  sourcemap: !production,
+  minify: production,
+  // React Flow ships CSS that we inline via the css loader.
+  loader: { '.css': 'css' },
+};
+
 function copyCodiconAssets() {
   const dist = path.join(__dirname, 'dist');
   if (!fs.existsSync(dist)) fs.mkdirSync(dist, { recursive: true });
@@ -64,18 +78,20 @@ async function build() {
   copyCodiconAssets();
 
   if (watch) {
-    const [extCtx, webCtx] = await Promise.all([
+    const [extCtx, webCtx, graphCtx] = await Promise.all([
       esbuild.context(extensionOptions),
       esbuild.context(webviewOptions),
+      esbuild.context(graphWebviewOptions),
     ]);
-    await Promise.all([extCtx.watch(), webCtx.watch()]);
+    await Promise.all([extCtx.watch(), webCtx.watch(), graphCtx.watch()]);
     console.log('esbuild watching...');
   } else {
     await Promise.all([
       esbuild.build(extensionOptions),
       esbuild.build(webviewOptions),
+      esbuild.build(graphWebviewOptions),
     ]);
-    console.log('esbuild: dist/extension.js + dist/webview.js');
+    console.log('esbuild: dist/extension.js + dist/webview.js + dist/graphWebview.js');
   }
 }
 

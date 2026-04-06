@@ -6,9 +6,12 @@
  */
 
 import * as vscode from 'vscode';
+import * as path from 'path';
+import * as fs from 'fs';
 import { clearBinaryCache } from './binary';
 import { SessionManager } from './session-manager';
 import { ChatViewProvider } from './chat-view-provider';
+import { PipelineGraphPanel } from './pipeline-graph/PipelineGraphPanel';
 
 let chatProvider: ChatViewProvider | undefined;
 
@@ -35,6 +38,46 @@ export function activate(context: vscode.ExtensionContext): void {
 
     vscode.commands.registerCommand('ail-chat.newSession', () => {
       chatProvider?.reveal();
+    }),
+
+    vscode.commands.registerCommand('ail-chat.openPipelineGraph', async () => {
+      // Pipeline resolution order:
+      // 1. Active editor (if it's a .ail.yaml file)
+      // 2. File picker dialog
+      const activeEditor = vscode.window.activeTextEditor;
+      const activeFile = activeEditor?.document.uri.fsPath;
+      const isYaml = activeFile && /\.ail\.ya?ml$/i.test(activeFile);
+
+      let pipelinePath: string | undefined;
+      if (isYaml) {
+        pipelinePath = activeFile;
+      } else {
+        // Check workspace root for .ail.yaml
+        const cwd = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+        if (cwd) {
+          const candidate = path.join(cwd, '.ail.yaml');
+          if (fs.existsSync(candidate)) {
+            pipelinePath = candidate;
+          }
+        }
+      }
+
+      if (!pipelinePath) {
+        const uris = await vscode.window.showOpenDialog({
+          canSelectMany: false,
+          canSelectFolders: false,
+          filters: { 'ail Pipeline': ['yaml', 'yml'] },
+          title: 'Select ail pipeline file to visualize',
+          openLabel: 'Open Pipeline Graph',
+        });
+        if (uris && uris.length > 0) {
+          pipelinePath = uris[0].fsPath;
+        }
+      }
+
+      if (pipelinePath) {
+        PipelineGraphPanel.show(context.extensionPath, pipelinePath);
+      }
     })
   );
 }
