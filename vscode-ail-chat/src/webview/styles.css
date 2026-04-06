@@ -317,7 +317,6 @@ body {
   margin: var(--ail-spacing-xs) 0;
   border-radius: var(--ail-radius);
   background: var(--ail-card-bg);
-  overflow: hidden;
 }
 
 .tool-card-header {
