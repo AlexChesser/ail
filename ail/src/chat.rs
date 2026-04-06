@@ -39,6 +39,11 @@ use std::sync::Arc;
 use std::time::Instant;
 use uuid::Uuid;
 
+/// Shared slot carrying `(tool_name, response_sender)` for a pending permission request.
+/// The permission responder callback parks the sender here; the stdin reader picks it up.
+type PendingPermissionSlot =
+    Arc<std::sync::Mutex<Option<(String, mpsc::SyncSender<PermissionResponse>)>>>;
+
 /// Emit a single NDJSON line to stdout (locked).
 fn emit(value: &serde_json::Value) {
     let stdout = std::io::stdout();
@@ -62,9 +67,8 @@ fn run_turn_stream(
     turn_id: &str,
     pause_requested: Arc<AtomicBool>,
     kill_requested: Arc<AtomicBool>,
-    pending_permission: Arc<
-        std::sync::Mutex<Option<mpsc::SyncSender<ail_core::runner::PermissionResponse>>>,
-    >,
+    pending_permission: PendingPermissionSlot,
+    tool_allowlist: Arc<std::sync::Mutex<HashSet<String>>>,
     hitl_rx: mpsc::Receiver<String>,
 ) -> Result<(Option<String>, f64), String> {
     let mut session = Session::new(pipeline, prompt.to_string());
@@ -85,13 +89,20 @@ fn run_turn_stream(
         .map(|s| s.id.as_str() == "invocation")
         .unwrap_or(false);
 
-    // Build per-turn permission responder.
+    // Build per-turn permission responder — checks allowlist first; otherwise blocks.
     let pending_perm = Arc::clone(&pending_permission);
+    let allowlist_responder = Arc::clone(&tool_allowlist);
     let responder: ail_core::runner::PermissionResponder =
-        Arc::new(move |_req: ail_core::runner::PermissionRequest| {
+        Arc::new(move |req: ail_core::runner::PermissionRequest| {
+            // Fast path: tool is in the session allowlist — approve silently.
+            if let Ok(guard) = allowlist_responder.lock() {
+                if guard.contains(&req.display_name) {
+                    return PermissionResponse::Allow;
+                }
+            }
             let (tx, rx) = mpsc::sync_channel(1);
             if let Ok(mut guard) = pending_perm.lock() {
-                *guard = Some(tx);
+                *guard = Some((req.display_name, tx));
             }
             rx.recv_timeout(std::time::Duration::from_secs(300))
                 .unwrap_or(PermissionResponse::Deny("timeout".to_string()))
@@ -243,9 +254,12 @@ pub fn run_chat_stream(
     // Shared control flags reused across turns.
     let pause_requested = Arc::new(AtomicBool::new(false));
     let kill_requested = Arc::new(AtomicBool::new(false));
-    let pending_permission: Arc<
-        std::sync::Mutex<Option<mpsc::SyncSender<ail_core::runner::PermissionResponse>>>,
-    > = Arc::new(std::sync::Mutex::new(None));
+
+    // In-memory allowlist for "Allow for session" — persists across turns within the chat session.
+    let tool_allowlist: Arc<std::sync::Mutex<HashSet<String>>> =
+        Arc::new(std::sync::Mutex::new(HashSet::new()));
+
+    let pending_permission: PendingPermissionSlot = Arc::new(std::sync::Mutex::new(None));
 
     // Channel for user prompts (None = shutdown sentinel).
     let (prompt_tx, prompt_rx) = mpsc::sync_channel::<Option<String>>(32);
@@ -254,8 +268,8 @@ pub fn run_chat_stream(
     // We use a slot (Mutex<Option<Sender>>) so the stdin reader can target the current turn.
     let hitl_slot: Arc<std::sync::Mutex<Option<mpsc::SyncSender<String>>>> =
         Arc::new(std::sync::Mutex::new(None));
-    let perm_slot: Arc<std::sync::Mutex<Option<mpsc::SyncSender<PermissionResponse>>>> =
-        Arc::new(std::sync::Mutex::new(None));
+    // Carries (tool_name, response_sender) so allow_for_session can insert into the allowlist.
+    let perm_slot: PendingPermissionSlot = Arc::new(std::sync::Mutex::new(None));
 
     // Enqueue the initial message if provided (one-shot mode).
     if let Some(msg) = initial_message {
@@ -271,6 +285,7 @@ pub fn run_chat_stream(
         let kill_stdin = Arc::clone(&kill_requested);
         let hitl_slot_stdin = Arc::clone(&hitl_slot);
         let perm_slot_stdin = Arc::clone(&perm_slot);
+        let allowlist_stdin = Arc::clone(&tool_allowlist);
 
         std::thread::spawn(move || {
             use std::io::BufRead;
@@ -323,6 +338,11 @@ pub fn run_chat_stream(
                             .and_then(|v| v.get("allowed"))
                             .and_then(|v| v.as_bool())
                             .unwrap_or(false);
+                        let allow_for_session = parsed
+                            .as_ref()
+                            .and_then(|v| v.get("allow_for_session"))
+                            .and_then(|v| v.as_bool())
+                            .unwrap_or(false);
                         let response = if allowed {
                             PermissionResponse::Allow
                         } else {
@@ -334,8 +354,15 @@ pub fn run_chat_stream(
                                 .to_string();
                             PermissionResponse::Deny(reason)
                         };
-                        let guard = perm_slot_stdin.lock().unwrap_or_else(|e| e.into_inner());
-                        if let Some(ref tx) = *guard {
+                        let mut guard = perm_slot_stdin.lock().unwrap_or_else(|e| e.into_inner());
+                        if let Some((tool_name, tx)) = guard.take() {
+                            // If "allow for session" was requested, add tool to the allowlist
+                            // before sending Allow so future identical calls skip the prompt.
+                            if allowed && allow_for_session {
+                                if let Ok(mut al) = allowlist_stdin.lock() {
+                                    al.insert(tool_name);
+                                }
+                            }
                             let _ = tx.send(response);
                         }
                     }
@@ -405,16 +432,17 @@ pub fn run_chat_stream(
             std::thread::spawn(move || {
                 loop {
                     // Poll until a pending sender appears (set by the permission responder callback).
-                    let tx_opt = {
+                    let entry_opt = {
                         let guard = pending_perm.lock().unwrap_or_else(|e| e.into_inner());
                         guard.clone()
                     };
-                    if let Some(tx) = tx_opt {
-                        // Install the sender into perm_slot so the stdin reader can deliver.
+                    if let Some(entry) = entry_opt {
+                        // Install the (tool_name, sender) into perm_slot so the stdin reader
+                        // can deliver a decision (and optionally add tool to allowlist).
                         {
                             let mut guard =
                                 perm_slot_loop.lock().unwrap_or_else(|e| e.into_inner());
-                            *guard = Some(tx);
+                            *guard = Some(entry);
                         }
                         break;
                     }
@@ -434,6 +462,7 @@ pub fn run_chat_stream(
             Arc::clone(&pause_requested),
             Arc::clone(&kill_requested),
             Arc::clone(&pending_permission),
+            Arc::clone(&tool_allowlist),
             hitl_rx,
         );
 
@@ -444,7 +473,7 @@ pub fn run_chat_stream(
         }
         {
             let mut guard = perm_slot.lock().unwrap_or_else(|e| e.into_inner());
-            *guard = None;
+            drop(guard.take());
         }
 
         let duration_ms = start.elapsed().as_millis();

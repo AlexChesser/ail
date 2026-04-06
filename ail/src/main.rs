@@ -13,6 +13,17 @@ use ail_core::runner::{InvokeOptions, Runner};
 use clap::Parser;
 use cli::{Cli, Commands, OutputFormat};
 
+/// Shared slot carrying `(tool_name, response_sender)` for a pending permission request.
+/// The permission responder callback parks the sender here; the stdin reader picks it up.
+type PendingPermissionSlot = std::sync::Arc<
+    std::sync::Mutex<
+        Option<(
+            String,
+            std::sync::mpsc::SyncSender<ail_core::runner::PermissionResponse>,
+        )>,
+    >,
+>;
+
 /// Initialise tracing. Always writes structured JSON logs to stderr.
 fn init_tracing() {
     tracing_subscriber::fmt()
@@ -345,19 +356,30 @@ fn run_once_json(session: &mut ail_core::session::Session, runner: &dyn Runner, 
     let pause_requested = Arc::new(AtomicBool::new(false));
     let kill_requested = Arc::new(AtomicBool::new(false));
 
-    // One-shot channel for permission responses. When the PermissionResponder
-    // callback fires, it parks a SyncSender here; the stdin reader picks it up.
-    let pending_permission: Arc<
-        std::sync::Mutex<Option<mpsc::SyncSender<ail_core::runner::PermissionResponse>>>,
-    > = Arc::new(std::sync::Mutex::new(None));
+    // In-memory allowlist for "Allow for session" — tool names added here are auto-approved
+    // for the remainder of this run without prompting.
+    let tool_allowlist: Arc<std::sync::Mutex<HashSet<String>>> =
+        Arc::new(std::sync::Mutex::new(HashSet::new()));
 
-    // Build the permission responder — blocks until the stdin reader delivers a decision.
+    // One-shot channel for permission responses. When the PermissionResponder
+    // callback fires, it parks `(tool_name, SyncSender)` here; the stdin reader picks it up.
+    let pending_permission: PendingPermissionSlot = Arc::new(std::sync::Mutex::new(None));
+
+    // Build the permission responder — checks allowlist first; otherwise blocks until the
+    // stdin reader delivers a decision.
     let pending_perm_responder = Arc::clone(&pending_permission);
+    let allowlist_responder = Arc::clone(&tool_allowlist);
     let responder: ail_core::runner::PermissionResponder =
-        Arc::new(move |_req: ail_core::runner::PermissionRequest| {
+        Arc::new(move |req: ail_core::runner::PermissionRequest| {
+            // Fast path: tool is in the session allowlist — approve silently.
+            if let Ok(guard) = allowlist_responder.lock() {
+                if guard.contains(&req.display_name) {
+                    return ail_core::runner::PermissionResponse::Allow;
+                }
+            }
             let (tx, rx) = mpsc::sync_channel(1);
             if let Ok(mut guard) = pending_perm_responder.lock() {
-                *guard = Some(tx);
+                *guard = Some((req.display_name, tx));
             }
             rx.recv_timeout(std::time::Duration::from_secs(300))
                 .unwrap_or(ail_core::runner::PermissionResponse::Deny(
@@ -371,6 +393,7 @@ fn run_once_json(session: &mut ail_core::session::Session, runner: &dyn Runner, 
     let pause_stdin = Arc::clone(&pause_requested);
     let kill_stdin = Arc::clone(&kill_requested);
     let pending_perm_stdin = Arc::clone(&pending_permission);
+    let allowlist_stdin = Arc::clone(&tool_allowlist);
     std::thread::spawn(move || {
         use std::io::BufRead;
         let stdin = std::io::stdin();
@@ -398,6 +421,10 @@ fn run_once_json(session: &mut ail_core::session::Session, runner: &dyn Runner, 
                         .get("allowed")
                         .and_then(|v| v.as_bool())
                         .unwrap_or(false);
+                    let allow_for_session = msg
+                        .get("allow_for_session")
+                        .and_then(|v| v.as_bool())
+                        .unwrap_or(false);
                     let response = if allowed {
                         ail_core::runner::PermissionResponse::Allow
                     } else {
@@ -409,7 +436,14 @@ fn run_once_json(session: &mut ail_core::session::Session, runner: &dyn Runner, 
                         ail_core::runner::PermissionResponse::Deny(reason)
                     };
                     let mut guard = pending_perm_stdin.lock().unwrap_or_else(|e| e.into_inner());
-                    if let Some(tx) = guard.take() {
+                    if let Some((tool_name, tx)) = guard.take() {
+                        // If "allow for session" was requested, add tool to the allowlist
+                        // before sending Allow so future identical calls skip the prompt.
+                        if allowed && allow_for_session {
+                            if let Ok(mut al) = allowlist_stdin.lock() {
+                                al.insert(tool_name);
+                            }
+                        }
                         let _ = tx.send(response);
                     }
                 }

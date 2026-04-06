@@ -1,6 +1,6 @@
 ## 13. Human-in-the-Loop (HITL) Gates
 
-> **Implementation status:** Partial. `pause_for_human` action is implemented in `execute_with_control()` (the controlled executor used by TUI and `--output-format json` mode): it blocks execution and emits a `HitlGateReached` event. In simple `execute()` mode (`--once` text output), `pause_for_human` is a no-op. The "Modify" response for tool permissions is deferred to v0.2.
+> **Implementation status:** Partial. `pause_for_human` action is implemented in `execute_with_control()` (the controlled executor used by `--output-format json` mode and `chat --stream`): it blocks execution and emits a `HitlGateReached` event. In simple `execute()` mode (`--once` text output), `pause_for_human` is a no-op. "Allow for session" is implemented for `--output-format json` and `chat --stream`: consumers send `{"type":"permission_response","allowed":true,"allow_for_session":true}` on stdin and the tool name is added to an in-memory allowlist for the remainder of the session. The "Modify" response for tool permissions is deferred to v0.2.
 
 HITL gates are intentional checkpoints, not error states.
 
@@ -72,7 +72,7 @@ Preferred over explicit gates — interrupts only when something genuinely requi
 
 For automated runs (CI, the autonomous agent use case, Docker sandbox), HITL prompts are not viable. Pass `--dangerously-skip-permissions` to the Claude CLI invocation to bypass all tool permission checks. This is only appropriate in a fully trusted, sandboxed environment. `ail` will expose this as a session-level flag — not a pipeline YAML option — to prevent it from being accidentally committed to a shared pipeline file.
 
-**`--once --output-format json` mode:** Full interactive HITL is available. Both the invocation step and all pipeline steps use a `permission_responder` wired to the stdin control protocol (§23.7). Consumers receive `permission_requested` events on stdout and respond via `permission_response` messages on stdin. `pause_for_human` steps and `on_result: pause_for_human` branches both block the executor and emit `hitl_gate_reached` events, unblocked by `hitl_response` messages on stdin.
+**`--once --output-format json` mode:** Full interactive HITL is available. Both the invocation step and all pipeline steps use a `permission_responder` wired to the stdin control protocol (§23.7). Consumers receive `permission_requested` events on stdout and respond via `permission_response` messages on stdin. The `permission_response` message accepts an optional `"allow_for_session": true` field: when `"allowed": true` and `"allow_for_session": true`, the tool name is inserted into an in-memory allowlist and subsequent identical permission requests are auto-approved without prompting. `pause_for_human` steps and `on_result: pause_for_human` branches both block the executor and emit `hitl_gate_reached` events, unblocked by `hitl_response` messages on stdin.
 
 **`--once` text mode:** The `--once --output-format text` flow does not set a `permission_responder` and does not spawn a stdin reader thread. Interactive permission HITL is not available. Tools in text mode require either `--headless` (bypass all permissions) or `tools: allow:` in the pipeline YAML (pre-approve specific tools).
 
