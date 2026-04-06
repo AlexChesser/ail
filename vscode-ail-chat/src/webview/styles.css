@@ -757,7 +757,7 @@ body {
   font-size: var(--vscode-font-size, 13px);
   line-height: 1.4;
   min-height: 36px;
-  max-height: 120px;
+  max-height: 200px;
   overflow-y: auto;
 }
 

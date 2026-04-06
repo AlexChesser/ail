@@ -17,12 +17,26 @@ export const ChatInput: React.FC<ChatInputProps> = ({
 }) => {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
+  const resetHeight = () => {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+  };
+
+  const handleInput = () => {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = `${el.scrollHeight}px`;
+  };
+
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       const value = textareaRef.current?.value.trim() ?? '';
       if (value && !isRunning && !disabled) {
         if (textareaRef.current) textareaRef.current.value = '';
+        resetHeight();
         onSubmit(value);
       }
     }
@@ -32,6 +46,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     const value = textareaRef.current?.value.trim() ?? '';
     if (value && !isRunning && !disabled) {
       if (textareaRef.current) textareaRef.current.value = '';
+      resetHeight();
       onSubmit(value);
     }
   };
@@ -45,6 +60,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
           placeholder={placeholder ?? (isRunning ? 'Running\u2026' : 'Describe what to build')}
           disabled={isRunning || disabled}
           onKeyDown={handleKeyDown}
+          onInput={handleInput}
           rows={1}
         />
         <div className="chat-input-send">
