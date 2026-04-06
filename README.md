@@ -1,4 +1,4 @@
-# ail — Alexander's Impressive Loops (AI Loops)
+# ail — Artificial Intelligence Loops
 
 > **The executive function layer LLM agents structurally lack.**
 
@@ -8,13 +8,26 @@
 [![Built with Rust](https://img.shields.io/badge/built%20with-Rust-orange.svg)](https://www.rust-lang.org/)
 [![Status: Active Development](https://img.shields.io/badge/status-active%20development-yellow.svg)](#roadmap)
 
-`ail` is an open-source pipeline runtime that wraps AI coding agents like the Claude CLI and automatically runs a deterministic chain of follow-up steps after every agent response — before control ever returns to the human.
-
-> ⚠️ **This project is in early development.** The parser and domain model are working, but the executor is not yet complete. The pipeline language is a working hypothesis — it feels solid, but real-world implementation will test that. The examples below show what `ail` is being built toward — not what it does today. See [Current Status](#current-status) for what is and isn't implemented.
+`ail` is an open-source pipeline runtime that wraps AI coding agents (starting with the Claude CLI) and automatically runs a deterministic chain of follow-up steps after every agent response — before control ever returns to the human.
 
 ---
 
-> TODO: add a **QUICKSTART** section for people who DGAF about the cognitive and neuroscience 🤣
+## Quickstart
+
+```bash
+# Clone and build
+git clone https://github.com/AlexChesser/ail
+cd ail
+cargo build --release
+
+# Validate the demo pipeline
+cargo run -- validate --pipeline demo/.ail.yaml
+
+# Single-shot run (requires claude CLI installed and authenticated)
+cd demo && ../target/release/ail "Write a function that adds two numbers" --pipeline .ail.yaml
+```
+
+For a taste of where this is headed, see the [Oh My AIL](demo/oh-my-ail/) demo — a multi-agent orchestration pipeline with intent classification, tiered routing, and role-specific tool permissions, all expressed as `.ail.yaml` files.
 
 ---
 
@@ -72,19 +85,45 @@ pipeline:
 
 ---
 
-## The Core Guarantee
+## What Works Today (v0.2)
 
-> For every completion event produced by an underlying agent, `ail` will begin executing the pipeline defined in the active `.ail.yaml` file before control returns to the human.
+`ail` is past the foundation stage. The core pipeline runtime is functional end-to-end.
 
-Steps execute in order. Individual steps may be skipped by declared conditions or disabled explicitly. Execution may terminate early via `break`, `abort_pipeline`, or an unhandled error. All of these are explicit, declared outcomes — not silent failures.
+**Pipeline execution:**
+- `ail "my prompt" --pipeline .ail.yaml` — single-shot run with positional prompt (or `--once` long form)
+- Steps execute in declaration order, each resuming the same Claude session (`--resume`)
+- Template variables resolve across steps: `{{ step.<id>.response }}`, `{{ last_response }}`, `{{ env.VAR }}`, and [more](spec/core/s11-template-variables.md)
+- `on_result` multi-branch evaluation with `contains:`, `exit_code:`, `always:` matchers and `continue`/`break`/`abort_pipeline`/`pause_for_human` actions
+- `context: shell:` steps — run shell commands, capture stdout/stderr/exit_code, feed results into templates
+- Sub-pipeline steps with isolation and depth guards
+- Per-step `model:`, `tools:`, `resume:`, `system_prompt:`, `append_system_prompt:` overrides
+- Controlled execution mode with `ExecutionControl` for programmatic consumers (NDJSON event stream)
 
-*This is the guarantee the project is being built toward. Whether the design as specified actually delivers it cleanly is what implementation will tell us.*
+**CLI commands:**
+- `ail validate` — structured validation with typed errors
+- `ail materialize` — resolved YAML output with `# origin` annotations
+- `--show-work` — prints a summary of each completed step
+- `--watch` — streams step responses as they complete
+- `--output-format json` — NDJSON event stream for programmatic consumers
+
+**Tooling:**
+- [VS Code extension](vscode-ail/) — syntax highlighting and language support for `.ail.yaml` files
+- [VS Code chat extension](vscode-ail-chat/) — pipeline graph visualization with collapse/expand for sub-pipelines
+
+**Architecture:**
+- Two-crate Rust workspace (`ail-core` library + `ail` binary)
+- `Runner` trait abstraction — `ClaudeCliRunner` is swappable; `StubRunner` for tests
+- Append-only NDJSON turn log (`~/.ail/projects/<hash>/runs/<run_id>.jsonl`)
+- RFC 9457-inspired structured errors with stable `error_type` constants
+- `tracing`-based structured logging throughout
+
+See the [CHANGELOG](CHANGELOG.md) for full version history.
 
 ---
 
 ## The Pipeline Language
 
-`ail` pipelines are declared in a `.ail.yaml` file. The examples below show the intended syntax as currently designed.
+`ail` pipelines are declared in a `.ail.yaml` file.
 
 ### The Simplest Possible Pipeline
 
@@ -133,7 +172,7 @@ pipeline:
 
 ### The Two Layers
 
-`ail` is built around a strict two-layer model that must never be confused:
+`ail` is built around a strict two-layer model:
 
 | Layer | Format | Read by | Purpose |
 |---|---|---|---|
@@ -146,6 +185,17 @@ Full language documentation is in [`spec/README.md`](spec/README.md).
 
 ---
 
+## Pipeline File Discovery
+
+1. Explicit `--pipeline <path>` flag
+2. `.ail.yaml` in CWD
+3. `.ail/default.yaml` in CWD
+4. `~/.config/ail/default.yaml`
+
+If nothing found, `ail` runs in passthrough mode — transparent, zero-config, pipeline = invocation only.
+
+---
+
 ## Scope Discipline
 
 The compass for every implementation decision is: *does this serve the frontal lobe?*
@@ -155,75 +205,13 @@ A feature belongs in `ail` if it:
 - **Strengthens one of Diamond's three executive function components** — inhibitory control, working memory updating, or cognitive flexibility; or
 - **Extends `ail`'s capacity to select, compose, or improve its own pipelines** — the supervisory layer that decides *which* script to run, not just *that* it runs.
 
-> *** TODO: consider the introduction of *ANY* currently known cortical or executive function here as well.  Specifically planning like from Anderson's "**Adaptive Control of Thought—Rational**" (ACT-R) the cognitive architecture or others lik Piaget & Schemas.  Or delving across into the Educational research angle (referecnes in older planning documents - will pull up laterelsewhere). 
-
-Features that serve general task execution without mapping to any of these three categories belong to the agent layer beneath `ail`, not to the control plane above it.
+Features that serve general task execution without mapping to any of these categories belong to the agent layer beneath `ail`, not to the control plane above it.
 
 ---
 
-## Current Status
-
-The project is being built spec-first. The spec represents a hypothesis — things that sound good on paper may turn out to be awkward in practice. The spec will change as reality pushes back.
-
-```bash
-cargo nextest run --no-fail-fast --run-ignored all
-```
-
-Current result: **64 passing, 13 failing** across 77 tests.
-
-### What works today
-
-- **Config parsing and validation** — `.ail.yaml` files parse correctly to domain types; validation errors are structured and informative
-- **File discovery** — the full resolution order (explicit path → `.ail.yaml` → `.ail/default.yaml` → `~/.config/ail/default.yaml`) is implemented
-- **Domain model** — `Pipeline`, `Step`, `PipelineRun`, `TurnLog`, and associated newtypes are implemented and correct
-- **Session and run identity** — `RunId` generation, session state, turn log append and ordering
-- **Step sequencing** — steps execute in declaration order; the executor runs a passthrough pipeline end-to-end
-- **Step field validation** — duplicate IDs, missing primary fields, misplaced `invocation` step are all caught at parse time
-- **Claude CLI runner** — the runner adapter exists and communicates with the Claude CLI via `--output-format stream-json`
-
-### What doesn't work yet
-
-- **`on_result` branching** — `contains` matching, `continue`, `pause_for_human`, `break`, and `abort_pipeline` are not yet wired up. This is the core value proposition and the immediate next focus.
-- **Conditions** — `if_code_changed`, `always`, `never` and other conditional skip logic are not yet evaluated
-- **Pipeline inheritance (`FROM`)** — parsing and `materialize` traversal are not yet implemented
-- **Skills** — the `skill:` step type is not yet implemented
-- **Provider/model routing** — the `provider:` override on individual steps is not yet passed to the runner
-
----
-
-## How It Works
-
-`ail` operates as a thin control plane sitting between the human and the underlying AI agent:
-
-```
-Human prompt
-    ↓
-ail (control plane)
-    ├── YAML parser (.ail.yaml)
-    ├── Pipeline executor
-    │     ├── step sequencing        ✓ implemented
-    │     ├── condition evaluation   ✗ not yet
-    │     ├── on_result branching    ✗ not yet
-    │     ├── HITL gate management   ✗ not yet
-    │     └── template variable resolution
-    └── TUI (terminal UI)
-            ↓  stdin/stdout (NDJSON)
-Underlying Agent (Claude CLI)
-```
-
-The agent is always a separate process. `ail` communicates with it over stdin/stdout — for Claude CLI, this is `--output-format stream-json`. This boundary is architectural: the agent can be upgraded, swapped, or replaced without touching `ail`'s pipeline logic.
-
----
-
-## Designed Features
-
-The following are designed and specced in their current form. They haven't been built yet, so the designs haven't been tested against reality. Each links to the relevant spec section.
+## Designed But Not Yet Built
 
 ### Pipeline Inheritance (`FROM`) — [spec §7](spec/core/s07-pipeline-inheritance.md)
-
-Intelligence is largely the capacity to recognize which existing knowledge structure applies and activate it — Schank and Abelson called these *scripts* in 1977. `ail`'s `FROM` inheritance is script instantiation in that precise sense: the payments team uses the org's base quality pipeline and adds a PCI check adjacent to the security audit. The base script is inherited unchanged. The instantiation supplies only what the domain requires.
-
-> *** TODO: add that this was inspired by Dockerfiles, not Schank and Abelson 😄 
 
 ```yaml
 FROM: /etc/ail/acme-engineering-base.yaml
@@ -237,15 +225,9 @@ pipeline:
   - disable: commit_checkpoint
 ```
 
-Step IDs in an inheritable pipeline are a public API. Treat renames as breaking changes.
-
-### Human-in-the-Loop Gates — [spec §13](spec/core/s13-hitl-gates.md)
-
-Explicit pause points that wait for human approval before continuing. Also fires automatically when `on_result` detects a mismatch, or when the agent requests permission for a tool not covered by the step's policy. HITL is not an error state — it is the pipeline's comparison circuit surfacing a detected mismatch.
+Inherit a base pipeline and surgically modify it. Step IDs in an inheritable pipeline are a public API — treat renames as breaking changes.
 
 ### Multi-Provider Routing — [spec §15](spec/core/s15-providers.md)
-
-Cognitive flexibility means routing individual steps to the right model for the task: a fast cheap model for triage, a frontier model where it matters. The pipeline allocates attention deliberately; so does `ail`.
 
 ```yaml
 providers:
@@ -263,11 +245,11 @@ pipeline:
     prompt: ./prompts/architectural-review.md
 ```
 
+Route individual steps to the right model for the task: a fast cheap model for triage, a frontier model where it matters.
+
 ### Skills — [spec §6](spec/core/s06-skills.md)
 
-A *skill* is a directory with a `SKILL.md` file — natural language instructions read by the LLM, not the runtime. Skills are loaded via `append_system_prompt:` entries — you can stack multiple skills in explicit order alongside inline instructions. `ail` supports the [Agent Skills open standard](https://agentskills.io): skills authored for Claude, Gemini CLI, Copilot, or Cursor are directly usable without modification.
-
-Note the deliberate departure from the standard: `ail` does not keep all skill metadata in context permanently. Surfacing a skill to the wrong step subjects it to the same attention degradation as everything else competing for the middle of the window. Selective context injection is the executive layer's job.
+A *skill* is a directory with a `SKILL.md` file — natural language instructions read by the LLM, not the runtime. `ail` supports the [Agent Skills open standard](https://agentskills.io): skills authored for Claude, Gemini CLI, Copilot, or Cursor are directly usable without modification.
 
 ---
 
@@ -276,11 +258,11 @@ Note the deliberate departure from the standard: `ail` does not keep all skill m
 `ail` is built in Rust, structured as two crates:
 
 ```
-ail-core/     — domain model, pipeline executor, runner adapters
-ail/          — binary entry point, TUI, CLI argument parsing
+ail-core/     — domain model, pipeline executor, runner adapters, template engine
+ail/          — binary entry point, CLI argument parsing, output formatting
 ```
 
-The crate boundary is enforced: `ail-core` has no knowledge of the TUI or CLI. Both communicate through typed domain events. This separation means the same core powers the interactive TUI, headless mode, and the planned `ail serve` HTTP API without duplication.
+The crate boundary is enforced: `ail-core` has no knowledge of the CLI. Both communicate through typed domain events. This separation means the same core powers the CLI, headless mode, and the planned `ail serve` HTTP API without duplication.
 
 For the full rationale — why Rust, the memory argument, runner adapter design, observability, and testing strategy — see [`ARCHITECTURE.md`](ARCHITECTURE.md).
 
@@ -288,21 +270,20 @@ For the full rationale — why Rust, the memory argument, runner adapter design,
 
 ## Roadmap
 
-> TODO: this is an LLM hallucination - fix or remove.  Need a proper plan & roadmap. Real next goal: finish the spec, code a `v-alpha` reference implementation, build a swanky UI for humans, run SWEBench Pro through a trained `ail` session and get awesome results! (or prove that I'm actually just experiencing chatgpt psychosis and this is all a hilarious waste of time. Either way...
-
 | Milestone | Focus |
 |---|---|
-| **v0.0.1** *(current)* | Parser, domain model, Claude CLI runner, step sequencing. Foundation only — no branching, conditions, or skills yet. |
-| **v0.1** | `on_result` branching, conditions, `pause_for_human`, template variables, provider routing. First end-to-end working pipeline. |
-| **v0.2** | `FROM` inheritance and hook operations, `skill:` field, `ail materialize`, `defaults:` block |
-| **v0.3** | `ail serve` with OpenAPI spec and Swagger UI, headless mode, additional runners (Aider) |
-| **Later** | Pipeline registry, safety guardrails, plugin extensibility, purpose-built web UI |
+| **v0.0.1** | Parser, domain model, Claude CLI runner, step sequencing |
+| **v0.1** | `on_result` branching, `context: shell:` steps, template variables, headless mode |
+| **v0.2** *(current)* | Transparent passthrough, lean output, `--show-work`, `--watch`, TUI removal, sub-pipelines, controlled execution |
+| **v0.3** | `skill:` step execution, `FROM` inheritance, additional conditions |
+| **v0.4** | `ail serve` HTTP API, additional runners, `ail log` / `ail logs` commands |
+| **v0.5** | Interactive REPL, pipeline registry, self-improving loops |
 
 ---
 
 ## Contributing
 
-`ail` is in active early development. The spec (`SPEC.md`) describes intended behaviour as currently hypothesised. Implementation follows the spec, but the spec is expected to change as implementation reveals what works in practice. If you find something in the spec that seems wrong or unworkable, opening an issue is as valuable as writing code.
+`ail` is in active development. The spec ([`spec/README.md`](spec/README.md)) describes intended behaviour — it is the primary published artifact. Implementation follows the spec, but the spec changes as reality pushes back.
 
 **Prerequisites:**
 - Rust stable toolchain (`rustup`)
@@ -318,34 +299,13 @@ cargo build
 cargo nextest run
 ```
 
-**Viewing the full spec coverage picture:**
+**Debugging runner issues:**
 
 ```bash
-cargo nextest run --no-fail-fast --run-ignored all
+RUST_LOG=ail_core::runner::claude=trace cargo run -- --once "hello" --pipeline demo/.ail.yaml
 ```
 
-**Debugging runner/provider issues:**
-
-Enable structured NDJSON trace logging to see every event the claude CLI emits:
-
-```bash
-# --once mode: logs to stderr
-RUST_LOG=ail_core::runner::claude=trace cargo run -- --once "hello" --pipeline demo/.include-review.yaml
-
-# TUI mode: logs to ~/.ail/tui.log
-RUST_LOG=ail_core::runner::claude=debug cargo run -- --pipeline demo/.include-review.yaml
-tail -f ~/.ail/tui.log | jq .
-```
-
-The `debug` level logs event types, content block types, and `result` event fields. The `trace` level adds every raw NDJSON line. This is the primary tool for diagnosing why a provider's responses aren't appearing or why a pipeline step isn't continuing.
-
-**Contributing a new feature:**
-1. Check [`spec/README.md`](spec/README.md) to find the relevant section and its implementation status
-2. Open an issue referencing the relevant spec section before beginning implementation work
-3. Write the `spec_coverage.rs` test first — it defines the acceptance criteria
-4. Implement until the test passes
-
-The most valuable contribution right now is completing `on_result` branching ([spec §5.4](spec/core/s05-step-specification.md)). It is the next feature in the execution path and unlocks everything else.
+The `debug` level logs event types and content block types. The `trace` level adds every raw NDJSON line.
 
 ---
 
