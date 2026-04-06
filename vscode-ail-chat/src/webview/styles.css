@@ -520,6 +520,99 @@ body {
   font-style: italic;
 }
 
+/* ── Ask-user question options ── */
+
+.ask-user-options {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ail-spacing-sm);
+  margin-top: var(--ail-spacing-xs);
+}
+
+/* Hide native radio/checkbox — <label> wrapper preserves click + a11y */
+.ask-user-option input[type="radio"],
+.ask-user-option input[type="checkbox"] {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+}
+
+.ask-user-option {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--ail-spacing-sm) var(--ail-spacing-md);
+  border: 1px solid var(--ail-card-border);
+  border-radius: var(--ail-radius);
+  background: var(--vscode-input-background);
+  cursor: pointer;
+  transition: border-color 0.15s ease, background-color 0.15s ease;
+}
+
+.ask-user-option:hover {
+  border-color: var(--vscode-focusBorder);
+  background: var(--vscode-list-hoverBackground, var(--vscode-input-background));
+}
+
+.ask-user-option:has(input:focus-visible) {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: 1px;
+}
+
+.ask-user-option-selected {
+  border-color: var(--vscode-focusBorder);
+  background: var(--vscode-list-activeSelectionBackground, var(--vscode-list-hoverBackground));
+  color: var(--vscode-list-activeSelectionForeground, inherit);
+}
+
+.ask-user-option-selected:hover {
+  border-color: var(--vscode-focusBorder);
+}
+
+.ask-user-option-label {
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.4;
+}
+
+.ask-user-option-description {
+  font-size: 11px;
+  color: var(--vscode-descriptionForeground);
+  line-height: 1.4;
+}
+
+.ask-user-option-selected .ask-user-option-description {
+  color: var(--vscode-list-activeSelectionForeground, var(--vscode-descriptionForeground));
+  opacity: 0.85;
+}
+
+.ask-user-freetext {
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--vscode-input-foreground);
+  background: var(--vscode-input-background);
+  border: 1px solid var(--vscode-input-border, var(--vscode-panel-border));
+  border-radius: var(--ail-radius);
+  padding: var(--ail-spacing-sm) var(--ail-spacing-md);
+  resize: vertical;
+  min-height: 60px;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.ask-user-freetext:focus {
+  outline: none;
+  border-color: var(--vscode-focusBorder);
+}
+
+.ask-user-freetext::placeholder {
+  color: var(--vscode-input-placeholderForeground);
+}
+
 /* ── Step progress (compact inline) ── */
 
 .step-progress {
