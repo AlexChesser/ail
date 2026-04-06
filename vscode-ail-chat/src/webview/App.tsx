@@ -542,7 +542,11 @@ type GroupedItem =
   | { kind: 'tool-group'; items: DisplayItem[]; allResolved: boolean };
 
 function isToolGroupable(item: DisplayItem): boolean {
-  return item.kind === 'tool-call' || item.kind === 'permission';
+  if (item.kind === 'tool-call') return true;
+  // Pending permissions stay standalone so the approval UI is always visible.
+  // Once resolved, they join the group on the next render.
+  if (item.kind === 'permission') return item.cardState === 'resolved';
+  return false;
 }
 
 function isGroupResolved(items: DisplayItem[]): boolean {
