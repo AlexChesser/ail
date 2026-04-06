@@ -3,6 +3,16 @@ version: "0.0.1"
 meta:
   name: "Oh My AIL — Sisyphus Intent Gate"
 
+defaults:
+  provider:
+    model: qwen3.5:0.8b
+    # note to use localhost in WSL you must first create a file called
+    # .wslconfig in your windows home directory and include the lines
+    #    [wsl2]
+    #    networkingMode=mirrored
+    base_url: http://localhost:11434
+    auth_token: ollama
+
 pipeline:
   # The invocation step IS the classifier. By declaring it explicitly, we skip
   # the implicit LLM call and send the user's prompt directly to Sisyphus.

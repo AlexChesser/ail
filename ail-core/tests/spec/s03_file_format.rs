@@ -32,7 +32,8 @@ mod s3_1_discovery {
         std::env::set_current_dir(tmp.path()).unwrap();
         let result = discover(None);
         std::env::set_current_dir(original_dir).unwrap();
-        assert_eq!(result, Some(PathBuf::from(".ail.yaml")));
+        // Discovery now returns absolute paths so parent() is always usable (SPEC §9).
+        assert_eq!(result, Some(ail_yaml));
     }
 }
 

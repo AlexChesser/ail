@@ -28,5 +28,16 @@ pub fn load(path: &Path) -> Result<Pipeline, AilError> {
         context: None,
     })?;
 
-    validate(dto, path.to_path_buf())
+    // Normalize to absolute so parent() always returns a usable directory (SPEC §9).
+    // Guards against bare filenames (e.g. `.ail.yaml`) where parent() returns "" instead
+    // of None — an empty base joined with "./relative" leaves the path unresolved.
+    let abs_source = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        std::env::current_dir()
+            .map(|cwd| cwd.join(path))
+            .unwrap_or_else(|_| path.to_path_buf())
+    };
+
+    validate(dto, abs_source)
 }

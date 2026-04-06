@@ -32,6 +32,8 @@ This means a pipeline at `/projects/foo/.ail.yaml` that references `./workflows/
 
 Template variables in paths (e.g. `{{ step.selector.response }}`) are resolved first; the result is then subject to the path resolution rules above.
 
+**Path normalization at load time:** `config::load` normalises every pipeline's source path to absolute before storing it. This ensures that even when a pipeline is discovered as a bare filename (e.g. auto-discovery returning `.ail.yaml`) or a relative path with no directory component, `parent()` always returns a usable absolute directory rather than an empty string. Discovery helpers also return absolute paths for the same reason.
+
 ### 9.3 Syntax
 
 ```yaml

@@ -10,16 +10,19 @@ pub fn discover(explicit: Option<PathBuf>) -> Option<PathBuf> {
         return Some(path);
     }
 
-    // 2. `.ail.yaml` in the current working directory.
-    let cwd_ail_yaml = PathBuf::from(".ail.yaml");
-    if cwd_ail_yaml.exists() {
-        return Some(cwd_ail_yaml);
-    }
+    // 2. `.ail.yaml` in the current working directory — return absolute path so
+    //    parent() in the executor always yields a usable directory (SPEC §9).
+    if let Ok(cwd) = std::env::current_dir() {
+        let candidate = cwd.join(".ail.yaml");
+        if candidate.exists() {
+            return Some(candidate);
+        }
 
-    // 3. `.ail/default.yaml` in the current working directory.
-    let cwd_default = PathBuf::from(".ail/default.yaml");
-    if cwd_default.exists() {
-        return Some(cwd_default);
+        // 3. `.ail/default.yaml` in the current working directory.
+        let candidate = cwd.join(".ail/default.yaml");
+        if candidate.exists() {
+            return Some(candidate);
+        }
     }
 
     // 4. `~/.config/ail/default.yaml`

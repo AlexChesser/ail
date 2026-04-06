@@ -673,6 +673,55 @@ fn on_result_pipeline_relative_path_resolves_relative_to_parent_pipeline_dir() {
     assert!(entries.len() >= 2, "Expected trigger + handler entries");
 }
 
+/// When a pipeline is discovered or loaded as a bare filename (no directory component),
+/// parent() returns "" — an empty base must not break sub-pipeline path resolution.
+/// This is the bare-filename variant of the §9 relative-path tests.
+#[test]
+fn sub_pipeline_relative_path_resolves_when_pipeline_loaded_as_bare_filename() {
+    let tmp = tempfile::tempdir().unwrap();
+
+    // Write child pipeline in a subdirectory.
+    let subdir = tmp.path().join("workflows");
+    std::fs::create_dir_all(&subdir).unwrap();
+    std::fs::write(
+        subdir.join("child.ail.yaml"),
+        "version: \"0.0.1\"\npipeline:\n  - id: inner\n    prompt: \"child ran\"\n",
+    )
+    .unwrap();
+
+    // Parent pipeline references child via ./workflows/child.ail.yaml.
+    std::fs::write(
+        tmp.path().join("parent.ail.yaml"),
+        "version: \"0.0.1\"\npipeline:\n  - id: call_child\n    pipeline: ./workflows/child.ail.yaml\n",
+    )
+    .unwrap();
+
+    // Change CWD to the temp dir so the pipeline can be loaded as a bare filename,
+    // simulating auto-discovery returning ".ail.yaml" (PathBuf::from("parent.ail.yaml")).
+    let orig = std::env::current_dir().unwrap();
+    std::env::set_current_dir(tmp.path()).unwrap();
+
+    // Load via bare filename — the root-cause scenario.
+    let pipeline = ail_core::config::load(std::path::Path::new("parent.ail.yaml")).unwrap();
+
+    // Change CWD away so relative paths fail if not resolved against the pipeline dir.
+    let unrelated = tempfile::tempdir().unwrap();
+    std::env::set_current_dir(unrelated.path()).unwrap();
+
+    let mut session = Session::new(pipeline, "hello".to_string());
+    let runner = StubRunner::new("ok");
+    let result = execute(&mut session, &runner);
+
+    std::env::set_current_dir(orig).unwrap();
+
+    assert!(
+        result.is_ok(),
+        "Bare-filename pipeline should resolve sub-pipeline paths correctly, got: {result:?}"
+    );
+    assert_eq!(session.turn_log.entries().len(), 1);
+    assert_eq!(session.turn_log.entries()[0].step_id, "call_child");
+}
+
 /// `prompt:` field on `on_result: pipeline:` branches parses from YAML correctly.
 #[test]
 fn pipeline_action_with_prompt_override_parses_from_yaml() {
