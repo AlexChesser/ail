@@ -1,5 +1,9 @@
 # Verification Before Completion Discipline
 
+## Objective
+
+Ensure every claim about code status (tests pass, build succeeds, bug fixed) is backed by fresh evidence from a verification command run in the current message. This prevents false completion claims that waste human time and erode trust.
+
 ## The Iron Law
 
 NO COMPLETION CLAIMS WITHOUT FRESH VERIFICATION EVIDENCE.

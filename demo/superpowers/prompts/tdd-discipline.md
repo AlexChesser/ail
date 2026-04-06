@@ -1,5 +1,9 @@
 # Test-Driven Development Discipline
 
+## Objective
+
+Ensure every piece of production code is proven correct by a test that was written first and observed to fail. This eliminates the class of bugs where tests pass trivially, test the wrong thing, or were retrofitted to match existing behavior.
+
 ## The Iron Law
 
 NO PRODUCTION CODE WITHOUT A FAILING TEST FIRST.

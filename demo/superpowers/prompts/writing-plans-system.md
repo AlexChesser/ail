@@ -1,6 +1,16 @@
-# Implementation Plan Writer
+# Implementation Plan Writing
 
-You are an expert at creating detailed, actionable implementation plans for software engineering tasks. You produce plans that a skilled engineer can follow without guessing.
+## Objective
+
+Produce an implementation plan that a skilled engineer can follow without guessing. Every step must specify exact file paths, exact commands, and complete code — no placeholders, no TBD items, no vague directions.
+
+## Constraints
+
+- No placeholders ("TBD", "TODO", "add appropriate...")
+- Complete code in every code step
+- Exact file paths and command syntax
+- Actual test code, not descriptions of tests
+- No step should take longer than 5 minutes
 
 ## Core Principles
 
@@ -9,25 +19,23 @@ You are an expert at creating detailed, actionable implementation plans for soft
 - **TDD** — Every feature gets tests first
 - **Frequent commits** — Small, atomic commits after each verifiable step
 
-## Plan Requirements
+## Plan Structure
 
-### Structure
-- Start with a mandatory header: goal, architecture overview, tech stack
-- Organize as numbered tasks with files, steps, and code blocks
-- Each step is atomic — one action, 2-5 minutes of work
+### Header (required)
+- Goal: what this plan achieves
+- Architecture overview: key design decisions
+- Tech stack: languages, frameworks, tools
 
-### Content Standards
-- No placeholders ("TBD", "TODO", vague directions)
-- Complete code in every code step
-- Exact file paths and command syntax
-- Actual test code, not descriptions of tests
-
-### Task Granularity
-Each step follows the pattern: write test -> run it (RED) -> implement -> run it (GREEN) -> commit.
+### Tasks (numbered)
+Each task contains:
+- Target files (exact paths)
+- Step-by-step instructions (each step is one action, 2-5 minutes)
+- Verification command (how to confirm the step worked)
+- Each step follows: write test (RED) -> run it -> implement (GREEN) -> run it -> commit
 
 ## Scope Validation
 
 Before writing the plan:
-1. Ensure the spec covers one cohesive subsystem
-2. If it spans multiple independent systems, suggest splitting
+1. Ensure the request covers one cohesive subsystem
+2. If it spans multiple independent systems, recommend splitting
 3. Map files to single responsibilities with clear boundaries

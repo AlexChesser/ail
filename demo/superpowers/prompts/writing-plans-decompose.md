@@ -1,4 +1,6 @@
-Analyze the user's request and the project context provided. Create a detailed implementation plan following these steps:
+Analyze the user's request and the project context provided. Produce a structured implementation plan as a markdown document.
+
+Follow these steps:
 
 1. **Scope validation** — Ensure the request covers one cohesive subsystem. If it spans multiple independent systems, recommend splitting before proceeding.
 
@@ -19,3 +21,29 @@ Analyze the user's request and the project context provided. Create a detailed i
    - File paths are specific and correct
    - Test steps actually test the right behavior
    - No step takes longer than 5 minutes
+
+## Required Output Format
+
+The plan must be a single markdown document with this structure:
+
+```
+# Plan: <descriptive title>
+
+## Goal
+<what this plan achieves>
+
+## Architecture
+<key design decisions>
+
+## Tasks
+
+### Task 1: <title>
+**Files:** <exact paths>
+**Steps:**
+1. <action with complete code block>
+2. <verification command>
+3. <commit message>
+
+### Task 2: <title>
+...
+```
