@@ -5,6 +5,19 @@
  * webview bundle doesn't import from Node-only code.
  */
 
+/** Describes one on_result branch for display in the detail panel. */
+export interface OnResultBranch {
+  matcher: string;
+  action: string;
+  prompt?: string;
+}
+
+/** Describes one append_system_prompt entry. */
+export interface AppendSystemPromptEntry {
+  type: 'text' | 'file' | 'shell';
+  value: string;
+}
+
 export interface StepNodeData {
   stepId: string;
   type: 'prompt' | 'context' | 'pipeline' | 'action' | 'skill' | 'invocation';
@@ -12,15 +25,33 @@ export interface StepNodeData {
   sourceFile: string;
   sourceLine: number;
   prompt?: string;
+  /** Whether the prompt value is a file path (starts with ./, ../, ~/, or /). */
+  promptIsFile?: boolean;
   systemPrompt?: string;
+  /** Whether system_prompt is a file path. */
+  systemPromptIsFile?: boolean;
   appendSystemPromptCount?: number;
+  /** Detailed append_system_prompt entries for display. */
+  appendSystemPromptEntries?: AppendSystemPromptEntry[];
   tools?: { allow: string[]; deny: string[] };
   model?: string;
   onResultCount?: number;
+  /** Detailed on_result branches for display. */
+  onResultBranches?: OnResultBranch[];
   subPipelinePath?: string;
   isSubPipelineGroup?: boolean;
   branchLabel?: string;
   childStepCount?: number;
+  /** For context steps: the shell command. */
+  shellCommand?: string;
+  /** For action steps: the action kind. */
+  actionKind?: string;
+  /** Step condition (always/never). */
+  condition?: string;
+  /** Whether this step resumes a previous session. */
+  resume?: boolean;
+  /** HITL gate message. */
+  message?: string;
 }
 
 export interface GraphNode {

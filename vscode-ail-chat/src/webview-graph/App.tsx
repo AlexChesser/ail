@@ -125,6 +125,31 @@ export function App(): React.ReactElement {
     [applyLayout]
   );
 
+  const allGroupIds = useMemo(() => {
+    return new Set(
+      fullGraphRef.current.nodes
+        .filter((n) => n.type === 'subPipelineGroup')
+        .map((n) => n.id)
+    );
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  }, [nodes]);
+
+  const expandAll = useCallback(() => {
+    const all = new Set(
+      fullGraphRef.current.nodes
+        .filter((n) => n.type === 'subPipelineGroup')
+        .map((n) => n.id)
+    );
+    setExpandedGroups(all);
+    applyLayout(fullGraphRef.current.nodes, fullGraphRef.current.edges, all);
+  }, [applyLayout]);
+
+  const collapseAll = useCallback(() => {
+    const none = new Set<string>();
+    setExpandedGroups(none);
+    applyLayout(fullGraphRef.current.nodes, fullGraphRef.current.edges, none);
+  }, [applyLayout]);
+
   const onNodeClick = useCallback(
     (_event: React.MouseEvent, node: Node) => {
       const data = node.data as unknown as StepNodeData;
@@ -152,6 +177,17 @@ export function App(): React.ReactElement {
     markerEnd: { type: MarkerType.ArrowClosed, width: 16, height: 16 },
   };
 
+  const toolbarBtnStyle: React.CSSProperties = {
+    background: 'var(--vscode-button-secondaryBackground)',
+    color: 'var(--vscode-button-secondaryForeground)',
+    border: 'none',
+    borderRadius: 3,
+    padding: '3px 8px',
+    fontSize: 11,
+    cursor: 'pointer',
+    fontFamily: 'var(--vscode-font-family)',
+  };
+
   // Memoize node types to include the toggle callback via wrapper.
   const nodeTypes: NodeTypes = useMemo(
     () => ({
@@ -173,24 +209,43 @@ export function App(): React.ReactElement {
   return (
     <div style={{ width: '100%', height: '100%', display: 'flex' }}>
       <div style={{ flex: 1, position: 'relative' }}>
-        {pipelineName && (
-          <div
-            style={{
-              position: 'absolute',
-              top: 8,
-              left: 8,
-              zIndex: 10,
-              padding: '4px 10px',
-              background: 'var(--vscode-badge-background)',
-              color: 'var(--vscode-badge-foreground)',
-              borderRadius: 4,
-              fontSize: 12,
-              fontWeight: 600,
-            }}
-          >
-            {pipelineName}
-          </div>
-        )}
+        {/* Toolbar */}
+        <div
+          style={{
+            position: 'absolute',
+            top: 8,
+            left: 8,
+            zIndex: 10,
+            display: 'flex',
+            gap: 6,
+            alignItems: 'center',
+          }}
+        >
+          {pipelineName && (
+            <div
+              style={{
+                padding: '4px 10px',
+                background: 'var(--vscode-badge-background)',
+                color: 'var(--vscode-badge-foreground)',
+                borderRadius: 4,
+                fontSize: 12,
+                fontWeight: 600,
+              }}
+            >
+              {pipelineName}
+            </div>
+          )}
+          {allGroupIds.size > 0 && (
+            <>
+              <button onClick={expandAll} style={toolbarBtnStyle} title="Expand all sub-pipelines">
+                Expand All
+              </button>
+              <button onClick={collapseAll} style={toolbarBtnStyle} title="Collapse all sub-pipelines">
+                Collapse All
+              </button>
+            </>
+          )}
+        </div>
         {errors.length > 0 && (
           <div
             style={{

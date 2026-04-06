@@ -9,36 +9,45 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 // ── Public types (shared with webview via postMessage) ──────────────────────
+// Canonical definitions live in webview-graph/types.ts (browser side).
+// We re-declare them here to avoid cross-bundle imports. Keep in sync.
+
+export interface OnResultBranch {
+  matcher: string;
+  action: string;
+  prompt?: string;
+}
+
+export interface AppendSystemPromptEntry {
+  type: 'text' | 'file' | 'shell';
+  value: string;
+}
 
 export interface StepNodeData {
   stepId: string;
   type: 'prompt' | 'context' | 'pipeline' | 'action' | 'skill' | 'invocation';
-  /** Pipeline meta.name or filename for sub-pipeline group headers. */
   pipelineName?: string;
-  /** Source .ail.yaml file path (absolute). */
   sourceFile: string;
-  /** 0-based line number of this step in the source file. */
   sourceLine: number;
-  /** Raw prompt text (may be long — truncated by the UI). */
   prompt?: string;
-  /** System prompt path or inline text. */
+  promptIsFile?: boolean;
   systemPrompt?: string;
-  /** append_system_prompt entries count. */
+  systemPromptIsFile?: boolean;
   appendSystemPromptCount?: number;
-  /** Tool policy summary. */
+  appendSystemPromptEntries?: AppendSystemPromptEntry[];
   tools?: { allow: string[]; deny: string[] };
-  /** Model override, if any. */
   model?: string;
-  /** on_result branch count (edges are created separately). */
   onResultCount?: number;
-  /** For sub-pipeline steps: the referenced pipeline path (raw, unresolved). */
+  onResultBranches?: OnResultBranch[];
   subPipelinePath?: string;
-  /** Whether this is a sub-pipeline group wrapper node. */
   isSubPipelineGroup?: boolean;
-  /** Human-readable label for on_result edge. */
   branchLabel?: string;
-  /** Step count inside a sub-pipeline group (for collapsed display). */
   childStepCount?: number;
+  shellCommand?: string;
+  actionKind?: string;
+  condition?: string;
+  resume?: boolean;
+  message?: string;
 }
 
 export interface GraphEdge {
@@ -81,12 +90,16 @@ interface RawStep {
   action?: string;
   context?: { shell?: string } | string;
   system_prompt?: string;
-  append_system_prompt?: unknown[];
+  append_system_prompt?: RawAppendEntry[];
   tools?: { allow?: string[]; deny?: string[] };
   model?: string;
   on_result?: RawOnResult[];
   message?: string;
+  condition?: string;
+  resume?: boolean;
 }
+
+type RawAppendEntry = string | { text?: string; file?: string; shell?: string };
 
 interface RawOnResult {
   contains?: string;
@@ -234,12 +247,25 @@ function processFile(
       sourceFile: absPath,
       sourceLine: line,
       prompt: step.prompt,
+      promptIsFile: isFilePath(step.prompt),
       systemPrompt: step.system_prompt,
+      systemPromptIsFile: isFilePath(step.system_prompt),
       appendSystemPromptCount: step.append_system_prompt?.length,
+      appendSystemPromptEntries: parseAppendEntries(step.append_system_prompt),
       tools: step.tools ? { allow: step.tools.allow ?? [], deny: step.tools.deny ?? [] } : undefined,
       model: step.model,
       onResultCount: step.on_result?.length,
+      onResultBranches: step.on_result?.map((b) => ({
+        matcher: describeMatcher(b),
+        action: b.action ?? 'continue',
+        prompt: b.prompt,
+      })),
       pipelineName,
+      shellCommand: extractShellCommand(step.context),
+      actionKind: step.action,
+      condition: step.condition,
+      resume: step.resume,
+      message: step.message,
     };
 
     // If this step is a sub-pipeline reference (body is `pipeline:`), note the path.
@@ -376,6 +402,30 @@ function resolveRelativePath(ref: string, baseDir: string): string {
   if (ref.startsWith('/')) return ref;
   if (ref.startsWith('~/')) return path.join(process.env.HOME ?? '~', ref.slice(2));
   return path.resolve(baseDir, ref);
+}
+
+function isFilePath(value: string | undefined): boolean {
+  if (!value) return false;
+  return /^(\.\/|\.\.\/|~\/|\/)/.test(value.trim());
+}
+
+function extractShellCommand(context: RawStep['context']): string | undefined {
+  if (!context) return undefined;
+  if (typeof context === 'string') return context;
+  return context.shell;
+}
+
+function parseAppendEntries(entries: RawAppendEntry[] | undefined): AppendSystemPromptEntry[] | undefined {
+  if (!entries || entries.length === 0) return undefined;
+  return entries.map((entry) => {
+    if (typeof entry === 'string') {
+      return { type: 'text' as const, value: entry };
+    }
+    if (entry.shell) return { type: 'shell' as const, value: entry.shell };
+    if (entry.file) return { type: 'file' as const, value: entry.file };
+    if (entry.text) return { type: 'text' as const, value: entry.text };
+    return { type: 'text' as const, value: JSON.stringify(entry) };
+  });
 }
 
 /**
