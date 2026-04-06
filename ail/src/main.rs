@@ -1,10 +1,11 @@
+mod ask_user_hook;
 mod ask_user_types;
 mod chat;
+mod check_permission_hook;
 mod cli;
 mod delete;
 mod log;
 mod logs;
-mod mcp_bridge;
 
 use ail_core::runner::claude::ClaudeInvokeExtensions;
 use ail_core::runner::factory::RunnerFactory;
@@ -639,177 +640,171 @@ fn main() {
                 OutputFormat::Json => run_once_json(&mut session, runner.as_ref(), &prompt),
             }
         }
-        (None, Some(cmd)) => {
-            match cmd {
-                Commands::Delete {
-                    run_id,
-                    force,
-                    json,
-                } => {
-                    if let Err(e) = delete::handle_delete(run_id, force, json) {
-                        eprintln!("{e}");
-                        std::process::exit(1);
-                    }
+        (None, Some(cmd)) => match cmd {
+            Commands::Delete {
+                run_id,
+                force,
+                json,
+            } => {
+                if let Err(e) = delete::handle_delete(run_id, force, json) {
+                    eprintln!("{e}");
+                    std::process::exit(1);
                 }
-                Commands::Logs {
-                    session,
-                    query,
-                    format,
-                    tail,
-                    limit,
-                } => {
-                    logs::run_logs_command(session, query, format, tail, limit);
-                }
-                Commands::Log {
-                    run_id,
-                    format,
-                    follow,
-                } => {
-                    log::run_log_command(run_id, &format, follow);
-                }
-                Commands::McpBridge { socket } => {
-                    // Spawned by Claude CLI to handle tool permission checks.
-                    // Does not initialise tracing — only stdout must be used for MCP protocol.
-                    mcp_bridge::run(&socket);
-                }
-                Commands::Materialize { pipeline, out } => {
-                    let pipeline_path = ail_core::config::discovery::discover(pipeline);
-                    let p = match pipeline_path {
-                        Some(ref path) => match ail_core::config::load(path) {
-                            Ok(p) => p,
-                            Err(e) => {
-                                eprintln!("{e}");
-                                std::process::exit(1);
-                            }
-                        },
-                        None => ail_core::config::domain::Pipeline::passthrough(),
-                    };
-                    let output = ail_core::materialize::materialize(&p);
-                    match out {
-                        Some(out_path) => {
-                            if let Err(e) = std::fs::write(&out_path, &output) {
-                                eprintln!("Failed to write to {}: {e}", out_path.display());
-                                std::process::exit(1);
-                            }
-                        }
-                        None => print!("{output}"),
-                    }
-                }
-                Commands::Validate {
-                    pipeline,
-                    output_format,
-                } => {
-                    let path = match ail_core::config::discovery::discover(pipeline) {
-                        Some(p) => p,
-                        None => {
-                            match output_format {
-                                OutputFormat::Json => {
-                                    println!(
-                                        "{}",
-                                        serde_json::json!({
-                                            "valid": false,
-                                            "errors": [{"message": "No pipeline file found.", "error_type": "ail:config/file-not-found"}]
-                                        })
-                                    );
-                                }
-                                OutputFormat::Text => {
-                                    eprintln!("No pipeline file found.");
-                                }
-                            }
+            }
+            Commands::Logs {
+                session,
+                query,
+                format,
+                tail,
+                limit,
+            } => {
+                logs::run_logs_command(session, query, format, tail, limit);
+            }
+            Commands::Log {
+                run_id,
+                format,
+                follow,
+            } => {
+                log::run_log_command(run_id, &format, follow);
+            }
+            Commands::AskUserHook { socket } => {
+                ask_user_hook::run(&socket);
+            }
+            Commands::CheckPermissionHook { socket } => {
+                check_permission_hook::run(&socket);
+            }
+            Commands::Materialize { pipeline, out } => {
+                let pipeline_path = ail_core::config::discovery::discover(pipeline);
+                let p = match pipeline_path {
+                    Some(ref path) => match ail_core::config::load(path) {
+                        Ok(p) => p,
+                        Err(e) => {
+                            eprintln!("{e}");
                             std::process::exit(1);
                         }
-                    };
-                    match ail_core::config::load(&path) {
-                        Ok(p) => match output_format {
-                            OutputFormat::Json => {
-                                println!(
-                                    "{}",
-                                    serde_json::json!({"valid": true, "step_count": p.steps.len()})
-                                );
-                            }
-                            OutputFormat::Text => {
-                                println!("Pipeline valid: {} step(s)", p.steps.len());
-                            }
-                        },
-                        Err(e) => match output_format {
+                    },
+                    None => ail_core::config::domain::Pipeline::passthrough(),
+                };
+                let output = ail_core::materialize::materialize(&p);
+                match out {
+                    Some(out_path) => {
+                        if let Err(e) = std::fs::write(&out_path, &output) {
+                            eprintln!("Failed to write to {}: {e}", out_path.display());
+                            std::process::exit(1);
+                        }
+                    }
+                    None => print!("{output}"),
+                }
+            }
+            Commands::Validate {
+                pipeline,
+                output_format,
+            } => {
+                let path = match ail_core::config::discovery::discover(pipeline) {
+                    Some(p) => p,
+                    None => {
+                        match output_format {
                             OutputFormat::Json => {
                                 println!(
                                     "{}",
                                     serde_json::json!({
                                         "valid": false,
-                                        "errors": [{"message": e.detail, "error_type": e.error_type}]
+                                        "errors": [{"message": "No pipeline file found.", "error_type": "ail:config/file-not-found"}]
                                     })
                                 );
-                                std::process::exit(1);
                             }
                             OutputFormat::Text => {
-                                eprintln!("{e}");
-                                std::process::exit(1);
+                                eprintln!("No pipeline file found.");
                             }
-                        },
+                        }
+                        std::process::exit(1);
                     }
+                };
+                match ail_core::config::load(&path) {
+                    Ok(p) => match output_format {
+                        OutputFormat::Json => {
+                            println!(
+                                "{}",
+                                serde_json::json!({"valid": true, "step_count": p.steps.len()})
+                            );
+                        }
+                        OutputFormat::Text => {
+                            println!("Pipeline valid: {} step(s)", p.steps.len());
+                        }
+                    },
+                    Err(e) => match output_format {
+                        OutputFormat::Json => {
+                            println!(
+                                "{}",
+                                serde_json::json!({
+                                    "valid": false,
+                                    "errors": [{"message": e.detail, "error_type": e.error_type}]
+                                })
+                            );
+                            std::process::exit(1);
+                        }
+                        OutputFormat::Text => {
+                            eprintln!("{e}");
+                            std::process::exit(1);
+                        }
+                    },
                 }
-                Commands::Chat {
-                    message,
-                    stream,
-                    pipeline,
-                    model,
-                    provider_url,
-                    provider_token,
-                } => {
-                    tracing::info!(
-                        event = "chat",
-                        one_shot = message.is_some(),
-                        stream = stream
-                    );
-                    let pipeline_path =
-                        ail_core::config::discovery::discover(cli.pipeline.or(pipeline));
-                    let discovered_pipeline = match pipeline_path {
-                        Some(ref path) => match ail_core::config::load(path) {
-                            Ok(p) => p,
-                            Err(e) => {
-                                eprintln!("{e}");
-                                std::process::exit(1);
-                            }
-                        },
-                        None => ail_core::config::domain::Pipeline::passthrough(),
-                    };
-                    let cli_provider = ail_core::config::domain::ProviderConfig {
-                        model,
-                        base_url: provider_url,
-                        auth_token: provider_token,
-                        input_cost_per_1k: None,
-                        output_cost_per_1k: None,
-                    };
-                    let runner = match RunnerFactory::build_default(true) {
-                        Ok(r) => r,
+            }
+            Commands::Chat {
+                message,
+                stream,
+                pipeline,
+                model,
+                provider_url,
+                provider_token,
+            } => {
+                tracing::info!(
+                    event = "chat",
+                    one_shot = message.is_some(),
+                    stream = stream
+                );
+                let pipeline_path =
+                    ail_core::config::discovery::discover(cli.pipeline.or(pipeline));
+                let discovered_pipeline = match pipeline_path {
+                    Some(ref path) => match ail_core::config::load(path) {
+                        Ok(p) => p,
                         Err(e) => {
                             eprintln!("{e}");
                             std::process::exit(1);
                         }
-                    };
-                    let result = if stream {
-                        chat::run_chat_stream(
-                            discovered_pipeline,
-                            cli_provider,
-                            runner.as_ref(),
-                            message,
-                        )
-                    } else {
-                        chat::run_chat_text(
-                            discovered_pipeline,
-                            cli_provider,
-                            runner.as_ref(),
-                            message,
-                        )
-                    };
-                    if let Err(e) = result {
-                        eprintln!("chat error: {e}");
+                    },
+                    None => ail_core::config::domain::Pipeline::passthrough(),
+                };
+                let cli_provider = ail_core::config::domain::ProviderConfig {
+                    model,
+                    base_url: provider_url,
+                    auth_token: provider_token,
+                    input_cost_per_1k: None,
+                    output_cost_per_1k: None,
+                };
+                let runner = match RunnerFactory::build_default(true) {
+                    Ok(r) => r,
+                    Err(e) => {
+                        eprintln!("{e}");
                         std::process::exit(1);
                     }
+                };
+                let result = if stream {
+                    chat::run_chat_stream(
+                        discovered_pipeline,
+                        cli_provider,
+                        runner.as_ref(),
+                        message,
+                    )
+                } else {
+                    chat::run_chat_text(discovered_pipeline, cli_provider, runner.as_ref(), message)
+                };
+                if let Err(e) = result {
+                    eprintln!("chat error: {e}");
+                    std::process::exit(1);
                 }
             }
-        }
+        },
         (None, None) => {
             // No prompt and no subcommand — print usage hint and exit.
             eprintln!("Usage: ail <PROMPT> [OPTIONS]");

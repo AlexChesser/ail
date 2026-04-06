@@ -395,31 +395,45 @@ impl ClaudeCliRunner {
         }
     }
 
-    /// Write a temporary MCP config file that points to `ail mcp-bridge` for permission handling.
+    /// Write a temporary Claude Code settings file that registers PreToolUse hooks for
+    /// AskUserQuestion and tool permission checks.
     ///
-    /// Returns the path to the config file; the caller is responsible for deleting it.
-    fn write_mcp_config(socket_address: &str) -> Result<PathBuf, AilError> {
+    /// Two hooks are registered:
+    /// - `AskUserQuestion` matcher → `ail ask-user-hook --socket <addr>`
+    /// - `.*` matcher → `ail check-permission-hook --socket <addr>`
+    ///
+    /// Both hooks connect to the same Unix socket created by `spawn_permission_listener`.
+    /// Returns the path to the settings file; the caller is responsible for deleting it.
+    fn write_hook_settings(socket_address: &str) -> Result<PathBuf, AilError> {
         let ail_bin = std::env::current_exe()
             .unwrap_or_else(|_| PathBuf::from("ail"))
             .to_string_lossy()
             .to_string();
-        let config_path =
-            std::env::temp_dir().join(format!("ail-mcp-config-{}.json", uuid::Uuid::new_v4()));
-        let config = serde_json::json!({
-            "mcpServers": {
-                "ail-permission": {
-                    "command": ail_bin,
-                    "args": ["mcp-bridge", "--socket", socket_address]
-                }
+        let settings_path =
+            std::env::temp_dir().join(format!("ail-settings-{}.json", uuid::Uuid::new_v4()));
+        let ask_user_cmd = format!("{ail_bin} ask-user-hook --socket {socket_address}");
+        let check_perm_cmd = format!("{ail_bin} check-permission-hook --socket {socket_address}");
+        let settings = serde_json::json!({
+            "hooks": {
+                "PreToolUse": [
+                    {
+                        "matcher": "AskUserQuestion",
+                        "hooks": [{ "type": "command", "command": ask_user_cmd }]
+                    },
+                    {
+                        "matcher": ".*",
+                        "hooks": [{ "type": "command", "command": check_perm_cmd }]
+                    }
+                ]
             }
         });
-        std::fs::write(&config_path, config.to_string()).map_err(|e| AilError {
+        std::fs::write(&settings_path, settings.to_string()).map_err(|e| AilError {
             error_type: error_types::RUNNER_INVOCATION_FAILED,
-            title: "Failed to write MCP config",
-            detail: format!("Could not write {}: {e}", config_path.display()),
+            title: "Failed to write hook settings",
+            detail: format!("Could not write {}: {e}", settings_path.display()),
             context: None,
         })?;
-        Ok(config_path)
+        Ok(settings_path)
     }
 
     /// Format Claude's `tool_input` JSON into a human-readable detail string for display
@@ -537,7 +551,7 @@ impl ClaudeCliRunner {
     /// from `options.extensions` as `ClaudeInvokeExtensions`. `invoke_streaming` sets
     /// `permission_socket` in the extensions before calling this method.
     ///
-    /// Returns `(Child, Option<mcp_config_path_to_clean_up>)`.
+    /// Returns `(Child, Option<hook_settings_path_to_clean_up>)`.
     fn spawn_process(
         &self,
         prompt: &str,
@@ -595,45 +609,21 @@ impl ClaudeCliRunner {
             args.push(entry.clone());
         }
 
-        // Permission HITL: configure MCP bridge when a permission socket is provided and we
-        // are not in headless mode. The --permission-prompt-tool mechanism is internal to
-        // Claude CLI — the model never sees the bridge tool in its tool list — so this works
-        // with both the default Anthropic API and custom providers (Ollama, Bedrock, etc.).
-        // The bridge's socket-failure fallback (auto-deny in mcp_bridge.rs) provides a
-        // safety net if the connection fails.
+        // Permission HITL: register PreToolUse hooks when a permission socket is provided and
+        // we are not in headless mode. The hooks intercept AskUserQuestion and all other tool
+        // calls before they execute — the model never sees the hooks — so this works with both
+        // the default Anthropic API and custom providers (Ollama, Bedrock, etc.).
         //
-        // When the bridge is active we also:
-        // - Disallow the native AskUserQuestion tool so all models (including non-Claude) use
-        //   the lenient mcp__ail-permission__ail_ask_user tool instead. Claude CLI validates
-        //   AskUserQuestion inputs against a strict schema (requires `description` on options)
-        //   before the permission intercept fires, so malformed calls from any model would be
-        //   rejected before AIL ever sees them. The custom MCP tool bypasses that validation
-        //   and normalises whatever format the model produces.
-        // - Append a system prompt instruction pointing models to the custom tool.
-        let mcp_config_path = if let Some(socket) = permission_socket {
+        // Two hooks are registered in the temp settings file:
+        // - AskUserQuestion: normalises the question payload and forwards to the socket,
+        //   injecting the user's answer back via updatedInput.answers.
+        // - .*: forwards all other tool uses to the socket for allow/deny decisions.
+        let hook_settings_path = if let Some(socket) = permission_socket {
             if !self.headless {
-                let config_path = Self::write_mcp_config(socket)?; // socket is &str
-                args.push("--mcp-config".into());
-                args.push(config_path.to_string_lossy().to_string());
-                args.push("--strict-mcp-config".into());
-                args.push("--permission-prompt-tool".into());
-                // Claude CLI registers MCP tools as mcp__<server_name>__<tool_name>.
-                // Must use the fully qualified name, not the bare tool name.
-                args.push("mcp__ail-permission__ail_check_permission".into());
-                // Disallow the strict native tool in favour of the lenient MCP replacement.
-                args.push("--disallowedTools".into());
-                args.push("AskUserQuestion".into());
-                // Guide the model toward the custom tool.
-                args.push("--append-system-prompt".into());
-                args.push(
-                    "When you need to ask the user a question, use the \
-                     mcp__ail-permission__ail_ask_user tool instead of AskUserQuestion. \
-                     Pass your question as the 'question' field. The 'options' field accepts \
-                     an array of strings or {label, description} objects; 'description' is \
-                     optional. 'header' and 'multiSelect' are also optional."
-                        .into(),
-                );
-                Some(config_path)
+                let settings_path = Self::write_hook_settings(socket)?;
+                args.push("--settings".into());
+                args.push(settings_path.to_string_lossy().to_string());
+                Some(settings_path)
             } else {
                 None
             }
@@ -662,7 +652,7 @@ impl ClaudeCliRunner {
                 detail: format!("Could not start '{}': {e}", self.claude_bin),
                 context: None,
             })?;
-        Ok((child, mcp_config_path))
+        Ok((child, hook_settings_path))
     }
 }
 
@@ -685,7 +675,7 @@ impl Runner for ClaudeCliRunner {
     }
 
     fn invoke(&self, prompt: &str, options: InvokeOptions) -> Result<RunResult, AilError> {
-        let (mut child, mcp_config) = self.spawn_process(prompt, &options)?;
+        let (mut child, hook_settings) = self.spawn_process(prompt, &options)?;
 
         let stdout = child.stdout.take().expect("stdout was piped");
         let stderr = child.stderr.take().expect("stderr was piped");
@@ -806,7 +796,7 @@ impl Runner for ClaudeCliRunner {
             context: None,
         })?;
 
-        if let Some(path) = mcp_config {
+        if let Some(path) = hook_settings {
             let _ = std::fs::remove_file(path);
         }
         Ok(RunResult {
@@ -861,7 +851,7 @@ impl Runner for ClaudeCliRunner {
         let permission_socket_path = ClaudeInvokeExtensions::from_options(&options)
             .and_then(|e| e.permission_socket.clone());
 
-        let (mut child, mcp_config) = self.spawn_process(prompt, &options)?;
+        let (mut child, hook_settings) = self.spawn_process(prompt, &options)?;
 
         let stdout = child.stdout.take().expect("stdout was piped");
         let stderr = child.stderr.take().expect("stderr was piped");
@@ -1013,7 +1003,7 @@ impl Runner for ClaudeCliRunner {
         if was_cancelled {
             tracing::info!("runner invocation cancelled by user");
             let _ = tx.send(RunnerEvent::Error("cancelled".to_string()));
-            if let Some(path) = mcp_config {
+            if let Some(path) = hook_settings {
                 let _ = std::fs::remove_file(path);
             }
             if let Some(ref addr) = permission_socket_path {
@@ -1064,7 +1054,7 @@ impl Runner for ClaudeCliRunner {
             context: None,
         })?;
 
-        if let Some(path) = mcp_config {
+        if let Some(path) = hook_settings {
             let _ = std::fs::remove_file(path);
         }
         if let Some(ref addr) = permission_socket_path {

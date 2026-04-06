@@ -129,10 +129,18 @@ pub enum Commands {
         #[arg(long)]
         follow: bool,
     },
-    /// Internal: MCP permission bridge. Spawned by Claude CLI to handle tool permission checks.
+    /// Internal: PreToolUse hook for AskUserQuestion. Spawned by Claude CLI.
     /// Not intended for direct use.
-    #[command(name = "mcp-bridge", hide = true)]
-    McpBridge {
+    #[command(name = "ask-user-hook", hide = true)]
+    AskUserHook {
+        /// Path to the Unix domain socket where the main ail process is listening.
+        #[arg(long)]
+        socket: String,
+    },
+    /// Internal: PreToolUse hook for tool permission checks. Spawned by Claude CLI.
+    /// Not intended for direct use.
+    #[command(name = "check-permission-hook", hide = true)]
+    CheckPermissionHook {
         /// Path to the Unix domain socket where the main ail process is listening.
         #[arg(long)]
         socket: String,
