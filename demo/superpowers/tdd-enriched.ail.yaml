@@ -1,0 +1,68 @@
+version: "0.0.1"
+
+meta:
+  name: "Superpowers — TDD-Enriched Implementation"
+  # Demonstrates Category A disciplines (TDD + verification) applied as
+  # append_system_prompt content on pipeline steps — not as separate steps.
+  #
+  # This is the correct way to integrate behavioral disciplines into pipelines:
+  # the LLM needs holistic context to apply TDD throughout its work, so we
+  # inject the discipline into each step's system prompt rather than breaking
+  # the discipline into separate pipeline phases.
+  #
+  # Status: Fully expressible with current AIL features.
+
+pipeline:
+  # Phase 1: Understand the request
+  - id: gather_context
+    context:
+      shell: |
+        echo "=== Test Framework ==="
+        find . -maxdepth 3 -type f -name '*test*' -o -name '*spec*' | head -10
+        echo ""
+        echo "=== Source Structure ==="
+        find . -maxdepth 3 -type f \( -name '*.rs' -o -name '*.ts' -o -name '*.py' \) | head -20
+
+  # Phase 2: Implement with TDD + Verification disciplines injected
+  - id: implement
+    prompt: |
+      Implement the following request using strict TDD methodology.
+
+      ## Request
+      {{ step.invocation.prompt }}
+
+      ## Project Context
+      {{ step.gather_context.stdout }}
+
+      Follow the RED-GREEN-REFACTOR cycle exactly. Do not write any
+      production code without a failing test first.
+    append_system_prompt:
+      - file: ./prompts/tdd-discipline.md
+      - file: ./prompts/verification-discipline.md
+    tools:
+      allow:
+        - Read
+        - Edit
+        - Write
+        - Bash
+        - Glob
+        - Grep
+
+  # Phase 3: Final verification (also with verification discipline)
+  - id: final_check
+    resume: true
+    prompt: |
+      Run the full test suite and verify everything passes.
+      Run the linter and verify zero warnings.
+      Report the actual results with evidence.
+    append_system_prompt:
+      - file: ./prompts/verification-discipline.md
+    tools:
+      allow:
+        - Bash
+        - Read
+        - Glob
+        - Grep
+      deny:
+        - Edit
+        - Write

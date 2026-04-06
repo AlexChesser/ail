@@ -1,0 +1,97 @@
+version: "0.0.1"
+
+meta:
+  name: "Superpowers — Subagent-Driven Development"
+  # Based on: https://github.com/obra/superpowers/tree/main/skills/subagent-driven-development
+  # Category B workflow: per-task subagent dispatch with two-stage review.
+  #
+  # STATUS: Mostly PROPOSED. This pipeline requires two features that are not yet
+  # available in AIL:
+  #
+  # 1. LOOPING — Iterating over tasks from a plan, dispatching a sub-pipeline for
+  #    each task. Not yet specced. See: GitHub issue (looping construct proposal).
+  #
+  # 2. PARALLEL EXECUTION — The superpowers version dispatches implementation
+  #    subagents concurrently. AIL's parallel: block is specced (SPEC S21) but
+  #    not yet implemented. See: GitHub issue (parallel execution design).
+  #
+  # This file demonstrates what the pipeline WOULD look like once these features
+  # exist. Steps marked PROPOSED cannot run today.
+
+pipeline:
+  # Phase 1: Review the plan (works today)
+  - id: review_plan
+    prompt: |
+      Review this implementation plan for subagent execution:
+
+      {{ step.invocation.prompt }}
+
+      Verify:
+      - Tasks are mostly independent (suitable for per-task dispatch)
+      - Each task has clear acceptance criteria
+      - Dependencies between tasks are identified
+
+      If tasks are tightly coupled, recommend sequential execution instead.
+    tools:
+      allow:
+        - Read
+        - Glob
+        - Grep
+      deny:
+        - Edit
+        - Write
+        - Bash
+
+  # Phase 2: Execute each task via subagent dispatch
+  #
+  # PROPOSED: iterate/for_each construct (not yet specced in AIL)
+  # The intended behavior is:
+  #
+  #   - id: per_task_execution
+  #     iterate:
+  #       over: "{{ step.review_plan.response | parse_tasks }}"
+  #       as: task
+  #     pipeline: ./subagent-task.ail.yaml
+  #     prompt: "{{ task }}"
+  #
+  # Where subagent-task.ail.yaml would contain:
+  #   1. Implementation step (subagent with full tools)
+  #   2. Spec compliance review (sub-pipeline, read-only tools)
+  #   3. Code quality review (sub-pipeline, read-only tools)
+  #   4. Fix loop if issues found
+  #
+  # Without looping, we fall back to batch execution:
+  - id: batch_execute
+    prompt: |
+      Execute each task from the approved plan sequentially.
+
+      For EACH task:
+      1. Implement the task fully
+      2. Self-review against the spec (does it match requirements exactly?)
+      3. Self-review for code quality (patterns, error handling, tests)
+      4. Fix any issues found in review
+
+      Do not proceed to the next task until the current one passes both reviews.
+    append_system_prompt:
+      - file: ./prompts/tdd-discipline.md
+      - file: ./prompts/verification-discipline.md
+    tools:
+      allow:
+        - Read
+        - Edit
+        - Write
+        - Bash
+        - Glob
+        - Grep
+
+  # Phase 3: Final review of entire implementation (works today as sub-pipeline)
+  - id: final_review
+    pipeline: ./code-review-sub.ail.yaml
+    prompt: |
+      Review the ENTIRE implementation across all tasks.
+
+      Check for:
+      - Cross-task integration issues
+      - Inconsistent patterns between tasks
+      - Missing integration tests
+      - Unintended side effects between changes

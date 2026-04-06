@@ -1,0 +1,53 @@
+version: "0.0.1"
+
+meta:
+  name: "Superpowers — Code Review"
+  # Based on: https://github.com/obra/superpowers/tree/main/skills/requesting-code-review
+  # Category B workflow: gather diff -> dispatch isolated reviewer -> triage.
+  # Status: Fully expressible with current AIL features.
+  # The sub-pipeline provides context isolation (reviewer can't see implementer's session).
+
+pipeline:
+  # Phase 1: Gather the diff (deterministic — zero LLM tokens)
+  - id: gather_diff
+    context:
+      shell: "git diff HEAD~1..HEAD"
+    on_result:
+      - contains: ""
+        action: continue
+
+  # Phase 2: Gather commit context (deterministic)
+  - id: gather_commits
+    context:
+      shell: "git log --oneline -5 && echo '---' && git diff --stat HEAD~1..HEAD"
+
+  # Phase 3: Dispatch isolated code review sub-pipeline
+  # The reviewer sees only the diff and commit context — not the implementer's session.
+  - id: review
+    pipeline: ./code-review-sub.ail.yaml
+    prompt: |
+      ## Commit Context
+      {{ step.gather_commits.stdout }}
+
+      ## Full Diff
+      {{ step.gather_diff.stdout }}
+
+  # Phase 4: Triage the review results
+  - id: triage
+    prompt: |
+      A code reviewer has provided the following feedback:
+
+      {{ step.review.response }}
+
+      Triage the findings by severity:
+      1. Critical issues — list specific actions needed
+      2. Important issues — list specific actions needed
+      3. Suggestions — note for future consideration
+
+      If the review says APPROVED with no critical/important issues,
+      confirm the code is ready to merge.
+    on_result:
+      - contains: "Critical"
+        action: pause_for_human
+      - always: true
+        action: continue

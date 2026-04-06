@@ -1,0 +1,33 @@
+version: "0.0.1"
+
+meta:
+  name: "Superpowers — Code Review Sub-Pipeline"
+  # This sub-pipeline runs in isolation from the implementer's session.
+  # The reviewer has no access to the implementer's context — only what
+  # is passed via the invocation prompt (the diff).
+
+pipeline:
+  - id: review
+    system_prompt: ./prompts/code-reviewer-system.md
+    prompt: |
+      Perform a thorough code review of the following changes.
+
+      Classify every finding as:
+      - **Critical** (must fix before merge)
+      - **Important** (should fix before merge)
+      - **Suggestion** (nice to have)
+
+      If the code is sound, say "APPROVED" clearly.
+
+      ## Changes to Review
+
+      {{ step.invocation.prompt }}
+    tools:
+      allow:
+        - Read
+        - Glob
+        - Grep
+      deny:
+        - Edit
+        - Write
+        - Bash

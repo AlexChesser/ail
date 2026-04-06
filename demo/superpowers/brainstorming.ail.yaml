@@ -1,0 +1,84 @@
+version: "0.0.1"
+
+meta:
+  name: "Superpowers — Brainstorming"
+  # Based on: https://github.com/obra/superpowers/tree/main/skills/brainstorming
+  # Category B workflow: explore -> clarify -> propose -> design -> spec -> handoff.
+  # Status: Partially expressible. pause_for_human is a no-op in --once mode (v0.2).
+  # Full interactivity requires REPL mode (v0.5).
+
+pipeline:
+  # Phase 1: Explore project context (deterministic — zero LLM tokens)
+  - id: explore_context
+    context:
+      shell: |
+        echo "=== Project Structure ==="
+        find . -maxdepth 3 -type f \( -name '*.md' -o -name '*.yaml' -o -name '*.toml' \) | head -20
+        echo ""
+        echo "=== Recent Commits ==="
+        git log --oneline -10 2>/dev/null || echo "(not a git repo)"
+        echo ""
+        echo "=== Source Overview ==="
+        find . -maxdepth 2 -type d | head -20
+
+  # Phase 2: Propose 2-3 approaches with trade-offs
+  - id: propose_approaches
+    system_prompt: ./prompts/brainstorming-system.md
+    prompt: |
+      The user wants to brainstorm the following idea:
+
+      {{ step.invocation.prompt }}
+
+      Project context:
+      {{ step.explore_context.stdout }}
+
+      Propose 2-3 approaches with trade-offs for each.
+      Include a recommendation with reasoning.
+      Ask ONE clarifying question if needed (multiple-choice preferred).
+    tools:
+      allow:
+        - Read
+        - Glob
+        - Grep
+      deny:
+        - Edit
+        - Write
+        - Bash
+
+  # Phase 3: Human reviews approaches and picks one
+  # PROPOSED: pause_for_human is a no-op in --once mode (known constraint, v0.2).
+  # This step becomes functional in REPL mode (v0.5).
+  - id: human_selects_approach
+    action: pause_for_human
+    message: "Review the proposed approaches above and select one (or ask for modifications)."
+
+  # Phase 4: Write design spec based on selected approach
+  - id: write_spec
+    system_prompt: ./prompts/brainstorming-system.md
+    prompt: |
+      Based on the approach the user selected, write a complete design specification.
+
+      Break the design into sections:
+      1. Problem statement
+      2. Chosen approach with rationale
+      3. Component breakdown with responsibilities
+      4. Data flow and interface contracts
+      5. Edge cases and error handling
+      6. Testing strategy
+
+      Present each section for incremental validation.
+    resume: true
+    tools:
+      allow:
+        - Read
+        - Glob
+        - Grep
+        - Write
+      deny:
+        - Edit
+        - Bash
+
+  # Phase 5: Hand off to planning pipeline
+  - id: handoff_to_planning
+    pipeline: ./writing-plans.ail.yaml
+    prompt: "Create an implementation plan for this design:\n\n{{ step.write_spec.response }}"

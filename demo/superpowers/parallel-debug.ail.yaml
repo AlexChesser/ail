@@ -1,0 +1,122 @@
+version: "0.0.1"
+
+meta:
+  name: "Superpowers — Parallel Debugging"
+  # Based on: https://github.com/obra/superpowers/tree/main/skills/dispatching-parallel-agents
+  # Category B workflow: dispatch one agent per independent problem domain.
+  #
+  # STATUS: Mostly PROPOSED. This pipeline requires parallel step execution,
+  # which is specced as a planned extension (SPEC S21) but not yet implemented.
+  # See: GitHub issue (parallel execution design).
+  #
+  # The superpowers version dispatches independent debugging agents concurrently,
+  # each scoped to one test file or subsystem. This file demonstrates what the
+  # pipeline WOULD look like once parallel: blocks are available.
+
+pipeline:
+  # Phase 1: Identify independent failure domains (works today)
+  - id: identify_failures
+    context:
+      shell: "cargo nextest run 2>&1 || true"
+
+  # Phase 2: Classify failures into independent domains
+  - id: classify_domains
+    prompt: |
+      Analyze the test failures below and classify them into independent problem domains.
+
+      Test output:
+      {{ step.identify_failures.result }}
+
+      For each domain, identify:
+      1. Which test files / test cases are affected
+      2. Whether the failures are likely related or independent
+      3. What subsystem each failure belongs to
+
+      Group independent failures that can be investigated concurrently.
+      If failures are interconnected, note that they must be investigated sequentially.
+
+      Output format:
+      DOMAIN 1: <description>
+        Files: <list>
+        Tests: <list>
+      DOMAIN 2: <description>
+        Files: <list>
+        Tests: <list>
+    tools:
+      allow:
+        - Read
+        - Glob
+        - Grep
+      deny:
+        - Edit
+        - Write
+        - Bash
+
+  # Phase 3: Dispatch parallel investigations
+  #
+  # PROPOSED: parallel: block (specced in SPEC S21, not yet implemented)
+  # The intended behavior is:
+  #
+  #   - id: parallel_investigation
+  #     parallel:
+  #       - id: domain_1
+  #         pipeline: ./debug-domain.ail.yaml
+  #         prompt: "Investigate domain 1: {{ step.classify_domains.response | extract_domain(1) }}"
+  #       - id: domain_2
+  #         pipeline: ./debug-domain.ail.yaml
+  #         prompt: "Investigate domain 2: {{ step.classify_domains.response | extract_domain(2) }}"
+  #       - id: domain_3
+  #         pipeline: ./debug-domain.ail.yaml
+  #         prompt: "Investigate domain 3: {{ step.classify_domains.response | extract_domain(3) }}"
+  #     synthesize:
+  #       prompt: "Combine investigation results and check for conflicts."
+  #
+  # Without parallel execution, we investigate sequentially:
+  - id: sequential_investigation
+    prompt: |
+      Investigate each failure domain identified above, one at a time.
+
+      For each domain:
+      1. Read the failing test to understand expected behavior
+      2. Read the implementation code
+      3. Identify the root cause (do NOT guess — find evidence)
+      4. Propose a minimal fix
+      5. Verify the fix doesn't conflict with other domains
+
+      Investigation domains:
+      {{ step.classify_domains.response }}
+    append_system_prompt:
+      - file: ./prompts/verification-discipline.md
+    tools:
+      allow:
+        - Read
+        - Glob
+        - Grep
+        - Bash
+      deny:
+        - Edit
+        - Write
+
+  # Phase 4: Apply fixes and verify (works today)
+  - id: apply_fixes
+    prompt: |
+      Apply the fixes identified for each failure domain.
+
+      Investigation results:
+      {{ step.sequential_investigation.response }}
+
+      After applying each fix:
+      1. Run the specific failing test to confirm it passes
+      2. Run the full test suite to check for regressions
+      3. Report actual results with evidence
+    append_system_prompt:
+      - file: ./prompts/tdd-discipline.md
+      - file: ./prompts/verification-discipline.md
+    tools:
+      allow:
+        - Read
+        - Edit
+        - Write
+        - Bash
+        - Glob
+        - Grep

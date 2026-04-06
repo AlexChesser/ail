@@ -1,0 +1,109 @@
+version: "0.0.1"
+
+meta:
+  name: "Superpowers — Executing Plans"
+  # Based on: https://github.com/obra/superpowers/tree/main/skills/executing-plans
+  # Category B workflow: review plan -> execute tasks -> verify -> finish.
+  #
+  # LIMITATION: The full superpowers version iterates over tasks in a plan,
+  # executing and verifying each one. AIL currently has no looping construct,
+  # so this pipeline handles the plan as a single batch rather than per-task.
+  # See: demo/superpowers/PROPOSED-ISSUES.md (Issue 1: Looping construct proposal)
+  #
+  # Status: Partially expressible. Looping/iteration is PROPOSED (not yet specced).
+
+pipeline:
+  # Phase 1: Review the plan critically before executing
+  - id: review_plan
+    prompt: |
+      Review this implementation plan critically before executing:
+
+      {{ step.invocation.prompt }}
+
+      Check for:
+      - Missing dependencies or prerequisites
+      - Unclear or ambiguous instructions
+      - Steps that conflict with each other
+      - Missing verification steps
+
+      If you find concerns, list them clearly.
+      If the plan is sound, say "PLAN APPROVED" and proceed.
+    append_system_prompt:
+      - file: ./prompts/verification-discipline.md
+    tools:
+      allow:
+        - Read
+        - Glob
+        - Grep
+      deny:
+        - Edit
+        - Write
+        - Bash
+    on_result:
+      - contains: "PLAN APPROVED"
+        action: continue
+      - always: true
+        action: pause_for_human
+        # Plan has concerns — human must review before execution.
+
+  # Phase 2: Execute the plan
+  # NOTE: In the full superpowers version, this would iterate over each task
+  # with per-task verification. Without a looping construct, we execute as a batch.
+  #
+  # PROPOSED: A looping construct (e.g., `for_each:` or `iterate:`) would allow:
+  #   - id: execute_task
+  #     iterate:
+  #       over: "{{ step.review_plan.response | parse_tasks }}"
+  #       as: task
+  #     prompt: "Execute this task: {{ task }}"
+  #     # ... per-task verification sub-pipeline
+  #
+  # This is not yet specced in AIL. See GitHub issue for the proposal.
+  - id: execute_all_tasks
+    resume: true
+    prompt: |
+      Execute the approved plan. For each task:
+      1. Mark it as in-progress
+      2. Follow the steps precisely — do not improvise
+      3. Run verification commands after each task
+      4. Mark it as complete
+
+      CRITICAL SAFETY RULES:
+      - Stop immediately when hitting blockers, missing dependencies, or unclear instructions
+      - Never force through repeated verification failures
+      - Request clarification rather than proceeding with assumptions
+    append_system_prompt:
+      - file: ./prompts/tdd-discipline.md
+      - file: ./prompts/verification-discipline.md
+    tools:
+      allow:
+        - Read
+        - Edit
+        - Write
+        - Bash
+        - Glob
+        - Grep
+
+  # Phase 3: Final verification
+  - id: final_verification
+    resume: true
+    prompt: |
+      All tasks from the plan should now be complete.
+
+      Run the full test suite, linter, and build to verify everything works.
+      Report actual results with evidence — no claims without verification.
+    append_system_prompt:
+      - file: ./prompts/verification-discipline.md
+    tools:
+      allow:
+        - Bash
+        - Read
+        - Glob
+        - Grep
+      deny:
+        - Edit
+        - Write
+
+  # Phase 4: Hand off to branch finishing
+  - id: finish_branch
+    pipeline: ./finishing-branch.ail.yaml

@@ -1,0 +1,66 @@
+version: "0.0.1"
+
+meta:
+  name: "Superpowers — Git Worktree Setup"
+  # Based on: https://github.com/obra/superpowers/tree/main/skills/using-git-worktrees
+  # Category B workflow: mostly deterministic shell commands.
+  # Status: Fully expressible with current AIL features.
+
+pipeline:
+  # Phase 1: Validate git state (deterministic)
+  - id: check_git_state
+    context:
+      shell: |
+        echo "=== Current Branch ==="
+        git branch --show-current
+        echo ""
+        echo "=== Working Tree Status ==="
+        git status --short
+        echo ""
+        echo "=== Existing Worktrees ==="
+        git worktree list
+
+  # Phase 2: Determine branch name from user request
+  - id: plan_worktree
+    prompt: |
+      The user wants to set up an isolated worktree for the following work:
+
+      {{ step.invocation.prompt }}
+
+      Current git state:
+      {{ step.check_git_state.stdout }}
+
+      Determine:
+      1. A good branch name for this work (kebab-case, descriptive)
+      2. The base branch to branch from (usually main or the current branch)
+      3. The worktree path (../branch-name by convention)
+
+      Output your decision in this exact format:
+      BRANCH_NAME: <name>
+      BASE_BRANCH: <name>
+      WORKTREE_PATH: <path>
+    tools:
+      deny:
+        - Edit
+        - Write
+        - Bash
+
+  # Phase 3: Create the worktree (deterministic)
+  # Note: This uses the LLM's output from the previous step to construct the command.
+  # The branch name is embedded in the prompt response, which the LLM extracts.
+  - id: create_worktree
+    prompt: |
+      Extract the BRANCH_NAME, BASE_BRANCH, and WORKTREE_PATH from:
+
+      {{ step.plan_worktree.response }}
+
+      Then run these git commands:
+      1. git worktree add <WORKTREE_PATH> -b <BRANCH_NAME> <BASE_BRANCH>
+      2. Verify the worktree was created with: git worktree list
+      3. Report the result.
+    tools:
+      allow:
+        - Bash
+      deny:
+        - Edit
+        - Write

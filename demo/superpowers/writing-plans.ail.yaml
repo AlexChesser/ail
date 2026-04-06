@@ -1,0 +1,62 @@
+version: "0.0.1"
+
+meta:
+  name: "Superpowers — Writing Plans"
+  # Based on: https://github.com/obra/superpowers/tree/main/skills/writing-plans
+  # Category B workflow: gather context -> decompose -> self-review.
+  # Status: Fully expressible with current AIL features.
+
+pipeline:
+  # Phase 1: Gather project context (deterministic — zero LLM tokens)
+  - id: gather_context
+    context:
+      shell: |
+        echo "=== Project Structure ==="
+        find . -maxdepth 3 -type f -name '*.md' -o -name '*.yaml' -o -name '*.toml' | head -30
+        echo ""
+        echo "=== Recent History ==="
+        git log --oneline -10 2>/dev/null || echo "(not a git repo)"
+        echo ""
+        echo "=== Source Files ==="
+        find . -maxdepth 3 -type f \( -name '*.rs' -o -name '*.ts' -o -name '*.py' -o -name '*.go' \) | head -30
+
+  # Phase 2: Scope validation and task decomposition
+  - id: scope_and_decompose
+    system_prompt: ./prompts/writing-plans-system.md
+    prompt: ./prompts/writing-plans-decompose.md
+    append_system_prompt:
+      - "## Project Context\n\n{{ step.gather_context.stdout }}"
+      - "## User Request\n\n{{ step.invocation.prompt }}"
+    tools:
+      allow:
+        - Read
+        - Glob
+        - Grep
+      deny:
+        - Edit
+        - Write
+        - Bash
+
+  # Phase 3: Self-review the plan
+  - id: self_review
+    resume: true
+    prompt: |
+      Review the plan you just created. Check for and fix:
+      - Placeholders or TBD items (not allowed — must be concrete)
+      - Missing file paths or vague directions
+      - Steps that would take longer than 5 minutes
+      - Missing test steps (every feature needs RED-GREEN-REFACTOR)
+      - Unclear dependency ordering
+      - Missing verification commands
+
+      If you find issues, fix them inline and present the corrected plan.
+      If the plan is solid, present it as final.
+    tools:
+      allow:
+        - Read
+        - Glob
+        - Grep
+      deny:
+        - Edit
+        - Write
+        - Bash
