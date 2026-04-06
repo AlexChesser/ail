@@ -6,6 +6,8 @@ export interface ToolCallData {
   input: unknown;
   result?: string;
   isError?: boolean;
+  /** Set to true when the pipeline was stopped before this tool call completed. */
+  isStopped?: boolean;
 }
 
 export interface ToolCallCardProps {
@@ -45,6 +47,11 @@ function resultSummary(result: string | undefined, isError: boolean | undefined)
 function StatusIcon({ data }: { data: ToolCallData }) {
   const hasResult = data.result !== undefined;
   if (!hasResult) {
+    if (data.isStopped) {
+      return (
+        <span className="tool-card-status-icon stopped codicon codicon-circle-slash" />
+      );
+    }
     return (
       <span className="tool-card-status-icon pending codicon codicon-loading" />
     );

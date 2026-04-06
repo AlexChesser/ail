@@ -515,8 +515,18 @@ function reducer(state: ChatState, action: Action): ChatState {
       };
     }
 
-    case 'STOP':
-      return { ...state, isRunning: false, runStartTime: null };
+    case 'STOP': {
+      const stoppedItems = state.items.map((it) => {
+        if (it.kind === 'tool-call' && it.data.result === undefined) {
+          return { ...it, data: { ...it.data, isStopped: true } };
+        }
+        if (it.kind === 'assistant-stream' && it.streaming) {
+          return { ...it, streaming: false };
+        }
+        return it;
+      });
+      return { ...state, isRunning: false, runStartTime: null, currentStepId: null, items: stoppedItems };
+    }
 
     case 'SELECT_SESSION':
       return { ...state, activeSessionId: action.id };

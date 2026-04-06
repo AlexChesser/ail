@@ -354,6 +354,10 @@ body {
   animation: spin 1.5s linear infinite;
 }
 
+.tool-card-status-icon.stopped {
+  color: var(--vscode-disabledForeground, var(--vscode-descriptionForeground));
+}
+
 @keyframes spin {
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }
