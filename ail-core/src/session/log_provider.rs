@@ -18,10 +18,13 @@ pub trait LogProvider: Send {
 
 /// SHA-1 hex digest of the current working directory path.
 /// Used to partition project data under `~/.ail/projects/<hash>/` (SPEC §4.4).
+/// Canonicalizes to resolve symlinks so that equivalent paths (e.g. macOS
+/// `/tmp/foo` vs `/private/tmp/foo`) produce the same hash.
 pub fn cwd_hash() -> String {
     let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    let canonical = cwd.canonicalize().unwrap_or(cwd);
     let mut hasher = Sha1::new();
-    hasher.update(cwd.to_string_lossy().as_bytes());
+    hasher.update(canonical.to_string_lossy().as_bytes());
     format!("{:x}", hasher.finalize())
 }
 
