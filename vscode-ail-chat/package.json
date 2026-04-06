@@ -70,6 +70,11 @@
         "command": "ail-chat.newSession",
         "title": "ail Chat: New Session",
         "category": "ail Chat"
+      },
+      {
+        "command": "ail-chat.openPipelineGraph",
+        "title": "ail Chat: Open Pipeline Graph",
+        "category": "ail Chat"
       }
     ]
   },
@@ -99,9 +104,12 @@
     "vitest": "^2.0.0"
   },
   "dependencies": {
+    "@dagrejs/dagre": "^3.0.0",
     "@vscode/codicons": "^0.0.45",
+    "@xyflow/react": "^12.10.2",
     "react": "^18.0.0",
-    "react-dom": "^18.0.0"
+    "react-dom": "^18.0.0",
+    "yaml": "^2.8.3"
   },
   "config": {
     "ailMinVersion": "0.0.1"
