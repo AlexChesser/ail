@@ -22,14 +22,17 @@ mod s3_1_discovery {
     #[test]
     fn falls_back_to_ail_yaml_in_cwd() {
         let tmp = tempfile::tempdir().unwrap();
-        let ail_yaml = tmp.path().join(".ail.yaml");
+        // Canonicalize to resolve symlinks (macOS: /tmp -> /private/tmp) so the
+        // expected path matches what current_dir() returns inside discover().
+        let tmp_path = tmp.path().canonicalize().unwrap();
+        let ail_yaml = tmp_path.join(".ail.yaml");
         std::fs::write(
             &ail_yaml,
             "version: \"0.0.1\"\npipeline:\n  - id: s\n    prompt: x\n",
         )
         .unwrap();
         let original_dir = std::env::current_dir().unwrap();
-        std::env::set_current_dir(tmp.path()).unwrap();
+        std::env::set_current_dir(&tmp_path).unwrap();
         let result = discover(None);
         std::env::set_current_dir(original_dir).unwrap();
         // Discovery now returns absolute paths so parent() is always usable (SPEC §9).
