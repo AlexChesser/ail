@@ -97,7 +97,14 @@ pub fn execute_with_control(
         tracing::info!(run_id = %session.run_id, step_id = %step_id, "executing step (controlled)");
 
         // Base dir for resolving ./relative file paths — the pipeline file's parent dir (SPEC §5.2).
-        let pipeline_base_dir = session.pipeline.source.as_deref().and_then(|p| p.parent());
+        // Owned PathBuf so we can pass it to execute_sub_pipeline without holding a borrow on session.
+        let pipeline_base_dir_buf: Option<std::path::PathBuf> = session
+            .pipeline
+            .source
+            .as_deref()
+            .and_then(|p| p.parent())
+            .map(|p| p.to_path_buf());
+        let pipeline_base_dir = pipeline_base_dir_buf.as_deref();
 
         let entry = match &step.body {
             StepBody::Prompt(template_text) => {
@@ -426,6 +433,7 @@ pub fn execute_with_control(
                     session,
                     runner,
                     1,
+                    pipeline_base_dir,
                 ) {
                     Ok(entry) => {
                         let _ = event_tx.send(ExecutorEvent::StepCompleted {
@@ -533,6 +541,7 @@ pub fn execute_with_control(
                             session,
                             runner,
                             1,
+                            pipeline_base_dir,
                         ) {
                             Ok(entry) => {
                                 session.turn_log.append(entry);

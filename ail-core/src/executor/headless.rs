@@ -33,6 +33,7 @@ pub(super) fn execute_sub_pipeline(
     session: &mut Session,
     runner: &dyn Runner,
     depth: usize,
+    base_dir: Option<&std::path::Path>,
 ) -> Result<TurnEntry, AilError> {
     if depth >= MAX_SUB_PIPELINE_DEPTH {
         return Err(AilError {
@@ -59,7 +60,18 @@ pub(super) fn execute_sub_pipeline(
         e
     })?;
 
-    let path = std::path::Path::new(&resolved_path);
+    // Resolve ./relative and ../relative paths against the parent pipeline's directory (SPEC §9).
+    let path_buf =
+        if let (true, Some(base)) = (
+            resolved_path.starts_with("./") || resolved_path.starts_with("../"),
+            base_dir,
+        ) {
+            base.join(&resolved_path)
+        } else {
+            std::path::PathBuf::from(&resolved_path)
+        };
+    let path = path_buf.as_path();
+
     let sub_pipeline = crate::config::load(path).map_err(|mut e| {
         e.context = Some(crate::error::ErrorContext {
             pipeline_run_id: Some(session.run_id.clone()),
@@ -156,7 +168,14 @@ pub(super) fn execute_inner(
         tracing::info!(run_id = %session.run_id, step_id = %step_id, "executing step");
 
         // Base dir for resolving ./relative file paths — the pipeline file's parent dir (SPEC §5.2).
-        let pipeline_base_dir = session.pipeline.source.as_deref().and_then(|p| p.parent());
+        // Owned PathBuf so we can pass it to execute_sub_pipeline without holding a borrow on session.
+        let pipeline_base_dir_buf: Option<std::path::PathBuf> = session
+            .pipeline
+            .source
+            .as_deref()
+            .and_then(|p| p.parent())
+            .map(|p| p.to_path_buf());
+        let pipeline_base_dir = pipeline_base_dir_buf.as_deref();
 
         let entry = match &step.body {
             StepBody::Prompt(template_text) => {
@@ -350,6 +369,7 @@ pub(super) fn execute_inner(
                     session,
                     runner,
                     depth,
+                    pipeline_base_dir,
                 )?
             }
 
@@ -417,6 +437,7 @@ pub(super) fn execute_inner(
                             session,
                             runner,
                             depth,
+                            pipeline_base_dir,
                         )?;
                         session.turn_log.append(entry);
                     }

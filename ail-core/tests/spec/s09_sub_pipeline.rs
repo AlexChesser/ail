@@ -588,6 +588,91 @@ fn on_result_pipeline_prompt_override_is_passed_to_child() {
     std::env::set_current_dir(orig).unwrap();
 }
 
+// ── §9 relative sub-pipeline path resolution ─────────────────────────────────
+
+/// Sub-pipeline paths starting with ./ or ../ must be resolved relative to the
+/// parent pipeline file's directory, not the process CWD (SPEC §9).
+#[test]
+fn sub_pipeline_relative_path_resolves_relative_to_parent_pipeline_dir() {
+    let tmp = tempfile::tempdir().unwrap();
+
+    // Write the child pipeline into a subdirectory of the temp dir.
+    let subdir = tmp.path().join("workflows");
+    std::fs::create_dir_all(&subdir).unwrap();
+    let child_path = subdir.join("child.ail.yaml");
+    std::fs::write(
+        &child_path,
+        "version: \"0.0.1\"\npipeline:\n  - id: inner\n    prompt: \"child ran\"\n",
+    )
+    .unwrap();
+
+    // Write a parent pipeline file that references the child via ./workflows/child.ail.yaml.
+    let parent_yaml = "version: \"0.0.1\"\npipeline:\n  - id: call_child\n    pipeline: ./workflows/child.ail.yaml\n";
+    let parent_path = tmp.path().join("parent.ail.yaml");
+    std::fs::write(&parent_path, parent_yaml).unwrap();
+
+    // Load the parent pipeline (sets pipeline.source so base_dir is resolved correctly).
+    let pipeline = ail_core::config::load(&parent_path).unwrap();
+
+    // Change CWD to a completely different directory so the relative path would fail
+    // if resolved against CWD instead of the pipeline file's directory.
+    let orig = std::env::current_dir().unwrap();
+    let unrelated = tempfile::tempdir().unwrap();
+    std::env::set_current_dir(unrelated.path()).unwrap();
+
+    let mut session = Session::new(pipeline, "hello".to_string());
+    let runner = StubRunner::new("child response");
+    let result = execute(&mut session, &runner);
+
+    std::env::set_current_dir(orig).unwrap();
+
+    assert!(
+        result.is_ok(),
+        "Expected relative sub-pipeline to resolve from parent dir, got: {result:?}"
+    );
+    let entries = session.turn_log.entries();
+    assert_eq!(entries.len(), 1);
+    assert_eq!(entries[0].step_id, "call_child");
+}
+
+/// `on_result: pipeline:` with a ./relative path resolves relative to the parent pipeline file.
+#[test]
+fn on_result_pipeline_relative_path_resolves_relative_to_parent_pipeline_dir() {
+    let tmp = tempfile::tempdir().unwrap();
+
+    let subdir = tmp.path().join("handlers");
+    std::fs::create_dir_all(&subdir).unwrap();
+    let child_path = subdir.join("handler.ail.yaml");
+    std::fs::write(
+        &child_path,
+        "version: \"0.0.1\"\npipeline:\n  - id: handle\n    prompt: \"handled\"\n",
+    )
+    .unwrap();
+
+    let parent_yaml = "version: \"0.0.1\"\npipeline:\n  - id: trigger\n    prompt: \"go\"\n    on_result:\n      - always: true\n        action: \"pipeline: ./handlers/handler.ail.yaml\"\n";
+    let parent_path = tmp.path().join("parent2.ail.yaml");
+    std::fs::write(&parent_path, parent_yaml).unwrap();
+
+    let pipeline = ail_core::config::load(&parent_path).unwrap();
+
+    let orig = std::env::current_dir().unwrap();
+    let unrelated = tempfile::tempdir().unwrap();
+    std::env::set_current_dir(unrelated.path()).unwrap();
+
+    let mut session = Session::new(pipeline, "hello".to_string());
+    let runner = StubRunner::new("stub");
+    let result = execute(&mut session, &runner);
+
+    std::env::set_current_dir(orig).unwrap();
+
+    assert!(
+        result.is_ok(),
+        "Expected on_result relative pipeline path to resolve from parent dir, got: {result:?}"
+    );
+    let entries = session.turn_log.entries();
+    assert!(entries.len() >= 2, "Expected trigger + handler entries");
+}
+
 /// `prompt:` field on `on_result: pipeline:` branches parses from YAML correctly.
 #[test]
 fn pipeline_action_with_prompt_override_parses_from_yaml() {

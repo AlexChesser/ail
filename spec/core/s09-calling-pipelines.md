@@ -1,6 +1,6 @@
 ## 9. Calling Pipelines as Steps
 
-> **Implementation status:** Implemented. Sub-pipeline isolation, depth guards (MAX_SUB_PIPELINE_DEPTH = 16), template variable resolution in pipeline paths, failure propagation, `on_result: pipeline:` action, and `prompt:` override all work. See `ail-core/src/executor/headless.rs` for the implementation.
+> **Implementation status:** Implemented. Sub-pipeline isolation, depth guards (MAX_SUB_PIPELINE_DEPTH = 16), template variable resolution in pipeline paths, relative path resolution against the parent pipeline's directory, failure propagation, `on_result: pipeline:` action, and `prompt:` override all work. See `ail-core/src/executor/headless.rs` for the implementation.
 
 A pipeline may call another as a step using the `pipeline:` primary field.
 
@@ -10,7 +10,7 @@ A pipeline may call another as a step using the `pipeline:` primary field.
 Caller pipeline context
   ↓ (invocation prompt: caller's last_response, OR explicit prompt: override)
 Called pipeline
-  └─ invocation = the passed prompt (see §9.3)
+  └─ invocation = the passed prompt (see §9.4)
   └─ runs its own steps in complete isolation
   └─ its own template variables are all local
   └─ returns its final step's output as a single response
@@ -20,7 +20,19 @@ Caller receives {{ step.<call_id>.response }}
 
 The caller sees only the called pipeline's final output. Internal steps, intermediate responses, and local context are not visible to the caller.
 
-### 9.2 Syntax
+### 9.2 Path Resolution
+
+Sub-pipeline paths follow the same resolution rules as prompt file paths (SPEC §5.2):
+
+- Paths starting with `./` or `../` are resolved relative to the **parent pipeline file's directory**, not the process CWD.
+- Absolute paths (`/`) are used as-is.
+- `~/` paths are expanded using the user's home directory.
+
+This means a pipeline at `/projects/foo/.ail.yaml` that references `./workflows/bar.ail.yaml` will load `/projects/foo/workflows/bar.ail.yaml` regardless of where `ail` was invoked from. This applies to both `pipeline:` steps and `on_result: pipeline:` actions.
+
+Template variables in paths (e.g. `{{ step.selector.response }}`) are resolved first; the result is then subject to the path resolution rules above.
+
+### 9.3 Syntax
 
 ```yaml
 - id: run_security_suite
@@ -34,7 +46,7 @@ The caller sees only the called pipeline's final output. Internal steps, interme
       message: "Security suite found issues."
 ```
 
-### 9.3 Invocation Prompt Override
+### 9.4 Invocation Prompt Override
 
 By default, a sub-pipeline's `invocation_prompt` (the value of `{{ step.invocation.prompt }}` inside the child) is set to the parent's most recent step response. This passes the previous step's output into the child naturally.
 
@@ -57,11 +69,11 @@ on_result:
 
 When `prompt:` is omitted, the default is `session.turn_log.last_response() ?? session.invocation_prompt`.
 
-### 9.3 Failure Propagation
+### 9.5 Failure Propagation
 
 If the called pipeline aborts internally, `ail` surfaces a pipeline stack trace to the TUI — equivalent to a call stack — showing which pipeline failed, at which step, and why. The caller's `on_error` field governs what happens next. The full internal trace is written to the pipeline run log.
 
-### 9.4 Depth Guard
+### 9.6 Depth Guard
 
 Sub-pipeline nesting is limited to `MAX_SUB_PIPELINE_DEPTH = 16` levels. If a chain of `pipeline:` steps (or `on_result: pipeline:` actions) would exceed this depth, execution aborts with a `PIPELINE_ABORTED` error before the offending step runs.
 
