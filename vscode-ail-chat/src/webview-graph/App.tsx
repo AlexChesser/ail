@@ -10,9 +10,11 @@ import {
   ReactFlow,
   Background,
   Controls,
+  MiniMap,
   useNodesState,
   useEdgesState,
   BackgroundVariant,
+  MarkerType,
   type Node,
   type Edge,
   type NodeTypes,
@@ -20,6 +22,7 @@ import {
 import '@xyflow/react/dist/style.css';
 
 import { StepNode } from './components/StepNode';
+import { SubPipelineGroupNode } from './components/SubPipelineGroupNode';
 import { DetailPanel } from './components/DetailPanel';
 import { layoutGraph } from './layout';
 import type {
@@ -48,6 +51,7 @@ function postToHost(msg: GraphWebviewToHostMessage): void {
 
 const nodeTypes: NodeTypes = {
   stepNode: StepNode,
+  subPipelineGroup: SubPipelineGroupNode,
 };
 
 // ── App ─────────────────────────────────────────────────────────────────────
@@ -107,6 +111,11 @@ export function App(): React.ReactElement {
     setSelectedNode(null);
   }, []);
 
+  const defaultEdgeOptions = {
+    type: 'smoothstep' as const,
+    markerEnd: { type: MarkerType.ArrowClosed, width: 16, height: 16 },
+  };
+
   return (
     <div style={{ width: '100%', height: '100%', display: 'flex' }}>
       <div style={{ flex: 1, position: 'relative' }}>
@@ -157,6 +166,7 @@ export function App(): React.ReactElement {
           onNodeClick={onNodeClick}
           onPaneClick={onPaneClick}
           nodeTypes={nodeTypes}
+          defaultEdgeOptions={defaultEdgeOptions}
           fitView
           fitViewOptions={{ padding: 0.2 }}
           minZoom={0.1}
@@ -165,6 +175,11 @@ export function App(): React.ReactElement {
         >
           <Background variant={BackgroundVariant.Dots} gap={16} size={1} />
           <Controls />
+          <MiniMap
+            nodeStrokeWidth={3}
+            style={{ background: 'var(--vscode-sideBar-background)' }}
+            maskColor="rgba(0, 0, 0, 0.2)"
+          />
         </ReactFlow>
       </div>
       {selectedNode && (

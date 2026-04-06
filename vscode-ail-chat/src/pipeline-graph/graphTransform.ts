@@ -37,6 +37,8 @@ export interface StepNodeData {
   isSubPipelineGroup?: boolean;
   /** Human-readable label for on_result edge. */
   branchLabel?: string;
+  /** Step count inside a sub-pipeline group (for collapsed display). */
+  childStepCount?: number;
 }
 
 export interface GraphEdge {
@@ -64,7 +66,7 @@ export interface TransformResult {
   errors: string[];
 }
 
-// ── YAML parsing (lightweight, no domain validation) ────────────────────────
+// ── YAML parsing ────────────────────────────────────────────────────────────
 
 // The `yaml` package is a dependency — esbuild bundles it into the extension host.
 import { parse as yamlParse } from 'yaml';
@@ -100,18 +102,28 @@ interface RawPipelineFile {
   pipeline?: RawStep[];
 }
 
+/** Tracks already-expanded sub-pipeline files for deduplication. */
+interface SubPipelineRef {
+  groupNodeId: string;
+  firstNodeId: string;
+  lastNodeId: string;
+}
+
 /**
  * Transform a pipeline YAML file into graph nodes and edges.
  *
  * Recursively expands sub-pipeline references up to MAX_DEPTH.
+ * Deduplicates: if multiple branches reference the same sub-pipeline file,
+ * only one group is created and all edges point to it.
  */
 export function transformPipeline(filePath: string): TransformResult {
   const nodes: GraphNode[] = [];
   const edges: GraphEdge[] = [];
   const errors: string[] = [];
   const visited = new Set<string>();
+  const subPipelineCache = new Map<string, SubPipelineRef>();
 
-  processFile(filePath, nodes, edges, errors, visited, undefined, 0);
+  processFile(filePath, nodes, edges, errors, visited, subPipelineCache, undefined, 0);
 
   return { nodes, edges, errors };
 }
@@ -122,14 +134,15 @@ function processFile(
   edges: GraphEdge[],
   errors: string[],
   visited: Set<string>,
+  subPipelineCache: Map<string, SubPipelineRef>,
   parentGroupId: string | undefined,
   depth: number
-): { firstNodeId: string | null; lastNodeId: string | null } {
+): { firstNodeId: string | null; lastNodeId: string | null; groupNodeId: string | null } {
   const absPath = path.resolve(filePath);
 
   if (depth > MAX_DEPTH) {
     errors.push(`Max sub-pipeline depth (${MAX_DEPTH}) exceeded at ${absPath}`);
-    return { firstNodeId: null, lastNodeId: null };
+    return { firstNodeId: null, lastNodeId: null, groupNodeId: null };
   }
 
   if (visited.has(absPath)) {
@@ -149,7 +162,7 @@ function processFile(
         pipelineName: path.basename(absPath) + ' (recursive)',
       },
     });
-    return { firstNodeId: placeholderId, lastNodeId: placeholderId };
+    return { firstNodeId: placeholderId, lastNodeId: placeholderId, groupNodeId: null };
   }
 
   visited.add(absPath);
@@ -160,7 +173,7 @@ function processFile(
   } catch (err) {
     errors.push(`Cannot read ${absPath}: ${err instanceof Error ? err.message : String(err)}`);
     visited.delete(absPath);
-    return { firstNodeId: null, lastNodeId: null };
+    return { firstNodeId: null, lastNodeId: null, groupNodeId: null };
   }
 
   let parsed: RawPipelineFile;
@@ -169,18 +182,41 @@ function processFile(
   } catch (err) {
     errors.push(`Cannot parse ${absPath}: ${err instanceof Error ? err.message : String(err)}`);
     visited.delete(absPath);
-    return { firstNodeId: null, lastNodeId: null };
+    return { firstNodeId: null, lastNodeId: null, groupNodeId: null };
   }
 
   const steps = parsed?.pipeline;
   if (!Array.isArray(steps) || steps.length === 0) {
     errors.push(`No pipeline steps found in ${absPath}`);
     visited.delete(absPath);
-    return { firstNodeId: null, lastNodeId: null };
+    return { firstNodeId: null, lastNodeId: null, groupNodeId: null };
   }
 
   const baseDir = path.dirname(absPath);
-  const lineMap = buildLineMap(content, steps);
+  const lineMap = buildLineMap(content);
+  const pipelineName = parsed.meta?.name ?? path.basename(absPath, path.extname(absPath));
+
+  // Create a group node for sub-pipelines (depth > 0).
+  let groupNodeId: string | null = null;
+  if (depth > 0) {
+    groupNodeId = `${absPath}::group`;
+    nodes.push({
+      id: groupNodeId,
+      type: 'subPipelineGroup',
+      position: { x: 0, y: 0 },
+      parentId: parentGroupId,
+      data: {
+        stepId: pipelineName,
+        type: 'pipeline',
+        sourceFile: absPath,
+        sourceLine: 0,
+        pipelineName,
+        isSubPipelineGroup: true,
+        childStepCount: steps.length,
+        subPipelinePath: absPath,
+      },
+    });
+  }
 
   let firstNodeId: string | null = null;
   let prevNodeId: string | null = null;
@@ -203,7 +239,7 @@ function processFile(
       tools: step.tools ? { allow: step.tools.allow ?? [], deny: step.tools.deny ?? [] } : undefined,
       model: step.model,
       onResultCount: step.on_result?.length,
-      pipelineName: parsed.meta?.name,
+      pipelineName,
     };
 
     // If this step is a sub-pipeline reference (body is `pipeline:`), note the path.
@@ -215,7 +251,7 @@ function processFile(
       id: nodeId,
       type: 'stepNode',
       position: { x: 0, y: 0 },
-      parentId: parentGroupId,
+      parentId: groupNodeId ?? parentGroupId,
       data: nodeData,
     });
 
@@ -241,45 +277,80 @@ function processFile(
         const pipelineMatch = branchAction.match(/^pipeline:\s*(.+)$/);
         if (pipelineMatch) {
           const subPath = resolveRelativePath(pipelineMatch[1].trim(), baseDir);
-          const subResult = processFile(subPath, nodes, edges, errors, visited, parentGroupId, depth + 1);
-          if (subResult.firstNodeId) {
+          const subAbsPath = path.resolve(subPath);
+
+          // Deduplication: reuse already-expanded sub-pipeline.
+          const cached = subPipelineCache.get(subAbsPath);
+          if (cached) {
             edges.push({
-              id: `${nodeId}->branch_${bi}_${subResult.firstNodeId}`,
+              id: `${nodeId}->branch_${bi}_${cached.groupNodeId ?? cached.firstNodeId}`,
               source: nodeId,
-              target: subResult.firstNodeId,
+              target: cached.groupNodeId ?? cached.firstNodeId,
               label: branchLabel,
               conditional: true,
             });
+          } else {
+            const subResult = processFile(subPath, nodes, edges, errors, visited, subPipelineCache, parentGroupId, depth + 1);
+            if (subResult.firstNodeId) {
+              const target = subResult.groupNodeId ?? subResult.firstNodeId;
+              edges.push({
+                id: `${nodeId}->branch_${bi}_${target}`,
+                source: nodeId,
+                target,
+                label: branchLabel,
+                conditional: true,
+              });
+              subPipelineCache.set(subAbsPath, {
+                groupNodeId: subResult.groupNodeId ?? subResult.firstNodeId,
+                firstNodeId: subResult.firstNodeId,
+                lastNodeId: subResult.lastNodeId ?? subResult.firstNodeId,
+              });
+            }
           }
         }
         // Other branch actions (continue, break, abort, pause_for_human)
         // don't create edges to new nodes — they affect control flow but
         // don't add graph structure.
       }
-      // on_result branches consumed — don't connect sequentially to next step
-      // unless there are non-pipeline branches that continue.
+      // on_result branches consumed — don't connect sequentially to next step.
       prevNodeId = null;
     } else if (step.pipeline && !step.prompt) {
       // Inline sub-pipeline step (not via on_result): expand it.
       const subPath = resolveRelativePath(step.pipeline, baseDir);
-      const subResult = processFile(subPath, nodes, edges, errors, visited, parentGroupId, depth + 1);
-      if (subResult.firstNodeId) {
-        // Replace the step node with an edge into the sub-pipeline.
+      const subAbsPath = path.resolve(subPath);
+
+      const cached = subPipelineCache.get(subAbsPath);
+      if (cached) {
         edges.push({
-          id: `${nodeId}->${subResult.firstNodeId}`,
+          id: `${nodeId}->${cached.groupNodeId ?? cached.firstNodeId}`,
           source: nodeId,
-          target: subResult.firstNodeId,
+          target: cached.groupNodeId ?? cached.firstNodeId,
         });
+        prevNodeId = cached.lastNodeId;
+      } else {
+        const subResult = processFile(subPath, nodes, edges, errors, visited, subPipelineCache, groupNodeId ?? parentGroupId, depth + 1);
+        if (subResult.firstNodeId) {
+          const target = subResult.groupNodeId ?? subResult.firstNodeId;
+          edges.push({
+            id: `${nodeId}->${target}`,
+            source: nodeId,
+            target,
+          });
+          subPipelineCache.set(subAbsPath, {
+            groupNodeId: subResult.groupNodeId ?? subResult.firstNodeId,
+            firstNodeId: subResult.firstNodeId,
+            lastNodeId: subResult.lastNodeId ?? subResult.firstNodeId,
+          });
+        }
+        prevNodeId = subResult.lastNodeId ?? nodeId;
       }
-      // The sequential chain continues from the sub-pipeline's last node.
-      prevNodeId = subResult.lastNodeId ?? nodeId;
     } else {
       prevNodeId = nodeId;
     }
   }
 
   visited.delete(absPath);
-  return { firstNodeId, lastNodeId: prevNodeId };
+  return { firstNodeId, lastNodeId: prevNodeId, groupNodeId };
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
@@ -295,9 +366,9 @@ function classifyStep(step: RawStep): StepNodeData['type'] {
 }
 
 function describeMatcher(branch: RawOnResult): string {
-  if (branch.contains) return `contains: "${branch.contains}"`;
+  if (branch.contains) return branch.contains;
   if (branch.exit_code !== undefined) return `exit_code: ${branch.exit_code}`;
-  if (branch.always) return 'always';
+  if (branch.always) return 'fallback';
   return '?';
 }
 
@@ -309,9 +380,8 @@ function resolveRelativePath(ref: string, baseDir: string): string {
 
 /**
  * Build a map from step id → 0-based line number by scanning for `- id:` patterns.
- * This is a best-effort heuristic (not a full YAML parser with source maps).
  */
-function buildLineMap(content: string, _steps: RawStep[]): Map<string, number> {
+function buildLineMap(content: string): Map<string, number> {
   const map = new Map<string, number>();
   const lines = content.split('\n');
   const idPattern = /^\s*-\s*id:\s*(.+)$/;
@@ -322,7 +392,6 @@ function buildLineMap(content: string, _steps: RawStep[]): Map<string, number> {
     if (m) {
       const id = m[1].trim().replace(/^["']|["']$/g, '');
       map.set(id, lineNo);
-      // Also map by index for steps without explicit id matching.
       map.set(`step_${stepIdx}`, lineNo);
       stepIdx++;
     }

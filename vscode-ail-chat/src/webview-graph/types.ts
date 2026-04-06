@@ -20,6 +20,7 @@ export interface StepNodeData {
   subPipelinePath?: string;
   isSubPipelineGroup?: boolean;
   branchLabel?: string;
+  childStepCount?: number;
 }
 
 export interface GraphNode {

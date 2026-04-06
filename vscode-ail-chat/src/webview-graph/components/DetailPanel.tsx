@@ -153,6 +153,15 @@ export function DetailPanel({ data, onClose, onOpenInEditor }: DetailPanelProps)
           </span>
         </div>
       )}
+
+      {data.isSubPipelineGroup && data.childStepCount != null && (
+        <div style={sectionStyle}>
+          <span style={sectionLabelStyle}>Steps</span>
+          <span style={{ color: 'var(--vscode-descriptionForeground)' }}>
+            {data.childStepCount} {data.childStepCount === 1 ? 'step' : 'steps'}
+          </span>
+        </div>
+      )}
     </div>
   );
 }
