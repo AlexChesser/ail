@@ -615,6 +615,7 @@ impl ClaudeCliRunner {
                 let config_path = Self::write_mcp_config(socket)?; // socket is &str
                 args.push("--mcp-config".into());
                 args.push(config_path.to_string_lossy().to_string());
+                args.push("--strict-mcp-config".into());
                 args.push("--permission-prompt-tool".into());
                 // Claude CLI registers MCP tools as mcp__<server_name>__<tool_name>.
                 // Must use the fully qualified name, not the bare tool name.
