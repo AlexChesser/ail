@@ -126,6 +126,74 @@ Sources:
 
 ---
 
+## Prompt Engineering: Improvements Over the Original Superpowers
+
+The prompt files in `demo/superpowers/prompts/` are not direct copies of the obra/superpowers SKILL.md files. They've been rewritten using 2025-2026 prompting research to address known anti-patterns in the originals. If you're comparing these to the upstream superpowers, here's what changed and why.
+
+### Problem: Persona Assignment Increases Hallucination Risk
+
+The original superpowers use persona patterns extensively:
+
+- *"You are a Socratic design facilitator"* (brainstorming)
+- *"You are a senior code reviewer with expertise in software architecture"* (code review)
+- *"You are an expert at creating detailed, actionable implementation plans"* (writing-plans)
+
+2025 research (Frontiers in AI, Lakera) shows that **unstructured persona assignment without task grounding increases hallucination**. The model fills in implied expertise with fabricated details. The persona tells the model *who to be* but not *what to produce* — the model infers output expectations from the role, which introduces drift.
+
+### Fix: Task-Grounded Prompting
+
+Each prompt now opens with a concrete **Objective** statement that defines what the output must be, not who the model is:
+
+| Original | Rewritten |
+|---|---|
+| "You are a Socratic design facilitator" | "Produce a design specification that turns the user's idea into a well-defined, implementable plan" |
+| "You are a senior code reviewer" | "Identify defects, design issues, and improvement opportunities in the provided code changes" |
+| "You are an expert at creating implementation plans" | "Produce an implementation plan that a skilled engineer can follow without guessing" |
+
+The task objective grounds every subsequent instruction — the model knows what artifact it's producing, not what character it's playing.
+
+### Fix: Semi-Formal Reasoning Structure
+
+The code reviewer prompt now requires a structured reasoning template for every finding:
+
+1. **Observation:** What the code actually does (cite file path and line)
+2. **Expectation:** What it should do (cite requirement, pattern, or principle)
+3. **Gap:** The specific discrepancy
+4. **Recommendation:** A concrete, actionable fix
+
+This is based on Meta's 2025 semi-formal reasoning research (VentureBeat, 2025), which showed that requiring explicit premises, execution paths, and formal conclusions before answers achieved 93% accuracy in code review tasks — significantly reducing hallucinated findings.
+
+The brainstorming prompt uses a similar structure for approach evaluation:
+- *Premise:* What problem does this approach solve?
+- *Trade-offs:* What does it gain vs what does it cost?
+- *Conclusion:* Why recommend or reject?
+
+### Fix: Explicit Output Format
+
+The original superpowers describe process steps but leave output format implicit — the model guesses what the output should look like based on the persona. Several prompts now include explicit output format specifications:
+
+- **Code reviewer:** Required sections (Summary, Critical Issues, Important Issues, Suggestions, Verdict) with APPROVED/CHANGES REQUESTED
+- **Brainstorming:** Required spec sections (Problem Statement, Chosen Approach, Component Breakdown, Data Flow, Edge Cases, Error Handling, Testing Strategy, Migration Plan)
+- **Plan decomposition:** Required markdown template with Goal, Architecture, and numbered Tasks
+
+### Fix: Constraint-First Hierarchy
+
+Instructions are ordered with hard constraints and boundaries before process steps. This follows the 2025 system prompt architecture research (Surendran, 2025) which shows that models attend more strongly to early instructions. Constraints that appear after process steps are more likely to be violated.
+
+### What Didn't Change
+
+The two Category A discipline files (`tdd-discipline.md`, `verification-discipline.md`) were already well-structured — they use imperative constraints ("The Iron Law: NO PRODUCTION CODE WITHOUT A FAILING TEST FIRST") rather than persona assignment. They received only minor additions: an **Objective** framing that explains *why* the constraints exist, which helps the model prioritize them appropriately in context.
+
+### Sources
+
+- Survey and analysis of hallucinations in large language models (Frontiers in AI, 2025)
+- Meta's semi-formal reasoning structured prompting technique (VentureBeat, 2025)
+- System Prompts vs User Prompts: Instruction Architecture (Surendran, 2025)
+- The Ultimate Guide to Prompt Engineering in 2026 (Lakera, 2026)
+- Concise Goal-Oriented Prompting for Code Generation (ECOOP 2025)
+
+---
+
 ## Implementation Status
 
 Working demos are in `demo/superpowers/`. See `demo/superpowers/README.md` for details on which pipelines are fully functional vs proposed.
