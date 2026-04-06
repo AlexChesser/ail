@@ -149,7 +149,12 @@ pub enum StepBody {
     Skill(PathBuf),
     /// Path to a sub-pipeline YAML file. May contain `{{ variable }}` syntax;
     /// the path is template-resolved at execution time (SPEC §11).
-    SubPipeline(String),
+    /// `prompt` overrides the child session's invocation prompt when set;
+    /// defaults to parent's last response (SPEC §9).
+    SubPipeline {
+        path: String,
+        prompt: Option<String>,
+    },
     Action(ActionKind),
     Context(ContextSource),
 }
@@ -194,5 +199,10 @@ pub enum ResultAction {
     PauseForHuman,
     /// Conditionally call another pipeline. Path may contain `{{ variable }}` syntax;
     /// resolved at execution time. Follows the sub-pipeline isolation model (SPEC §9).
-    Pipeline(String),
+    /// `prompt` overrides the child session's invocation prompt when set;
+    /// defaults to parent's last response.
+    Pipeline {
+        path: String,
+        prompt: Option<String>,
+    },
 }

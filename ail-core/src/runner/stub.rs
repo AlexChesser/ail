@@ -67,6 +67,37 @@ impl Runner for CountingStubRunner {
     }
 }
 
+/// A stub runner that echoes the prompt back as the response.
+/// Useful for testing that a specific prompt value reaches the runner.
+pub struct EchoStubRunner;
+
+impl EchoStubRunner {
+    pub fn new() -> Self {
+        EchoStubRunner
+    }
+}
+
+impl Default for EchoStubRunner {
+    fn default() -> Self {
+        EchoStubRunner
+    }
+}
+
+impl Runner for EchoStubRunner {
+    fn invoke(&self, prompt: &str, _options: InvokeOptions) -> Result<RunResult, AilError> {
+        Ok(RunResult {
+            response: prompt.to_string(),
+            cost_usd: Some(0.0),
+            session_id: Some("echo-stub-session-id".to_string()),
+            input_tokens: 0,
+            output_tokens: 0,
+            thinking: None,
+            model: None,
+            tool_events: vec![],
+        })
+    }
+}
+
 /// A recorded invocation call — captures the `tool_policy` for assertion in tests.
 pub struct RecordedCall {
     pub prompt: String,

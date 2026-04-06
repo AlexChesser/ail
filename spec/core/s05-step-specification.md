@@ -218,7 +218,7 @@ Rules are evaluated in declared order; the first match fires. Used when differen
 | `abort_pipeline` | Stop immediately, treating the pipeline as failed. Logged to audit trail. |
 | `repeat_step` | Re-run this step. Respects `max_retries`. |
 | `break` | Exit the current pipeline cleanly. Remaining steps are skipped. Not an error — the pipeline completed successfully with an intentional early exit. In a sub-pipeline, returns control to the caller. |
-| `pipeline: <path>` | Conditionally call another pipeline. Equivalent to a `pipeline:` step but triggered by `on_result` match. Follows the same isolation model as §9. |
+| `pipeline: <path>` | Conditionally call another pipeline. Equivalent to a `pipeline:` step but triggered by `on_result` match. Follows the same isolation model as §9. Optional `prompt:` field overrides the child session's invocation prompt (see §9.3). |
 
 **`break` vs `abort_pipeline`:**
 

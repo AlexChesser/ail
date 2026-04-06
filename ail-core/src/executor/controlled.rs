@@ -408,11 +408,21 @@ pub fn execute_with_control(
                 continue;
             }
 
-            StepBody::SubPipeline(path_template) => {
+            StepBody::SubPipeline {
+                path: path_template,
+                prompt,
+            } => {
                 session
                     .turn_log
                     .record_step_started(&step_id, path_template);
-                match execute_sub_pipeline(path_template, &step_id, session, runner, 1) {
+                match execute_sub_pipeline(
+                    path_template,
+                    prompt.as_deref(),
+                    &step_id,
+                    session,
+                    runner,
+                    1,
+                ) {
                     Ok(entry) => {
                         let _ = event_tx.send(ExecutorEvent::StepCompleted {
                             step_id: step_id.clone(),
@@ -508,8 +518,18 @@ pub fn execute_with_control(
                             "on_result HITL gate unblocked — resuming"
                         );
                     }
-                    ResultAction::Pipeline(ref path_template) => {
-                        match execute_sub_pipeline(path_template, &step_id, session, runner, 1) {
+                    ResultAction::Pipeline {
+                        ref path,
+                        ref prompt,
+                    } => {
+                        match execute_sub_pipeline(
+                            path,
+                            prompt.as_deref(),
+                            &step_id,
+                            session,
+                            runner,
+                            1,
+                        ) {
                             Ok(entry) => {
                                 session.turn_log.append(entry);
                             }

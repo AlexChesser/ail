@@ -35,8 +35,12 @@ pub fn materialize(pipeline: &Pipeline) -> String {
             StepBody::Skill(path) => {
                 out.push_str(&format!("    skill: {}\n", path.display()));
             }
-            StepBody::SubPipeline(path) => {
+            StepBody::SubPipeline { path, prompt } => {
                 out.push_str(&format!("    pipeline: {path}\n"));
+                if let Some(p) = prompt {
+                    let escaped = p.replace('\\', "\\\\").replace('"', "\\\"");
+                    out.push_str(&format!("    prompt: \"{escaped}\"\n"));
+                }
             }
             StepBody::Action(ActionKind::PauseForHuman) => {
                 out.push_str("    action: pause_for_human\n");
@@ -66,7 +70,17 @@ pub fn materialize(pipeline: &Pipeline) -> String {
                     ResultAction::Break => "break".to_string(),
                     ResultAction::AbortPipeline => "abort_pipeline".to_string(),
                     ResultAction::PauseForHuman => "pause_for_human".to_string(),
-                    ResultAction::Pipeline(path) => format!("pipeline: {path}"),
+                    ResultAction::Pipeline { path, prompt } => {
+                        let action_str = format!("pipeline: {path}");
+                        if let Some(p) = prompt {
+                            let escaped = p.replace('\\', "\\\\").replace('"', "\\\"");
+                            out.push_str(&format!(
+                                "      - {matcher}\n        action: {action_str}\n        prompt: \"{escaped}\"\n"
+                            ));
+                            continue;
+                        }
+                        action_str
+                    }
                 };
                 out.push_str(&format!("      - {matcher}\n        action: {action}\n"));
             }

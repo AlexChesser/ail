@@ -5,11 +5,8 @@ meta:
 
 pipeline:
   - id: momus
-    # TODO: system_prompt: not yet wired in executor — prompt includes system context inline
     system_prompt: ../prompts/momus.md
     prompt: |
-      You are Momus, the ruthless plan reviewer. Read ../prompts/momus.md for your full role definition.
-
       You may read files to verify that referenced paths and functions actually exist.
       Only raise blocking issues. If the plan is sound, say APPROVED.
 

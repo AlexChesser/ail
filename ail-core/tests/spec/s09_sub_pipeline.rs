@@ -4,7 +4,7 @@ use ail_core::config::domain::{
 };
 use ail_core::error::error_types;
 use ail_core::executor::{execute, execute_with_control, ExecutionControl};
-use ail_core::runner::stub::StubRunner;
+use ail_core::runner::stub::{EchoStubRunner, StubRunner};
 use ail_core::session::Session;
 use std::collections::HashSet;
 use std::path::PathBuf;
@@ -44,7 +44,10 @@ fn prompt_step(id: &str, text: &str) -> Step {
 fn sub_pipeline_step(id: &str, path: &str) -> Step {
     Step {
         id: StepId(id.to_string()),
-        body: StepBody::SubPipeline(path.to_string()),
+        body: StepBody::SubPipeline {
+            path: path.to_string(),
+            prompt: None,
+        },
         message: None,
         tools: None,
         on_result: None,
@@ -202,7 +205,10 @@ fn on_result_pipeline_action_executes_sub_pipeline_on_match() {
         tools: None,
         on_result: Some(vec![ResultBranch {
             matcher: ResultMatcher::Always,
-            action: ResultAction::Pipeline(child_path.to_str().unwrap().to_string()),
+            action: ResultAction::Pipeline {
+                path: child_path.to_str().unwrap().to_string(),
+                prompt: None,
+            },
         }]),
         model: None,
         runner: None,
@@ -255,7 +261,7 @@ pipeline:
 
     let pipeline = load(&yaml_path).unwrap();
     let branches = pipeline.steps[0].on_result.as_ref().unwrap();
-    assert!(matches!(branches[0].action, ResultAction::Pipeline(_)));
+    assert!(matches!(branches[0].action, ResultAction::Pipeline { .. }));
 }
 
 #[test]
@@ -421,4 +427,188 @@ fn execute_depth_limit_prevents_infinite_recursion() {
     assert_eq!(err.error_type, error_types::PIPELINE_ABORTED);
 
     std::env::set_current_dir(orig).unwrap();
+}
+
+// ── §9 prompt override: sub-pipeline receives explicit invocation prompt ──────
+
+/// When `prompt:` is set on a `pipeline:` step, the child session's invocation
+/// prompt must be the resolved prompt value, not the parent's last response.
+#[test]
+fn sub_pipeline_step_prompt_override_is_passed_to_child() {
+    let tmp = tempfile::tempdir().unwrap();
+    let orig = std::env::current_dir().unwrap();
+    std::env::set_current_dir(tmp.path()).unwrap();
+
+    let child_path = tmp.path().join("child_override.ail.yaml");
+    std::fs::write(
+        &child_path,
+        "version: \"0.0.1\"\npipeline:\n  - id: echo\n    prompt: \"{{ session.invocation_prompt }}\"\n",
+    )
+    .unwrap();
+
+    let step = Step {
+        id: StepId("parent".to_string()),
+        body: StepBody::SubPipeline {
+            path: child_path.to_str().unwrap().to_string(),
+            prompt: Some("explicit override".to_string()),
+        },
+        message: None,
+        tools: None,
+        on_result: None,
+        model: None,
+        runner: None,
+        condition: None,
+        append_system_prompt: None,
+        system_prompt: None,
+        resume: false,
+    };
+    let mut session = make_session(vec![step]);
+    // Add a prior turn entry so we can confirm it is NOT used as the child prompt.
+    session.turn_log.append(ail_core::session::TurnEntry {
+        step_id: "prior".to_string(),
+        prompt: "prior prompt".to_string(),
+        response: Some("prior response — should be ignored".to_string()),
+        timestamp: std::time::SystemTime::now(),
+        cost_usd: None,
+        input_tokens: 0,
+        output_tokens: 0,
+        runner_session_id: None,
+        stdout: None,
+        stderr: None,
+        exit_code: None,
+        thinking: None,
+        tool_events: vec![],
+    });
+
+    let runner = EchoStubRunner::new();
+    let result = execute(&mut session, &runner);
+    assert!(result.is_ok(), "Expected Ok, got: {result:?}");
+
+    // The sub-pipeline echoes its invocation_prompt; verify "explicit override" reached it.
+    let last = session.turn_log.last_response().unwrap_or("");
+    assert!(
+        last.contains("explicit override"),
+        "Expected response to contain 'explicit override', got: {last:?}"
+    );
+
+    std::env::set_current_dir(orig).unwrap();
+}
+
+/// `prompt:` with template variables is resolved against the parent session.
+#[test]
+fn sub_pipeline_step_prompt_override_resolves_template_variables() {
+    let tmp = tempfile::tempdir().unwrap();
+    let orig = std::env::current_dir().unwrap();
+    std::env::set_current_dir(tmp.path()).unwrap();
+
+    let child_path = tmp.path().join("child_tmpl.ail.yaml");
+    std::fs::write(
+        &child_path,
+        "version: \"0.0.1\"\npipeline:\n  - id: echo\n    prompt: \"{{ session.invocation_prompt }}\"\n",
+    )
+    .unwrap();
+
+    let step = Step {
+        id: StepId("parent".to_string()),
+        body: StepBody::SubPipeline {
+            path: child_path.to_str().unwrap().to_string(),
+            prompt: Some("{{ session.invocation_prompt }}".to_string()),
+        },
+        message: None,
+        tools: None,
+        on_result: None,
+        model: None,
+        runner: None,
+        condition: None,
+        append_system_prompt: None,
+        system_prompt: None,
+        resume: false,
+    };
+    // make_session sets invocation_prompt to "invocation prompt"
+    let mut session = make_session(vec![step]);
+
+    let runner = EchoStubRunner::new();
+    let result = execute(&mut session, &runner);
+    assert!(result.is_ok(), "Expected Ok, got: {result:?}");
+
+    let last = session.turn_log.last_response().unwrap_or("");
+    assert!(
+        last.contains("invocation prompt"),
+        "Expected resolved template variable 'invocation prompt', got: {last:?}"
+    );
+
+    std::env::set_current_dir(orig).unwrap();
+}
+
+/// `on_result: pipeline:` with `prompt:` sends the specified prompt to the child.
+#[test]
+fn on_result_pipeline_prompt_override_is_passed_to_child() {
+    let tmp = tempfile::tempdir().unwrap();
+    let orig = std::env::current_dir().unwrap();
+    std::env::set_current_dir(tmp.path()).unwrap();
+
+    let child_path = tmp.path().join("child_on_result.ail.yaml");
+    std::fs::write(
+        &child_path,
+        "version: \"0.0.1\"\npipeline:\n  - id: echo\n    prompt: \"{{ session.invocation_prompt }}\"\n",
+    )
+    .unwrap();
+
+    let trigger = Step {
+        id: StepId("trigger".to_string()),
+        body: StepBody::Prompt("trigger prompt".to_string()),
+        message: None,
+        tools: None,
+        on_result: Some(vec![ResultBranch {
+            matcher: ResultMatcher::Always,
+            action: ResultAction::Pipeline {
+                path: child_path.to_str().unwrap().to_string(),
+                prompt: Some("routed prompt".to_string()),
+            },
+        }]),
+        model: None,
+        runner: None,
+        condition: None,
+        append_system_prompt: None,
+        system_prompt: None,
+        resume: false,
+    };
+    let mut session = make_session(vec![trigger]);
+
+    let runner = EchoStubRunner::new();
+    let result = execute(&mut session, &runner);
+    assert!(result.is_ok(), "Expected Ok, got: {result:?}");
+
+    let last = session.turn_log.last_response().unwrap_or("");
+    assert!(
+        last.contains("routed prompt"),
+        "Expected last response to contain 'routed prompt', got: {last:?}"
+    );
+
+    std::env::set_current_dir(orig).unwrap();
+}
+
+/// `prompt:` field on `on_result: pipeline:` branches parses from YAML correctly.
+#[test]
+fn pipeline_action_with_prompt_override_parses_from_yaml() {
+    use ail_core::config::load;
+
+    let tmp = tempfile::tempdir().unwrap();
+    let child_path = fixtures_dir().join("sub_pipeline_child.ail.yaml");
+    let yaml = format!(
+        "version: \"0.0.1\"\npipeline:\n  - id: router\n    prompt: \"classify\"\n    on_result:\n      - always: true\n        action: \"pipeline: {}\"\n        prompt: \"{{{{ step.invocation.prompt }}}}\"\n",
+        child_path.display()
+    );
+    let yaml_path = tmp.path().join("test_prompt.ail.yaml");
+    std::fs::write(&yaml_path, yaml).unwrap();
+
+    let pipeline = load(&yaml_path).unwrap();
+    let branches = pipeline.steps[0].on_result.as_ref().unwrap();
+    assert!(matches!(
+        &branches[0].action,
+        ResultAction::Pipeline {
+            path: _,
+            prompt: Some(_)
+        }
+    ));
 }

@@ -109,8 +109,10 @@ pub fn validate(dto: PipelineFileDto, source: PathBuf) -> Result<Pipeline, AilEr
             });
         }
 
+        // When pipeline: is set, prompt: is treated as the child invocation override,
+        // not a primary field — so don't count it in the primary field selector.
         let primary_count = [
-            step_dto.prompt.is_some(),
+            step_dto.prompt.is_some() && step_dto.pipeline.is_none(),
             step_dto.skill.is_some(),
             step_dto.pipeline.is_some(),
             step_dto.action.is_some(),
@@ -136,7 +138,10 @@ pub fn validate(dto: PipelineFileDto, source: PathBuf) -> Result<Pipeline, AilEr
         } else if let Some(skill) = step_dto.skill {
             StepBody::Skill(PathBuf::from(skill))
         } else if let Some(pipeline) = step_dto.pipeline {
-            StepBody::SubPipeline(pipeline)
+            StepBody::SubPipeline {
+                path: pipeline,
+                prompt: step_dto.prompt,
+            }
         } else if let Some(action) = step_dto.action {
             match action.as_str() {
                 "pause_for_human" => StepBody::Action(ActionKind::PauseForHuman),
@@ -221,7 +226,10 @@ pub fn validate(dto: PipelineFileDto, source: PathBuf) -> Result<Pipeline, AilEr
                                     context: None,
                                 });
                             }
-                            ResultAction::Pipeline(path.to_string())
+                            ResultAction::Pipeline {
+                                path: path.to_string(),
+                                prompt: branch.prompt.clone(),
+                            }
                         } else {
                             match action_str.as_str() {
                                 "continue" => ResultAction::Continue,
@@ -264,6 +272,7 @@ pub fn validate(dto: PipelineFileDto, source: PathBuf) -> Result<Pipeline, AilEr
                         };
 
                         Ok(ResultBranch { matcher, action })
+                        // Note: `branch.prompt` is consumed into `ResultAction::Pipeline` above.
                     })
                     .collect::<Result<Vec<_>, AilError>>()
             })

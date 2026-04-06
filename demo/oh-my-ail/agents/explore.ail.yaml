@@ -5,11 +5,8 @@ meta:
 
 pipeline:
   - id: explore
-    # TODO: system_prompt: not yet wired in executor — prompt includes system context inline
     system_prompt: ../prompts/explore.md
     prompt: |
-      You are Explore, the fast codebase search specialist. Read ../prompts/explore.md for your full role definition.
-
       Return structured results with absolute paths and line numbers. No prose analysis — just findings.
 
       ## Search Task

@@ -1,7 +1,7 @@
 version: "0.0.1"
 
 meta:
-  name: "oy-my-ail — Solo Developer Quality Loop"
+  name: "oh-my-ail — Solo Developer Quality Loop"
 
 pipeline:
   - id: lint

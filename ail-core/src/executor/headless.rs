@@ -28,6 +28,7 @@ use super::helpers::{
 /// `depth` guards against infinite recursion; exceeding `MAX_SUB_PIPELINE_DEPTH` aborts.
 pub(super) fn execute_sub_pipeline(
     path_template: &str,
+    prompt_override: Option<&str>,
     step_id: &str,
     session: &mut Session,
     runner: &dyn Runner,
@@ -68,12 +69,25 @@ pub(super) fn execute_sub_pipeline(
         e
     })?;
 
-    // The sub-pipeline's invocation prompt is the parent's most recent response.
-    let invocation_prompt = session
-        .turn_log
-        .last_response()
-        .unwrap_or(&session.invocation_prompt)
-        .to_string();
+    // The sub-pipeline's invocation prompt: use the explicit override when provided
+    // (template-resolved against the parent session), otherwise fall back to the
+    // parent's most recent response (SPEC §9).
+    let invocation_prompt = if let Some(override_template) = prompt_override {
+        template::resolve(override_template, session).map_err(|mut e| {
+            e.context = Some(crate::error::ErrorContext {
+                pipeline_run_id: Some(session.run_id.clone()),
+                step_id: Some(step_id.to_string()),
+                source: None,
+            });
+            e
+        })?
+    } else {
+        session
+            .turn_log
+            .last_response()
+            .unwrap_or(&session.invocation_prompt)
+            .to_string()
+    };
 
     let mut child_session = crate::session::Session::new(sub_pipeline, invocation_prompt);
     child_session.cli_provider = session.cli_provider.clone();
@@ -318,11 +332,21 @@ pub(super) fn execute_inner(
                 continue;
             }
 
-            StepBody::SubPipeline(path_template) => {
+            StepBody::SubPipeline {
+                path: path_template,
+                prompt,
+            } => {
                 session
                     .turn_log
                     .record_step_started(&step_id, path_template);
-                execute_sub_pipeline(path_template, &step_id, session, runner, depth)?
+                execute_sub_pipeline(
+                    path_template,
+                    prompt.as_deref(),
+                    &step_id,
+                    session,
+                    runner,
+                    depth,
+                )?
             }
 
             StepBody::Skill(_) => {
@@ -378,9 +402,18 @@ pub(super) fn execute_inner(
                             "on_result pause_for_human (no-op in uncontrolled execution)"
                         );
                     }
-                    ResultAction::Pipeline(ref path_template) => {
-                        let entry =
-                            execute_sub_pipeline(path_template, &step_id, session, runner, depth)?;
+                    ResultAction::Pipeline {
+                        ref path,
+                        ref prompt,
+                    } => {
+                        let entry = execute_sub_pipeline(
+                            path,
+                            prompt.as_deref(),
+                            &step_id,
+                            session,
+                            runner,
+                            depth,
+                        )?;
                         session.turn_log.append(entry);
                     }
                 }

@@ -18,7 +18,7 @@ Consumed by `ail` (the binary) and future language-server / SDK targets.
 | `runner/mod.rs` | `Runner` trait, `RunResult`, `InvokeOptions` |
 | `runner/claude.rs` | `ClaudeCliRunner` — shells out to the `claude` CLI |
 | `runner/factory.rs` | `RunnerFactory` — builds runners by name; honours `AIL_DEFAULT_RUNNER` env |
-| `runner/stub.rs` | `StubRunner`, `CountingStubRunner` — deterministic test doubles |
+| `runner/stub.rs` | `StubRunner`, `CountingStubRunner`, `EchoStubRunner`, `RecordingStubRunner` — deterministic test doubles |
 | `session/log_provider.rs` | `LogProvider` trait + `JsonlProvider` (NDJSON) + `NullProvider` (tests) |
 | `session/state.rs` | `Session` — `run_id`, `pipeline`, `invocation_prompt`, `turn_log` |
 | `session/turn_log.rs` | `TurnLog` — in-memory entry store + delegates persistence to `LogProvider` |
@@ -34,15 +34,17 @@ pub enum Condition { Always, Never }  // SPEC §12 — None means Always; Never 
 pub struct Pipeline { pub steps: Vec<Step>, pub source: Option<PathBuf>, pub defaults: ProviderConfig, pub default_tools: Option<ToolPolicy> }
 // default_tools: pipeline-wide fallback; per-step tools override entirely (SPEC §3.2)
 pub struct Step    { pub id: StepId, pub body: StepBody, pub tools: Option<ToolPolicy>, pub on_result: Option<Vec<ResultBranch>>, pub model: Option<String>, pub runner: Option<String> }
-pub enum StepBody  { Prompt(String), Skill(PathBuf), SubPipeline(String), Action(ActionKind), Context(ContextSource) }
-// SubPipeline(String): path may contain {{ variable }} syntax — resolved at execution time (SPEC §11)
+pub enum StepBody  { Prompt(String), Skill(PathBuf), SubPipeline { path: String, prompt: Option<String> }, Action(ActionKind), Context(ContextSource) }
+// SubPipeline.path may contain {{ variable }} syntax — resolved at execution time (SPEC §11)
+// SubPipeline.prompt: when Some, overrides child session's invocation_prompt instead of using parent's last_response (SPEC §9.3)
 pub enum ContextSource { Shell(String) }
 pub enum ActionKind { PauseForHuman }
 pub struct ResultBranch { pub matcher: ResultMatcher, pub action: ResultAction }
 pub enum ResultMatcher { Contains(String), ExitCode(ExitCodeMatch), Always }
 pub enum ExitCodeMatch { Exact(i32), Any }
-pub enum ResultAction { Continue, Break, AbortPipeline, PauseForHuman, Pipeline(String) }
-// Pipeline(String): path may contain {{ variable }} syntax — resolved at execution time (SPEC §11)
+pub enum ResultAction { Continue, Break, AbortPipeline, PauseForHuman, Pipeline { path: String, prompt: Option<String> } }
+// Pipeline.path may contain {{ variable }} syntax — resolved at execution time (SPEC §11)
+// Pipeline.prompt: when Some, overrides child session's invocation_prompt instead of using parent's last_response (SPEC §9.3)
 // const MAX_SUB_PIPELINE_DEPTH: usize = 16 — enforced by execute_inner depth counter
 
 // Provider/model config (SPEC §15) — resolved chain: defaults → per-step → cli_provider

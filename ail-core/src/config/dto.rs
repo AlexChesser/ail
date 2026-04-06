@@ -63,6 +63,9 @@ pub struct OnResultBranchDto {
     pub exit_code: Option<ExitCodeDto>,
     pub always: Option<bool>,
     pub action: Option<String>,
+    /// Optional prompt override passed to the child session when action is `pipeline:`.
+    /// Template variables are resolved at execution time (SPEC §9).
+    pub prompt: Option<String>,
 }
 
 /// Handles both `exit_code: 0` (integer) and `exit_code: any` (string).

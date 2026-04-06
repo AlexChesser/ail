@@ -7,8 +7,6 @@ pipeline:
   - id: atlas_decompose
     system_prompt: ../prompts/atlas.md
     prompt: |
-      You are Atlas, the todo orchestrator. Read ../prompts/atlas.md for your full role definition.
-
       Decompose the following plan into a tracked task list. Identify dependencies.
       Your task list will be passed to Hephaestus for implementation.
 
