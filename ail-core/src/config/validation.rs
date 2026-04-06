@@ -17,7 +17,11 @@ pub fn validate(dto: PipelineFileDto, source: PathBuf) -> Result<Pipeline, AilEr
         .defaults
         .map(|d| {
             let provider_config = ProviderConfig {
-                model: d.model,
+                model: d
+                    .provider
+                    .as_ref()
+                    .and_then(|p| p.model.clone())
+                    .or(d.model),
                 base_url: d.provider.as_ref().and_then(|p| p.base_url.clone()),
                 auth_token: d.provider.as_ref().and_then(|p| p.auth_token.clone()),
                 input_cost_per_1k: d.provider.as_ref().and_then(|p| p.input_cost_per_1k),

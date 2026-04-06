@@ -60,7 +60,9 @@ providers:                  # optional; named provider aliases (see §15) — no
 
 defaults:                   # optional; inherited by all steps
   model: gemma3:1b          # ✓ PARSED — model name passed as --model to the runner
+                            #   may also be placed inside provider: (see below); provider wins if both set
   provider:                 # ✓ PARSED — provider connection details
+    model: gemma3:1b        # ✓ PARSED — alternative location for model; takes precedence over defaults.model
     base_url: http://localhost:11434   # set as ANTHROPIC_BASE_URL in subprocess env
     auth_token: ollama                 # set as ANTHROPIC_AUTH_TOKEN in subprocess env
     input_cost_per_1k: 0.0             # ✓ PARSED — cost per 1000 input tokens in USD (e.g., 0.0 for local Ollama)

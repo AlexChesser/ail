@@ -186,6 +186,43 @@ mod s3_2_top_level_structure {
         assert!(err.to_string().contains("pipeline"));
     }
 
+    /// SPEC §3.2 — `defaults.provider.model` is accepted and takes precedence over `defaults.model`
+    #[test]
+    fn provider_model_accepted_and_wins_over_defaults_model() {
+        let tmp = tempfile::tempdir().unwrap();
+        let yaml_path = tmp.path().join("provider_model.ail.yaml");
+        // model inside provider wins over sibling defaults.model
+        std::fs::write(
+            &yaml_path,
+            "version: \"1\"\ndefaults:\n  model: should-be-overridden\n  provider:\n    model: qwen3.5:0.8b\n    base_url: http://localhost:11434\npipeline:\n  - id: step1\n    prompt: hello\n",
+        )
+        .unwrap();
+        let pipeline = load(&yaml_path).expect("should parse successfully");
+        assert_eq!(
+            pipeline.defaults.model.as_deref(),
+            Some("qwen3.5:0.8b"),
+            "provider.model should win over defaults.model"
+        );
+    }
+
+    /// SPEC §3.2 — `defaults.provider.model` alone (no sibling `defaults.model`) is accepted
+    #[test]
+    fn provider_model_accepted_without_sibling_defaults_model() {
+        let tmp = tempfile::tempdir().unwrap();
+        let yaml_path = tmp.path().join("provider_model_only.ail.yaml");
+        std::fs::write(
+            &yaml_path,
+            "version: \"1\"\ndefaults:\n  provider:\n    model: qwen3.5:0.8b\n    base_url: http://localhost:11434\npipeline:\n  - id: step1\n    prompt: hello\n",
+        )
+        .unwrap();
+        let pipeline = load(&yaml_path).expect("should parse successfully");
+        assert_eq!(
+            pipeline.defaults.model.as_deref(),
+            Some("qwen3.5:0.8b"),
+            "provider.model should be parsed when defaults.model is absent"
+        );
+    }
+
     #[test]
     fn defaults_timeout_seconds_is_parsed() {
         let tmp = tempfile::tempdir().unwrap();
