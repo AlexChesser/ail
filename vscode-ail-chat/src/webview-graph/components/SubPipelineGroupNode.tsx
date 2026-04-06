@@ -1,18 +1,25 @@
 /**
- * SubPipelineGroupNode — a container node representing an expanded sub-pipeline.
+ * SubPipelineGroupNode — a container node representing a sub-pipeline.
  *
- * Rendered as a labeled card with the pipeline name and step count.
- * Edges connect to this node; the inner steps are laid out as regular nodes
- * that visually sit "inside" the group via indented positioning.
+ * When collapsed (default): shows pipeline name + step count. Double-click or
+ * click the toggle button to expand and reveal child steps.
+ * When expanded: the group node is hidden and child steps are shown inline.
  */
 
 import React, { memo } from 'react';
 import { Handle, Position, type NodeProps } from '@xyflow/react';
 import type { StepNodeData } from '../types';
 
+interface GroupNodeExtras {
+  _expanded?: boolean;
+  _onToggle?: () => void;
+}
+
 function SubPipelineGroupNodeInner({ data }: NodeProps): React.ReactElement {
-  const nodeData = data as unknown as StepNodeData;
+  const nodeData = data as unknown as StepNodeData & GroupNodeExtras;
   const color = 'var(--vscode-charts-orange, #f97316)';
+  const isExpanded = nodeData._expanded ?? false;
+  const onToggle = nodeData._onToggle;
 
   return (
     <div
@@ -21,8 +28,8 @@ function SubPipelineGroupNodeInner({ data }: NodeProps): React.ReactElement {
         border: `2px dashed ${color}`,
         borderRadius: 10,
         padding: '8px 14px',
-        minWidth: 160,
-        maxWidth: 240,
+        minWidth: 170,
+        maxWidth: 260,
         cursor: 'pointer',
         display: 'flex',
         alignItems: 'center',
@@ -33,6 +40,29 @@ function SubPipelineGroupNodeInner({ data }: NodeProps): React.ReactElement {
       }}
     >
       <Handle type="target" position={Position.Top} style={{ background: color, width: 8, height: 8 }} />
+
+      {/* Expand/collapse toggle */}
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
+          onToggle?.();
+        }}
+        style={{
+          background: 'transparent',
+          border: 'none',
+          color: 'var(--vscode-icon-foreground)',
+          cursor: 'pointer',
+          padding: 0,
+          fontSize: 11,
+          lineHeight: 1,
+          flexShrink: 0,
+          width: 14,
+          textAlign: 'center',
+        }}
+        title={isExpanded ? 'Collapse sub-pipeline' : 'Expand sub-pipeline'}
+      >
+        {isExpanded ? '▾' : '▸'}
+      </button>
 
       <span
         style={{

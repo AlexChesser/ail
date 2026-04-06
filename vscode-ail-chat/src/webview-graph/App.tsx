@@ -2,10 +2,10 @@
  * App — root component for the pipeline graph webview.
  *
  * Receives pipeline graph data from the extension host via postMessage,
- * lays it out with dagre, and renders it with React Flow.
+ * filters by expansion state, lays it out with dagre, and renders with React Flow.
  */
 
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ReactFlow,
   Background,
@@ -25,6 +25,7 @@ import { StepNode } from './components/StepNode';
 import { SubPipelineGroupNode } from './components/SubPipelineGroupNode';
 import { DetailPanel } from './components/DetailPanel';
 import { layoutGraph } from './layout';
+import { filterByExpansion } from './filterByExpansion';
 import type {
   GraphHostToWebviewMessage,
   GraphWebviewToHostMessage,
@@ -47,13 +48,6 @@ function postToHost(msg: GraphWebviewToHostMessage): void {
   vscode?.postMessage(msg);
 }
 
-// ── Custom node types ───────────────────────────────────────────────────────
-
-const nodeTypes: NodeTypes = {
-  stepNode: StepNode,
-  subPipelineGroup: SubPipelineGroupNode,
-};
-
 // ── App ─────────────────────────────────────────────────────────────────────
 
 export function App(): React.ReactElement {
@@ -62,16 +56,32 @@ export function App(): React.ReactElement {
   const [pipelineName, setPipelineName] = useState<string>('');
   const [selectedNode, setSelectedNode] = useState<StepNodeData | null>(null);
   const [errors, setErrors] = useState<string[]>([]);
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
+
+  // Keep full graph data so we can re-filter on expand/collapse.
+  const fullGraphRef = useRef<{ nodes: GraphNode[]; edges: GraphEdge[] }>({ nodes: [], edges: [] });
+
+  const applyLayout = useCallback(
+    (graphNodes: GraphNode[], graphEdges: GraphEdge[], expanded: Set<string>) => {
+      const { nodes: filtered, edges: filteredEdges } = filterByExpansion(graphNodes, graphEdges, expanded);
+      const { nodes: laid, edges: styledEdges } = layoutGraph(filtered, filteredEdges);
+      setNodes(laid);
+      setEdges(styledEdges);
+    },
+    [setNodes, setEdges]
+  );
 
   const applyGraphData = useCallback(
     (graphNodes: GraphNode[], graphEdges: GraphEdge[], name: string) => {
-      const { nodes: laid, edges: styledEdges } = layoutGraph(graphNodes, graphEdges);
-      setNodes(laid);
-      setEdges(styledEdges);
+      fullGraphRef.current = { nodes: graphNodes, edges: graphEdges };
+      // Reset expansion state on new data.
+      const newExpanded = new Set<string>();
+      setExpandedGroups(newExpanded);
+      applyLayout(graphNodes, graphEdges, newExpanded);
       setPipelineName(name);
       setSelectedNode(null);
     },
-    [setNodes, setEdges]
+    [applyLayout]
   );
 
   useEffect(() => {
@@ -99,12 +109,38 @@ export function App(): React.ReactElement {
     return () => window.removeEventListener('message', handler);
   }, [applyGraphData]);
 
+  const toggleGroup = useCallback(
+    (groupId: string) => {
+      setExpandedGroups((prev) => {
+        const next = new Set(prev);
+        if (next.has(groupId)) {
+          next.delete(groupId);
+        } else {
+          next.add(groupId);
+        }
+        applyLayout(fullGraphRef.current.nodes, fullGraphRef.current.edges, next);
+        return next;
+      });
+    },
+    [applyLayout]
+  );
+
   const onNodeClick = useCallback(
     (_event: React.MouseEvent, node: Node) => {
       const data = node.data as unknown as StepNodeData;
       setSelectedNode(data);
     },
     []
+  );
+
+  const onNodeDoubleClick = useCallback(
+    (_event: React.MouseEvent, node: Node) => {
+      // Double-click on group nodes toggles expansion.
+      if (node.type === 'subPipelineGroup') {
+        toggleGroup(node.id);
+      }
+    },
+    [toggleGroup]
   );
 
   const onPaneClick = useCallback(() => {
@@ -115,6 +151,24 @@ export function App(): React.ReactElement {
     type: 'smoothstep' as const,
     markerEnd: { type: MarkerType.ArrowClosed, width: 16, height: 16 },
   };
+
+  // Memoize node types to include the toggle callback via wrapper.
+  const nodeTypes: NodeTypes = useMemo(
+    () => ({
+      stepNode: StepNode,
+      subPipelineGroup: (props: Record<string, unknown>) => {
+        const nodeProps = props as Parameters<typeof SubPipelineGroupNode>[0];
+        const nodeData = nodeProps.data as unknown as StepNodeData;
+        const nodeId = nodeProps.id as unknown as string;
+        const isExpanded = expandedGroups.has(nodeId);
+        return SubPipelineGroupNode({
+          ...nodeProps,
+          data: { ...nodeData, _expanded: isExpanded, _onToggle: () => toggleGroup(nodeId) } as unknown as typeof nodeProps.data,
+        });
+      },
+    }),
+    [expandedGroups, toggleGroup]
+  );
 
   return (
     <div style={{ width: '100%', height: '100%', display: 'flex' }}>
@@ -164,6 +218,7 @@ export function App(): React.ReactElement {
           onNodesChange={onNodesChange}
           onEdgesChange={onEdgesChange}
           onNodeClick={onNodeClick}
+          onNodeDoubleClick={onNodeDoubleClick}
           onPaneClick={onPaneClick}
           nodeTypes={nodeTypes}
           defaultEdgeOptions={defaultEdgeOptions}
