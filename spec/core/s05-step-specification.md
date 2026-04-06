@@ -87,7 +87,7 @@ A `prompt:` step invokes the LLM with an optional system context and a user-leve
   prompt: ~/prompts/my-conventions.md
 ```
 
-Files are read at pipeline load time. Template variables within files are resolved at step execution time.
+File paths starting with `./` or `../` are resolved relative to the directory of the pipeline file that contains the step, not the process working directory. Absolute paths (`/`) and home-relative paths (`~/`) are resolved as written. Template variables within files are resolved at step execution time.
 
 #### System context fields
 

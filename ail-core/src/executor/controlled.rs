@@ -96,18 +96,22 @@ pub fn execute_with_control(
 
         tracing::info!(run_id = %session.run_id, step_id = %step_id, "executing step (controlled)");
 
+        // Base dir for resolving ./relative file paths — the pipeline file's parent dir (SPEC §5.2).
+        let pipeline_base_dir = session.pipeline.source.as_deref().and_then(|p| p.parent());
+
         let entry = match &step.body {
             StepBody::Prompt(template_text) => {
-                let template_text = match resolve_prompt_file(template_text, &step_id) {
-                    Ok(t) => t,
-                    Err(e) => {
-                        let _ = event_tx.send(ExecutorEvent::StepFailed {
-                            step_id: step_id.clone(),
-                            error: e.detail.clone(),
-                        });
-                        return Err(e);
-                    }
-                };
+                let template_text =
+                    match resolve_prompt_file(template_text, &step_id, pipeline_base_dir) {
+                        Ok(t) => t,
+                        Err(e) => {
+                            let _ = event_tx.send(ExecutorEvent::StepFailed {
+                                step_id: step_id.clone(),
+                                error: e.detail.clone(),
+                            });
+                            return Err(e);
+                        }
+                    };
                 let resolved = match template::resolve(&template_text, session) {
                     Ok(r) => r,
                     Err(mut e) => {
@@ -147,7 +151,7 @@ pub fn execute_with_control(
                     .system_prompt
                     .as_deref()
                     .map(|sp| {
-                        let content = resolve_prompt_file(sp, &step_id)?;
+                        let content = resolve_prompt_file(sp, &step_id, pipeline_base_dir)?;
                         template::resolve(&content, session).map_err(|mut e| {
                             e.context = Some(crate::error::ErrorContext {
                                 pipeline_run_id: Some(session.run_id.clone()),

@@ -86,6 +86,80 @@ pipeline:
     }
 }
 
+mod s5_2_file_path_resolution {
+    use ail_core::executor::execute;
+    use ail_core::runner::stub::EchoStubRunner;
+    use ail_core::session::Session;
+
+    /// SPEC §5.2 — `./` in `system_prompt:` is resolved relative to the pipeline file,
+    /// not the process working directory.
+    #[test]
+    fn system_prompt_resolves_relative_to_pipeline_file() {
+        let tmp = tempfile::tempdir().unwrap();
+        let prompts_dir = tmp.path().join("prompts");
+        std::fs::create_dir(&prompts_dir).unwrap();
+
+        // Write the system prompt in a sub-directory relative to the pipeline file.
+        let sp_path = prompts_dir.join("system.md");
+        std::fs::write(&sp_path, "You are a test agent.").unwrap();
+
+        let yaml = "version: \"0.0.1\"\npipeline:\n  - id: invocation\n    system_prompt: ./prompts/system.md\n    prompt: \"{{ session.invocation_prompt }}\"\n";
+        let pipeline_path = tmp.path().join("test.ail.yaml");
+        std::fs::write(&pipeline_path, yaml).unwrap();
+
+        let pipeline = ail_core::config::load(&pipeline_path).unwrap();
+        let mut session = Session::new(pipeline, "test prompt".to_string());
+
+        // Change CWD to somewhere else so we confirm resolution is NOT CWD-relative.
+        let orig = std::env::current_dir().unwrap();
+        std::env::set_current_dir(std::env::temp_dir()).unwrap();
+
+        let runner = EchoStubRunner::new();
+        let result = execute(&mut session, &runner);
+
+        std::env::set_current_dir(orig).unwrap();
+
+        assert!(
+            result.is_ok(),
+            "Expected Ok — system_prompt should resolve relative to pipeline file, got: {result:?}"
+        );
+    }
+
+    /// SPEC §5.2 — `./` in `prompt:` is resolved relative to the pipeline file.
+    #[test]
+    fn prompt_file_resolves_relative_to_pipeline_file() {
+        let tmp = tempfile::tempdir().unwrap();
+        let prompts_dir = tmp.path().join("prompts");
+        std::fs::create_dir(&prompts_dir).unwrap();
+
+        let prompt_path = prompts_dir.join("task.md");
+        std::fs::write(&prompt_path, "Do the task.").unwrap();
+
+        let yaml = "version: \"0.0.1\"\npipeline:\n  - id: step\n    prompt: ./prompts/task.md\n";
+        let pipeline_path = tmp.path().join("test2.ail.yaml");
+        std::fs::write(&pipeline_path, yaml).unwrap();
+
+        let pipeline = ail_core::config::load(&pipeline_path).unwrap();
+        let mut session = Session::new(pipeline, "invocation prompt".to_string());
+
+        let orig = std::env::current_dir().unwrap();
+        std::env::set_current_dir(std::env::temp_dir()).unwrap();
+
+        let runner = EchoStubRunner::new();
+        let result = execute(&mut session, &runner);
+
+        std::env::set_current_dir(orig).unwrap();
+
+        assert!(
+            result.is_ok(),
+            "Expected Ok — prompt file should resolve relative to pipeline file, got: {result:?}"
+        );
+        // The echo runner returns the resolved prompt text.
+        let response = session.turn_log.last_response().unwrap_or("");
+        assert_eq!(response, "Do the task.");
+    }
+}
+
 mod s5_1_core_fields {
     use ail_core::config::{domain::StepBody, load};
     use std::path::PathBuf;

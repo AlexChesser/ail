@@ -126,7 +126,14 @@ pub(super) fn build_tool_policy(
 /// If `prompt_text` starts with a path prefix (`./`, `../`, `~/`, `/`), read the file
 /// at that path and return its contents as the prompt template. Otherwise returns the
 /// original string unchanged. `~/` is expanded using the user's home directory.
-pub(super) fn resolve_prompt_file(prompt_text: &str, step_id: &str) -> Result<String, AilError> {
+///
+/// `base_dir` is the directory of the pipeline file that owns this step. Per SPEC §5.2,
+/// `./` and `../` paths are resolved relative to the pipeline file, not the process CWD.
+pub(super) fn resolve_prompt_file(
+    prompt_text: &str,
+    step_id: &str,
+    base_dir: Option<&std::path::Path>,
+) -> Result<String, AilError> {
     let is_path = prompt_text.starts_with("./")
         || prompt_text.starts_with("../")
         || prompt_text.starts_with("~/")
@@ -146,7 +153,13 @@ pub(super) fn resolve_prompt_file(prompt_text: &str, step_id: &str) -> Result<St
             context: None,
         })?;
         home.join(rel)
+    } else if prompt_text.starts_with('/') {
+        std::path::PathBuf::from(prompt_text)
+    } else if let Some(base) = base_dir {
+        // ./  or ../  — resolve relative to the pipeline file's directory (SPEC §5.2)
+        base.join(prompt_text)
     } else {
+        // No base_dir available (e.g. passthrough pipeline) — fall back to CWD-relative.
         std::path::PathBuf::from(prompt_text)
     };
 
