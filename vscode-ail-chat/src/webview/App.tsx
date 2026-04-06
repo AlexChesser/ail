@@ -15,7 +15,8 @@ import { HitlCard, HitlCardState } from './components/HitlCard';
 import { PermissionCard, PermissionCardState } from './components/PermissionCard';
 import { AskUserQuestionCard, AskUserQuestion, AskUserCardState } from './components/AskUserQuestionCard';
 import { ErrorBoundary } from './components/ErrorBoundary';
-import { StepProgress, StepInfo, StepStatus } from './components/StepProgress';
+import { ToolCallGroup } from './components/ToolCallGroup';
+import { StepProgress, StepInfo } from './components/StepProgress';
 import { ChatInput } from './components/ChatInput';
 import { SessionList } from './components/SessionList';
 import { StatusBar } from './components/StatusBar';
@@ -534,6 +535,47 @@ function reducer(state: ChatState, action: Action): ChatState {
   }
 }
 
+// ── Render-time grouping ───────────────────────────────────────────────────────
+
+type GroupedItem =
+  | { kind: 'single'; item: DisplayItem }
+  | { kind: 'tool-group'; items: DisplayItem[]; allResolved: boolean };
+
+function isToolGroupable(item: DisplayItem): boolean {
+  return item.kind === 'tool-call' || item.kind === 'permission';
+}
+
+function isGroupResolved(items: DisplayItem[]): boolean {
+  return items.every((it) => {
+    if (it.kind === 'tool-call') return it.data.result !== undefined;
+    if (it.kind === 'permission') return it.cardState === 'resolved';
+    return true;
+  });
+}
+
+function groupItems(items: DisplayItem[]): GroupedItem[] {
+  const result: GroupedItem[] = [];
+  let i = 0;
+  while (i < items.length) {
+    if (isToolGroupable(items[i])) {
+      const start = i;
+      while (i < items.length && isToolGroupable(items[i])) {
+        i++;
+      }
+      const group = items.slice(start, i);
+      if (group.length === 1) {
+        result.push({ kind: 'single', item: group[0] });
+      } else {
+        result.push({ kind: 'tool-group', items: group, allResolved: isGroupResolved(group) });
+      }
+    } else {
+      result.push({ kind: 'single', item: items[i] });
+      i++;
+    }
+  }
+  return result;
+}
+
 // ── App component ──────────────────────────────────────────────────────────────
 
 export const App: React.FC = () => {
@@ -647,67 +689,73 @@ export const App: React.FC = () => {
               <div className="empty-state-subtitle">Describe a task to get started with your ail pipeline.</div>
             </div>
           )}
-          {state.items.map((item) => {
-            let content: React.ReactNode;
-            switch (item.kind) {
-              case 'user-message':
-                content = <ChatMessage role="user" content={item.text} />;
-                break;
-              case 'assistant-stream':
-                content = <ChatMessage role="assistant" content={item.text} streaming={item.streaming} />;
-                break;
-              case 'thinking':
-                content = <ThinkingBlock text={item.text} />;
-                break;
-              case 'tool-call':
-                content = <ToolCallCard data={item.data} />;
-                break;
-              case 'hitl':
-                content = (
-                  <HitlCard
-                    stepId={item.stepId}
-                    message={item.message}
-                    cardState={item.cardState}
-                    resolvedText={item.resolvedText}
-                    onApprove={handleHitlApprove}
-                    onReject={handleHitlReject}
+          {(() => {
+            const renderItem = (item: DisplayItem): React.ReactNode => {
+              switch (item.kind) {
+                case 'user-message':
+                  return <ChatMessage role="user" content={item.text} />;
+                case 'assistant-stream':
+                  return <ChatMessage role="assistant" content={item.text} streaming={item.streaming} />;
+                case 'thinking':
+                  return <ThinkingBlock text={item.text} />;
+                case 'tool-call':
+                  return <ToolCallCard data={item.data} />;
+                case 'hitl':
+                  return (
+                    <HitlCard
+                      stepId={item.stepId}
+                      message={item.message}
+                      cardState={item.cardState}
+                      resolvedText={item.resolvedText}
+                      onApprove={handleHitlApprove}
+                      onReject={handleHitlReject}
+                    />
+                  );
+                case 'permission':
+                  return (
+                    <PermissionCard
+                      displayName={item.displayName}
+                      displayDetail={item.displayDetail}
+                      cardState={item.cardState}
+                      resolvedAllowed={item.resolvedAllowed}
+                      onAllow={handlePermissionAllow}
+                      onDeny={handlePermissionDeny}
+                    />
+                  );
+                case 'ask-user-question':
+                  return (
+                    <AskUserQuestionCard
+                      questions={item.questions}
+                      cardState={item.cardState}
+                      resolvedAnswer={item.resolvedAnswer}
+                      onSubmit={handleAskUserSubmit}
+                      onDeny={handleAskUserDeny}
+                    />
+                  );
+                case 'error':
+                  return (
+                    <div className="error-message">
+                      <span className="error-message-icon codicon codicon-error" />
+                      <span>{item.message}</span>
+                    </div>
+                  );
+              }
+            };
+            return groupItems(state.items).map((grouped) => {
+              if (grouped.kind === 'single') {
+                return <ErrorBoundary key={grouped.item.id}>{renderItem(grouped.item)}</ErrorBoundary>;
+              }
+              return (
+                <ErrorBoundary key={`group-${grouped.items[0].id}`}>
+                  <ToolCallGroup
+                    items={grouped.items}
+                    allResolved={grouped.allResolved}
+                    renderItem={renderItem}
                   />
-                );
-                break;
-              case 'permission':
-                content = (
-                  <PermissionCard
-                    displayName={item.displayName}
-                    displayDetail={item.displayDetail}
-                    cardState={item.cardState}
-                    resolvedAllowed={item.resolvedAllowed}
-                    onAllow={handlePermissionAllow}
-                    onDeny={handlePermissionDeny}
-                  />
-                );
-                break;
-              case 'ask-user-question':
-                content = (
-                  <AskUserQuestionCard
-                    questions={item.questions}
-                    cardState={item.cardState}
-                    resolvedAnswer={item.resolvedAnswer}
-                    onSubmit={handleAskUserSubmit}
-                    onDeny={handleAskUserDeny}
-                  />
-                );
-                break;
-              case 'error':
-                content = (
-                  <div className="error-message">
-                    <span className="error-message-icon codicon codicon-error" />
-                    <span>{item.message}</span>
-                  </div>
-                );
-                break;
-            }
-            return <ErrorBoundary key={item.id}>{content}</ErrorBoundary>;
-          })}
+                </ErrorBoundary>
+              );
+            });
+          })()}
         </div>
         <StatusBar
           isRunning={state.isRunning}

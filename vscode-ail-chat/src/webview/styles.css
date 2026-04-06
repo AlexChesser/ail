@@ -432,6 +432,50 @@ body {
   color: var(--vscode-errorForeground);
 }
 
+/* ── Tool call group ── */
+
+.tool-group {
+  margin: var(--ail-spacing-xs) 0;
+  border-radius: var(--ail-radius);
+  border-left: 2px solid var(--vscode-panel-border);
+}
+
+.tool-group-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  cursor: pointer;
+  user-select: none;
+  font-size: 12px;
+  border-radius: var(--ail-radius) var(--ail-radius) 0 0;
+  transition: background 0.1s ease;
+}
+
+.tool-group-header:hover {
+  background: var(--vscode-list-hoverBackground);
+}
+
+.tool-group-count {
+  font-size: 12px;
+  color: var(--vscode-descriptionForeground);
+}
+
+.tool-group-body {
+  padding: 2px 0 2px 8px;
+}
+
+.tool-group-body.collapsed {
+  display: none;
+}
+
+/* Remove outer margin on cards nested inside a group */
+.tool-group-body .tool-card,
+.tool-group-body .permission-card {
+  margin-top: 2px;
+  margin-bottom: 2px;
+}
+
 /* ── HITL card ── */
 
 .hitl-card {
@@ -480,24 +524,48 @@ body {
 .permission-card {
   border-left: 3px solid var(--vscode-inputValidation-infoBorder, var(--vscode-editorInfo-foreground));
   border-radius: 0 var(--ail-radius) var(--ail-radius) 0;
-  padding: var(--ail-spacing-md) var(--ail-spacing-lg);
-  display: flex;
-  flex-direction: column;
-  gap: var(--ail-spacing-sm);
   background: var(--ail-card-bg);
   margin: var(--ail-spacing-xs) 0;
 }
 
-.permission-card-title {
-  font-size: 12px;
-  font-weight: 600;
+.permission-card-header {
   display: flex;
   align-items: center;
   gap: 6px;
+  padding: 6px 10px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.permission-card-header.clickable {
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.1s ease;
+}
+
+.permission-card-header.clickable:hover {
+  background: var(--vscode-list-hoverBackground);
+}
+
+.permission-card-title-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .permission-card-icon {
   color: var(--vscode-editorInfo-foreground, var(--vscode-inputValidation-infoBorder));
+  flex-shrink: 0;
+}
+
+.permission-card-body {
+  padding: var(--ail-spacing-sm) var(--ail-spacing-lg) var(--ail-spacing-md);
+  display: flex;
+  flex-direction: column;
+  gap: var(--ail-spacing-sm);
+  border-top: 1px solid var(--vscode-panel-border);
 }
 
 .permission-card-detail {
@@ -511,12 +579,6 @@ body {
 .permission-card-actions {
   display: flex;
   gap: var(--ail-spacing-sm);
-}
-
-.permission-card-resolved {
-  font-size: 12px;
-  color: var(--vscode-descriptionForeground);
-  font-style: italic;
 }
 
 /* ── Ask-user question options ── */
