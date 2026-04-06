@@ -61,15 +61,14 @@ pub(super) fn execute_sub_pipeline(
     })?;
 
     // Resolve ./relative and ../relative paths against the parent pipeline's directory (SPEC §9).
-    let path_buf =
-        if let (true, Some(base)) = (
-            resolved_path.starts_with("./") || resolved_path.starts_with("../"),
-            base_dir,
-        ) {
-            base.join(&resolved_path)
-        } else {
-            std::path::PathBuf::from(&resolved_path)
-        };
+    let path_buf = if let (true, Some(base)) = (
+        resolved_path.starts_with("./") || resolved_path.starts_with("../"),
+        base_dir,
+    ) {
+        base.join(&resolved_path)
+    } else {
+        std::path::PathBuf::from(&resolved_path)
+    };
     let path = path_buf.as_path();
 
     let sub_pipeline = crate::config::load(path).map_err(|mut e| {

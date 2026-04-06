@@ -348,8 +348,14 @@ fn run_once_json(session: &mut ail_core::session::Session, runner: &dyn Runner, 
     // One-shot channel for permission responses. When the PermissionResponder
     // callback fires, it parks a (display_name, SyncSender) here; the stdin
     // reader picks it up and optionally adds the name to the session allowlist.
-    type PendingPerm =
-        Arc<std::sync::Mutex<Option<(String, mpsc::SyncSender<ail_core::runner::PermissionResponse>)>>>;
+    type PendingPerm = Arc<
+        std::sync::Mutex<
+            Option<(
+                String,
+                mpsc::SyncSender<ail_core::runner::PermissionResponse>,
+            )>,
+        >,
+    >;
     let pending_permission: PendingPerm = Arc::new(std::sync::Mutex::new(None));
 
     // Session allowlist — tool display_names approved for the lifetime of this run.
