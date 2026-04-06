@@ -1,6 +1,6 @@
 ## 13. Human-in-the-Loop (HITL) Gates
 
-> **Implementation status:** Partial. `pause_for_human` action is implemented in `execute_with_control()` (the controlled executor used by TUI and `--output-format json` mode): it blocks execution and emits a `HitlGateReached` event. In simple `execute()` mode (`--once` text output), `pause_for_human` is a no-op. The "Modify" response for tool permissions is deferred to v0.2.
+> **Implementation status:** Partial. `pause_for_human` action is implemented in `execute_with_control()` (the controlled executor used by TUI and `--output-format json` mode): it blocks execution and emits a `HitlGateReached` event. In simple `execute()` mode (`--once` text output), `pause_for_human` is a no-op. "Allow for session" is implemented in `--output-format json` mode via the `allow_for_session` field in the `permission_response` stdin message (§23.7). The "Modify" response for tool permissions is deferred to v0.2.
 
 HITL gates are intentional checkpoints, not error states.
 

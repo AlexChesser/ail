@@ -346,18 +346,32 @@ fn run_once_json(session: &mut ail_core::session::Session, runner: &dyn Runner, 
     let kill_requested = Arc::new(AtomicBool::new(false));
 
     // One-shot channel for permission responses. When the PermissionResponder
-    // callback fires, it parks a SyncSender here; the stdin reader picks it up.
-    let pending_permission: Arc<
-        std::sync::Mutex<Option<mpsc::SyncSender<ail_core::runner::PermissionResponse>>>,
-    > = Arc::new(std::sync::Mutex::new(None));
+    // callback fires, it parks a (display_name, SyncSender) here; the stdin
+    // reader picks it up and optionally adds the name to the session allowlist.
+    type PendingPerm =
+        Arc<std::sync::Mutex<Option<(String, mpsc::SyncSender<ail_core::runner::PermissionResponse>)>>>;
+    let pending_permission: PendingPerm = Arc::new(std::sync::Mutex::new(None));
 
-    // Build the permission responder — blocks until the stdin reader delivers a decision.
+    // Session allowlist — tool display_names approved for the lifetime of this run.
+    // Shared between the responder, event forwarding threads, and stdin reader.
+    let session_allowlist: Arc<std::sync::Mutex<HashSet<String>>> =
+        Arc::new(std::sync::Mutex::new(HashSet::new()));
+
+    // Build the permission responder — checks session allowlist first, then blocks
+    // until the stdin reader delivers a decision.
     let pending_perm_responder = Arc::clone(&pending_permission);
+    let allowlist_responder = Arc::clone(&session_allowlist);
     let responder: ail_core::runner::PermissionResponder =
-        Arc::new(move |_req: ail_core::runner::PermissionRequest| {
+        Arc::new(move |req: ail_core::runner::PermissionRequest| {
+            // Auto-approve tools already in the session allowlist — silent, no stdin block.
+            if let Ok(guard) = allowlist_responder.lock() {
+                if guard.contains(&req.display_name) {
+                    return ail_core::runner::PermissionResponse::Allow;
+                }
+            }
             let (tx, rx) = mpsc::sync_channel(1);
             if let Ok(mut guard) = pending_perm_responder.lock() {
-                *guard = Some(tx);
+                *guard = Some((req.display_name, tx));
             }
             rx.recv_timeout(std::time::Duration::from_secs(300))
                 .unwrap_or(ail_core::runner::PermissionResponse::Deny(
@@ -371,6 +385,7 @@ fn run_once_json(session: &mut ail_core::session::Session, runner: &dyn Runner, 
     let pause_stdin = Arc::clone(&pause_requested);
     let kill_stdin = Arc::clone(&kill_requested);
     let pending_perm_stdin = Arc::clone(&pending_permission);
+    let allowlist_stdin = Arc::clone(&session_allowlist);
     std::thread::spawn(move || {
         use std::io::BufRead;
         let stdin = std::io::stdin();
@@ -398,6 +413,10 @@ fn run_once_json(session: &mut ail_core::session::Session, runner: &dyn Runner, 
                         .get("allowed")
                         .and_then(|v| v.as_bool())
                         .unwrap_or(false);
+                    let allow_for_session = msg
+                        .get("allow_for_session")
+                        .and_then(|v| v.as_bool())
+                        .unwrap_or(false);
                     let response = if allowed {
                         ail_core::runner::PermissionResponse::Allow
                     } else {
@@ -409,7 +428,12 @@ fn run_once_json(session: &mut ail_core::session::Session, runner: &dyn Runner, 
                         ail_core::runner::PermissionResponse::Deny(reason)
                     };
                     let mut guard = pending_perm_stdin.lock().unwrap_or_else(|e| e.into_inner());
-                    if let Some(tx) = guard.take() {
+                    if let Some((display_name, tx)) = guard.take() {
+                        if allowed && allow_for_session {
+                            if let Ok(mut al) = allowlist_stdin.lock() {
+                                al.insert(display_name);
+                            }
+                        }
                         let _ = tx.send(response);
                     }
                 }
@@ -466,8 +490,18 @@ fn run_once_json(session: &mut ail_core::session::Session, runner: &dyn Runner, 
         // Spawn a thread to forward runner events as NDJSON to stdout.
         let (runner_tx, runner_rx) = mpsc::channel::<ail_core::runner::RunnerEvent>();
         let stdout_clone = std::io::stdout();
+        let allowlist_fwd = Arc::clone(&session_allowlist);
         let fwd_handle = std::thread::spawn(move || {
             for ev in runner_rx {
+                // Suppress permission events for session-allowlisted tools — they are
+                // auto-approved by the responder and should not appear in the UI.
+                if let ail_core::runner::RunnerEvent::PermissionRequested(ref req) = ev {
+                    if let Ok(guard) = allowlist_fwd.lock() {
+                        if guard.contains(&req.display_name) {
+                            continue;
+                        }
+                    }
+                }
                 let wrapper = serde_json::json!({
                     "type": "runner_event",
                     "event": ev,
@@ -542,9 +576,21 @@ fn run_once_json(session: &mut ail_core::session::Session, runner: &dyn Runner, 
     let (event_tx, event_rx) = mpsc::channel();
 
     // Spawn event writer thread — serializes ExecutorEvents as NDJSON.
+    let allowlist_writer = Arc::clone(&session_allowlist);
     let writer_handle = std::thread::spawn(move || {
         let stdout = std::io::stdout();
         for event in event_rx {
+            // Suppress permission events for session-allowlisted tools.
+            if let ail_core::executor::ExecutorEvent::RunnerEvent {
+                event: ail_core::runner::RunnerEvent::PermissionRequested(ref req),
+            } = event
+            {
+                if let Ok(guard) = allowlist_writer.lock() {
+                    if guard.contains(&req.display_name) {
+                        continue;
+                    }
+                }
+            }
             let mut out = stdout.lock();
             let _ = serde_json::to_writer(&mut out, &event);
             let _ = writeln!(out);

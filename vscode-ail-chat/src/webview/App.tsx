@@ -97,6 +97,7 @@ type Action =
   | { type: 'HITL_APPROVE'; stepId: string; text?: string }
   | { type: 'HITL_REJECT'; stepId: string }
   | { type: 'PERMISSION_ALLOW' }
+  | { type: 'PERMISSION_ALLOW_SESSION' }
   | { type: 'PERMISSION_DENY' }
   | { type: 'ASK_USER_SUBMIT'; answer: string }
   | { type: 'ASK_USER_DENY' }
@@ -482,6 +483,17 @@ function reducer(state: ChatState, action: Action): ChatState {
       };
     }
 
+    case 'PERMISSION_ALLOW_SESSION': {
+      const pId = findPermissionId(state.items);
+      if (pId === null) return state;
+      return {
+        ...state,
+        items: updateItem(state.items, pId, (it) =>
+          it.kind === 'permission' ? { ...it, cardState: 'resolved', resolvedAllowed: true } : it
+        ),
+      };
+    }
+
     case 'PERMISSION_DENY': {
       const pId = findPermissionId(state.items);
       if (pId === null) return state;
@@ -640,6 +652,11 @@ export const App: React.FC = () => {
     postToHost({ type: 'permissionResponse', allowed: true });
   };
 
+  const handlePermissionAllowForSession = () => {
+    dispatch({ type: 'PERMISSION_ALLOW_SESSION' });
+    postToHost({ type: 'permissionResponse', allowed: true, allowForSession: true });
+  };
+
   const handlePermissionDeny = () => {
     dispatch({ type: 'PERMISSION_DENY' });
     postToHost({ type: 'permissionResponse', allowed: false });
@@ -733,6 +750,7 @@ export const App: React.FC = () => {
                       cardState={item.cardState}
                       resolvedAllowed={item.resolvedAllowed}
                       onAllow={handlePermissionAllow}
+                      onAllowForSession={handlePermissionAllowForSession}
                       onDeny={handlePermissionDeny}
                     />
                   );

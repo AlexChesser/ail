@@ -8,6 +8,7 @@ export interface PermissionCardProps {
   cardState: PermissionCardState;
   resolvedAllowed?: boolean;
   onAllow: () => void;
+  onAllowForSession: () => void;
   onDeny: () => void;
 }
 
@@ -17,6 +18,7 @@ export const PermissionCard: React.FC<PermissionCardProps> = ({
   cardState,
   resolvedAllowed,
   onAllow,
+  onAllowForSession,
   onDeny,
 }) => {
   const isResolved = cardState === 'resolved';
@@ -57,6 +59,7 @@ export const PermissionCard: React.FC<PermissionCardProps> = ({
           {cardState === 'pending' && (
             <div className="permission-card-actions">
               <button className="btn-primary" onClick={onAllow}>Allow</button>
+              <button className="btn-secondary" onClick={onAllowForSession}>Allow for Session</button>
               <button className="btn-danger" onClick={onDeny}>Deny</button>
             </div>
           )}

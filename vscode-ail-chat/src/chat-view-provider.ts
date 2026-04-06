@@ -139,6 +139,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
           type: 'permission_response',
           allowed: msg.allowed,
           reason: msg.reason,
+          allow_for_session: msg.allowForSession,
         });
         break;
 

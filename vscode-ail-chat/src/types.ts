@@ -182,7 +182,7 @@ export type WebviewToHostMessage =
   | { type: 'ready' }
   | { type: 'submitPrompt'; text: string }
   | { type: 'hitlResponse'; stepId: string; text: string }
-  | { type: 'permissionResponse'; allowed: boolean; reason?: string }
+  | { type: 'permissionResponse'; allowed: boolean; reason?: string; allowForSession?: boolean }
   | { type: 'killProcess' }
   | { type: 'switchSession'; sessionId: string }
   | { type: 'newSession' }

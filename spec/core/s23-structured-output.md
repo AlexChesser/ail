@@ -238,10 +238,12 @@ All stdin messages are NDJSON lines: one JSON object per line.
 **`permission_response`** — respond to a `permission_requested` event:
 ```json
 { "type": "permission_response", "allowed": true }
+{ "type": "permission_response", "allowed": true, "allow_for_session": true }
 { "type": "permission_response", "allowed": false, "reason": "Denied by user" }
 ```
 
 - `reason` is optional and only meaningful when `allowed` is `false`.
+- `allow_for_session` is optional. When `true` and `allowed` is `true`, `ail` records the tool's `display_name` in an in-memory session allowlist. Subsequent matching `permission_requested` events for that tool are auto-approved silently — no `permission_requested` event is emitted to stdout and no stdin response is required.
 - Unanswered permission requests time out after 5 minutes and are treated as `Deny`.
 
 **`pause`** / **`resume`** — suspend/unsuspend execution:
