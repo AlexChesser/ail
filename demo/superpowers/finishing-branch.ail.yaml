@@ -1,0 +1,48 @@
+version: "0.0.1"
+
+meta:
+  name: "Superpowers — Finishing a Development Branch"
+  # Based on: https://github.com/obra/superpowers/tree/main/skills/finishing-a-development-branch
+  # Category B workflow: sequential phases with distinct artifacts.
+  # Status: Fully expressible with current AIL features.
+
+pipeline:
+  # Phase 1: Verify tests pass (deterministic — zero LLM tokens)
+  - id: run_tests
+    context:
+      shell: "cargo nextest run 2>&1; echo \"EXIT:$?\""
+    on_result:
+      - contains: "EXIT:0"
+        action: continue
+      - always: true
+        action: pause_for_human
+        # Tests failed — human must intervene before we can offer merge/PR options.
+        # In --once mode, pause_for_human is a no-op (known constraint, v0.2).
+
+  # Phase 2: Check branch status (deterministic)
+  - id: branch_status
+    context:
+      shell: "git branch --show-current && git log --oneline -5 && git status --short"
+
+  # Phase 3: Present the four completion options
+  - id: present_options
+    system_prompt: ./prompts/finishing-branch-system.md
+    prompt: |
+      All tests pass. Here is the current branch status:
+
+      {{ step.branch_status.stdout }}
+
+      Present exactly these four options to the user:
+      1. Merge locally to base branch and delete feature branch
+      2. Push and create PR
+      3. Keep branch as-is for later
+      4. Discard branch (requires typed confirmation)
+
+      Ask the user which option they'd like.
+    tools:
+      allow:
+        - Bash
+        - Read
+      deny:
+        - Edit
+        - Write
