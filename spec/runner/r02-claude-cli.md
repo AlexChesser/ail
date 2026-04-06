@@ -96,7 +96,55 @@ Claude CLI supports `--permission-mode` values including `default`, `accept_edit
 
 #### AskUserQuestion Intercept
 
-When a `PermissionRequest` arrives with `display_name == "AskUserQuestion"`, the VS Code extension (and any other UI consumer) intercepts it as a structured question rather than a generic permission prompt. The `tool_input` field on `PermissionRequest` carries the raw JSON tool input, which for `AskUserQuestion` contains:
+##### Why a custom MCP tool is used
+
+Claude CLI's native `AskUserQuestion` tool enforces a strict input schema at validation time — before the `--permission-prompt-tool` intercept fires. In practice, different models (and even the same model inconsistently) produce inputs that fail this validation: missing `description` fields on options, `questions` sent as a JSON-encoded string rather than an array, and so on. Once validation fails, the model receives an error and typically degrades (retrying with progressively worse payloads) rather than recovering gracefully.
+
+To avoid this, `ail` exposes its own lenient `ail_ask_user` tool through the MCP bridge and disallows the native `AskUserQuestion` when the bridge is active. The bridge normalises whatever the model sends before forwarding it to the permission socket as an `AskUserQuestion` event — so all downstream code (the permission listener, the VS Code frontend) remains unchanged.
+
+##### `ail_ask_user` tool schema
+
+The bridge's `tools/list` response includes a second tool alongside `ail_check_permission`:
+
+```json
+{
+  "name": "ail_ask_user",
+  "description": "Ask the user a question with optional multiple-choice options. Use this instead of AskUserQuestion.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "question":     { "type": "string", "description": "The question to ask." },
+      "header":       { "description": "Optional title." },
+      "multiSelect":  { "description": "Boolean or string 'true'/'false'." },
+      "options":      { "description": "Array of strings or {label, description?} objects, or a JSON string." },
+      "questions":    { "description": "Alternative: array of {header, question, multiSelect, options} objects." }
+    },
+    "required": []
+  }
+}
+```
+
+Only `question` is semantically required; all other fields are optional and type-coerced during normalisation.
+
+##### Normalisation performed by the bridge
+
+`normalize_ask_user_input` in `ail/src/mcp_bridge.rs` converts any model-produced format into the canonical shape before forwarding:
+
+| Input variation | Normalisation |
+|---|---|
+| `questions` as JSON-encoded string | Parsed to array |
+| Flat `{question, options}` (no `questions` wrapper) | Wrapped as `{questions: [{...}]}` |
+| `options` as JSON-encoded string | Parsed to array |
+| `options` elements as bare strings | Converted to `{label: string}` |
+| Missing `description` on option object | Omitted (not defaulted) |
+| `multiSelect` as string `"true"`/`"false"` | Coerced to boolean |
+| Missing `header` | Defaulted to `""` |
+
+The normalised payload is forwarded to the permission socket with `tool_name: "AskUserQuestion"`, so the permission listener and VS Code frontend require no changes.
+
+##### Response flow
+
+When a `PermissionRequest` arrives with `display_name == "AskUserQuestion"`, the VS Code extension (and any other UI consumer) intercepts it as a structured question rather than a generic permission prompt. The `tool_input` field on `PermissionRequest` carries the normalised JSON tool input:
 
 ```json
 {
@@ -107,20 +155,24 @@ When a `PermissionRequest` arrives with `display_name == "AskUserQuestion"`, the
       "multiSelect": false,
       "options": [
         { "label": "React", "description": "Component-based UI library" },
-        { "label": "Vue", "description": "Progressive framework" }
+        { "label": "Vue" }
       ]
     }
   ]
 }
 ```
 
-The UI renders this as a radio/checkbox question card instead of a permission modal. When the user selects an option or types a free-text answer, the response is sent as a **deny** with the answer text as the reason:
+The UI renders this as a radio/checkbox question card. When the user answers, the response is sent as a **deny** with the answer text as the reason:
 
 ```json
 { "behavior": "deny", "message": "<user's answer>" }
 ```
 
-This leverages the existing permission deny-with-reason mechanism to pass structured user input back to the model without requiring a new wire protocol. The model receives the denial message containing the answer and can proceed accordingly.
+The MCP bridge extracts the `message` field and returns it as the `ail_ask_user` tool result text. The model receives the answer as a clean tool output and can proceed accordingly.
+
+##### Native `AskUserQuestion` is disallowed when the bridge is active
+
+`ClaudeCliRunner` adds `--disallowedTools AskUserQuestion` and an `--append-system-prompt` instruction to Claude CLI's arguments whenever the MCP bridge is configured (non-headless mode). This ensures the model uses `mcp__ail-permission__ail_ask_user` exclusively and never encounters Claude CLI's strict validation.
 
 The `tool_input` field was added to `PermissionRequest` (as `Option<serde_json::Value>`, serialised with `skip_serializing_if = "Option::is_none"`) specifically to support this pattern. `ClaudeCliRunner` populates it from the MCP bridge request; other runners may leave it as `None`.
 

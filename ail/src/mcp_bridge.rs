@@ -65,60 +65,130 @@ fn handle_request(method: &str, request: &Value, socket_path: &str, id: Value) -
             "jsonrpc": "2.0",
             "id": id,
             "result": {
-                "tools": [{
-                    "name": "ail_check_permission",
-                    "description": "Checks with the ail TUI whether a tool use is permitted.",
-                    "inputSchema": {
-                        "type": "object",
-                        "properties": {
-                            "tool_name": {
-                                "type": "string",
-                                "description": "The tool that needs permission."
+                "tools": [
+                    {
+                        "name": "ail_check_permission",
+                        "description": "Checks with the ail TUI whether a tool use is permitted.",
+                        "inputSchema": {
+                            "type": "object",
+                            "properties": {
+                                "tool_name": {
+                                    "type": "string",
+                                    "description": "The tool that needs permission."
+                                },
+                                "tool_input": {
+                                    "description": "The arguments Claude would pass to the tool."
+                                }
                             },
-                            "tool_input": {
-                                "description": "The arguments Claude would pass to the tool."
-                            }
-                        },
-                        "required": ["tool_name", "tool_input"]
+                            "required": ["tool_name", "tool_input"]
+                        }
+                    },
+                    {
+                        "name": "ail_ask_user",
+                        "description": "Ask the user a question with optional multiple-choice options. Use this instead of AskUserQuestion to ask the human for input.",
+                        "inputSchema": {
+                            "type": "object",
+                            "properties": {
+                                "question": {
+                                    "type": "string",
+                                    "description": "The question to ask the user."
+                                },
+                                "header": {
+                                    "description": "Optional title or header for the question."
+                                },
+                                "multiSelect": {
+                                    "description": "Whether multiple options can be selected (boolean or string)."
+                                },
+                                "options": {
+                                    "description": "Array of options: strings, {label} objects, {label, description} objects, or a JSON-encoded array string."
+                                },
+                                "questions": {
+                                    "description": "Alternative: array of question objects, each with {header, question, multiSelect, options}. Use instead of the flat fields above for multiple questions."
+                                }
+                            },
+                            "required": []
+                        }
                     }
-                }]
+                ]
             }
         }),
 
         "tools/call" => {
-            // Claude CLI sends: {tool_name, input, tool_use_id}
-            // Note: the field is "input", not "tool_input".
-            let args = &request["params"]["arguments"];
-            let tool_name = args["tool_name"].as_str().unwrap_or("").to_string();
-            let input = args["input"].clone();
-
-            match forward_to_socket(socket_path, &tool_name, &input) {
-                Ok(resp_json) => {
-                    // MCP tool result: content is a text block containing the JSON response.
-                    json!({
-                        "jsonrpc": "2.0",
-                        "id": id,
-                        "result": {
-                            "content": [{
-                                "type": "text",
-                                "text": serde_json::to_string(&resp_json).unwrap_or_default()
-                            }]
+            // Route by MCP tool name.
+            let called_tool = request["params"]["name"].as_str().unwrap_or("");
+            match called_tool {
+                "ail_ask_user" => {
+                    // Normalize the lenient input and forward as a native AskUserQuestion event.
+                    let args = &request["params"]["arguments"];
+                    let normalized = normalize_ask_user_input(args);
+                    match forward_to_socket(socket_path, "AskUserQuestion", &normalized) {
+                        Ok(resp_json) => {
+                            // The permission socket returns {"behavior":"deny","message":"<answer>"}.
+                            // Return the user's answer as the clean tool result text.
+                            let answer = resp_json["message"].as_str().unwrap_or("").to_string();
+                            json!({
+                                "jsonrpc": "2.0",
+                                "id": id,
+                                "result": {
+                                    "content": [{
+                                        "type": "text",
+                                        "text": answer
+                                    }]
+                                }
+                            })
                         }
-                    })
+                        Err(e) => {
+                            tracing::error!(error = %e, "mcp-bridge: socket error (ail_ask_user)");
+                            json!({
+                                "jsonrpc": "2.0",
+                                "id": id,
+                                "result": {
+                                    "content": [{
+                                        "type": "text",
+                                        "text": "ail permission bridge error"
+                                    }]
+                                }
+                            })
+                        }
+                    }
                 }
-                Err(e) => {
-                    tracing::error!(error = %e, "mcp-bridge: socket error");
-                    // On socket failure, deny the tool to avoid hanging Claude CLI.
-                    json!({
-                        "jsonrpc": "2.0",
-                        "id": id,
-                        "result": {
-                            "content": [{
-                                "type": "text",
-                                "text": "{\"behavior\":\"deny\",\"message\":\"ail permission bridge error\"}"
-                            }]
+                _ => {
+                    // ail_check_permission (and any unrecognised tool): existing permission-bridge behaviour.
+                    // Claude CLI sends: {tool_name, input, tool_use_id}
+                    // Note: the field is "input", not "tool_input".
+                    let args = &request["params"]["arguments"];
+                    let tool_name = args["tool_name"].as_str().unwrap_or("").to_string();
+                    let input = args["input"].clone();
+
+                    match forward_to_socket(socket_path, &tool_name, &input) {
+                        Ok(resp_json) => {
+                            // MCP tool result: content is a text block containing the JSON response.
+                            json!({
+                                "jsonrpc": "2.0",
+                                "id": id,
+                                "result": {
+                                    "content": [{
+                                        "type": "text",
+                                        "text": serde_json::to_string(&resp_json).unwrap_or_default()
+                                    }]
+                                }
+                            })
                         }
-                    })
+                        Err(e) => {
+                            tracing::error!(error = %e, "mcp-bridge: socket error");
+                            // On socket failure, deny the tool to avoid hanging Claude CLI.
+                            json!({
+                                "jsonrpc": "2.0",
+                                "id": id,
+                                "result": {
+                                    "content": [{
+                                        "type": "text",
+                                        "text": "{\"behavior\":\"deny\",\"message\":\"ail permission bridge error\"}"
+                                    }]
+                                }
+                            })
+                        }
+                    }
                 }
             }
         }
@@ -129,6 +199,16 @@ fn handle_request(method: &str, request: &Value, socket_path: &str, id: Value) -
             "error": { "code": -32601, "message": "Method not found" }
         }),
     }
+}
+
+/// Normalise a model-produced `ail_ask_user` input into the canonical
+/// `{ questions: [{ header, question, multiSelect, options: [{ label, description? }] }] }`
+/// format before forwarding to the permission socket as an `AskUserQuestion` event.
+///
+/// Delegates to `crate::ask_user_types::parse`, which tries each known format in order
+/// and falls back gracefully. See `ail/src/ask_user_types/` to add support for new formats.
+fn normalize_ask_user_input(input: &Value) -> Value {
+    crate::ask_user_types::parse(input)
 }
 
 /// Open a connection to the main ail process's Unix socket, send the permission request,
@@ -152,4 +232,88 @@ fn forward_to_socket(socket_path: &str, tool_name: &str, tool_input: &Value) -> 
 
     serde_json::from_str(resp_line.trim())
         .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Integration tests for the parse chain via `normalize_ask_user_input`.
+    /// Per-format unit tests live in the individual `ask_user_types` files.
+
+    fn questions(v: &Value) -> &Vec<Value> {
+        v["questions"].as_array().expect("questions array")
+    }
+
+    #[test]
+    fn chain_routes_canonical_format() {
+        let input = json!({
+            "questions": [{
+                "header": "Pick one",
+                "question": "Which color?",
+                "multiSelect": false,
+                "options": [
+                    { "label": "Red", "description": "Warm" },
+                    { "label": "Blue" }
+                ]
+            }]
+        });
+        let out = normalize_ask_user_input(&input);
+        let qs = questions(&out);
+        assert_eq!(qs[0]["question"], "Which color?");
+        assert_eq!(qs[0]["options"][0]["description"], "Warm");
+        assert!(qs[0]["options"][1].get("description").is_none());
+    }
+
+    #[test]
+    fn chain_routes_claude_preview_format() {
+        // The runlog format: preview instead of description — should be remapped.
+        let input = json!({
+            "questions": [{
+                "question": "Favorite color?",
+                "options": [
+                    { "label": "Red",   "preview": "Red"   },
+                    { "label": "Blue",  "preview": "Blue"  },
+                    { "label": "Green", "preview": "Green" }
+                ]
+            }]
+        });
+        let out = normalize_ask_user_input(&input);
+        let opts = &questions(&out)[0]["options"];
+        assert_eq!(opts[0]["label"], "Red");
+        assert_eq!(opts[0]["description"], "Red");
+        assert_eq!(opts[1]["description"], "Blue");
+        assert_eq!(opts[2]["description"], "Green");
+    }
+
+    #[test]
+    fn chain_routes_flat_format() {
+        let input = json!({
+            "question": "Proceed?",
+            "options": [{ "label": "Yes" }, { "label": "No" }]
+        });
+        let out = normalize_ask_user_input(&input);
+        let qs = questions(&out);
+        assert_eq!(qs.len(), 1);
+        assert_eq!(qs[0]["question"], "Proceed?");
+    }
+
+    #[test]
+    fn chain_routes_stringified_format() {
+        let qs_str = serde_json::to_string(&json!([{
+            "question": "What?",
+            "options": [{ "label": "A" }]
+        }]))
+        .unwrap();
+        let input = json!({ "questions": qs_str });
+        let out = normalize_ask_user_input(&input);
+        assert_eq!(questions(&out)[0]["question"], "What?");
+    }
+
+    #[test]
+    fn chain_falls_back_to_empty_questions_on_unrecognised_input() {
+        let input = json!({ "unrelated": "data" });
+        let out = normalize_ask_user_input(&input);
+        assert!(questions(&out).is_empty());
+    }
 }

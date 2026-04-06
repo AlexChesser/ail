@@ -601,6 +601,15 @@ impl ClaudeCliRunner {
         // with both the default Anthropic API and custom providers (Ollama, Bedrock, etc.).
         // The bridge's socket-failure fallback (auto-deny in mcp_bridge.rs) provides a
         // safety net if the connection fails.
+        //
+        // When the bridge is active we also:
+        // - Disallow the native AskUserQuestion tool so all models (including non-Claude) use
+        //   the lenient mcp__ail-permission__ail_ask_user tool instead. Claude CLI validates
+        //   AskUserQuestion inputs against a strict schema (requires `description` on options)
+        //   before the permission intercept fires, so malformed calls from any model would be
+        //   rejected before AIL ever sees them. The custom MCP tool bypasses that validation
+        //   and normalises whatever format the model produces.
+        // - Append a system prompt instruction pointing models to the custom tool.
         let mcp_config_path = if let Some(socket) = permission_socket {
             if !self.headless {
                 let config_path = Self::write_mcp_config(socket)?; // socket is &str
@@ -610,6 +619,19 @@ impl ClaudeCliRunner {
                 // Claude CLI registers MCP tools as mcp__<server_name>__<tool_name>.
                 // Must use the fully qualified name, not the bare tool name.
                 args.push("mcp__ail-permission__ail_check_permission".into());
+                // Disallow the strict native tool in favour of the lenient MCP replacement.
+                args.push("--disallowedTools".into());
+                args.push("AskUserQuestion".into());
+                // Guide the model toward the custom tool.
+                args.push("--append-system-prompt".into());
+                args.push(
+                    "When you need to ask the user a question, use the \
+                     mcp__ail-permission__ail_ask_user tool instead of AskUserQuestion. \
+                     Pass your question as the 'question' field. The 'options' field accepts \
+                     an array of strings or {label, description} objects; 'description' is \
+                     optional. 'header' and 'multiSelect' are also optional."
+                        .into(),
+                );
                 Some(config_path)
             } else {
                 None

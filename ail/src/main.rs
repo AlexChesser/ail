@@ -1,3 +1,4 @@
+mod ask_user_types;
 mod chat;
 mod cli;
 mod delete;

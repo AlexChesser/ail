@@ -231,6 +231,40 @@ describe('App webview', () => {
     expect(screen.queryByText('Dismiss')).toBeNull();
   });
 
+  // ── ail_ask_user MCP bridge output ───────────────────────────────────────────
+
+  it('renders AskUserQuestionCard for bridge-normalised input (ail_ask_user output format)', () => {
+    // The mcp_bridge normalises any model-produced format into this canonical shape
+    // before forwarding to the permission socket as tool_name="AskUserQuestion".
+    // This test documents that contract so the frontend remains compatible.
+    render(<App />);
+    postMessage({
+      type: 'permissionRequested',
+      displayName: 'AskUserQuestion',
+      displayDetail: 'Which color?',
+      toolInput: {
+        questions: [
+          {
+            header: '',
+            question: 'Which color?',
+            multiSelect: false,
+            options: [
+              { label: 'Red' },
+              { label: 'Blue' },
+              { label: 'Green' },
+            ],
+          },
+        ],
+      },
+    });
+    expect(screen.getByText('Which color?')).toBeTruthy();
+    expect(screen.getByText('Red')).toBeTruthy();
+    expect(screen.getByText('Blue')).toBeTruthy();
+    expect(screen.getByText('Green')).toBeTruthy();
+    expect(screen.getByText('Submit')).toBeTruthy();
+    expect(screen.queryByText('Allow')).toBeNull();
+  });
+
   // ── ErrorBoundary isolation ───────────────────────────────────────────────────
 
   it('ErrorBoundary prevents one crashed item from removing other items', () => {
