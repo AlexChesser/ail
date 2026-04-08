@@ -581,6 +581,10 @@ impl ClaudeCliRunner {
         }
         match &options.tool_policy {
             ToolPermissionPolicy::RunnerDefault => {}
+            ToolPermissionPolicy::NoTools => {
+                args.push("--tools".into());
+                args.push("".into());
+            }
             ToolPermissionPolicy::Allowlist(tools) => {
                 args.push("--allowedTools".into());
                 args.push(tools.join(","));

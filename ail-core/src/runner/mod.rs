@@ -139,6 +139,9 @@ pub enum ToolPermissionPolicy {
     /// Defer to the runner's default permission behaviour.
     #[default]
     RunnerDefault,
+    /// Disable all tools — the model receives no tool definitions.
+    /// Maps to `--tools ""` in ClaudeCliRunner.
+    NoTools,
     /// Pre-approve only these tools; all others require a permission decision.
     Allowlist(Vec<String>),
     /// Pre-deny these tools; all others proceed normally.

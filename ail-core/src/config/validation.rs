@@ -28,6 +28,7 @@ pub fn validate(dto: PipelineFileDto, source: PathBuf) -> Result<Pipeline, AilEr
                 output_cost_per_1k: d.provider.as_ref().and_then(|p| p.output_cost_per_1k),
             };
             let tool_policy = d.tools.map(|t| ToolPolicy {
+                disabled: t.disabled,
                 allow: t.allow,
                 deny: t.deny,
             });
@@ -177,6 +178,7 @@ pub fn validate(dto: PipelineFileDto, source: PathBuf) -> Result<Pipeline, AilEr
         };
 
         let tools = step_dto.tools.map(|t| ToolPolicy {
+            disabled: t.disabled,
             allow: t.allow,
             deny: t.deny,
         });

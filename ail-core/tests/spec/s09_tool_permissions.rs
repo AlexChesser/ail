@@ -70,6 +70,7 @@ mod s9_tool_permissions {
             source: None,
             timeout_seconds: None,
             default_tools: Some(ToolPolicy {
+                disabled: false,
                 allow: vec!["Bash".to_string()],
                 deny: vec![],
             }),
@@ -114,6 +115,7 @@ mod s9_tool_permissions {
                 body: StepBody::Prompt("do something".to_string()),
                 message: None,
                 tools: Some(ToolPolicy {
+                    disabled: false,
                     allow: vec!["Edit".to_string()],
                     deny: vec![],
                 }),
@@ -129,6 +131,7 @@ mod s9_tool_permissions {
             source: None,
             timeout_seconds: None,
             default_tools: Some(ToolPolicy {
+                disabled: false,
                 allow: vec!["Bash".to_string()],
                 deny: vec![],
             }),
@@ -178,6 +181,7 @@ mod s9_tool_permissions {
                 body: StepBody::Prompt("do something".to_string()),
                 message: None,
                 tools: Some(ToolPolicy {
+                    disabled: false,
                     allow: vec!["Read".to_string(), "Edit".to_string()],
                     deny: vec!["Bash".to_string()],
                 }),

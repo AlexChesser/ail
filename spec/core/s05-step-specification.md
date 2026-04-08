@@ -420,11 +420,17 @@ If a post-processing step needs to:
 
 ...it should be a top-level step, not a `then:` entry.
 
-### 5.8 `tools:` — Pre-Approved and Pre-Denied Tool Calls
+### 5.8 `tools:` — Pre-Approved, Pre-Denied, and Disabled Tool Calls
 
-`tools:` on a `prompt:` step declares which Claude CLI tools are unconditionally allowed or denied before the permission callback is consulted. This eliminates HITL prompts for tools the pipeline author has already deemed safe or unsafe for a given step.
+`tools:` on a `prompt:` step controls which Claude CLI tools are available for this step. Three forms are supported:
 
 ```yaml
+# Disable all tools — model receives no tool definitions (maps to --tools "")
+- id: classifier
+  prompt: "Classify this request as TRIVIAL, EXPLICIT, or EXPLORATORY."
+  tools:
+    disabled: true
+
 # Simple allow/deny lists
 - id: security_audit
   prompt: ./prompts/security-audit.md
@@ -447,17 +453,25 @@ If a post-processing step needs to:
 
 #### How it works
 
-`ail` passes `tools.allow` as `--allowedTools` and `tools.deny` as `--disallowedTools` when invoking the Claude CLI for this step. Claude enforces these before reaching the permission callback — pre-approved tools execute silently, pre-denied tools are rejected silently.
+- `disabled: true` passes `--tools ""` to Claude CLI, removing all tool definitions from the model's context. Use this for classification steps, read-only LLM calls, or any step where tool access is harmful.
+- `allow` is passed as `--allowedTools` — pre-approved tools execute silently.
+- `deny` is passed as `--disallowedTools` — pre-denied tools are rejected silently.
+- `disabled` takes priority over `allow` and `deny` if both are present.
 
-Tools not listed in either fall through to `ail`'s HITL permission UI.
+Tools not listed in either `allow` or `deny` fall through to `ail`'s HITL permission UI.
 
 #### Three-tier tool behaviour
 
 | Tier | Mechanism | User sees |
 |---|---|---|
+| **No tools** | `disabled: true` → `--tools ""` | Nothing — no tool definitions sent |
 | Pre-approved | `tools.allow` → `--allowedTools` | Nothing — executes silently |
 | Pre-denied | `tools.deny` → `--disallowedTools` | Nothing — rejected silently |
 | Unspecified | Falls through to HITL | Permission prompt in TUI |
+
+#### Why `disabled: true` matters for small models
+
+When a step uses a small or local model (e.g. via a custom `provider:` URL), Claude CLI still injects tool definitions unless `--tools ""` is passed. Small models often respond to tool availability by calling tools rather than following system prompt instructions. For classifier steps and other pure-reasoning steps, `disabled: true` removes this distraction entirely.
 
 #### Inheritance
 

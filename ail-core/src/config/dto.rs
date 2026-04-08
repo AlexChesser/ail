@@ -79,6 +79,10 @@ pub enum ExitCodeDto {
 
 #[derive(Deserialize)]
 pub struct ToolsDto {
+    /// When `true`, passes `--tools ""` to the runner — disables all tools for this step.
+    /// Overrides `allow` and `deny` if set. SPEC §5.8.
+    #[serde(default)]
+    pub disabled: bool,
     #[serde(default)]
     pub allow: Vec<String>,
     #[serde(default)]

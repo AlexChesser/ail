@@ -130,6 +130,8 @@ pub struct Step {
 
 #[derive(Debug, Default, Clone)]
 pub struct ToolPolicy {
+    /// When `true`, disables all tools for this step. Overrides `allow` and `deny`. SPEC §5.8.
+    pub disabled: bool,
     pub allow: Vec<String>,
     pub deny: Vec<String>,
 }

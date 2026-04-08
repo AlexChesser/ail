@@ -113,6 +113,7 @@ pub(super) fn build_tool_policy(
     tools: Option<&crate::config::domain::ToolPolicy>,
 ) -> ToolPermissionPolicy {
     match tools {
+        Some(t) if t.disabled => ToolPermissionPolicy::NoTools,
         Some(t) if !t.allow.is_empty() && !t.deny.is_empty() => ToolPermissionPolicy::Mixed {
             allow: t.allow.clone(),
             deny: t.deny.clone(),

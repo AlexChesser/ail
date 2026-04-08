@@ -194,16 +194,21 @@ claude --output-format stream-json --verbose --dangerously-skip-permissions -p <
 
 > **Security:** Only use headless mode in a sandboxed or fully trusted environment. `--dangerously-skip-permissions` grants the model unrestricted tool access.
 
-### Pre-Approved Tool Policy
+### Tool Policy
 
-`tools.allow` and `tools.deny` in the pipeline step are passed to Claude CLI as:
+`tools.disabled`, `tools.allow`, and `tools.deny` in the pipeline step map to Claude CLI flags as:
 
-```
---allowedTools Read,Edit,Glob
---disallowedTools WebFetch,Bash
-```
+| YAML field | Claude CLI flag | Effect |
+|---|---|---|
+| `disabled: true` | `--tools ""` | Removes all tool definitions from the model's context entirely |
+| `allow: [...]` | `--allowedTools <list>` | Pre-approve these tools; executes silently |
+| `deny: [...]` | `--disallowedTools <list>` | Pre-deny these tools; rejected silently |
+
+`disabled` takes priority — if `disabled: true` is set, `allow` and `deny` are ignored.
 
 Pattern syntax (e.g. `Bash(git log*)`, `Edit(./src/*)`) is passed verbatim — `ail` does not parse or validate patterns.
+
+> **Note:** `--system-prompt` and `--append-system-prompt` **append to** Claude CLI's base system prompt — they do not replace it. Even with `--bare`, Claude CLI injects its own session context (date, environment info, etc.) before user-provided system prompt additions. For classification steps or other steps where the model must follow specific instructions reliably, put those instructions in the `prompt:` field (the user message), not only in `system_prompt:`. This is especially important for small models where the combined system prompt is too large to process reliably.
 
 ### Context and Session Continuity
 
@@ -225,6 +230,7 @@ The `--resume` flag is not documented in the Claude CLI `--help` output but is f
 | `-p / --print` | Non-interactive prompt | Single-turn steps |
 | `--mcp-config <path>` | Register MCP bridge for permission intercept | Written per-run to `/tmp/ail-mcp-config-<uuid>.json` |
 | `--permission-prompt-tool mcp__ail-permission__ail_check_permission` | Delegate permission decisions to MCP tool | When non-headless and step has unspecified tools |
+| `--tools ""` | Disable all tools | From `tools.disabled: true` |
 | `--allowedTools` | Pre-approve tools | From `tools.allow` |
 | `--disallowedTools` | Pre-deny tools | From `tools.deny` |
 | `--permission-mode` | Set permission enforcement level | Session-level; `default` unless overridden |
