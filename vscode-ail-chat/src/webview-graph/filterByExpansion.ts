@@ -66,31 +66,31 @@ export function filterByExpansion(
     let source = edge.source;
     let target = edge.target;
 
-    // Redirect source if it's a hidden child → point from its group
+    // Redirect source if it's a hidden node → point from its visible parent group
     if (hiddenNodes.has(source)) {
       const parent = nodeParent.get(source);
       if (parent && visibleNodeIds.has(parent)) {
         source = parent;
       } else {
-        continue; // Both endpoints hidden, skip
+        continue; // No visible parent — skip this edge
       }
     }
 
-    // Redirect target if it's a hidden child → point to its group
+    // Redirect target if it's a hidden node → point to its visible parent group
     if (hiddenNodes.has(target)) {
       const parent = nodeParent.get(target);
       if (parent && visibleNodeIds.has(parent)) {
         target = parent;
       } else {
-        continue;
+        continue; // No visible parent — skip this edge
       }
     }
 
+    // Final guard: both endpoints must be visible (catches any remaining strays)
+    if (!visibleNodeIds.has(source) || !visibleNodeIds.has(target)) continue;
+
     // Skip self-loops created by remapping
     if (source === target) continue;
-
-    // Skip if both endpoints are not visible
-    if (!visibleNodeIds.has(source) || !visibleNodeIds.has(target)) continue;
 
     // Deduplicate edges (remapping can create duplicates)
     const key = `${source}->${target}::${edge.label ?? ''}`;

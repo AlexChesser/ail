@@ -37,20 +37,32 @@ export function layoutGraph(
     g.setEdge(edge.source, edge.target);
   }
 
-  Dagre.layout(g);
+  let layoutSucceeded = true;
+  try {
+    Dagre.layout(g);
+  } catch {
+    layoutSucceeded = false;
+  }
 
-  const nodes: Node[] = graphNodes.map((node) => {
-    const pos = g.node(node.id);
+  const nodes: Node[] = graphNodes.map((node, i) => {
     const isGroup = node.type === 'subPipelineGroup';
     const w = isGroup ? GROUP_NODE_WIDTH : NODE_WIDTH;
     const h = isGroup ? GROUP_NODE_HEIGHT : NODE_HEIGHT;
+    let x = 0;
+    let y = 0;
+    if (layoutSucceeded) {
+      const pos = g.node(node.id);
+      x = (pos?.x ?? 0) - w / 2;
+      y = (pos?.y ?? 0) - h / 2;
+    } else {
+      // Fallback: simple vertical stack so the graph is still usable.
+      x = 0;
+      y = i * (NODE_HEIGHT + 40);
+    }
     return {
       id: node.id,
       type: node.type,
-      position: {
-        x: (pos?.x ?? 0) - w / 2,
-        y: (pos?.y ?? 0) - h / 2,
-      },
+      position: { x, y },
       data: node.data as StepNodeData & Record<string, unknown>,
     };
   });

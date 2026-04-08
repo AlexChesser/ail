@@ -90,11 +90,16 @@ export function App(): React.ReactElement {
       switch (msg.type) {
         case 'init':
         case 'update':
-          applyGraphData(msg.data.nodes, msg.data.edges, msg.pipelineName);
-          if (msg.data.errors.length > 0) {
-            setErrors(msg.data.errors);
-          } else {
-            setErrors([]);
+          try {
+            applyGraphData(msg.data.nodes, msg.data.edges, msg.pipelineName);
+            if (msg.data.errors.length > 0) {
+              setErrors(msg.data.errors);
+            } else {
+              setErrors([]);
+            }
+          } catch (err) {
+            const errMsg = err instanceof Error ? err.message : String(err);
+            setErrors([`Layout error: ${errMsg}`]);
           }
           break;
         case 'error':
@@ -197,10 +202,12 @@ export function App(): React.ReactElement {
         const nodeData = nodeProps.data as unknown as StepNodeData;
         const nodeId = nodeProps.id as unknown as string;
         const isExpanded = expandedGroups.has(nodeId);
-        return SubPipelineGroupNode({
-          ...nodeProps,
-          data: { ...nodeData, _expanded: isExpanded, _onToggle: () => toggleGroup(nodeId) } as unknown as typeof nodeProps.data,
-        });
+        return (
+          <SubPipelineGroupNode
+            {...nodeProps}
+            data={{ ...nodeData, _expanded: isExpanded, _onToggle: () => toggleGroup(nodeId) } as unknown as typeof nodeProps.data}
+          />
+        );
       },
     }),
     [expandedGroups, toggleGroup]

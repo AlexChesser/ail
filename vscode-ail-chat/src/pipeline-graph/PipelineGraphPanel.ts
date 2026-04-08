@@ -60,10 +60,18 @@ export class PipelineGraphPanel {
    */
   static show(extensionPath: string, pipelinePath: string): void {
     if (PipelineGraphPanel._instance) {
-      PipelineGraphPanel._instance._pipelinePath = pipelinePath;
-      PipelineGraphPanel._instance._panel.reveal(vscode.ViewColumn.One);
-      PipelineGraphPanel._instance._sendUpdate();
-      PipelineGraphPanel._instance._setupFileWatchers();
+      const inst = PipelineGraphPanel._instance;
+      const pathChanged = inst._pipelinePath !== pipelinePath;
+      inst._pipelinePath = pipelinePath;
+      inst._panel.reveal(vscode.ViewColumn.One);
+      if (pathChanged) {
+        // Reset the webview HTML to destroy any crashed React tree and start fresh.
+        // The webview will send 'ready' again, triggering _sendInit() with the new pipeline.
+        inst._panel.webview.html = inst._getHtml();
+      } else {
+        inst._sendUpdate();
+      }
+      inst._setupFileWatchers();
       return;
     }
 
