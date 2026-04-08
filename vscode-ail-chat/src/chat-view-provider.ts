@@ -5,6 +5,7 @@ import { resolveBinary } from './binary';
 import { AilProcessManager } from './ail-process-manager';
 import { SessionManager } from './session-manager';
 import { WebviewToHostMessage } from './types';
+import { PipelineGraphPanel } from './pipeline-graph/PipelineGraphPanel';
 
 const LAST_PIPELINE_KEY = 'ail-chat.lastPipeline';
 
@@ -158,6 +159,16 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       case 'newSession':
         // Nothing to do on the host side; the webview resets its own state.
         break;
+
+      case 'openPipelineGraph': {
+        const pipeline = this._resolvedPipeline();
+        if (pipeline) {
+          PipelineGraphPanel.show(this._context.extensionPath, pipeline);
+        } else {
+          void vscode.window.showInformationMessage('No pipeline loaded — open a pipeline file first.');
+        }
+        break;
+      }
     }
   }
 

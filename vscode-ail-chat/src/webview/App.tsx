@@ -687,6 +687,10 @@ export const App: React.FC = () => {
     postToHost({ type: 'loadPipeline' });
   };
 
+  const handleOpenGraph = () => {
+    postToHost({ type: 'openPipelineGraph' });
+  };
+
   const hasPendingHitl = state.items.some((it) => it.kind === 'hitl' && it.cardState === 'pending');
   const hasPendingPermission = state.items.some((it) => it.kind === 'permission' && it.cardState === 'pending');
   const hasPendingAskUser = state.items.some((it) => it.kind === 'ask-user-question' && it.cardState === 'pending');
@@ -706,6 +710,7 @@ export const App: React.FC = () => {
         <PipelineBar
           displayName={state.activePipeline?.displayName ?? null}
           onLoad={handleLoadPipeline}
+          onOpenGraph={handleOpenGraph}
         />
         {state.steps.length > 0 && (
           <StepProgress

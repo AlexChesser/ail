@@ -186,4 +186,5 @@ export type WebviewToHostMessage =
   | { type: 'killProcess' }
   | { type: 'switchSession'; sessionId: string }
   | { type: 'newSession' }
-  | { type: 'loadPipeline' };
+  | { type: 'loadPipeline' }
+  | { type: 'openPipelineGraph' };
