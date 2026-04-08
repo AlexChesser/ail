@@ -86,6 +86,38 @@ cargo run -- validate --pipeline demo/oh-my-ail/agents/hephaestus.ail.yaml
 
 4. **Sisyphus routes via `on_result` branching.** The classification token on the first line of Sisyphus's response triggers a `contains:` match that fires the appropriate workflow sub-pipeline.
 
+## Differences from Oh My OpenCode
+
+Oh My AIL is inspired by [oh-my-opencode](https://github.com/oh-my-opencode/oh-my-openagent) but diverges in prompt architecture based on 2025-2026 prompting research:
+
+### Task-Grounded Objectives (not persona assignment)
+
+The original oh-my-opencode agents use persona assignment ("You are X, a senior architect with decades of experience..."). Research (Frontiers in AI 2025, Lakera 2026) shows this increases hallucination — the model fills in implied expertise with fabricated details. Oh My AIL prompts open with concrete **Objective** statements that define what output artifact to produce, not who the model should pretend to be.
+
+| Technique | oh-my-opencode | Oh My AIL |
+|-----------|---------------|-----------|
+| Opening | "You are X, the..." | "Classify / Produce / Evaluate..." |
+| Framing | Role identity | Output artifact |
+| Risk | Hallucinated expertise | Grounded on deliverable |
+
+The mythological agent names (Sisyphus, Prometheus, etc.) are retained as human-readable identifiers — the names help users distinguish agents. What was removed is the narrative framing that tells the model *who to be*.
+
+### Constraint-First Ordering
+
+Constraints appear immediately after the Objective, before any process steps. Research (Surendran 2025) shows models attend more strongly to early instructions — constraints buried after 30+ lines of process description are more likely to be violated.
+
+### Semi-Formal Reasoning Templates
+
+Four evaluative agents (Sisyphus, Prometheus, Momus, Oracle) include structured reasoning templates that require explicit evidence trails for each judgment. This is based on Meta's 2025 research showing semi-formal reasoning achieves 93% accuracy in evaluative tasks by preventing hallucinated findings.
+
+Procedural and retrieval agents (Metis, Atlas, Hephaestus, Explore, Librarian) do not have reasoning templates — adding them to non-evaluative agents would slow them down and encourage unnecessary interpretation.
+
+### Explicit Output Formats
+
+Every agent specifies its required output structure. The original oh-my-opencode prompts describe process steps but leave output format implicit, letting the model guess based on persona inference.
+
+For detailed analysis, see `docs/research/oh-my-ail-prompt-modernization.md`.
+
 ## Known Limitations (v0.1)
 
 - **Sub-pipeline context passing is limited.** Each workflow step passes only the final output of the previous agent (`{{ step.<id>.response }}`). In a future version, richer context threading between agents would improve coherence.
