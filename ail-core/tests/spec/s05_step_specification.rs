@@ -1,11 +1,6 @@
 mod s5_9_append_system_prompt {
     use ail_core::config::domain::SystemPromptEntry;
     use ail_core::config::load;
-    use std::path::PathBuf;
-
-    fn fixtures_dir() -> PathBuf {
-        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures")
-    }
 
     /// SPEC §5.9 — bare string in append_system_prompt parses as SystemPromptEntry::Text
     #[test]
