@@ -65,7 +65,7 @@ function StepNodeInner({ data, selected }: NodeProps): React.ReactElement {
       <span
         style={{
           background: color,
-          color: '#fff',
+          color: 'var(--vscode-button-foreground, #fff)',
           borderRadius: 3,
           padding: '2px 6px',
           fontSize: 9,
@@ -92,7 +92,7 @@ function StepNodeInner({ data, selected }: NodeProps): React.ReactElement {
           style={{
             marginLeft: 'auto',
             background: 'var(--vscode-charts-orange, #f97316)',
-            color: '#fff',
+            color: 'var(--vscode-button-foreground, #fff)',
             borderRadius: 8,
             padding: '0 5px',
             fontSize: 9,

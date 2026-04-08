@@ -290,12 +290,11 @@ export function App(): React.ReactElement {
           maxZoom={2}
           proOptions={{ hideAttribution: true }}
         >
-          <Background variant={BackgroundVariant.Dots} gap={16} size={1} />
+          <Background variant={BackgroundVariant.Dots} gap={16} size={1} color="var(--vscode-panel-border)" />
           <Controls />
           <MiniMap
             nodeStrokeWidth={3}
             style={{ background: 'var(--vscode-sideBar-background)' }}
-            maskColor="rgba(0, 0, 0, 0.2)"
           />
         </ReactFlow>
       </div>
