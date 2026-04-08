@@ -209,7 +209,7 @@ function TypeBadge({ type }: { type: StepNodeData['type'] }): React.ReactElement
     <span
       style={{
         background: colors[type] ?? colors.prompt,
-        color: '#fff',
+        color: 'var(--vscode-button-foreground, #fff)',
         borderRadius: 3,
         padding: '2px 6px',
         fontSize: 10,
@@ -227,7 +227,7 @@ function Badge({ text, color }: { text: string; color?: string }): React.ReactEl
     <span
       style={{
         background: color ?? 'var(--vscode-badge-background)',
-        color: color ? '#fff' : 'var(--vscode-badge-foreground)',
+        color: color ? 'var(--vscode-button-foreground, #fff)' : 'var(--vscode-badge-foreground)',
         borderRadius: 3,
         padding: '1px 5px',
         fontSize: 10,
@@ -297,7 +297,7 @@ function AppendEntryRow({ entry }: { entry: AppendSystemPromptEntry }): React.Re
       <span
         style={{
           background: typeColors[entry.type] ?? typeColors.text,
-          color: '#fff',
+          color: 'var(--vscode-button-foreground, #fff)',
           borderRadius: 2,
           padding: '0 4px',
           fontSize: 9,

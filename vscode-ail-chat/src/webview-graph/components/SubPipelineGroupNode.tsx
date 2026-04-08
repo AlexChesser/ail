@@ -67,7 +67,7 @@ function SubPipelineGroupNodeInner({ data }: NodeProps): React.ReactElement {
       <span
         style={{
           background: color,
-          color: '#fff',
+          color: 'var(--vscode-button-foreground, #fff)',
           borderRadius: 3,
           padding: '2px 6px',
           fontSize: 9,

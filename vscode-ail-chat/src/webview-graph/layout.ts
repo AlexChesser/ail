@@ -78,7 +78,7 @@ export function layoutGraph(
     style: edge.conditional
       ? { stroke: 'var(--vscode-charts-orange, #f97316)', strokeWidth: 2, strokeDasharray: '6 3' }
       : { stroke: 'var(--vscode-charts-blue, #3b82f6)', strokeWidth: 2 },
-    labelStyle: { fontSize: 10, fontWeight: 600, fontFamily: 'var(--vscode-font-family)' },
+    labelStyle: { fontSize: 10, fontWeight: 600, fontFamily: 'var(--vscode-font-family)', fill: 'var(--vscode-editor-foreground)' },
     labelBgStyle: edge.conditional
       ? { fill: 'var(--vscode-editor-background)', fillOpacity: 0.9 }
       : undefined,

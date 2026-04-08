@@ -212,6 +212,27 @@ export class PipelineGraphPanel {
       color: var(--vscode-editor-foreground);
       font-family: var(--vscode-font-family);
     }
+    /* React Flow Controls — match VS Code theme */
+    .react-flow__controls-button {
+      background: var(--vscode-button-secondaryBackground) !important;
+      border-color: var(--vscode-panel-border) !important;
+      fill: var(--vscode-button-secondaryForeground) !important;
+    }
+    .react-flow__controls-button:hover {
+      background: var(--vscode-button-secondaryHoverBackground) !important;
+    }
+    /* React Flow MiniMap — theme-aware mask */
+    .react-flow__minimap-mask {
+      fill: var(--vscode-sideBar-background) !important;
+      fill-opacity: 0.8 !important;
+    }
+    /* React Flow edge labels — ensure theme foreground */
+    .react-flow__edge-textbg {
+      fill: var(--vscode-editor-background) !important;
+    }
+    .react-flow__edge-text {
+      fill: var(--vscode-editor-foreground) !important;
+    }
   </style>
 </head>
 <body>
