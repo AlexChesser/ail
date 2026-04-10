@@ -164,7 +164,7 @@ fn format_step(output: &mut String, turn_number: usize, step_id: &str, rows: &[&
 }
 
 /// Format a cost line per spec/runner/r04.
-fn format_cost_line(
+pub(crate) fn format_cost_line(
     cost_usd: Option<f64>,
     input_tokens: Option<i64>,
     output_tokens: Option<i64>,
@@ -177,5 +177,158 @@ fn format_cost_line(
             format!("_Cost: ${cost:.4}_")
         }
         _ => "_No cost (context step)_".to_string(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::logs::StepRow;
+
+    // -------------------------------------------------------------------------
+    // format_cost_line — private helper tested via pub(crate) visibility
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn cost_line_all_three_fields_present() {
+        let line = format_cost_line(Some(0.0025), Some(200), Some(80));
+        assert_eq!(line, "_Cost: $0.0025 | 200in / 80out tokens_");
+    }
+
+    #[test]
+    fn cost_line_cost_only_no_tokens() {
+        let line = format_cost_line(Some(1.5), None, None);
+        assert_eq!(line, "_Cost: $1.5000_");
+    }
+
+    #[test]
+    fn cost_line_cost_with_input_tokens_only() {
+        // Only cost + input — output is None → falls to (Some(cost), _, _) branch.
+        let line = format_cost_line(Some(0.001), Some(10), None);
+        assert_eq!(line, "_Cost: $0.0010_");
+    }
+
+    #[test]
+    fn cost_line_no_cost_at_all_returns_no_cost_label() {
+        let line = format_cost_line(None, None, None);
+        assert_eq!(line, "_No cost (context step)_");
+    }
+
+    #[test]
+    fn cost_line_no_cost_with_tokens_still_returns_no_cost_label() {
+        // Tokens without a cost amount still fall to the wildcard branch.
+        let line = format_cost_line(None, Some(100), Some(50));
+        assert_eq!(line, "_No cost (context step)_");
+    }
+
+    #[test]
+    fn cost_line_uses_four_decimal_places() {
+        // 1/3 rounds to 4 decimal places.
+        let line = format_cost_line(Some(1.0 / 3.0), Some(1), Some(1));
+        assert!(
+            line.contains("$0.3333"),
+            "expected 4 decimal places, got: {line}"
+        );
+    }
+
+    // -------------------------------------------------------------------------
+    // format_run_as_ail_log — top-level function
+    // -------------------------------------------------------------------------
+
+    fn make_row(step_id: &str, event_type: &str, response: Option<&str>) -> StepRow {
+        StepRow {
+            step_id: step_id.to_string(),
+            event_type: event_type.to_string(),
+            prompt: None,
+            response: response.map(|s| s.to_string()),
+            thinking: None,
+            cost_usd: None,
+            input_tokens: None,
+            output_tokens: None,
+            stdout: None,
+            stderr: None,
+            exit_code: None,
+            recorded_at: 0,
+            tool_events: vec![],
+        }
+    }
+
+    #[test]
+    fn format_run_starts_with_version_header() {
+        let output = format_run_as_ail_log(&[make_row("s", "step_completed", Some("hi"))]);
+        assert!(output.starts_with("ail-log/1\n"));
+    }
+
+    #[test]
+    fn format_run_empty_input_is_header_only() {
+        let output = format_run_as_ail_log(&[]);
+        assert_eq!(output, "ail-log/1\n");
+    }
+
+    #[test]
+    fn format_run_stdout_block_is_emitted() {
+        let mut row = make_row("ctx", "step_completed", None);
+        row.stdout = Some("hello stdout".to_string());
+        let output = format_run_as_ail_log(&[row]);
+        assert!(
+            output.contains(":::stdio stream=\"stdout\""),
+            "stdout block missing"
+        );
+        assert!(output.contains("hello stdout"), "stdout content missing");
+    }
+
+    #[test]
+    fn format_run_stderr_block_is_emitted() {
+        let mut row = make_row("ctx", "step_completed", None);
+        row.stderr = Some("error output".to_string());
+        let output = format_run_as_ail_log(&[row]);
+        assert!(
+            output.contains(":::stdio stream=\"stderr\""),
+            "stderr block missing"
+        );
+        assert!(output.contains("error output"), "stderr content missing");
+    }
+
+    #[test]
+    fn format_run_empty_stdout_is_not_emitted() {
+        let mut row = make_row("ctx", "step_completed", None);
+        row.stdout = Some(String::new());
+        let output = format_run_as_ail_log(&[row]);
+        assert!(
+            !output.contains(":::stdio stream=\"stdout\""),
+            "empty stdout should not produce a block"
+        );
+    }
+
+    #[test]
+    fn format_run_step_failed_emits_warning_callout() {
+        let row = make_row("deploy", "step_failed", Some("boom"));
+        let output = format_run_as_ail_log(&[row]);
+        assert!(output.contains("> [!WARNING]"), "warning callout missing");
+        assert!(output.contains("boom"), "failure detail missing");
+    }
+
+    #[test]
+    fn format_run_cost_separator_precedes_cost_line() {
+        let mut row = make_row("s", "step_completed", Some("response"));
+        row.cost_usd = Some(0.001);
+        row.input_tokens = Some(10);
+        row.output_tokens = Some(5);
+        let output = format_run_as_ail_log(&[row]);
+        let sep_pos = output.find("\n---\n").expect("--- separator missing");
+        let cost_pos = output.find("_Cost:").expect("cost line missing");
+        assert!(cost_pos > sep_pos, "cost line must come after separator");
+    }
+
+    #[test]
+    fn format_run_response_not_emitted_for_failed_step() {
+        let row = make_row("s", "step_failed", Some("failure detail"));
+        let output = format_run_as_ail_log(&[row]);
+        // The failure_detail is rendered inside the callout — but NOT as a plain response paragraph.
+        // The plain response block is skipped when `failed` is true.
+        assert!(
+            !output.contains("\nfailure detail\n"),
+            "failed step response should not appear as plain text"
+        );
     }
 }
