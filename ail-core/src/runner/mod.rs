@@ -65,6 +65,23 @@ pub struct RunResult {
     pub tool_events: Vec<ToolEvent>,
 }
 
+impl RunResult {
+    /// Construct a minimal stub `RunResult` for use in tests and test doubles.
+    #[doc(hidden)]
+    pub fn stub(response: impl Into<String>, session_id: impl Into<String>) -> Self {
+        RunResult {
+            response: response.into(),
+            cost_usd: Some(0.0),
+            session_id: Some(session_id.into()),
+            input_tokens: 0,
+            output_tokens: 0,
+            thinking: None,
+            model: None,
+            tool_events: vec![],
+        }
+    }
+}
+
 /// A tool permission request emitted by the runner when it requires a human decision before
 /// executing a tool.
 #[derive(Debug, Clone, Serialize)]

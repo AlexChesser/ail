@@ -2,6 +2,11 @@ use crate::config::domain::{
     ActionKind, ContextSource, ExitCodeMatch, Pipeline, ResultAction, ResultMatcher, StepBody,
 };
 
+/// Escape a string for use inside a YAML double-quoted scalar.
+fn yaml_quote(s: &str) -> String {
+    s.replace('\\', "\\\\").replace('"', "\\\"")
+}
+
 /// Serialize a pipeline back to annotated YAML with origin comments per step.
 ///
 /// Output round-trips through `config::load()` (YAML parsers ignore comments).
@@ -19,8 +24,7 @@ pub fn materialize(pipeline: &Pipeline) -> String {
         out.push_str(&format!("  - id: {}\n", step.id.as_str()));
 
         if let Some(ref sp) = step.system_prompt {
-            let escaped = sp.replace('\\', "\\\\").replace('"', "\\\"");
-            out.push_str(&format!("    system_prompt: \"{escaped}\"\n"));
+            out.push_str(&format!("    system_prompt: \"{}\"\n", yaml_quote(sp)));
         }
         if step.resume {
             out.push_str("    resume: true\n");
@@ -29,8 +33,7 @@ pub fn materialize(pipeline: &Pipeline) -> String {
         match &step.body {
             StepBody::Prompt(text) => {
                 // Inline prompts use double-quote scalar; escape backslashes and quotes.
-                let escaped = text.replace('\\', "\\\\").replace('"', "\\\"");
-                out.push_str(&format!("    prompt: \"{escaped}\"\n"));
+                out.push_str(&format!("    prompt: \"{}\"\n", yaml_quote(text)));
             }
             StepBody::Skill(path) => {
                 out.push_str(&format!("    skill: {}\n", path.display()));
@@ -38,16 +41,14 @@ pub fn materialize(pipeline: &Pipeline) -> String {
             StepBody::SubPipeline { path, prompt } => {
                 out.push_str(&format!("    pipeline: {path}\n"));
                 if let Some(p) = prompt {
-                    let escaped = p.replace('\\', "\\\\").replace('"', "\\\"");
-                    out.push_str(&format!("    prompt: \"{escaped}\"\n"));
+                    out.push_str(&format!("    prompt: \"{}\"\n", yaml_quote(p)));
                 }
             }
             StepBody::Action(ActionKind::PauseForHuman) => {
                 out.push_str("    action: pause_for_human\n");
             }
             StepBody::Context(ContextSource::Shell(cmd)) => {
-                let escaped = cmd.replace('\\', "\\\\").replace('"', "\\\"");
-                out.push_str(&format!("    context:\n      shell: \"{escaped}\"\n"));
+                out.push_str(&format!("    context:\n      shell: \"{}\"\n", yaml_quote(cmd)));
             }
         }
 
@@ -56,8 +57,7 @@ pub fn materialize(pipeline: &Pipeline) -> String {
             for branch in branches {
                 let matcher = match &branch.matcher {
                     ResultMatcher::Contains(text) => {
-                        let escaped = text.replace('"', "\\\"");
-                        format!("contains: \"{escaped}\"")
+                        format!("contains: \"{}\"", yaml_quote(text))
                     }
                     ResultMatcher::ExitCode(ExitCodeMatch::Exact(n)) => {
                         format!("exit_code: {n}")
@@ -73,9 +73,9 @@ pub fn materialize(pipeline: &Pipeline) -> String {
                     ResultAction::Pipeline { path, prompt } => {
                         let action_str = format!("pipeline: {path}");
                         if let Some(p) = prompt {
-                            let escaped = p.replace('\\', "\\\\").replace('"', "\\\"");
                             out.push_str(&format!(
-                                "      - {matcher}\n        action: {action_str}\n        prompt: \"{escaped}\"\n"
+                                "      - {matcher}\n        action: {action_str}\n        prompt: \"{}\"\n",
+                                yaml_quote(p)
                             ));
                             continue;
                         }

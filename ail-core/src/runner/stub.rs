@@ -19,16 +19,9 @@ impl StubRunner {
 
 impl Runner for StubRunner {
     fn invoke(&self, _prompt: &str, _options: InvokeOptions) -> Result<RunResult, AilError> {
-        Ok(RunResult {
-            response: self.response.clone(),
-            cost_usd: self.cost_usd,
-            session_id: Some("stub-session-id".to_string()),
-            input_tokens: 0,
-            output_tokens: 0,
-            thinking: None,
-            model: None,
-            tool_events: vec![],
-        })
+        let mut result = RunResult::stub(self.response.clone(), "stub-session-id");
+        result.cost_usd = self.cost_usd;
+        Ok(result)
     }
 }
 
@@ -54,16 +47,7 @@ impl CountingStubRunner {
 impl Runner for CountingStubRunner {
     fn invoke(&self, _prompt: &str, _options: InvokeOptions) -> Result<RunResult, AilError> {
         self.count.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-        Ok(RunResult {
-            response: self.response.clone(),
-            cost_usd: Some(0.0),
-            session_id: Some("stub-session-id".to_string()),
-            input_tokens: 0,
-            output_tokens: 0,
-            thinking: None,
-            model: None,
-            tool_events: vec![],
-        })
+        Ok(RunResult::stub(self.response.clone(), "stub-session-id"))
     }
 }
 
@@ -85,16 +69,7 @@ impl Default for EchoStubRunner {
 
 impl Runner for EchoStubRunner {
     fn invoke(&self, prompt: &str, _options: InvokeOptions) -> Result<RunResult, AilError> {
-        Ok(RunResult {
-            response: prompt.to_string(),
-            cost_usd: Some(0.0),
-            session_id: Some("echo-stub-session-id".to_string()),
-            input_tokens: 0,
-            output_tokens: 0,
-            thinking: None,
-            model: None,
-            tool_events: vec![],
-        })
+        Ok(RunResult::stub(prompt, "echo-stub-session-id"))
     }
 }
 
@@ -134,16 +109,7 @@ impl Runner for RecordingStubRunner {
                 prompt: prompt.to_string(),
                 tool_policy: options.tool_policy,
             });
-        Ok(RunResult {
-            response: self.response.clone(),
-            cost_usd: Some(0.0),
-            session_id: Some("recording-stub-session-id".to_string()),
-            input_tokens: 0,
-            output_tokens: 0,
-            thinking: None,
-            model: None,
-            tool_events: vec![],
-        })
+        Ok(RunResult::stub(self.response.clone(), "recording-stub-session-id"))
     }
 }
 
