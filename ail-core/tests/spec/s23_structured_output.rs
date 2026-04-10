@@ -1,29 +1,14 @@
-use ail_core::config::domain::{Pipeline, Step, StepBody, StepId};
+use ail_core::config::domain::Pipeline;
 use ail_core::executor::{execute_with_control, ExecuteOutcome, ExecutionControl, ExecutorEvent};
 use ail_core::runner::stub::StubRunner;
 use ail_core::runner::{PermissionRequest, RunResult, RunnerEvent};
 use ail_core::session::Session;
+use ail_core::test_helpers::prompt_step;
 use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
 use std::sync::mpsc;
 use std::sync::Arc;
-
-fn prompt_step(id: &str, text: &str) -> Step {
-    Step {
-        id: StepId(id.to_string()),
-        body: StepBody::Prompt(text.to_string()),
-        message: None,
-        tools: None,
-        model: None,
-        on_result: None,
-        runner: None,
-        condition: None,
-        append_system_prompt: None,
-        system_prompt: None,
-        resume: false,
-    }
-}
 
 /// SPEC §23 — execute_with_control emits ExecutorEvents that serialize to valid NDJSON.
 #[test]

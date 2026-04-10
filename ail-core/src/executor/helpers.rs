@@ -52,22 +52,14 @@ pub(super) fn run_shell_command(
             error_type: error_types::RUNNER_INVOCATION_FAILED,
             title: "Failed to spawn shell command",
             detail: format!("Could not run shell command for step '{step_id}': {e}"),
-            context: Some(crate::error::ErrorContext {
-                pipeline_run_id: Some(run_id.to_string()),
-                step_id: Some(step_id.to_string()),
-                source: None,
-            }),
+            context: Some(crate::error::ErrorContext::for_step(run_id, step_id)),
         })?;
 
     let output = child.wait_with_output().map_err(|e| AilError {
         error_type: error_types::RUNNER_INVOCATION_FAILED,
         title: "Failed to wait for shell command",
         detail: format!("Step '{step_id}': {e}"),
-        context: Some(crate::error::ErrorContext {
-            pipeline_run_id: Some(run_id.to_string()),
-            step_id: Some(step_id.to_string()),
-            source: None,
-        }),
+        context: Some(crate::error::ErrorContext::for_step(run_id, step_id)),
     })?;
 
     let exit_code = output.status.code().unwrap_or(-1);

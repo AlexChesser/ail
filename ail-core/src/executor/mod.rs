@@ -16,39 +16,12 @@ pub use headless::execute;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::domain::{Pipeline, Step, StepBody, StepId};
+    use crate::config::domain::Pipeline;
     use crate::runner::stub::StubRunner;
     use crate::runner::RunnerEvent;
     use crate::session::log_provider::NullProvider;
     use crate::session::Session;
-
-    fn make_session(steps: Vec<Step>) -> Session {
-        let pipeline = Pipeline {
-            steps,
-            source: None,
-            defaults: Default::default(),
-            timeout_seconds: None,
-            default_tools: None,
-        };
-        Session::new(pipeline, "invocation prompt".to_string())
-            .with_log_provider(Box::new(NullProvider))
-    }
-
-    fn prompt_step(id: &str, text: &str) -> Step {
-        Step {
-            id: StepId(id.to_string()),
-            body: StepBody::Prompt(text.to_string()),
-            message: None,
-            tools: None,
-            on_result: None,
-            model: None,
-            runner: None,
-            condition: None,
-            append_system_prompt: None,
-            system_prompt: None,
-            resume: false,
-        }
-    }
+    use crate::test_helpers::{make_session, prompt_step};
 
     #[test]
     fn passthrough_pipeline_runs_invocation_step() {

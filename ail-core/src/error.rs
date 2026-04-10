@@ -13,6 +13,25 @@ pub struct ErrorContext {
     pub source: Option<String>,
 }
 
+impl ErrorContext {
+    /// Construct a step-scoped context with `pipeline_run_id` and `step_id` set.
+    pub fn for_step(run_id: impl Into<String>, step_id: impl Into<String>) -> Self {
+        Self {
+            pipeline_run_id: Some(run_id.into()),
+            step_id: Some(step_id.into()),
+            source: None,
+        }
+    }
+}
+
+impl AilError {
+    /// Attach step-scoped context to this error, returning `self`.
+    pub fn with_step_context(mut self, run_id: &str, step_id: &str) -> Self {
+        self.context = Some(ErrorContext::for_step(run_id, step_id));
+        self
+    }
+}
+
 impl fmt::Display for AilError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "[{}] {}: {}", self.error_type, self.title, self.detail)
@@ -62,6 +81,21 @@ mod tests {
             context: None,
         };
         assert!(err.to_string().contains("unexpected token at line 3"));
+    }
+
+    #[test]
+    fn test_with_step_context() {
+        let err = AilError {
+            error_type: "test",
+            title: "Test",
+            detail: "test".to_string(),
+            context: None,
+        };
+        let err = err.with_step_context("run-1", "step-1");
+        let ctx = err.context.unwrap();
+        assert_eq!(ctx.pipeline_run_id, Some("run-1".to_string()));
+        assert_eq!(ctx.step_id, Some("step-1".to_string()));
+        assert!(ctx.source.is_none());
     }
 
     #[test]

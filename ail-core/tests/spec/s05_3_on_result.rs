@@ -1,27 +1,14 @@
 use ail_core::config::domain::{
-    ExitCodeMatch, Pipeline, ResultAction, ResultBranch, ResultMatcher, Step, StepBody, StepId,
+    ExitCodeMatch, ResultAction, ResultBranch, ResultMatcher, Step, StepBody, StepId,
 };
 use ail_core::executor::{
     execute, execute_with_control, ExecuteOutcome, ExecutionControl, ExecutorEvent,
 };
 use ail_core::runner::stub::StubRunner;
-use ail_core::session::Session;
+use ail_core::test_helpers::{make_session, prompt_step};
 use std::collections::HashSet;
 use std::sync::mpsc;
 use std::sync::Arc;
-
-fn make_session(steps: Vec<Step>) -> Session {
-    Session::new(
-        Pipeline {
-            steps,
-            defaults: Default::default(),
-            timeout_seconds: None,
-            source: None,
-            default_tools: None,
-        },
-        "prompt".to_string(),
-    )
-}
 
 fn prompt_step_with_on_result(
     id: &str,
@@ -58,22 +45,6 @@ fn context_step_with_exit(id: &str, exit_code: i32, branches: Vec<ResultBranch>)
         tools: None,
         model: None,
         on_result: Some(branches),
-        runner: None,
-        condition: None,
-        append_system_prompt: None,
-        system_prompt: None,
-        resume: false,
-    }
-}
-
-fn prompt_step(id: &str, text: &str) -> Step {
-    Step {
-        id: StepId(id.to_string()),
-        body: StepBody::Prompt(text.to_string()),
-        message: None,
-        tools: None,
-        model: None,
-        on_result: None,
         runner: None,
         condition: None,
         append_system_prompt: None,

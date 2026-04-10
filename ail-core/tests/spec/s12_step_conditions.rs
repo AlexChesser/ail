@@ -1,23 +1,13 @@
 use ail_core::config;
-use ail_core::config::domain::{Condition, Pipeline, Step, StepBody, StepId};
+use ail_core::config::domain::{Condition, Step, StepBody, StepId};
 use ail_core::executor::execute;
 use ail_core::runner::stub::StubRunner;
 use ail_core::session::Session;
+use ail_core::test_helpers::make_session;
 use std::path::PathBuf;
 
 fn fixtures_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures")
-}
-
-fn make_session(steps: Vec<Step>) -> Session {
-    let pipeline = Pipeline {
-        steps,
-        source: None,
-        defaults: Default::default(),
-        timeout_seconds: None,
-        default_tools: None,
-    };
-    Session::new(pipeline, "invocation prompt".to_string())
 }
 
 fn prompt_step_with_condition(id: &str, text: &str, condition: Option<Condition>) -> Step {

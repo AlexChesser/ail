@@ -10,6 +10,9 @@ pub mod runner;
 pub mod session;
 pub mod template;
 
+#[doc(hidden)]
+pub mod test_helpers;
+
 pub fn version() -> &'static str {
     "0.0.1"
 }

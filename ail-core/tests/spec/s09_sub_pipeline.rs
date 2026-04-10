@@ -1,44 +1,16 @@
 /// SPEC §9 — Sub-pipeline execution and §11 template variables in pipeline: paths.
-use ail_core::config::domain::{
-    Pipeline, ResultAction, ResultBranch, ResultMatcher, Step, StepBody, StepId,
-};
+use ail_core::config::domain::{ResultAction, ResultBranch, ResultMatcher, Step, StepBody, StepId};
 use ail_core::error::error_types;
 use ail_core::executor::{execute, execute_with_control, ExecutionControl};
 use ail_core::runner::stub::{EchoStubRunner, StubRunner};
 use ail_core::session::Session;
+use ail_core::test_helpers::{make_session, prompt_step};
 use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::mpsc;
 
 fn fixtures_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures")
-}
-
-fn make_session(steps: Vec<Step>) -> Session {
-    let pipeline = Pipeline {
-        steps,
-        source: None,
-        defaults: Default::default(),
-        timeout_seconds: None,
-        default_tools: None,
-    };
-    Session::new(pipeline, "invocation prompt".to_string())
-}
-
-fn prompt_step(id: &str, text: &str) -> Step {
-    Step {
-        id: StepId(id.to_string()),
-        body: StepBody::Prompt(text.to_string()),
-        message: None,
-        tools: None,
-        on_result: None,
-        model: None,
-        runner: None,
-        condition: None,
-        append_system_prompt: None,
-        system_prompt: None,
-        resume: false,
-    }
 }
 
 fn sub_pipeline_step(id: &str, path: &str) -> Step {

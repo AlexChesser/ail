@@ -42,23 +42,13 @@ pub(super) fn execute_sub_pipeline(
             detail: format!(
                 "Step '{step_id}' would exceed the maximum sub-pipeline nesting depth of {MAX_SUB_PIPELINE_DEPTH}"
             ),
-            context: Some(crate::error::ErrorContext {
-                pipeline_run_id: Some(session.run_id.clone()),
-                step_id: Some(step_id.to_string()),
-                source: None,
-            }),
+            context: Some(crate::error::ErrorContext::for_step(&session.run_id, step_id)),
         });
     }
 
     // Resolve template variables in the path (SPEC §11).
-    let resolved_path = template::resolve(path_template, session).map_err(|mut e| {
-        e.context = Some(crate::error::ErrorContext {
-            pipeline_run_id: Some(session.run_id.clone()),
-            step_id: Some(step_id.to_string()),
-            source: None,
-        });
-        e
-    })?;
+    let resolved_path = template::resolve(path_template, session)
+        .map_err(|e| e.with_step_context(&session.run_id, step_id))?;
 
     // Resolve ./relative and ../relative paths against the parent pipeline's directory (SPEC §9).
     let path_buf = if let (true, Some(base)) = (
@@ -71,27 +61,15 @@ pub(super) fn execute_sub_pipeline(
     };
     let path = path_buf.as_path();
 
-    let sub_pipeline = crate::config::load(path).map_err(|mut e| {
-        e.context = Some(crate::error::ErrorContext {
-            pipeline_run_id: Some(session.run_id.clone()),
-            step_id: Some(step_id.to_string()),
-            source: None,
-        });
-        e
-    })?;
+    let sub_pipeline = crate::config::load(path)
+        .map_err(|e| e.with_step_context(&session.run_id, step_id))?;
 
     // The sub-pipeline's invocation prompt: use the explicit override when provided
     // (template-resolved against the parent session), otherwise fall back to the
     // parent's most recent response (SPEC §9).
     let invocation_prompt = if let Some(override_template) = prompt_override {
-        template::resolve(override_template, session).map_err(|mut e| {
-            e.context = Some(crate::error::ErrorContext {
-                pipeline_run_id: Some(session.run_id.clone()),
-                step_id: Some(step_id.to_string()),
-                source: None,
-            });
-            e
-        })?
+        template::resolve(override_template, session)
+            .map_err(|e| e.with_step_context(&session.run_id, step_id))?
     } else {
         session
             .turn_log
@@ -180,14 +158,8 @@ pub(super) fn execute_inner(
             StepBody::Prompt(template_text) => {
                 let template_text =
                     resolve_prompt_file(template_text, &step_id, pipeline_base_dir)?;
-                let resolved = template::resolve(&template_text, session).map_err(|mut e| {
-                    e.context = Some(crate::error::ErrorContext {
-                        pipeline_run_id: Some(session.run_id.clone()),
-                        step_id: Some(step_id.clone()),
-                        source: None,
-                    });
-                    e
-                })?;
+                let resolved = template::resolve(&template_text, session)
+                    .map_err(|e| e.with_step_context(&session.run_id, &step_id))?;
 
                 let resume_id = if step.resume {
                     session
@@ -205,14 +177,8 @@ pub(super) fn execute_inner(
                     .as_deref()
                     .map(|sp| {
                         let content = resolve_prompt_file(sp, &step_id, pipeline_base_dir)?;
-                        template::resolve(&content, session).map_err(|mut e| {
-                            e.context = Some(crate::error::ErrorContext {
-                                pipeline_run_id: Some(session.run_id.clone()),
-                                step_id: Some(step_id.clone()),
-                                source: None,
-                            });
-                            e
-                        })
+                        template::resolve(&content, session)
+                            .map_err(|e| e.with_step_context(&session.run_id, &step_id))
                     })
                     .transpose()?;
 
@@ -222,14 +188,8 @@ pub(super) fn execute_inner(
                     for entry in entries {
                         let text = match entry {
                             crate::config::domain::SystemPromptEntry::Text(s) => {
-                                template::resolve(s, session).map_err(|mut e| {
-                                    e.context = Some(crate::error::ErrorContext {
-                                        pipeline_run_id: Some(session.run_id.clone()),
-                                        step_id: Some(step_id.clone()),
-                                        source: None,
-                                    });
-                                    e
-                                })?
+                                template::resolve(s, session)
+                                    .map_err(|e| e.with_step_context(&session.run_id, &step_id))?
                             }
                             crate::config::domain::SystemPromptEntry::File(path) => {
                                 let content = std::fs::read_to_string(path).map_err(|e| AilError {
@@ -239,31 +199,14 @@ pub(super) fn execute_inner(
                                         "Step '{step_id}' append_system_prompt file '{}' could not be read: {e}",
                                         path.display()
                                     ),
-                                    context: Some(crate::error::ErrorContext {
-                                        pipeline_run_id: Some(session.run_id.clone()),
-                                        step_id: Some(step_id.clone()),
-                                        source: None,
-                                    }),
+                                    context: Some(crate::error::ErrorContext::for_step(&session.run_id, &step_id)),
                                 })?;
-                                template::resolve(&content, session).map_err(|mut e| {
-                                    e.context = Some(crate::error::ErrorContext {
-                                        pipeline_run_id: Some(session.run_id.clone()),
-                                        step_id: Some(step_id.clone()),
-                                        source: None,
-                                    });
-                                    e
-                                })?
+                                template::resolve(&content, session)
+                                    .map_err(|e| e.with_step_context(&session.run_id, &step_id))?
                             }
                             crate::config::domain::SystemPromptEntry::Shell(cmd) => {
-                                let resolved_cmd =
-                                    template::resolve(cmd, session).map_err(|mut e| {
-                                        e.context = Some(crate::error::ErrorContext {
-                                            pipeline_run_id: Some(session.run_id.clone()),
-                                            step_id: Some(step_id.clone()),
-                                            source: None,
-                                        });
-                                        e
-                                    })?;
+                                let resolved_cmd = template::resolve(cmd, session)
+                                    .map_err(|e| e.with_step_context(&session.run_id, &step_id))?;
                                 let (stdout, _stderr, _exit_code) =
                                     run_shell_command(&session.run_id, &step_id, &resolved_cmd)?;
                                 stdout
@@ -298,14 +241,7 @@ pub(super) fn execute_inner(
 
                 let result = effective_runner
                     .invoke(&resolved, options)
-                    .map_err(|mut e| {
-                        e.context = Some(crate::error::ErrorContext {
-                            pipeline_run_id: Some(session.run_id.clone()),
-                            step_id: Some(step_id.clone()),
-                            source: None,
-                        });
-                        e
-                    })?;
+                    .map_err(|e| e.with_step_context(&session.run_id, &step_id))?;
 
                 tracing::info!(run_id = %session.run_id, step_id = %step_id, cost_usd = ?result.cost_usd, "step complete");
 
@@ -379,11 +315,7 @@ pub(super) fn execute_inner(
                     detail: format!(
                         "Step '{step_id}' uses a step type not yet implemented in v0.1"
                     ),
-                    context: Some(crate::error::ErrorContext {
-                        pipeline_run_id: Some(session.run_id.clone()),
-                        step_id: Some(step_id),
-                        source: None,
-                    }),
+                    context: Some(crate::error::ErrorContext::for_step(&session.run_id, &step_id)),
                 });
             }
         };
@@ -411,11 +343,7 @@ pub(super) fn execute_inner(
                             error_type: error_types::PIPELINE_ABORTED,
                             title: "Pipeline aborted by on_result",
                             detail: format!("Step '{step_id}' on_result fired abort_pipeline"),
-                            context: Some(crate::error::ErrorContext {
-                                pipeline_run_id: Some(session.run_id.clone()),
-                                step_id: Some(step_id),
-                                source: None,
-                            }),
+                            context: Some(crate::error::ErrorContext::for_step(&session.run_id, &step_id)),
                         });
                     }
                     ResultAction::PauseForHuman => {
@@ -466,37 +394,7 @@ mod tests {
     use crate::error::error_types;
     use crate::runner::stub::StubRunner;
     use crate::session::{NullProvider, Session};
-
-    fn make_pipeline(steps: Vec<Step>) -> Pipeline {
-        Pipeline {
-            steps,
-            source: None,
-            defaults: Default::default(),
-            timeout_seconds: None,
-            default_tools: None,
-        }
-    }
-
-    fn make_session(steps: Vec<Step>) -> Session {
-        Session::new(make_pipeline(steps), "test prompt".to_string())
-            .with_log_provider(Box::new(NullProvider))
-    }
-
-    fn prompt_step(id: &str, text: &str) -> Step {
-        Step {
-            id: StepId(id.to_string()),
-            body: StepBody::Prompt(text.to_string()),
-            message: None,
-            tools: None,
-            on_result: None,
-            model: None,
-            runner: None,
-            condition: None,
-            append_system_prompt: None,
-            system_prompt: None,
-            resume: false,
-        }
-    }
+    use crate::test_helpers::{make_session, prompt_step};
 
     fn prompt_step_with_on_result(id: &str, branches: Vec<ResultBranch>) -> Step {
         Step {

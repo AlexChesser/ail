@@ -121,12 +121,8 @@ pub fn execute_with_control(
                     };
                 let resolved = match template::resolve(&template_text, session) {
                     Ok(r) => r,
-                    Err(mut e) => {
-                        e.context = Some(crate::error::ErrorContext {
-                            pipeline_run_id: Some(session.run_id.clone()),
-                            step_id: Some(step_id.clone()),
-                            source: None,
-                        });
+                    Err(e) => {
+                        let e = e.with_step_context(&session.run_id, &step_id);
                         let _ = event_tx.send(ExecutorEvent::StepFailed {
                             step_id: step_id.clone(),
                             error: e.detail.clone(),
@@ -159,14 +155,8 @@ pub fn execute_with_control(
                     .as_deref()
                     .map(|sp| {
                         let content = resolve_prompt_file(sp, &step_id, pipeline_base_dir)?;
-                        template::resolve(&content, session).map_err(|mut e| {
-                            e.context = Some(crate::error::ErrorContext {
-                                pipeline_run_id: Some(session.run_id.clone()),
-                                step_id: Some(step_id.clone()),
-                                source: None,
-                            });
-                            e
-                        })
+                        template::resolve(&content, session)
+                            .map_err(|e| e.with_step_context(&session.run_id, &step_id))
                     })
                     .transpose()
                 {
@@ -188,12 +178,8 @@ pub fn execute_with_control(
                             crate::config::domain::SystemPromptEntry::Text(s) => {
                                 match template::resolve(s, session) {
                                     Ok(t) => t,
-                                    Err(mut e) => {
-                                        e.context = Some(crate::error::ErrorContext {
-                                            pipeline_run_id: Some(session.run_id.clone()),
-                                            step_id: Some(step_id.clone()),
-                                            source: None,
-                                        });
+                                    Err(e) => {
+                                        let e = e.with_step_context(&session.run_id, &step_id);
                                         let _ = event_tx.send(ExecutorEvent::StepFailed {
                                             step_id: step_id.clone(),
                                             error: e.detail.clone(),
@@ -213,11 +199,7 @@ pub fn execute_with_control(
                                                 "Step '{step_id}' append_system_prompt file '{}' could not be read: {e}",
                                                 path.display()
                                             ),
-                                            context: Some(crate::error::ErrorContext {
-                                                pipeline_run_id: Some(session.run_id.clone()),
-                                                step_id: Some(step_id.clone()),
-                                                source: None,
-                                            }),
+                                            context: Some(crate::error::ErrorContext::for_step(&session.run_id, &step_id)),
                                         };
                                         let _ = event_tx.send(ExecutorEvent::StepFailed {
                                             step_id: step_id.clone(),
@@ -228,12 +210,8 @@ pub fn execute_with_control(
                                 };
                                 match template::resolve(&content, session) {
                                     Ok(t) => t,
-                                    Err(mut e) => {
-                                        e.context = Some(crate::error::ErrorContext {
-                                            pipeline_run_id: Some(session.run_id.clone()),
-                                            step_id: Some(step_id.clone()),
-                                            source: None,
-                                        });
+                                    Err(e) => {
+                                        let e = e.with_step_context(&session.run_id, &step_id);
                                         let _ = event_tx.send(ExecutorEvent::StepFailed {
                                             step_id: step_id.clone(),
                                             error: e.detail.clone(),
@@ -245,12 +223,8 @@ pub fn execute_with_control(
                             crate::config::domain::SystemPromptEntry::Shell(cmd) => {
                                 let resolved_cmd = match template::resolve(cmd, session) {
                                     Ok(c) => c,
-                                    Err(mut e) => {
-                                        e.context = Some(crate::error::ErrorContext {
-                                            pipeline_run_id: Some(session.run_id.clone()),
-                                            step_id: Some(step_id.clone()),
-                                            source: None,
-                                        });
+                                    Err(e) => {
+                                        let e = e.with_step_context(&session.run_id, &step_id);
                                         let _ = event_tx.send(ExecutorEvent::StepFailed {
                                             step_id: step_id.clone(),
                                             error: e.detail.clone(),
@@ -463,11 +437,7 @@ pub fn execute_with_control(
                     detail: format!(
                         "Step '{step_id}' uses a step type not yet implemented in v0.1"
                     ),
-                    context: Some(crate::error::ErrorContext {
-                        pipeline_run_id: Some(session.run_id.clone()),
-                        step_id: Some(step_id),
-                        source: None,
-                    }),
+                    context: Some(crate::error::ErrorContext::for_step(&session.run_id, &step_id)),
                 });
             }
         };
@@ -501,11 +471,7 @@ pub fn execute_with_control(
                             error_type: error_types::PIPELINE_ABORTED,
                             title: "Pipeline aborted by on_result",
                             detail: format!("Step '{step_id}' on_result fired abort_pipeline"),
-                            context: Some(crate::error::ErrorContext {
-                                pipeline_run_id: Some(session.run_id.clone()),
-                                step_id: Some(step_id),
-                                source: None,
-                            }),
+                            context: Some(crate::error::ErrorContext::for_step(&session.run_id, &step_id)),
                         };
                         let _ = event_tx.send(ExecutorEvent::PipelineError {
                             error: err.detail.clone(),
@@ -572,44 +538,12 @@ mod tests {
     use std::sync::Arc;
 
     use crate::config::domain::{
-        ActionKind, Condition, ContextSource, Pipeline, ResultAction, ResultBranch, ResultMatcher,
+        ActionKind, Condition, ContextSource, ResultAction, ResultBranch, ResultMatcher,
         Step, StepBody, StepId,
     };
     use crate::executor::events::{ExecuteOutcome, ExecutionControl, ExecutorEvent};
     use crate::runner::stub::StubRunner;
-    use crate::session::log_provider::NullProvider;
-    use crate::session::Session;
-
-    fn make_pipeline(steps: Vec<Step>) -> Pipeline {
-        Pipeline {
-            steps,
-            source: None,
-            defaults: Default::default(),
-            timeout_seconds: None,
-            default_tools: None,
-        }
-    }
-
-    fn make_session(steps: Vec<Step>) -> Session {
-        Session::new(make_pipeline(steps), "invocation prompt".to_string())
-            .with_log_provider(Box::new(NullProvider))
-    }
-
-    fn prompt_step(id: &str, text: &str) -> Step {
-        Step {
-            id: StepId(id.to_string()),
-            body: StepBody::Prompt(text.to_string()),
-            message: None,
-            tools: None,
-            on_result: None,
-            model: None,
-            runner: None,
-            condition: None,
-            append_system_prompt: None,
-            system_prompt: None,
-            resume: false,
-        }
-    }
+    use crate::test_helpers::{make_session, prompt_step};
 
     fn make_control() -> ExecutionControl {
         ExecutionControl {

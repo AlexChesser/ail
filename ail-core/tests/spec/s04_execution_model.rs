@@ -1,24 +1,9 @@
 mod executor {
-    use ail_core::config::domain::{Pipeline, Step, StepBody, StepId};
+    use ail_core::config::domain::Pipeline;
     use ail_core::executor::execute;
     use ail_core::runner::stub::StubRunner;
     use ail_core::session::Session;
-
-    fn prompt_step(id: &str, text: &str) -> Step {
-        Step {
-            id: StepId(id.to_string()),
-            body: StepBody::Prompt(text.to_string()),
-            message: None,
-            tools: None,
-            model: None,
-            on_result: None,
-            runner: None,
-            condition: None,
-            append_system_prompt: None,
-            system_prompt: None,
-            resume: false,
-        }
-    }
+    use ail_core::test_helpers::prompt_step;
 
     /// SPEC §4.2 — core invariant: steps execute in declared order
     #[test]
