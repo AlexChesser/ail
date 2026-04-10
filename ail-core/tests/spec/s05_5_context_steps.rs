@@ -160,6 +160,7 @@ pipeline:
 /// SPEC §5.5 — context shell step captures stdout
 #[test]
 fn context_shell_captures_stdout() {
+    let _cwd_guard = crate::spec::CWD_LOCK.lock().unwrap();
     use ail_core::config::domain::{Pipeline, Step, StepId};
 
     let tmp = tempfile::tempdir().unwrap();
@@ -198,6 +199,7 @@ fn context_shell_captures_stdout() {
 /// SPEC §5.5 — context shell step captures stderr on a separate stream
 #[test]
 fn context_shell_captures_stderr() {
+    let _cwd_guard = crate::spec::CWD_LOCK.lock().unwrap();
     use ail_core::config::domain::{Pipeline, Step, StepId};
 
     let tmp = tempfile::tempdir().unwrap();
@@ -239,6 +241,7 @@ fn context_shell_captures_stderr() {
 /// SPEC §5.5 — context shell step captures exit code 0
 #[test]
 fn context_shell_captures_exit_code_zero() {
+    let _cwd_guard = crate::spec::CWD_LOCK.lock().unwrap();
     use ail_core::config::domain::{Pipeline, Step, StepId};
 
     let tmp = tempfile::tempdir().unwrap();
@@ -275,6 +278,7 @@ fn context_shell_captures_exit_code_zero() {
 /// SPEC §5.5 — context shell step captures non-zero exit code (not an error)
 #[test]
 fn context_shell_captures_nonzero_exit_code() {
+    let _cwd_guard = crate::spec::CWD_LOCK.lock().unwrap();
     use ail_core::config::domain::{Pipeline, Step, StepId};
 
     let tmp = tempfile::tempdir().unwrap();
@@ -312,6 +316,7 @@ fn context_shell_captures_nonzero_exit_code() {
 /// SPEC §5.5 — context step does not call the runner
 #[test]
 fn context_shell_does_not_call_runner() {
+    let _cwd_guard = crate::spec::CWD_LOCK.lock().unwrap();
     use ail_core::config::domain::{Pipeline, Step, StepId};
 
     let tmp = tempfile::tempdir().unwrap();
@@ -352,6 +357,7 @@ fn context_shell_does_not_call_runner() {
 /// SPEC §5.5 — context step result feeds into prompt template variable
 #[test]
 fn context_then_prompt_pipeline() {
+    let _cwd_guard = crate::spec::CWD_LOCK.lock().unwrap();
     use ail_core::config::domain::{Pipeline, Step, StepId};
 
     let tmp = tempfile::tempdir().unwrap();
@@ -411,6 +417,7 @@ fn context_then_prompt_pipeline() {
 /// SPEC §5.5 — step.lint.exit_code template variable resolves to string
 #[test]
 fn template_step_exit_code_resolves() {
+    let _cwd_guard = crate::spec::CWD_LOCK.lock().unwrap();
     use ail_core::config::domain::{Pipeline, Step, StepId};
 
     let tmp = tempfile::tempdir().unwrap();
@@ -467,6 +474,7 @@ fn template_step_exit_code_resolves() {
 /// SPEC §5.5 + §5.8 — prompt: can reference a file path
 #[test]
 fn prompt_file_path_loads_contents() {
+    let _cwd_guard = crate::spec::CWD_LOCK.lock().unwrap();
     use ail_core::config::domain::{Pipeline, Step, StepId};
 
     let tmp = tempfile::tempdir().unwrap();
@@ -511,6 +519,7 @@ fn prompt_file_path_loads_contents() {
 /// SPEC §5.5 — prompt: file not found returns CONFIG_FILE_NOT_FOUND error
 #[test]
 fn prompt_file_not_found_returns_error() {
+    let _cwd_guard = crate::spec::CWD_LOCK.lock().unwrap();
     use ail_core::config::domain::{Pipeline, Step, StepId};
 
     let tmp = tempfile::tempdir().unwrap();
@@ -550,6 +559,7 @@ fn prompt_file_not_found_returns_error() {
 /// SPEC §5.5 — inline prompt string is unchanged by file path resolution
 #[test]
 fn prompt_inline_string_unchanged() {
+    let _cwd_guard = crate::spec::CWD_LOCK.lock().unwrap();
     use ail_core::config::domain::{Pipeline, Step, StepId};
 
     let tmp = tempfile::tempdir().unwrap();

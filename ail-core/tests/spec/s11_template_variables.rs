@@ -33,6 +33,7 @@ fn template_with_no_variables_is_unchanged() {
 
 #[test]
 fn last_response_resolves_from_turn_log() {
+    let _cwd_guard = crate::spec::CWD_LOCK.lock().unwrap();
     let tmp = tempfile::tempdir().unwrap();
     let orig = std::env::current_dir().unwrap();
     std::env::set_current_dir(tmp.path()).unwrap();
@@ -47,6 +48,7 @@ fn last_response_resolves_from_turn_log() {
 
 #[test]
 fn named_step_response_resolves_correctly() {
+    let _cwd_guard = crate::spec::CWD_LOCK.lock().unwrap();
     let tmp = tempfile::tempdir().unwrap();
     let orig = std::env::current_dir().unwrap();
     std::env::set_current_dir(tmp.path()).unwrap();

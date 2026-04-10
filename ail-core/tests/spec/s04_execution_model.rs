@@ -23,6 +23,7 @@ mod executor {
     /// SPEC §4.2 — core invariant: steps execute in declared order
     #[test]
     fn steps_execute_in_declaration_order() {
+        let _cwd_guard = crate::spec::CWD_LOCK.lock().unwrap();
         let tmp = tempfile::tempdir().unwrap();
         let orig = std::env::current_dir().unwrap();
         std::env::set_current_dir(tmp.path()).unwrap();
@@ -51,6 +52,7 @@ mod executor {
     /// SPEC §4.1, §4.2 — passthrough runs the invocation step declared at step zero
     #[test]
     fn passthrough_pipeline_runs_invocation_step() {
+        let _cwd_guard = crate::spec::CWD_LOCK.lock().unwrap();
         let tmp = tempfile::tempdir().unwrap();
         let orig = std::env::current_dir().unwrap();
         std::env::set_current_dir(tmp.path()).unwrap();
@@ -102,6 +104,7 @@ mod session {
     /// SPEC §4 — entries are ordered and retrievable
     #[test]
     fn turn_log_entries_are_ordered() {
+        let _cwd_guard = crate::spec::CWD_LOCK.lock().unwrap();
         let tmp = tempfile::tempdir().unwrap();
         let original_dir = std::env::current_dir().unwrap();
         std::env::set_current_dir(tmp.path()).unwrap();
@@ -119,6 +122,7 @@ mod session {
     /// SPEC §4 — last_response returns the most recent entry
     #[test]
     fn last_response_returns_most_recent_entry() {
+        let _cwd_guard = crate::spec::CWD_LOCK.lock().unwrap();
         let tmp = tempfile::tempdir().unwrap();
         let original_dir = std::env::current_dir().unwrap();
         std::env::set_current_dir(tmp.path()).unwrap();
@@ -134,6 +138,7 @@ mod session {
     /// SPEC §4, §4.4 — turn log persists to project-scoped NDJSON file
     #[test]
     fn turn_log_append_writes_ndjson_line_to_disk() {
+        let _cwd_guard = crate::spec::CWD_LOCK.lock().unwrap();
         let tmp = tempfile::tempdir().unwrap();
         let original_dir = std::env::current_dir().unwrap();
         std::env::set_current_dir(tmp.path()).unwrap();

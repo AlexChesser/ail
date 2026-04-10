@@ -90,6 +90,7 @@ mod s5_2_file_path_resolution {
     /// not the process working directory.
     #[test]
     fn system_prompt_resolves_relative_to_pipeline_file() {
+        let _cwd_guard = crate::spec::CWD_LOCK.lock().unwrap();
         let tmp = tempfile::tempdir().unwrap();
         let prompts_dir = tmp.path().join("prompts");
         std::fs::create_dir(&prompts_dir).unwrap();
@@ -123,6 +124,7 @@ mod s5_2_file_path_resolution {
     /// SPEC §5.2 — `./` in `prompt:` is resolved relative to the pipeline file.
     #[test]
     fn prompt_file_resolves_relative_to_pipeline_file() {
+        let _cwd_guard = crate::spec::CWD_LOCK.lock().unwrap();
         let tmp = tempfile::tempdir().unwrap();
         let prompts_dir = tmp.path().join("prompts");
         std::fs::create_dir(&prompts_dir).unwrap();

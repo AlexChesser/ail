@@ -27,6 +27,7 @@ mod log_provider_tests {
     /// JsonlProvider writes an entry to the expected path.
     #[test]
     fn jsonl_provider_writes_to_expected_path() {
+        let _cwd_guard = crate::spec::CWD_LOCK.lock().unwrap();
         let tmp = tempfile::tempdir().unwrap();
         let orig = std::env::current_dir().unwrap();
         std::env::set_current_dir(tmp.path()).unwrap();
@@ -80,6 +81,7 @@ mod log_provider_tests {
     /// TurnLog::run_path delegates to the standalone log_provider::run_path.
     #[test]
     fn turn_log_run_path_matches_standalone_helper() {
+        let _cwd_guard = crate::spec::CWD_LOCK.lock().unwrap();
         let tmp = tempfile::tempdir().unwrap();
         let orig = std::env::current_dir().unwrap();
         std::env::set_current_dir(tmp.path()).unwrap();

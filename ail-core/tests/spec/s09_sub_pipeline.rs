@@ -64,6 +64,7 @@ fn sub_pipeline_step(id: &str, path: &str) -> Step {
 
 #[test]
 fn sub_pipeline_step_loads_and_executes_child_pipeline() {
+    let _cwd_guard = crate::spec::CWD_LOCK.lock().unwrap();
     let tmp = tempfile::tempdir().unwrap();
     let orig = std::env::current_dir().unwrap();
     std::env::set_current_dir(tmp.path()).unwrap();
@@ -92,6 +93,7 @@ fn sub_pipeline_step_loads_and_executes_child_pipeline() {
 
 #[test]
 fn sub_pipeline_response_is_accessible_as_template_variable() {
+    let _cwd_guard = crate::spec::CWD_LOCK.lock().unwrap();
     let tmp = tempfile::tempdir().unwrap();
     let orig = std::env::current_dir().unwrap();
     std::env::set_current_dir(tmp.path()).unwrap();
@@ -121,6 +123,7 @@ fn sub_pipeline_response_is_accessible_as_template_variable() {
 
 #[test]
 fn pipeline_path_with_template_variable_resolves_at_runtime() {
+    let _cwd_guard = crate::spec::CWD_LOCK.lock().unwrap();
     let tmp = tempfile::tempdir().unwrap();
     let orig = std::env::current_dir().unwrap();
     std::env::set_current_dir(tmp.path()).unwrap();
@@ -149,6 +152,7 @@ fn pipeline_path_with_template_variable_resolves_at_runtime() {
 
 #[test]
 fn unresolvable_pipeline_path_aborts_with_template_unresolved_error() {
+    let _cwd_guard = crate::spec::CWD_LOCK.lock().unwrap();
     let tmp = tempfile::tempdir().unwrap();
     let orig = std::env::current_dir().unwrap();
     std::env::set_current_dir(tmp.path()).unwrap();
@@ -170,6 +174,7 @@ fn unresolvable_pipeline_path_aborts_with_template_unresolved_error() {
 
 #[test]
 fn missing_sub_pipeline_file_aborts_with_file_not_found_error() {
+    let _cwd_guard = crate::spec::CWD_LOCK.lock().unwrap();
     let tmp = tempfile::tempdir().unwrap();
     let orig = std::env::current_dir().unwrap();
     std::env::set_current_dir(tmp.path()).unwrap();
@@ -193,6 +198,7 @@ fn missing_sub_pipeline_file_aborts_with_file_not_found_error() {
 
 #[test]
 fn on_result_pipeline_action_executes_sub_pipeline_on_match() {
+    let _cwd_guard = crate::spec::CWD_LOCK.lock().unwrap();
     let tmp = tempfile::tempdir().unwrap();
     let orig = std::env::current_dir().unwrap();
     std::env::set_current_dir(tmp.path()).unwrap();
@@ -295,6 +301,7 @@ pipeline:
 /// correctly on the controlled (TUI/json) code path.
 #[test]
 fn execute_with_control_sub_pipeline_runs_and_records_entry() {
+    let _cwd_guard = crate::spec::CWD_LOCK.lock().unwrap();
     let tmp = tempfile::tempdir().unwrap();
     let orig = std::env::current_dir().unwrap();
     std::env::set_current_dir(tmp.path()).unwrap();
@@ -338,6 +345,7 @@ fn execute_with_control_sub_pipeline_runs_and_records_entry() {
 /// abort with PIPELINE_ABORTED before the stack overflows.
 #[test]
 fn execute_with_control_depth_limit_prevents_infinite_recursion() {
+    let _cwd_guard = crate::spec::CWD_LOCK.lock().unwrap();
     let tmp = tempfile::tempdir().unwrap();
     let orig = std::env::current_dir().unwrap();
     std::env::set_current_dir(tmp.path()).unwrap();
@@ -397,6 +405,7 @@ fn execute_with_control_depth_limit_prevents_infinite_recursion() {
 /// Same depth-limit test on the execute() (simple) code path, for parity.
 #[test]
 fn execute_depth_limit_prevents_infinite_recursion() {
+    let _cwd_guard = crate::spec::CWD_LOCK.lock().unwrap();
     let tmp = tempfile::tempdir().unwrap();
     let orig = std::env::current_dir().unwrap();
     std::env::set_current_dir(tmp.path()).unwrap();
@@ -435,6 +444,7 @@ fn execute_depth_limit_prevents_infinite_recursion() {
 /// prompt must be the resolved prompt value, not the parent's last response.
 #[test]
 fn sub_pipeline_step_prompt_override_is_passed_to_child() {
+    let _cwd_guard = crate::spec::CWD_LOCK.lock().unwrap();
     let tmp = tempfile::tempdir().unwrap();
     let orig = std::env::current_dir().unwrap();
     std::env::set_current_dir(tmp.path()).unwrap();
@@ -497,6 +507,7 @@ fn sub_pipeline_step_prompt_override_is_passed_to_child() {
 /// `prompt:` with template variables is resolved against the parent session.
 #[test]
 fn sub_pipeline_step_prompt_override_resolves_template_variables() {
+    let _cwd_guard = crate::spec::CWD_LOCK.lock().unwrap();
     let tmp = tempfile::tempdir().unwrap();
     let orig = std::env::current_dir().unwrap();
     std::env::set_current_dir(tmp.path()).unwrap();
@@ -543,6 +554,7 @@ fn sub_pipeline_step_prompt_override_resolves_template_variables() {
 /// `on_result: pipeline:` with `prompt:` sends the specified prompt to the child.
 #[test]
 fn on_result_pipeline_prompt_override_is_passed_to_child() {
+    let _cwd_guard = crate::spec::CWD_LOCK.lock().unwrap();
     let tmp = tempfile::tempdir().unwrap();
     let orig = std::env::current_dir().unwrap();
     std::env::set_current_dir(tmp.path()).unwrap();
@@ -594,6 +606,7 @@ fn on_result_pipeline_prompt_override_is_passed_to_child() {
 /// parent pipeline file's directory, not the process CWD (SPEC §9).
 #[test]
 fn sub_pipeline_relative_path_resolves_relative_to_parent_pipeline_dir() {
+    let _cwd_guard = crate::spec::CWD_LOCK.lock().unwrap();
     let tmp = tempfile::tempdir().unwrap();
 
     // Write the child pipeline into a subdirectory of the temp dir.
@@ -638,6 +651,7 @@ fn sub_pipeline_relative_path_resolves_relative_to_parent_pipeline_dir() {
 /// `on_result: pipeline:` with a ./relative path resolves relative to the parent pipeline file.
 #[test]
 fn on_result_pipeline_relative_path_resolves_relative_to_parent_pipeline_dir() {
+    let _cwd_guard = crate::spec::CWD_LOCK.lock().unwrap();
     let tmp = tempfile::tempdir().unwrap();
 
     let subdir = tmp.path().join("handlers");
@@ -678,6 +692,7 @@ fn on_result_pipeline_relative_path_resolves_relative_to_parent_pipeline_dir() {
 /// This is the bare-filename variant of the §9 relative-path tests.
 #[test]
 fn sub_pipeline_relative_path_resolves_when_pipeline_loaded_as_bare_filename() {
+    let _cwd_guard = crate::spec::CWD_LOCK.lock().unwrap();
     let tmp = tempfile::tempdir().unwrap();
 
     // Write child pipeline in a subdirectory.

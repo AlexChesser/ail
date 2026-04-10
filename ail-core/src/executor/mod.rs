@@ -19,6 +19,7 @@ mod tests {
     use crate::config::domain::{Pipeline, Step, StepBody, StepId};
     use crate::runner::stub::StubRunner;
     use crate::runner::RunnerEvent;
+    use crate::session::log_provider::NullProvider;
     use crate::session::Session;
 
     fn make_session(steps: Vec<Step>) -> Session {
@@ -30,6 +31,7 @@ mod tests {
             default_tools: None,
         };
         Session::new(pipeline, "invocation prompt".to_string())
+            .with_log_provider(Box::new(NullProvider))
     }
 
     fn prompt_step(id: &str, text: &str) -> Step {
@@ -50,27 +52,18 @@ mod tests {
 
     #[test]
     fn passthrough_pipeline_runs_invocation_step() {
-        let tmp = tempfile::tempdir().unwrap();
-        let orig = std::env::current_dir().unwrap();
-        std::env::set_current_dir(tmp.path()).unwrap();
-
-        let mut session = Session::new(Pipeline::passthrough(), "hello".to_string());
+        let mut session = Session::new(Pipeline::passthrough(), "hello".to_string())
+            .with_log_provider(Box::new(NullProvider));
         let runner = StubRunner::new("stub response");
         let result = execute(&mut session, &runner);
         assert!(result.is_ok());
         // passthrough declares invocation as step zero; executor runs it
         assert_eq!(session.turn_log.entries().len(), 1);
         assert_eq!(session.turn_log.entries()[0].step_id, "invocation");
-
-        std::env::set_current_dir(orig).unwrap();
     }
 
     #[test]
     fn single_step_pipeline_appends_to_turn_log() {
-        let tmp = tempfile::tempdir().unwrap();
-        let orig = std::env::current_dir().unwrap();
-        std::env::set_current_dir(tmp.path()).unwrap();
-
         let mut session = make_session(vec![prompt_step("review", "Do a review")]);
         let runner = StubRunner::new("looks good");
         execute(&mut session, &runner).unwrap();
@@ -81,16 +74,10 @@ mod tests {
             session.turn_log.entries()[0].response.as_deref(),
             Some("looks good")
         );
-
-        std::env::set_current_dir(orig).unwrap();
     }
 
     #[test]
     fn two_step_pipeline_runs_both_steps_in_order() {
-        let tmp = tempfile::tempdir().unwrap();
-        let orig = std::env::current_dir().unwrap();
-        std::env::set_current_dir(tmp.path()).unwrap();
-
         let mut session = make_session(vec![
             prompt_step("step_a", "First prompt"),
             prompt_step("step_b", "Second prompt"),
@@ -103,16 +90,10 @@ mod tests {
         assert_eq!(entries.len(), 2);
         assert_eq!(entries[0].step_id, "step_a");
         assert_eq!(entries[1].step_id, "step_b");
-
-        std::env::set_current_dir(orig).unwrap();
     }
 
     #[test]
     fn template_variable_in_prompt_is_resolved_before_runner() {
-        let tmp = tempfile::tempdir().unwrap();
-        let orig = std::env::current_dir().unwrap();
-        std::env::set_current_dir(tmp.path()).unwrap();
-
         let mut session = make_session(vec![prompt_step(
             "meta",
             "The run id is: {{ pipeline.run_id }}",
@@ -126,24 +107,16 @@ mod tests {
             prompt_sent.contains(&run_id),
             "Expected run_id in resolved prompt, got: {prompt_sent}"
         );
-
-        std::env::set_current_dir(orig).unwrap();
     }
 
     #[test]
     fn unresolvable_template_aborts_pipeline_with_error() {
-        let tmp = tempfile::tempdir().unwrap();
-        let orig = std::env::current_dir().unwrap();
-        std::env::set_current_dir(tmp.path()).unwrap();
-
         let mut session = make_session(vec![prompt_step("bad", "{{ totally.unknown.variable }}")]);
         let runner = StubRunner::new("never called");
         let result = execute(&mut session, &runner);
         assert!(result.is_err());
         // No entries should have been appended
         assert_eq!(session.turn_log.entries().len(), 0);
-
-        std::env::set_current_dir(orig).unwrap();
     }
 
     #[test]

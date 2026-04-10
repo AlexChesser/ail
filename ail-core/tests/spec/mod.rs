@@ -21,3 +21,9 @@ mod s23_structured_output;
 mod s35_ail_log_formatter;
 mod s39_consistency;
 mod s40_delete_run;
+
+/// Serialises all tests that mutate process-wide CWD via `std::env::set_current_dir`.
+/// `std::env::current_dir()` is global process state; parallel tests that change it
+/// corrupt each other.  Hold this lock for the duration of any test that calls
+/// `set_current_dir`, and release it (via drop) before the test returns.
+pub static CWD_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());

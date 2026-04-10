@@ -85,6 +85,7 @@ fn prompt_step(id: &str, text: &str) -> Step {
 /// SPEC §5.4 — on_result contains match: pipeline continues to next step
 #[test]
 fn on_result_contains_match_continues() {
+    let _cwd_guard = crate::spec::CWD_LOCK.lock().unwrap();
     let tmp = tempfile::tempdir().unwrap();
     let orig = std::env::current_dir().unwrap();
     std::env::set_current_dir(tmp.path()).unwrap();
@@ -111,6 +112,7 @@ fn on_result_contains_match_continues() {
 /// SPEC §5.4 — on_result abort_pipeline exits as AilError
 #[test]
 fn on_result_abort_pipeline_exits_as_ail_error() {
+    let _cwd_guard = crate::spec::CWD_LOCK.lock().unwrap();
     let tmp = tempfile::tempdir().unwrap();
     let orig = std::env::current_dir().unwrap();
     std::env::set_current_dir(tmp.path()).unwrap();
@@ -139,6 +141,7 @@ fn on_result_abort_pipeline_exits_as_ail_error() {
 /// SPEC §5.4 — on_result break exits as Ok(Break), not Err
 #[test]
 fn on_result_break_exits_as_ok_not_err() {
+    let _cwd_guard = crate::spec::CWD_LOCK.lock().unwrap();
     let tmp = tempfile::tempdir().unwrap();
     let orig = std::env::current_dir().unwrap();
     std::env::set_current_dir(tmp.path()).unwrap();
@@ -170,6 +173,7 @@ fn on_result_break_exits_as_ok_not_err() {
 /// SPEC §5.4 — pause_for_human in on_result is a no-op in the uncontrolled executor (no HITL channel)
 #[test]
 fn on_result_pause_for_human_suspends() {
+    let _cwd_guard = crate::spec::CWD_LOCK.lock().unwrap();
     let tmp = tempfile::tempdir().unwrap();
     let orig = std::env::current_dir().unwrap();
     std::env::set_current_dir(tmp.path()).unwrap();
@@ -194,6 +198,7 @@ fn on_result_pause_for_human_suspends() {
 /// hitl_response is received, then resumes and completes the pipeline.
 #[test]
 fn on_result_pause_for_human_blocks_in_controlled_executor() {
+    let _cwd_guard = crate::spec::CWD_LOCK.lock().unwrap();
     let tmp = tempfile::tempdir().unwrap();
     let orig = std::env::current_dir().unwrap();
     std::env::set_current_dir(tmp.path()).unwrap();
@@ -245,6 +250,7 @@ fn on_result_pause_for_human_blocks_in_controlled_executor() {
 /// SPEC §5.4 — exit_code: 0 branch matches zero exit, continues
 #[test]
 fn on_result_exit_code_0_continue() {
+    let _cwd_guard = crate::spec::CWD_LOCK.lock().unwrap();
     let tmp = tempfile::tempdir().unwrap();
     let orig = std::env::current_dir().unwrap();
     std::env::set_current_dir(tmp.path()).unwrap();
@@ -268,6 +274,7 @@ fn on_result_exit_code_0_continue() {
 /// SPEC §5.4 — exit_code: any matches non-zero exit codes
 #[test]
 fn on_result_exit_code_any_matches_nonzero() {
+    let _cwd_guard = crate::spec::CWD_LOCK.lock().unwrap();
     let tmp = tempfile::tempdir().unwrap();
     let orig = std::env::current_dir().unwrap();
     std::env::set_current_dir(tmp.path()).unwrap();
@@ -293,6 +300,7 @@ fn on_result_exit_code_any_matches_nonzero() {
 /// SPEC §5.4 — exit_code: any does NOT match exit code 0
 #[test]
 fn on_result_exit_code_any_does_not_match_zero() {
+    let _cwd_guard = crate::spec::CWD_LOCK.lock().unwrap();
     let tmp = tempfile::tempdir().unwrap();
     let orig = std::env::current_dir().unwrap();
     std::env::set_current_dir(tmp.path()).unwrap();
@@ -324,6 +332,7 @@ fn on_result_exit_code_any_does_not_match_zero() {
 /// SPEC §5.4 — first matching branch wins, subsequent branches are not evaluated
 #[test]
 fn on_result_first_match_wins() {
+    let _cwd_guard = crate::spec::CWD_LOCK.lock().unwrap();
     let tmp = tempfile::tempdir().unwrap();
     let orig = std::env::current_dir().unwrap();
     std::env::set_current_dir(tmp.path()).unwrap();
@@ -354,6 +363,7 @@ fn on_result_first_match_wins() {
 /// SPEC §5.4 — `always:` branch fires unconditionally
 #[test]
 fn on_result_always_matches() {
+    let _cwd_guard = crate::spec::CWD_LOCK.lock().unwrap();
     let tmp = tempfile::tempdir().unwrap();
     let orig = std::env::current_dir().unwrap();
     std::env::set_current_dir(tmp.path()).unwrap();
@@ -379,6 +389,7 @@ fn on_result_always_matches() {
 /// SPEC §5.4 — break skips all remaining steps
 #[test]
 fn on_result_break_skips_remaining_steps() {
+    let _cwd_guard = crate::spec::CWD_LOCK.lock().unwrap();
     let tmp = tempfile::tempdir().unwrap();
     let orig = std::env::current_dir().unwrap();
     std::env::set_current_dir(tmp.path()).unwrap();

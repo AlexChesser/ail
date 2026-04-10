@@ -11,6 +11,7 @@ mod s3_1_discovery {
 
     #[test]
     fn returns_none_when_no_file_found() {
+        let _cwd_guard = crate::spec::CWD_LOCK.lock().unwrap();
         let tmp = tempfile::tempdir().unwrap();
         let original_dir = std::env::current_dir().unwrap();
         std::env::set_current_dir(tmp.path()).unwrap();
@@ -21,6 +22,7 @@ mod s3_1_discovery {
 
     #[test]
     fn falls_back_to_ail_yaml_in_cwd() {
+        let _cwd_guard = crate::spec::CWD_LOCK.lock().unwrap();
         let tmp = tempfile::tempdir().unwrap();
         // Canonicalize to resolve symlinks (macOS: /tmp -> /private/tmp) so the
         // expected path matches what current_dir() returns inside discover().
@@ -45,6 +47,7 @@ mod s3_1_discover_all {
 
     #[test]
     fn returns_empty_when_no_yaml_files_present() {
+        let _cwd_guard = crate::spec::CWD_LOCK.lock().unwrap();
         let tmp = tempfile::tempdir().unwrap();
         let original_dir = std::env::current_dir().unwrap();
         std::env::set_current_dir(tmp.path()).unwrap();
@@ -55,6 +58,7 @@ mod s3_1_discover_all {
 
     #[test]
     fn finds_ail_yaml_in_cwd_as_default() {
+        let _cwd_guard = crate::spec::CWD_LOCK.lock().unwrap();
         let tmp = tempfile::tempdir().unwrap();
         std::fs::write(tmp.path().join(".ail.yaml"), "x").unwrap();
         let original_dir = std::env::current_dir().unwrap();
@@ -67,6 +71,7 @@ mod s3_1_discover_all {
 
     #[test]
     fn finds_yaml_files_in_ail_directory() {
+        let _cwd_guard = crate::spec::CWD_LOCK.lock().unwrap();
         let tmp = tempfile::tempdir().unwrap();
         let ail_dir = tmp.path().join(".ail");
         std::fs::create_dir(&ail_dir).unwrap();
@@ -83,6 +88,7 @@ mod s3_1_discover_all {
 
     #[test]
     fn results_are_sorted_alphabetically() {
+        let _cwd_guard = crate::spec::CWD_LOCK.lock().unwrap();
         let tmp = tempfile::tempdir().unwrap();
         let ail_dir = tmp.path().join(".ail");
         std::fs::create_dir(&ail_dir).unwrap();
@@ -99,6 +105,7 @@ mod s3_1_discover_all {
 
     #[test]
     fn cwd_entry_wins_over_home_config_on_duplicate_name() {
+        let _cwd_guard = crate::spec::CWD_LOCK.lock().unwrap();
         // We can't easily test ~/.config/ail/ in isolation, but we can verify
         // that the .ail/ directory entry takes precedence by checking deduplication
         // logic: if the same name appears twice, only one entry is returned.

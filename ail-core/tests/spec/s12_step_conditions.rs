@@ -39,6 +39,7 @@ fn prompt_step_with_condition(id: &str, text: &str, condition: Option<Condition>
 /// SPEC §12.1 — condition: never skips the step without error
 #[test]
 fn condition_never_skips_step() {
+    let _cwd_guard = crate::spec::CWD_LOCK.lock().unwrap();
     let tmp = tempfile::tempdir().unwrap();
     let orig = std::env::current_dir().unwrap();
     std::env::set_current_dir(tmp.path()).unwrap();
@@ -70,6 +71,7 @@ fn condition_never_skips_step() {
 /// SPEC §12.2 — condition: always executes the step (default)
 #[test]
 fn condition_always_executes_step() {
+    let _cwd_guard = crate::spec::CWD_LOCK.lock().unwrap();
     let tmp = tempfile::tempdir().unwrap();
     let orig = std::env::current_dir().unwrap();
     std::env::set_current_dir(tmp.path()).unwrap();

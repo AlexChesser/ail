@@ -128,6 +128,7 @@ pipeline:
 /// that returns "stub response". Verifies each step records the correct response.
 #[test]
 fn executor_dispatches_per_step_runner() {
+    let _cwd_guard = crate::spec::CWD_LOCK.lock().unwrap();
     use ail_core::config::domain::{Pipeline, Step, StepBody, StepId};
     use ail_core::executor::execute;
     use ail_core::runner::stub::StubRunner;

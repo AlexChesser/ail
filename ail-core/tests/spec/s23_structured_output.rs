@@ -28,6 +28,7 @@ fn prompt_step(id: &str, text: &str) -> Step {
 /// SPEC §23 — execute_with_control emits ExecutorEvents that serialize to valid NDJSON.
 #[test]
 fn events_serialize_to_valid_ndjson() {
+    let _cwd_guard = crate::spec::CWD_LOCK.lock().unwrap();
     let tmp = tempfile::tempdir().unwrap();
     let orig = std::env::current_dir().unwrap();
     std::env::set_current_dir(tmp.path()).unwrap();
@@ -103,6 +104,7 @@ fn events_serialize_to_valid_ndjson() {
 /// SPEC §23 — step_started events include step_id and step_index.
 #[test]
 fn step_started_event_has_correct_fields() {
+    let _cwd_guard = crate::spec::CWD_LOCK.lock().unwrap();
     let tmp = tempfile::tempdir().unwrap();
     let orig = std::env::current_dir().unwrap();
     std::env::set_current_dir(tmp.path()).unwrap();

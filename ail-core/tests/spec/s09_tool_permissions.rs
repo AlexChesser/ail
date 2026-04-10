@@ -43,6 +43,7 @@ mod s9_tool_permissions {
     /// SPEC §3.2 — default_tools applies when a step has no per-step tools
     #[test]
     fn default_tools_applies_when_step_has_no_tools() {
+        let _cwd_guard = crate::spec::CWD_LOCK.lock().unwrap();
         use ail_core::config::domain::{Pipeline, Step, StepBody, StepId, ToolPolicy};
         use ail_core::executor::execute;
         use ail_core::runner::stub::RecordingStubRunner;
@@ -100,6 +101,7 @@ mod s9_tool_permissions {
     /// SPEC §3.2 — per-step tools override default_tools entirely (no merge)
     #[test]
     fn per_step_tools_override_default_tools_entirely() {
+        let _cwd_guard = crate::spec::CWD_LOCK.lock().unwrap();
         use ail_core::config::domain::{Pipeline, Step, StepBody, StepId, ToolPolicy};
         use ail_core::executor::execute;
         use ail_core::runner::stub::RecordingStubRunner;
@@ -165,6 +167,7 @@ mod s9_tool_permissions {
     /// SPEC §5.6 — InvokeOptions carries tool lists to runner
     #[test]
     fn invoke_options_carries_tool_policy_to_runner() {
+        let _cwd_guard = crate::spec::CWD_LOCK.lock().unwrap();
         use ail_core::config::domain::{Pipeline, Step, StepBody, StepId, ToolPolicy};
         use ail_core::executor::execute;
         use ail_core::runner::stub::StubRunner;
