@@ -3,6 +3,7 @@ pub mod delete;
 pub mod error;
 pub mod executor;
 pub mod formatter;
+pub mod fs_util;
 pub mod ipc;
 pub mod logs;
 pub mod materialize;

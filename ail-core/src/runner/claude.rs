@@ -15,6 +15,7 @@ use super::{
     ToolEvent, ToolPermissionPolicy,
 };
 use crate::error::{error_types, AilError};
+use crate::fs_util::atomic_write_str;
 
 /// Terminal outcome of parsing a single `stream-json` NDJSON event.
 enum StreamParseAction {
@@ -427,10 +428,10 @@ impl ClaudeCliRunner {
                 ]
             }
         });
-        std::fs::write(&settings_path, settings.to_string()).map_err(|e| AilError {
+        atomic_write_str(&settings_path, &settings.to_string()).map_err(|e| AilError {
             error_type: error_types::RUNNER_INVOCATION_FAILED,
             title: "Failed to write hook settings",
-            detail: format!("Could not write {}: {e}", settings_path.display()),
+            detail: e.detail,
             context: None,
         })?;
         Ok(settings_path)

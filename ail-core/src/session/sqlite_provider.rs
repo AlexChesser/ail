@@ -140,8 +140,9 @@ impl SqliteProvider {
         Ok(())
     }
 
-    /// Ensure a session row exists (upsert). Called on first entry for a run_id.
-    fn ensure_session(&self, run_id: &str, value: &Value) -> SqliteResult<()> {
+    /// Ensure a session row exists (upsert). Operates on `conn` so it can be
+    /// called inside a transaction.
+    fn ensure_session_with(conn: &Connection, run_id: &str, value: &Value) -> SqliteResult<()> {
         // Extract pipeline_source from the value if present.
         let pipeline_source = value
             .get("pipeline_source")
@@ -157,7 +158,7 @@ impl SqliteProvider {
 
         let now_ms = now_ms();
 
-        self.conn.execute(
+        conn.execute(
             "INSERT INTO sessions (run_id, pipeline_source, started_at, status, project_hash)
              VALUES (?1, ?2, ?3, 'running', ?4)
              ON CONFLICT(run_id) DO NOTHING",
@@ -167,7 +168,11 @@ impl SqliteProvider {
         Ok(())
     }
 
-    fn insert_step(&self, run_id: &str, value: &Value) -> SqliteResult<()> {
+    /// Insert a step log entry. Operates on `conn` so it can be called inside a transaction.
+    ///
+    /// Multiple SQL statements (steps, traces, session cost, run_events) are issued on
+    /// the same connection; callers should wrap this in a transaction for crash safety.
+    fn insert_step_with(conn: &Connection, run_id: &str, value: &Value) -> SqliteResult<()> {
         let step_id = value
             .get("step_id")
             .and_then(|v| v.as_str())
@@ -188,7 +193,7 @@ impl SqliteProvider {
         let model = value.get("model").and_then(|v| v.as_str());
         let now_ms = now_ms();
 
-        self.conn.execute(
+        conn.execute(
             "INSERT INTO steps
              (run_id, step_id, event_type, prompt, response, cost_usd,
               input_tokens, output_tokens, thinking, stdout, stderr,
@@ -225,7 +230,7 @@ impl SqliteProvider {
         }
         if !content_parts.is_empty() {
             let content = content_parts.join("\n");
-            self.conn.execute(
+            conn.execute(
                 "INSERT INTO traces (run_id, step_id, content) VALUES (?1, ?2, ?3)",
                 params![run_id, step_id, content],
             )?;
@@ -233,7 +238,7 @@ impl SqliteProvider {
 
         // Update session cost accumulator and status.
         if event_type == "step_completed" || event_type == "step_failed" {
-            self.conn.execute(
+            conn.execute(
                 "UPDATE sessions SET total_cost_usd = COALESCE(total_cost_usd, 0) + COALESCE(?1, 0)
                  WHERE run_id = ?2",
                 params![cost_usd, run_id],
@@ -252,7 +257,7 @@ impl SqliteProvider {
                     .get("content_json")
                     .and_then(|v| v.as_str())
                     .unwrap_or("");
-                self.conn.execute(
+                conn.execute(
                     "INSERT INTO run_events
                      (run_id, step_id, seq, event_type, tool_name, tool_id, content_json, recorded_at)
                      VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
@@ -293,11 +298,12 @@ fn now_ms() -> i64 {
 
 impl LogProvider for SqliteProvider {
     fn write_entry(&mut self, run_id: &str, value: &Value) -> std::io::Result<()> {
-        // Ensure the session row exists before writing any step.
-        self.ensure_session(run_id, value)
-            .map_err(std::io::Error::other)?;
-        self.insert_step(run_id, value)
-            .map_err(std::io::Error::other)?;
+        // Wrap ensure_session + insert_step (multiple SQL statements) in a single
+        // transaction so a crash mid-write leaves the database in a consistent state.
+        let tx = self.conn.transaction().map_err(std::io::Error::other)?;
+        Self::ensure_session_with(&tx, run_id, value).map_err(std::io::Error::other)?;
+        Self::insert_step_with(&tx, run_id, value).map_err(std::io::Error::other)?;
+        tx.commit().map_err(std::io::Error::other)?;
         Ok(())
     }
 
