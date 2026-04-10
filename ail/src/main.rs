@@ -63,21 +63,11 @@ fn run_once_text(
                     );
                     println!("\n  [Response]\n{}\n", result.response);
                 }
-                session.turn_log.append(ail_core::session::TurnEntry {
-                    step_id: "invocation".to_string(),
-                    prompt: prompt.to_string(),
-                    response: Some(result.response),
-                    timestamp: std::time::SystemTime::now(),
-                    cost_usd: result.cost_usd,
-                    input_tokens: result.input_tokens,
-                    output_tokens: result.output_tokens,
-                    runner_session_id: result.session_id,
-                    stdout: None,
-                    stderr: None,
-                    exit_code: None,
-                    thinking: result.thinking,
-                    tool_events: result.tool_events,
-                });
+                session.turn_log.append(ail_core::session::TurnEntry::from_prompt(
+                    "invocation",
+                    prompt.to_string(),
+                    result,
+                ));
             }
             Err(e) => {
                 eprintln!("{e}");
@@ -538,21 +528,11 @@ fn run_once_json(session: &mut ail_core::session::Session, runner: &dyn Runner, 
                     let _ = writeln!(out);
                     let _ = out.flush();
                 }
-                session.turn_log.append(ail_core::session::TurnEntry {
-                    step_id: "invocation".to_string(),
-                    prompt: prompt.to_string(),
-                    response: Some(result.response),
-                    timestamp: std::time::SystemTime::now(),
-                    cost_usd: result.cost_usd,
-                    input_tokens: result.input_tokens,
-                    output_tokens: result.output_tokens,
-                    runner_session_id: result.session_id,
-                    stdout: None,
-                    stderr: None,
-                    exit_code: None,
-                    thinking: result.thinking,
-                    tool_events: result.tool_events,
-                });
+                session.turn_log.append(ail_core::session::TurnEntry::from_prompt(
+                    "invocation",
+                    prompt.to_string(),
+                    result,
+                ));
             }
             Err(e) => {
                 let _ = fwd_handle.join();

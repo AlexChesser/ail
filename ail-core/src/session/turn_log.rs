@@ -4,7 +4,7 @@ use std::time::SystemTime;
 use serde::Serialize;
 
 use super::log_provider::{cwd_hash, JsonlProvider, LogProvider};
-use crate::runner::ToolEvent;
+use crate::runner::{RunResult, ToolEvent};
 
 #[derive(Serialize)]
 pub struct TurnEntry {
@@ -51,6 +51,52 @@ struct StepStartedEvent<'a> {
     event_type: &'static str,
     step_id: &'a str,
     prompt: &'a str,
+}
+
+impl TurnEntry {
+    /// Construct a TurnEntry for a completed prompt step.
+    pub fn from_prompt(step_id: impl Into<String>, prompt: String, result: RunResult) -> Self {
+        TurnEntry {
+            step_id: step_id.into(),
+            prompt,
+            response: Some(result.response),
+            timestamp: SystemTime::now(),
+            cost_usd: result.cost_usd,
+            input_tokens: result.input_tokens,
+            output_tokens: result.output_tokens,
+            runner_session_id: result.session_id,
+            stdout: None,
+            stderr: None,
+            exit_code: None,
+            thinking: result.thinking,
+            tool_events: result.tool_events,
+        }
+    }
+
+    /// Construct a TurnEntry for a completed context:shell: step.
+    pub fn from_context(
+        step_id: impl Into<String>,
+        cmd: String,
+        stdout: String,
+        stderr: String,
+        exit_code: i32,
+    ) -> Self {
+        TurnEntry {
+            step_id: step_id.into(),
+            prompt: cmd,
+            response: None,
+            timestamp: SystemTime::now(),
+            cost_usd: None,
+            input_tokens: 0,
+            output_tokens: 0,
+            runner_session_id: None,
+            stdout: Some(stdout),
+            stderr: Some(stderr),
+            exit_code: Some(exit_code),
+            thinking: None,
+            tool_events: vec![],
+        }
+    }
 }
 
 pub struct TurnLog {

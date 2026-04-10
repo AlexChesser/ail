@@ -139,21 +139,9 @@ fn run_turn_stream(
                     "input_tokens": result.input_tokens,
                     "output_tokens": result.output_tokens,
                 }));
-                session.turn_log.append(TurnEntry {
-                    step_id: "invocation".to_string(),
-                    prompt: prompt.to_string(),
-                    response: Some(result.response),
-                    timestamp: std::time::SystemTime::now(),
-                    cost_usd: result.cost_usd,
-                    input_tokens: result.input_tokens,
-                    output_tokens: result.output_tokens,
-                    runner_session_id: result.session_id,
-                    stdout: None,
-                    stderr: None,
-                    exit_code: None,
-                    thinking: result.thinking,
-                    tool_events: result.tool_events,
-                });
+                session
+                    .turn_log
+                    .append(TurnEntry::from_prompt("invocation", prompt.to_string(), result));
             }
             Err(e) => {
                 let _ = fwd_handle.join();
@@ -526,21 +514,11 @@ pub fn run_chat_text(
             };
             match runner.invoke(prompt, invocation_options) {
                 Ok(result) => {
-                    session.turn_log.append(TurnEntry {
-                        step_id: "invocation".to_string(),
-                        prompt: prompt.to_string(),
-                        response: Some(result.response),
-                        timestamp: std::time::SystemTime::now(),
-                        cost_usd: result.cost_usd,
-                        input_tokens: result.input_tokens,
-                        output_tokens: result.output_tokens,
-                        runner_session_id: result.session_id,
-                        stdout: None,
-                        stderr: None,
-                        exit_code: None,
-                        thinking: result.thinking,
-                        tool_events: result.tool_events,
-                    });
+                    session.turn_log.append(TurnEntry::from_prompt(
+                        "invocation",
+                        prompt.to_string(),
+                        result,
+                    ));
                 }
                 Err(e) => return Err(e.detail),
             }

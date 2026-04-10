@@ -6,8 +6,6 @@ use std::collections::HashSet;
 use std::sync::atomic::Ordering;
 use std::sync::mpsc;
 use std::sync::Arc;
-use std::time::SystemTime;
-
 use crate::config::domain::{Condition, ContextSource, ResultAction, StepBody};
 use crate::error::{error_types, AilError};
 use crate::runner::{InvokeOptions, Runner, RunnerEvent};
@@ -303,21 +301,7 @@ pub fn execute_with_control(
                             model: result.model.clone(),
                         });
 
-                        TurnEntry {
-                            step_id: step_id.clone(),
-                            prompt: resolved,
-                            response: Some(result.response),
-                            timestamp: SystemTime::now(),
-                            cost_usd: result.cost_usd,
-                            input_tokens: result.input_tokens,
-                            output_tokens: result.output_tokens,
-                            runner_session_id: result.session_id,
-                            stdout: None,
-                            stderr: None,
-                            exit_code: None,
-                            thinking: result.thinking,
-                            tool_events: result.tool_events,
-                        }
+                        TurnEntry::from_prompt(step_id.clone(), resolved, result)
                     }
                     Err(e) => {
                         let _ = event_tx.send(ExecutorEvent::StepFailed {
@@ -356,21 +340,7 @@ pub fn execute_with_control(
                     response: None,
                     model: None,
                 });
-                TurnEntry {
-                    step_id: step_id.clone(),
-                    prompt: cmd.clone(),
-                    response: None,
-                    timestamp: SystemTime::now(),
-                    cost_usd: None,
-                    input_tokens: 0,
-                    output_tokens: 0,
-                    runner_session_id: None,
-                    stdout: Some(stdout),
-                    stderr: Some(stderr),
-                    exit_code: Some(exit_code),
-                    thinking: None,
-                    tool_events: vec![],
-                }
+                TurnEntry::from_context(step_id.clone(), cmd.clone(), stdout, stderr, exit_code)
             }
 
             StepBody::Action(crate::config::domain::ActionKind::PauseForHuman) => {

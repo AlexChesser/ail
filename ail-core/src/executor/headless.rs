@@ -245,21 +245,7 @@ pub(super) fn execute_inner(
 
                 tracing::info!(run_id = %session.run_id, step_id = %step_id, cost_usd = ?result.cost_usd, "step complete");
 
-                TurnEntry {
-                    step_id: step_id.clone(),
-                    prompt: resolved,
-                    response: Some(result.response),
-                    timestamp: SystemTime::now(),
-                    cost_usd: result.cost_usd,
-                    input_tokens: result.input_tokens,
-                    output_tokens: result.output_tokens,
-                    runner_session_id: result.session_id,
-                    stdout: None,
-                    stderr: None,
-                    exit_code: None,
-                    thinking: result.thinking,
-                    tool_events: result.tool_events,
-                }
+                TurnEntry::from_prompt(step_id.clone(), resolved, result)
             }
 
             StepBody::Context(ContextSource::Shell(cmd)) => {
@@ -267,21 +253,7 @@ pub(super) fn execute_inner(
                 let (stdout, stderr, exit_code) =
                     run_shell_command(&session.run_id, &step_id, cmd)?;
                 tracing::info!(run_id = %session.run_id, step_id = %step_id, exit_code, "context shell step complete");
-                TurnEntry {
-                    step_id: step_id.clone(),
-                    prompt: cmd.clone(),
-                    response: None,
-                    timestamp: SystemTime::now(),
-                    cost_usd: None,
-                    input_tokens: 0,
-                    output_tokens: 0,
-                    runner_session_id: None,
-                    stdout: Some(stdout),
-                    stderr: Some(stderr),
-                    exit_code: Some(exit_code),
-                    thinking: None,
-                    tool_events: vec![],
-                }
+                TurnEntry::from_context(step_id.clone(), cmd.clone(), stdout, stderr, exit_code)
             }
 
             StepBody::Action(crate::config::domain::ActionKind::PauseForHuman) => {
