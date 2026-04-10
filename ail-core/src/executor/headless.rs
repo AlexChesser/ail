@@ -61,8 +61,8 @@ pub(super) fn execute_sub_pipeline(
     };
     let path = path_buf.as_path();
 
-    let sub_pipeline = crate::config::load(path)
-        .map_err(|e| e.with_step_context(&session.run_id, step_id))?;
+    let sub_pipeline =
+        crate::config::load(path).map_err(|e| e.with_step_context(&session.run_id, step_id))?;
 
     // The sub-pipeline's invocation prompt: use the explicit override when provided
     // (template-resolved against the parent session), otherwise fall back to the
@@ -245,7 +245,10 @@ pub(super) fn execute_inner(
                     detail: format!(
                         "Step '{step_id}' uses a step type not yet implemented in v0.1"
                     ),
-                    context: Some(crate::error::ErrorContext::for_step(&session.run_id, &step_id)),
+                    context: Some(crate::error::ErrorContext::for_step(
+                        &session.run_id,
+                        &step_id,
+                    )),
                 });
             }
         };
@@ -273,7 +276,10 @@ pub(super) fn execute_inner(
                             error_type: error_types::PIPELINE_ABORTED,
                             title: "Pipeline aborted by on_result",
                             detail: format!("Step '{step_id}' on_result fired abort_pipeline"),
-                            context: Some(crate::error::ErrorContext::for_step(&session.run_id, &step_id)),
+                            context: Some(crate::error::ErrorContext::for_step(
+                                &session.run_id,
+                                &step_id,
+                            )),
                         });
                     }
                     ResultAction::PauseForHuman => {

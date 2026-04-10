@@ -395,10 +395,15 @@ fn run_once_json(session: &mut ail_core::session::Session, runner: &dyn Runner, 
                 Some(ControlMessage::HitlResponse(text)) => {
                     let _ = hitl_tx_stdin.send(text);
                 }
-                Some(ControlMessage::PermissionResponse { response, allow_for_session }) => {
+                Some(ControlMessage::PermissionResponse {
+                    response,
+                    allow_for_session,
+                }) => {
                     let mut guard = pending_perm_stdin.lock().unwrap_or_else(|e| e.into_inner());
                     if let Some((display_name, tx)) = guard.take() {
-                        if allow_for_session && response == ail_core::runner::PermissionResponse::Allow {
+                        if allow_for_session
+                            && response == ail_core::runner::PermissionResponse::Allow
+                        {
                             if let Ok(mut al) = allowlist_stdin.lock() {
                                 al.insert(display_name);
                             }
@@ -492,11 +497,13 @@ fn run_once_json(session: &mut ail_core::session::Session, runner: &dyn Runner, 
                     let _ = writeln!(out);
                     let _ = out.flush();
                 }
-                session.turn_log.append(ail_core::session::TurnEntry::from_prompt(
-                    "invocation",
-                    prompt.to_string(),
-                    result,
-                ));
+                session
+                    .turn_log
+                    .append(ail_core::session::TurnEntry::from_prompt(
+                        "invocation",
+                        prompt.to_string(),
+                        result,
+                    ));
             }
             Err(e) => {
                 let _ = fwd_handle.join();

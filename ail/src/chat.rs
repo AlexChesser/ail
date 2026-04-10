@@ -129,9 +129,11 @@ fn run_turn_stream(
                     "input_tokens": result.input_tokens,
                     "output_tokens": result.output_tokens,
                 }));
-                session
-                    .turn_log
-                    .append(TurnEntry::from_prompt("invocation", prompt.to_string(), result));
+                session.turn_log.append(TurnEntry::from_prompt(
+                    "invocation",
+                    prompt.to_string(),
+                    result,
+                ));
             }
             Err(e) => {
                 let _ = fwd_handle.join();

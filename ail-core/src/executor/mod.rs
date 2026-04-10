@@ -165,16 +165,10 @@ mod tests {
 
     #[test]
     fn run_invocation_step_appends_turn_entry_and_returns_result() {
-        let mut session = make_session(vec![])
-            .with_log_provider(Box::new(NullProvider));
+        let mut session = make_session(vec![]).with_log_provider(Box::new(NullProvider));
         let runner = StubRunner::new("invocation response");
-        let result = run_invocation_step(
-            &mut session,
-            &runner,
-            "the prompt",
-            Default::default(),
-        )
-        .unwrap();
+        let result =
+            run_invocation_step(&mut session, &runner, "the prompt", Default::default()).unwrap();
         assert_eq!(result.response, "invocation response");
         let entries = session.turn_log.entries();
         assert_eq!(entries.len(), 1);
@@ -198,14 +192,8 @@ mod tests {
                 })
             }
         }
-        let mut session = make_session(vec![])
-            .with_log_provider(Box::new(NullProvider));
-        let result = run_invocation_step(
-            &mut session,
-            &ErrorRunner,
-            "prompt",
-            Default::default(),
-        );
+        let mut session = make_session(vec![]).with_log_provider(Box::new(NullProvider));
+        let result = run_invocation_step(&mut session, &ErrorRunner, "prompt", Default::default());
         assert!(result.is_err());
         assert!(session.turn_log.entries().is_empty());
     }

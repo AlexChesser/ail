@@ -31,9 +31,11 @@ pub fn run_invocation_step(
         .invoke(prompt, options)
         .map_err(|e| e.with_step_context(&session.run_id, "invocation"))?;
     let result_clone = result.clone();
-    session
-        .turn_log
-        .append(TurnEntry::from_prompt("invocation", prompt.to_string(), result));
+    session.turn_log.append(TurnEntry::from_prompt(
+        "invocation",
+        prompt.to_string(),
+        result,
+    ));
     Ok(result_clone)
 }
 

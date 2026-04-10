@@ -48,7 +48,10 @@ pub fn materialize(pipeline: &Pipeline) -> String {
                 out.push_str("    action: pause_for_human\n");
             }
             StepBody::Context(ContextSource::Shell(cmd)) => {
-                out.push_str(&format!("    context:\n      shell: \"{}\"\n", yaml_quote(cmd)));
+                out.push_str(&format!(
+                    "    context:\n      shell: \"{}\"\n",
+                    yaml_quote(cmd)
+                ));
             }
         }
 

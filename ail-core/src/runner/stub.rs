@@ -109,7 +109,10 @@ impl Runner for RecordingStubRunner {
                 prompt: prompt.to_string(),
                 tool_policy: options.tool_policy,
             });
-        Ok(RunResult::stub(self.response.clone(), "recording-stub-session-id"))
+        Ok(RunResult::stub(
+            self.response.clone(),
+            "recording-stub-session-id",
+        ))
     }
 }
 

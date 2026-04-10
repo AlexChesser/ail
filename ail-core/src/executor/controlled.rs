@@ -2,15 +2,15 @@
 
 #![allow(clippy::result_large_err)]
 
-use std::collections::HashSet;
-use std::sync::atomic::Ordering;
-use std::sync::mpsc;
-use std::sync::Arc;
 use crate::config::domain::{Condition, ContextSource, ResultAction, StepBody};
 use crate::error::{error_types, AilError};
 use crate::runner::{InvokeOptions, Runner, RunnerEvent};
 use crate::session::{Session, TurnEntry};
 use crate::template;
+use std::collections::HashSet;
+use std::sync::atomic::Ordering;
+use std::sync::mpsc;
+use std::sync::Arc;
 
 use super::events::{ExecuteOutcome, ExecutionControl, ExecutorEvent};
 use super::headless::execute_sub_pipeline;
@@ -317,7 +317,10 @@ pub fn execute_with_control(
                     detail: format!(
                         "Step '{step_id}' uses a step type not yet implemented in v0.1"
                     ),
-                    context: Some(crate::error::ErrorContext::for_step(&session.run_id, &step_id)),
+                    context: Some(crate::error::ErrorContext::for_step(
+                        &session.run_id,
+                        &step_id,
+                    )),
                 });
             }
         };
@@ -351,7 +354,10 @@ pub fn execute_with_control(
                             error_type: error_types::PIPELINE_ABORTED,
                             title: "Pipeline aborted by on_result",
                             detail: format!("Step '{step_id}' on_result fired abort_pipeline"),
-                            context: Some(crate::error::ErrorContext::for_step(&session.run_id, &step_id)),
+                            context: Some(crate::error::ErrorContext::for_step(
+                                &session.run_id,
+                                &step_id,
+                            )),
                         };
                         let _ = event_tx.send(ExecutorEvent::PipelineError {
                             error: err.detail.clone(),
@@ -418,8 +424,8 @@ mod tests {
     use std::sync::Arc;
 
     use crate::config::domain::{
-        ActionKind, Condition, ContextSource, ResultAction, ResultBranch, ResultMatcher,
-        Step, StepBody, StepId,
+        ActionKind, Condition, ContextSource, ResultAction, ResultBranch, ResultMatcher, Step,
+        StepBody, StepId,
     };
     use crate::executor::events::{ExecuteOutcome, ExecutionControl, ExecutorEvent};
     use crate::runner::stub::StubRunner;

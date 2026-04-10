@@ -115,13 +115,19 @@ mod tests {
     #[test]
     fn bare_non_json_line_becomes_user_message() {
         let msg = parse_control_message("hello world");
-        assert_eq!(msg, Some(ControlMessage::UserMessage("hello world".to_string())));
+        assert_eq!(
+            msg,
+            Some(ControlMessage::UserMessage("hello world".to_string()))
+        );
     }
 
     #[test]
     fn user_message_json_is_parsed() {
         let msg = parse_control_message(r#"{"type":"user_message","text":"do something"}"#);
-        assert_eq!(msg, Some(ControlMessage::UserMessage("do something".to_string())));
+        assert_eq!(
+            msg,
+            Some(ControlMessage::UserMessage("do something".to_string()))
+        );
     }
 
     #[test]
@@ -133,7 +139,10 @@ mod tests {
     #[test]
     fn hitl_response_is_parsed() {
         let msg = parse_control_message(r#"{"type":"hitl_response","text":"approved"}"#);
-        assert_eq!(msg, Some(ControlMessage::HitlResponse("approved".to_string())));
+        assert_eq!(
+            msg,
+            Some(ControlMessage::HitlResponse("approved".to_string()))
+        );
     }
 
     #[test]
