@@ -83,3 +83,81 @@ pub fn cleanup_address(address: &str) {
         let _ = address; // no-op on Windows
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn generate_address_returns_non_empty_string() {
+        let addr = generate_address();
+        assert!(
+            !addr.is_empty(),
+            "generate_address() must return a non-empty string"
+        );
+    }
+
+    #[test]
+    fn generate_address_contains_ail_perm_prefix() {
+        let addr = generate_address();
+        assert!(
+            addr.contains("ail-perm-"),
+            "address should contain the 'ail-perm-' prefix, got: {addr}"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn generate_address_on_unix_has_sock_suffix() {
+        let addr = generate_address();
+        assert!(
+            addr.ends_with(".sock"),
+            "Unix address should end with '.sock', got: {addr}"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn generate_address_on_unix_is_absolute_path() {
+        let addr = generate_address();
+        assert!(
+            addr.starts_with('/'),
+            "Unix address should be an absolute path, got: {addr}"
+        );
+    }
+
+    #[test]
+    fn generate_address_two_calls_return_different_addresses() {
+        let addr1 = generate_address();
+        let addr2 = generate_address();
+        assert_ne!(
+            addr1, addr2,
+            "each call to generate_address() should return a unique address"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn cleanup_address_on_nonexistent_file_is_silent() {
+        // Cleaning up a path that does not exist should not panic or return an error.
+        cleanup_address("/tmp/ail-perm-does-not-exist-at-all.sock");
+        // If we reach here without panic, the test passes.
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn cleanup_address_removes_existing_file() {
+        let addr = generate_address();
+        // Create the file so it exists.
+        std::fs::write(&addr, b"").expect("write temp socket file");
+        assert!(
+            std::path::Path::new(&addr).exists(),
+            "file should exist before cleanup"
+        );
+        cleanup_address(&addr);
+        assert!(
+            !std::path::Path::new(&addr).exists(),
+            "file should be removed after cleanup"
+        );
+    }
+}
