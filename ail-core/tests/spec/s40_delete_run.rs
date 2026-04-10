@@ -6,6 +6,7 @@
 //! require running outside a Claude Code session and are marked #[ignore].
 //! Unit tests verify the internal cascade delete logic.
 
+use ail_core::delete::delete_run_from_conn;
 use ail_core::logs::LogQuery;
 use ail_core::session::log_provider::LogProvider;
 use ail_core::session::sqlite_provider::SqliteProvider;
@@ -13,15 +14,8 @@ use serde_json::json;
 use std::fs;
 use tempfile::TempDir;
 
-#[test]
-fn cascade_delete_removes_database_records() {
-    // Test that the cascade delete logic works correctly.
-    let tempdir = TempDir::new().expect("failed to create tempdir");
-    let db_path = tempdir.path().join("ail.db");
-    let run_id = "test-run-12345";
-
-    // Create database with a test entry.
-    let mut provider = SqliteProvider::open(&db_path).expect("failed to open provider");
+fn write_run(db_path: &std::path::Path, run_id: &str) {
+    let mut provider = SqliteProvider::open(db_path).expect("failed to open provider");
     let entry = json!({
         "step_id": "invocation",
         "type": "step_completed",
@@ -34,6 +28,15 @@ fn cascade_delete_removes_database_records() {
     provider
         .write_entry(run_id, &entry)
         .expect("failed to write entry");
+}
+
+#[test]
+fn cascade_delete_removes_database_records() {
+    let tempdir = TempDir::new().expect("failed to create tempdir");
+    let db_path = tempdir.path().join("ail.db");
+    let run_id = "test-run-12345";
+
+    write_run(&db_path, run_id);
 
     // Verify the run exists before delete.
     let query = LogQuery {
@@ -47,24 +50,10 @@ fn cascade_delete_removes_database_records() {
         "run should exist before delete"
     );
 
-    // Manually cascade delete to test the logic.
+    // Call through the real production code.
     let mut conn = rusqlite::Connection::open(&db_path).expect("failed to open");
-    {
-        let tx = conn.transaction().expect("failed to start tx");
-        tx.execute("DELETE FROM run_events WHERE run_id = ?1", [run_id])
-            .expect("delete run_events");
-        tx.execute("DELETE FROM metadata WHERE run_id = ?1", [run_id])
-            .expect("delete metadata");
-        tx.execute("DELETE FROM traces WHERE run_id = ?1", [run_id])
-            .expect("delete traces");
-        tx.execute("DELETE FROM steps WHERE run_id = ?1", [run_id])
-            .expect("delete steps");
-        tx.execute("DELETE FROM sessions WHERE run_id = ?1", [run_id])
-            .expect("delete sessions");
-        tx.commit().expect("commit");
-    }
+    delete_run_from_conn(&mut conn, run_id).expect("delete should succeed");
 
-    // Verify the run is gone from the database.
     let after = ail_core::logs::query_logs_at(&query, &db_path).expect("failed to query");
     assert!(
         !after.iter().any(|s| s.run_id == run_id),
@@ -74,12 +63,10 @@ fn cascade_delete_removes_database_records() {
 
 #[test]
 fn cascade_delete_with_tool_events() {
-    // Test that cascade delete removes tool_events associated with a run.
     let tempdir = TempDir::new().expect("failed to create tempdir");
     let db_path = tempdir.path().join("ail.db");
     let run_id = "test-run-with-events";
 
-    // Create database with an entry that includes tool events.
     let mut provider = SqliteProvider::open(&db_path).expect("failed to open provider");
     let entry = json!({
         "step_id": "invocation",
@@ -111,23 +98,9 @@ fn cascade_delete_with_tool_events() {
         .expect("failed to count");
     assert!(event_count > 0, "tool events should exist before delete");
 
-    // Cascade delete.
-    {
-        let tx = conn.transaction().expect("failed to start tx");
-        tx.execute("DELETE FROM run_events WHERE run_id = ?1", [run_id])
-            .expect("delete run_events");
-        tx.execute("DELETE FROM metadata WHERE run_id = ?1", [run_id])
-            .expect("delete metadata");
-        tx.execute("DELETE FROM traces WHERE run_id = ?1", [run_id])
-            .expect("delete traces");
-        tx.execute("DELETE FROM steps WHERE run_id = ?1", [run_id])
-            .expect("delete steps");
-        tx.execute("DELETE FROM sessions WHERE run_id = ?1", [run_id])
-            .expect("delete sessions");
-        tx.commit().expect("commit");
-    }
+    // Call through the real production code.
+    delete_run_from_conn(&mut conn, run_id).expect("delete should succeed");
 
-    // Verify all records are gone.
     let event_count_after: u32 = conn
         .query_row(
             "SELECT COUNT(*) FROM run_events WHERE run_id = ?1",
@@ -148,8 +121,62 @@ fn cascade_delete_with_tool_events() {
 }
 
 #[test]
+fn cascade_delete_run_not_found_returns_error() {
+    let tempdir = TempDir::new().expect("failed to create tempdir");
+    let db_path = tempdir.path().join("ail.db");
+
+    // Create schema by opening a provider, but don't insert the run.
+    let _provider = SqliteProvider::open(&db_path).expect("failed to open provider");
+
+    let mut conn = rusqlite::Connection::open(&db_path).expect("failed to open");
+    let result = delete_run_from_conn(&mut conn, "nonexistent-run-id");
+
+    assert!(result.is_err(), "should error when run not found");
+    let err = result.unwrap_err();
+    assert_eq!(
+        err.error_type,
+        ail_core::error::error_types::PIPELINE_ABORTED
+    );
+    assert!(
+        err.detail.contains("nonexistent-run-id"),
+        "error should name the missing run_id"
+    );
+}
+
+#[test]
+fn cascade_delete_multiple_runs_only_removes_target() {
+    let tempdir = TempDir::new().expect("failed to create tempdir");
+    let db_path = tempdir.path().join("ail.db");
+    let run_a = "run-to-delete";
+    let run_b = "run-to-keep";
+
+    write_run(&db_path, run_a);
+    write_run(&db_path, run_b);
+
+    let mut conn = rusqlite::Connection::open(&db_path).expect("failed to open");
+    delete_run_from_conn(&mut conn, run_a).expect("delete should succeed");
+
+    let session_a: u32 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM sessions WHERE run_id = ?1",
+            [run_a],
+            |row| row.get(0),
+        )
+        .expect("count");
+    let session_b: u32 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM sessions WHERE run_id = ?1",
+            [run_b],
+            |row| row.get(0),
+        )
+        .expect("count");
+
+    assert_eq!(session_a, 0, "deleted run should be gone");
+    assert_eq!(session_b, 1, "sibling run should be untouched");
+}
+
+#[test]
 fn jsonl_file_deletion() {
-    // Test that JSONL files are properly removed.
     let tempdir = TempDir::new().expect("failed to create tempdir");
     let runs_dir = tempdir.path().join("runs");
     fs::create_dir_all(&runs_dir).expect("failed to create runs dir");
@@ -157,11 +184,9 @@ fn jsonl_file_deletion() {
     let run_id = "test-run-jsonl";
     let jsonl_path = runs_dir.join(format!("{}.jsonl", run_id));
 
-    // Create a JSONL file.
     fs::write(&jsonl_path, "{}").expect("failed to write jsonl");
     assert!(jsonl_path.exists(), "jsonl file should exist before delete");
 
-    // Remove it.
     fs::remove_file(&jsonl_path).expect("failed to delete jsonl");
     assert!(
         !jsonl_path.exists(),

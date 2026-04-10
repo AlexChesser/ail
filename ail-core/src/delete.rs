@@ -57,7 +57,6 @@ pub(crate) fn delete_run_at(run_id: &str, cwd_hash: &str, force: bool) -> Result
         });
     }
 
-    // Open database connection.
     let mut conn = Connection::open(&db_path).map_err(|e| AilError {
         error_type: error_types::PIPELINE_ABORTED,
         title: "Failed to open database",
@@ -65,6 +64,29 @@ pub(crate) fn delete_run_at(run_id: &str, cwd_hash: &str, force: bool) -> Result
         context: None,
     })?;
 
+    delete_run_from_conn(&mut conn, run_id)?;
+
+    // Delete JSONL file if it exists.
+    if jsonl_path.exists() {
+        std::fs::remove_file(&jsonl_path).map_err(|e| AilError {
+            error_type: error_types::PIPELINE_ABORTED,
+            title: "Failed to delete JSONL file",
+            detail: format!("Could not delete {}: {}", jsonl_path.display(), e),
+            context: None,
+        })?;
+    }
+
+    Ok(())
+}
+
+/// Cascade-delete a single run from an already-open database connection.
+///
+/// Verifies the run exists, then atomically removes all associated rows from:
+/// `run_events`, `metadata`, `traces`, `steps`, and `sessions`.
+///
+/// Exposed as `pub` so integration tests can call through the real production
+/// logic without needing filesystem fixtures for the database path.
+pub fn delete_run_from_conn(conn: &mut Connection, run_id: &str) -> Result<(), AilError> {
     // Verify the run exists in the database.
     let exists: bool = conn
         .query_row(
@@ -89,16 +111,14 @@ pub(crate) fn delete_run_at(run_id: &str, cwd_hash: &str, force: bool) -> Result
     }
 
     // Start transaction for atomic cascade delete.
+    // Note: no explicit foreign key constraints in the schema, but we follow
+    // the logical dependency order.
     let tx = conn.transaction().map_err(|e| AilError {
         error_type: error_types::PIPELINE_ABORTED,
         title: "Failed to start transaction",
         detail: e.to_string(),
         context: None,
     })?;
-
-    // Delete in cascade order (respecting any foreign key relationships).
-    // Note: no explicit foreign key constraints in the schema, but we follow
-    // the logical dependency order.
 
     tx.execute("DELETE FROM run_events WHERE run_id = ?1", [run_id])
         .map_err(|e| AilError {
@@ -146,16 +166,6 @@ pub(crate) fn delete_run_at(run_id: &str, cwd_hash: &str, force: bool) -> Result
         detail: e.to_string(),
         context: None,
     })?;
-
-    // Delete JSONL file if it exists.
-    if jsonl_path.exists() {
-        std::fs::remove_file(&jsonl_path).map_err(|e| AilError {
-            error_type: error_types::PIPELINE_ABORTED,
-            title: "Failed to delete JSONL file",
-            detail: format!("Could not delete {}: {}", jsonl_path.display(), e),
-            context: None,
-        })?;
-    }
 
     Ok(())
 }
