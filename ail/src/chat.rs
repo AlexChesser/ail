@@ -28,7 +28,6 @@
 
 use ail_core::config::domain::{Pipeline, ProviderConfig};
 use ail_core::executor::{ExecutionControl, ExecutorEvent};
-use ail_core::runner::claude::ClaudeInvokeExtensions;
 use ail_core::runner::{InvokeOptions, PermissionResponse, Runner, RunnerEvent};
 use ail_core::session::{Session, TurnEntry};
 use std::collections::HashSet;
@@ -78,12 +77,7 @@ fn run_turn_stream(
         "total_steps": session.pipeline.steps.len(),
     }));
 
-    let has_invocation_step = session
-        .pipeline
-        .steps
-        .first()
-        .map(|s| s.id.as_str() == "invocation")
-        .unwrap_or(false);
+    let has_invocation_step = session.has_invocation_step();
 
     // Build per-turn permission responder.
     let pending_perm = Arc::clone(&pending_permission);
@@ -109,11 +103,7 @@ fn run_turn_stream(
         let invocation_options = InvokeOptions {
             resume_session_id: resume_session_id.map(|s| s.to_string()),
             model: session.cli_provider.model.clone(),
-            extensions: Some(Box::new(ClaudeInvokeExtensions {
-                base_url: session.cli_provider.base_url.clone(),
-                auth_token: session.cli_provider.auth_token.clone(),
-                permission_socket: None,
-            })),
+            extensions: runner.build_extensions(&session.cli_provider),
             permission_responder: Some(Arc::clone(&responder)),
             ..InvokeOptions::default()
         };
@@ -494,34 +484,15 @@ pub fn run_chat_text(
         let mut session = Session::new(pipeline.clone(), prompt.to_string());
         session.cli_provider = cli_provider.clone();
 
-        let has_invocation_step = session
-            .pipeline
-            .steps
-            .first()
-            .map(|s| s.id.as_str() == "invocation")
-            .unwrap_or(false);
-
-        if !has_invocation_step {
-            let invocation_options = InvokeOptions {
+        if !session.has_invocation_step() {
+            let options = InvokeOptions {
                 resume_session_id: last_id.map(|s| s.to_string()),
                 model: session.cli_provider.model.clone(),
-                extensions: Some(Box::new(ClaudeInvokeExtensions {
-                    base_url: session.cli_provider.base_url.clone(),
-                    auth_token: session.cli_provider.auth_token.clone(),
-                    permission_socket: None,
-                })),
+                extensions: runner.build_extensions(&session.cli_provider),
                 ..InvokeOptions::default()
             };
-            match runner.invoke(prompt, invocation_options) {
-                Ok(result) => {
-                    session.turn_log.append(TurnEntry::from_prompt(
-                        "invocation",
-                        prompt.to_string(),
-                        result,
-                    ));
-                }
-                Err(e) => return Err(e.detail),
-            }
+            ail_core::executor::run_invocation_step(&mut session, runner, prompt, options)
+                .map_err(|e| e.detail)?;
         }
 
         let pause_requested = Arc::new(AtomicBool::new(false));
@@ -547,8 +518,8 @@ pub fn run_chat_text(
             Err(e) => return Err(e.detail),
         }
 
-        // Print invocation response (if host-managed) and last pipeline step response.
-        if has_invocation_step {
+        // Print invocation response (if pipeline declared it) and last pipeline step response.
+        if session.has_invocation_step() {
             if let Some(resp) = session.turn_log.response_for_step("invocation") {
                 println!("{resp}");
             }

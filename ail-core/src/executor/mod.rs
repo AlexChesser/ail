@@ -12,6 +12,7 @@ mod helpers;
 pub use controlled::execute_with_control;
 pub use events::{ExecuteOutcome, ExecutionControl, ExecutorEvent};
 pub use headless::execute;
+pub use helpers::run_invocation_step;
 
 #[cfg(test)]
 mod tests {
@@ -160,6 +161,53 @@ mod tests {
         assert_eq!(json["type"], "pipeline_error");
         assert_eq!(json["error"], "something went wrong");
         assert_eq!(json["error_type"], "PIPELINE_ABORTED");
+    }
+
+    #[test]
+    fn run_invocation_step_appends_turn_entry_and_returns_result() {
+        let mut session = make_session(vec![])
+            .with_log_provider(Box::new(NullProvider));
+        let runner = StubRunner::new("invocation response");
+        let result = run_invocation_step(
+            &mut session,
+            &runner,
+            "the prompt",
+            Default::default(),
+        )
+        .unwrap();
+        assert_eq!(result.response, "invocation response");
+        let entries = session.turn_log.entries();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].step_id, "invocation");
+        assert_eq!(entries[0].prompt, "the prompt");
+        assert_eq!(entries[0].response.as_deref(), Some("invocation response"));
+    }
+
+    #[test]
+    fn run_invocation_step_propagates_runner_error() {
+        use crate::error::AilError;
+        use crate::runner::{InvokeOptions, RunResult};
+        struct ErrorRunner;
+        impl crate::runner::Runner for ErrorRunner {
+            fn invoke(&self, _: &str, _: InvokeOptions) -> Result<RunResult, AilError> {
+                Err(AilError {
+                    error_type: crate::error::error_types::RUNNER_INVOCATION_FAILED,
+                    title: "test error",
+                    detail: "runner failed".to_string(),
+                    context: None,
+                })
+            }
+        }
+        let mut session = make_session(vec![])
+            .with_log_provider(Box::new(NullProvider));
+        let result = run_invocation_step(
+            &mut session,
+            &ErrorRunner,
+            "prompt",
+            Default::default(),
+        );
+        assert!(result.is_err());
+        assert!(session.turn_log.entries().is_empty());
     }
 
     #[test]

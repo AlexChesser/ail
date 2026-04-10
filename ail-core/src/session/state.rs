@@ -59,6 +59,16 @@ impl Session {
         self
     }
 
+    /// Returns `true` when the first pipeline step has id `"invocation"`, meaning the
+    /// pipeline owns the invocation step and the host must not run it separately.
+    pub fn has_invocation_step(&self) -> bool {
+        self.pipeline
+            .steps
+            .first()
+            .map(|s| s.id.as_str() == "invocation")
+            .unwrap_or(false)
+    }
+
     /// Set the pipeline source name for this session (useful in tests and sub-pipeline contexts).
     /// Re-emits `run_started` so the turn log provider records the correct source.
     pub fn with_pipeline(mut self, name: &str) -> Self {
@@ -120,5 +130,40 @@ mod tests {
     fn invocation_prompt_equals_prompt_passed_to_new() {
         let session = make_session();
         assert_eq!(session.invocation_prompt, "test prompt");
+    }
+
+    #[test]
+    fn has_invocation_step_returns_true_for_passthrough() {
+        // Pipeline::passthrough() declares "invocation" as its first step.
+        let session = make_session();
+        assert!(session.has_invocation_step());
+    }
+
+    #[test]
+    fn has_invocation_step_returns_true_when_first_step_is_invocation() {
+        use crate::config::domain::{Step, StepBody, StepId};
+        use crate::test_helpers::make_session as helpers_make_session;
+        let step = Step {
+            id: StepId("invocation".to_string()),
+            body: StepBody::Prompt("hello".to_string()),
+            message: None,
+            tools: None,
+            on_result: None,
+            model: None,
+            runner: None,
+            condition: None,
+            append_system_prompt: None,
+            system_prompt: None,
+            resume: false,
+        };
+        let session = helpers_make_session(vec![step]);
+        assert!(session.has_invocation_step());
+    }
+
+    #[test]
+    fn has_invocation_step_returns_false_when_first_step_is_not_invocation() {
+        use crate::test_helpers::{make_session as helpers_make_session, prompt_step};
+        let session = helpers_make_session(vec![prompt_step("other", "text")]);
+        assert!(!session.has_invocation_step());
     }
 }

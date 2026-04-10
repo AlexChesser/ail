@@ -7,7 +7,6 @@ mod delete;
 mod log;
 mod logs;
 
-use ail_core::runner::claude::ClaudeInvokeExtensions;
 use ail_core::runner::factory::RunnerFactory;
 use ail_core::runner::{InvokeOptions, Runner};
 use clap::Parser;
@@ -35,24 +34,15 @@ fn run_once_text(
 ) {
     let run_start = std::time::Instant::now();
 
-    let has_invocation_step = session
-        .pipeline
-        .steps
-        .first()
-        .map(|s| s.id.as_str() == "invocation")
-        .unwrap_or(false);
+    let has_invocation_step = session.has_invocation_step();
 
     if !has_invocation_step {
-        let invocation_options = InvokeOptions {
+        let options = InvokeOptions {
             model: session.cli_provider.model.clone(),
-            extensions: Some(Box::new(ClaudeInvokeExtensions {
-                base_url: session.cli_provider.base_url.clone(),
-                auth_token: session.cli_provider.auth_token.clone(),
-                permission_socket: None,
-            })),
+            extensions: runner.build_extensions(&session.cli_provider),
             ..InvokeOptions::default()
         };
-        match runner.invoke(prompt, invocation_options) {
+        match ail_core::executor::run_invocation_step(session, runner, prompt, options) {
             Ok(result) => {
                 if watch {
                     println!(
@@ -63,11 +53,6 @@ fn run_once_text(
                     );
                     println!("\n  [Response]\n{}\n", result.response);
                 }
-                session.turn_log.append(ail_core::session::TurnEntry::from_prompt(
-                    "invocation",
-                    prompt.to_string(),
-                    result,
-                ));
             }
             Err(e) => {
                 eprintln!("{e}");
@@ -447,12 +432,7 @@ fn run_once_json(session: &mut ail_core::session::Session, runner: &dyn Runner, 
         }
     });
 
-    let has_invocation_step = session
-        .pipeline
-        .steps
-        .first()
-        .map(|s| s.id.as_str() == "invocation")
-        .unwrap_or(false);
+    let has_invocation_step = session.has_invocation_step();
 
     // If the pipeline does not declare an invocation step, the host runs it first.
     if !has_invocation_step {
@@ -474,11 +454,7 @@ fn run_once_json(session: &mut ail_core::session::Session, runner: &dyn Runner, 
 
         let invocation_options = InvokeOptions {
             model: session.cli_provider.model.clone(),
-            extensions: Some(Box::new(ClaudeInvokeExtensions {
-                base_url: session.cli_provider.base_url.clone(),
-                auth_token: session.cli_provider.auth_token.clone(),
-                permission_socket: None,
-            })),
+            extensions: runner.build_extensions(&session.cli_provider),
             permission_responder: Some(Arc::clone(&responder)),
             ..InvokeOptions::default()
         };
