@@ -290,3 +290,91 @@ fn print_raw_jsonl(run_id: &str) -> Result<(), ail_core::error::AilError> {
     print!("{content}");
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ail_core::logs::StepRow;
+
+    fn make_step_row(step_id: &str, event_type: &str) -> StepRow {
+        StepRow {
+            step_id: step_id.to_string(),
+            event_type: event_type.to_string(),
+            prompt: None,
+            response: None,
+            thinking: None,
+            cost_usd: None,
+            input_tokens: None,
+            output_tokens: None,
+            stdout: None,
+            stderr: None,
+            exit_code: None,
+            recorded_at: 0,
+            tool_events: vec![],
+        }
+    }
+
+    #[test]
+    fn check_is_final_empty_steps_returns_false() {
+        assert!(!check_is_final("run-1", &[]));
+    }
+
+    #[test]
+    fn check_is_final_returns_false_without_terminal_event() {
+        let steps = vec![
+            make_step_row("invocation", "step_started"),
+            make_step_row("invocation", "tool_call"),
+        ];
+        assert!(!check_is_final("run-1", &steps));
+    }
+
+    #[test]
+    fn check_is_final_returns_true_on_step_completed() {
+        let steps = vec![
+            make_step_row("invocation", "step_started"),
+            make_step_row("invocation", "step_completed"),
+        ];
+        assert!(check_is_final("run-1", &steps));
+    }
+
+    #[test]
+    fn check_is_final_returns_true_on_step_failed() {
+        let steps = vec![
+            make_step_row("invocation", "step_started"),
+            make_step_row("invocation", "step_failed"),
+        ];
+        assert!(check_is_final("run-1", &steps));
+    }
+
+    #[test]
+    fn check_is_final_only_checks_last_step_id() {
+        // "invocation" completes but "review" is the last step and has not finished.
+        let steps = vec![
+            make_step_row("invocation", "step_started"),
+            make_step_row("invocation", "step_completed"),
+            make_step_row("review", "step_started"),
+        ];
+        assert!(!check_is_final("run-1", &steps));
+    }
+
+    #[test]
+    fn check_is_final_true_when_last_step_completes() {
+        let steps = vec![
+            make_step_row("invocation", "step_started"),
+            make_step_row("invocation", "step_completed"),
+            make_step_row("review", "step_started"),
+            make_step_row("review", "step_completed"),
+        ];
+        assert!(check_is_final("run-1", &steps));
+    }
+
+    #[test]
+    fn check_is_final_true_when_last_step_fails() {
+        let steps = vec![
+            make_step_row("invocation", "step_completed"),
+            make_step_row("review", "step_started"),
+            make_step_row("review", "step_failed"),
+        ];
+        assert!(check_is_final("run-1", &steps));
+    }
+}
