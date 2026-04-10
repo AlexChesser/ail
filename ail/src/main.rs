@@ -12,6 +12,21 @@ use ail_core::runner::{InvokeOptions, Runner};
 use clap::Parser;
 use cli::{Cli, Commands, OutputFormat};
 
+/// Discover and load a pipeline from an optional explicit path, falling back to
+/// automatic discovery and then passthrough mode. Exits with code 1 on load error.
+fn load_pipeline(explicit_path: Option<std::path::PathBuf>) -> ail_core::config::domain::Pipeline {
+    match ail_core::config::discovery::discover(explicit_path) {
+        Some(ref path) => match ail_core::config::load(path) {
+            Ok(p) => p,
+            Err(e) => {
+                eprintln!("{e}");
+                std::process::exit(1);
+            }
+        },
+        None => ail_core::config::domain::Pipeline::passthrough(),
+    }
+}
+
 /// Initialise tracing. Always writes structured JSON logs to stderr.
 fn init_tracing() {
     tracing_subscriber::fmt()
@@ -581,17 +596,7 @@ fn main() {
         (Some(prompt), None) => {
             tracing::info!(event = "once", headless = cli.headless);
 
-            let pipeline_path = ail_core::config::discovery::discover(cli.pipeline);
-            let pipeline = match pipeline_path {
-                Some(ref path) => match ail_core::config::load(path) {
-                    Ok(p) => p,
-                    Err(e) => {
-                        eprintln!("{e}");
-                        std::process::exit(1);
-                    }
-                },
-                None => ail_core::config::domain::Pipeline::passthrough(),
-            };
+            let pipeline = load_pipeline(cli.pipeline);
 
             let mut session = ail_core::session::Session::new(pipeline, prompt.clone());
             session.cli_provider = ail_core::config::domain::ProviderConfig {
@@ -655,17 +660,7 @@ fn main() {
                 check_permission_hook::run(&socket);
             }
             Commands::Materialize { pipeline, out } => {
-                let pipeline_path = ail_core::config::discovery::discover(pipeline);
-                let p = match pipeline_path {
-                    Some(ref path) => match ail_core::config::load(path) {
-                        Ok(p) => p,
-                        Err(e) => {
-                            eprintln!("{e}");
-                            std::process::exit(1);
-                        }
-                    },
-                    None => ail_core::config::domain::Pipeline::passthrough(),
-                };
+                let p = load_pipeline(pipeline);
                 let output = ail_core::materialize::materialize(&p);
                 match out {
                     Some(out_path) => {
@@ -744,18 +739,7 @@ fn main() {
                     one_shot = message.is_some(),
                     stream = stream
                 );
-                let pipeline_path =
-                    ail_core::config::discovery::discover(cli.pipeline.or(pipeline));
-                let discovered_pipeline = match pipeline_path {
-                    Some(ref path) => match ail_core::config::load(path) {
-                        Ok(p) => p,
-                        Err(e) => {
-                            eprintln!("{e}");
-                            std::process::exit(1);
-                        }
-                    },
-                    None => ail_core::config::domain::Pipeline::passthrough(),
-                };
+                let discovered_pipeline = load_pipeline(cli.pipeline.or(pipeline));
                 let cli_provider = ail_core::config::domain::ProviderConfig {
                     model,
                     base_url: provider_url,
