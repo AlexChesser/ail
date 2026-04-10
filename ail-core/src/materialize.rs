@@ -414,6 +414,7 @@ mod tests {
             defaults: ProviderConfig::default(),
             timeout_seconds: None,
             default_tools: Some(ToolPolicy {
+                disabled: false,
                 allow: vec!["Bash".to_string()],
                 deny: vec![],
             }),
