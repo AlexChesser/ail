@@ -15,7 +15,7 @@ use crate::template;
 use super::events::ExecuteOutcome;
 use super::helpers::{
     build_step_runner_box, build_tool_policy, evaluate_on_result, resolve_prompt_file,
-    resolve_step_provider, run_shell_command,
+    resolve_step_provider, resolve_step_system_prompts, run_shell_command,
 };
 
 /// Load and run a sub-pipeline, returning a `TurnEntry` for the calling step.
@@ -171,50 +171,8 @@ pub(super) fn execute_inner(
                 };
                 session.turn_log.record_step_started(&step_id, &resolved);
 
-                // Resolve system_prompt if set
-                let resolved_system_prompt = step
-                    .system_prompt
-                    .as_deref()
-                    .map(|sp| {
-                        let content = resolve_prompt_file(sp, &step_id, pipeline_base_dir)?;
-                        template::resolve(&content, session)
-                            .map_err(|e| e.with_step_context(&session.run_id, &step_id))
-                    })
-                    .transpose()?;
-
-                // Resolve append_system_prompt entries
-                let mut resolved_append_system_prompt: Vec<String> = Vec::new();
-                if let Some(entries) = &step.append_system_prompt {
-                    for entry in entries {
-                        let text = match entry {
-                            crate::config::domain::SystemPromptEntry::Text(s) => {
-                                template::resolve(s, session)
-                                    .map_err(|e| e.with_step_context(&session.run_id, &step_id))?
-                            }
-                            crate::config::domain::SystemPromptEntry::File(path) => {
-                                let content = std::fs::read_to_string(path).map_err(|e| AilError {
-                                    error_type: error_types::CONFIG_FILE_NOT_FOUND,
-                                    title: "append_system_prompt file not found",
-                                    detail: format!(
-                                        "Step '{step_id}' append_system_prompt file '{}' could not be read: {e}",
-                                        path.display()
-                                    ),
-                                    context: Some(crate::error::ErrorContext::for_step(&session.run_id, &step_id)),
-                                })?;
-                                template::resolve(&content, session)
-                                    .map_err(|e| e.with_step_context(&session.run_id, &step_id))?
-                            }
-                            crate::config::domain::SystemPromptEntry::Shell(cmd) => {
-                                let resolved_cmd = template::resolve(cmd, session)
-                                    .map_err(|e| e.with_step_context(&session.run_id, &step_id))?;
-                                let (stdout, _stderr, _exit_code) =
-                                    run_shell_command(&session.run_id, &step_id, &resolved_cmd)?;
-                                stdout
-                            }
-                        };
-                        resolved_append_system_prompt.push(text);
-                    }
-                }
+                let (resolved_system_prompt, resolved_append_system_prompt) =
+                    resolve_step_system_prompts(step, session, &step_id, pipeline_base_dir)?;
 
                 let resolved_provider = resolve_step_provider(session, step);
                 let effective_tools = step

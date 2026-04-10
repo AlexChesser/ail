@@ -4,11 +4,14 @@
 
 use std::process::{Command, Stdio};
 
-use crate::config::domain::{ExitCodeMatch, ProviderConfig, ResultAction, ResultMatcher, Step};
+use crate::config::domain::{
+    ExitCodeMatch, ProviderConfig, ResultAction, ResultMatcher, Step, SystemPromptEntry,
+};
 use crate::error::{error_types, AilError};
 use crate::runner::factory::RunnerFactory;
 use crate::runner::{InvokeOptions, RunResult, Runner, ToolPermissionPolicy};
 use crate::session::{Session, TurnEntry};
+use crate::template;
 
 /// Run the host-managed invocation step when the pipeline does not declare its own.
 ///
@@ -138,6 +141,60 @@ pub(super) fn build_tool_policy(
         Some(t) if !t.deny.is_empty() => ToolPermissionPolicy::Denylist(t.deny.clone()),
         _ => ToolPermissionPolicy::RunnerDefault,
     }
+}
+
+/// Resolve `system_prompt` and all `append_system_prompt` entries for a step.
+///
+/// Returns `(resolved_system_prompt, resolved_append_entries)` on success.
+/// On error, returns an `AilError` with step context already populated — the caller
+/// may wrap with event emission before propagating.
+pub(super) fn resolve_step_system_prompts(
+    step: &Step,
+    session: &Session,
+    step_id: &str,
+    pipeline_base_dir: Option<&std::path::Path>,
+) -> Result<(Option<String>, Vec<String>), AilError> {
+    let resolved_system_prompt = step
+        .system_prompt
+        .as_deref()
+        .map(|sp| {
+            let content = resolve_prompt_file(sp, step_id, pipeline_base_dir)?;
+            template::resolve(&content, session)
+                .map_err(|e| e.with_step_context(&session.run_id, step_id))
+        })
+        .transpose()?;
+
+    let mut resolved_append: Vec<String> = Vec::new();
+    if let Some(entries) = &step.append_system_prompt {
+        for entry in entries {
+            let text = match entry {
+                SystemPromptEntry::Text(s) => template::resolve(s, session)
+                    .map_err(|e| e.with_step_context(&session.run_id, step_id))?,
+                SystemPromptEntry::File(path) => {
+                    let content = std::fs::read_to_string(path).map_err(|e| AilError {
+                        error_type: error_types::CONFIG_FILE_NOT_FOUND,
+                        title: "append_system_prompt file not found",
+                        detail: format!(
+                            "Step '{step_id}' append_system_prompt file '{}' could not be read: {e}",
+                            path.display()
+                        ),
+                        context: Some(crate::error::ErrorContext::for_step(&session.run_id, step_id)),
+                    })?;
+                    template::resolve(&content, session)
+                        .map_err(|e| e.with_step_context(&session.run_id, step_id))?
+                }
+                SystemPromptEntry::Shell(cmd) => {
+                    let resolved_cmd = template::resolve(cmd, session)
+                        .map_err(|e| e.with_step_context(&session.run_id, step_id))?;
+                    let (stdout, _stderr, _exit_code) =
+                        run_shell_command(&session.run_id, step_id, &resolved_cmd)?;
+                    stdout
+                }
+            };
+            resolved_append.push(text);
+        }
+    }
+    Ok((resolved_system_prompt, resolved_append))
 }
 
 /// If `prompt_text` starts with a path prefix (`./`, `../`, `~/`, `/`), read the file

@@ -16,7 +16,7 @@ use super::events::{ExecuteOutcome, ExecutionControl, ExecutorEvent};
 use super::headless::execute_sub_pipeline;
 use super::helpers::{
     build_step_runner_box, build_tool_policy, evaluate_on_result, resolve_prompt_file,
-    resolve_step_provider, run_shell_command,
+    resolve_step_provider, resolve_step_system_prompts, run_shell_command,
 };
 
 /// Execute the pipeline with live control signals and event streaming for the TUI.
@@ -147,104 +147,14 @@ pub fn execute_with_control(
                 };
                 session.turn_log.record_step_started(&step_id, &resolved);
 
-                // Resolve system_prompt if set
-                let resolved_system_prompt = match step
-                    .system_prompt
-                    .as_deref()
-                    .map(|sp| {
-                        let content = resolve_prompt_file(sp, &step_id, pipeline_base_dir)?;
-                        template::resolve(&content, session)
-                            .map_err(|e| e.with_step_context(&session.run_id, &step_id))
-                    })
-                    .transpose()
-                {
-                    Ok(v) => v,
-                    Err(e) => {
-                        let _ = event_tx.send(ExecutorEvent::StepFailed {
-                            step_id: step_id.clone(),
-                            error: e.detail.clone(),
-                        });
-                        return Err(e);
-                    }
-                };
-
-                // Resolve append_system_prompt entries
-                let mut resolved_append_system_prompt: Vec<String> = Vec::new();
-                if let Some(entries) = &step.append_system_prompt {
-                    for entry in entries {
-                        let text = match entry {
-                            crate::config::domain::SystemPromptEntry::Text(s) => {
-                                match template::resolve(s, session) {
-                                    Ok(t) => t,
-                                    Err(e) => {
-                                        let e = e.with_step_context(&session.run_id, &step_id);
-                                        let _ = event_tx.send(ExecutorEvent::StepFailed {
-                                            step_id: step_id.clone(),
-                                            error: e.detail.clone(),
-                                        });
-                                        return Err(e);
-                                    }
-                                }
-                            }
-                            crate::config::domain::SystemPromptEntry::File(path) => {
-                                let content = match std::fs::read_to_string(path) {
-                                    Ok(c) => c,
-                                    Err(e) => {
-                                        let err = AilError {
-                                            error_type: error_types::CONFIG_FILE_NOT_FOUND,
-                                            title: "append_system_prompt file not found",
-                                            detail: format!(
-                                                "Step '{step_id}' append_system_prompt file '{}' could not be read: {e}",
-                                                path.display()
-                                            ),
-                                            context: Some(crate::error::ErrorContext::for_step(&session.run_id, &step_id)),
-                                        };
-                                        let _ = event_tx.send(ExecutorEvent::StepFailed {
-                                            step_id: step_id.clone(),
-                                            error: err.detail.clone(),
-                                        });
-                                        return Err(err);
-                                    }
-                                };
-                                match template::resolve(&content, session) {
-                                    Ok(t) => t,
-                                    Err(e) => {
-                                        let e = e.with_step_context(&session.run_id, &step_id);
-                                        let _ = event_tx.send(ExecutorEvent::StepFailed {
-                                            step_id: step_id.clone(),
-                                            error: e.detail.clone(),
-                                        });
-                                        return Err(e);
-                                    }
-                                }
-                            }
-                            crate::config::domain::SystemPromptEntry::Shell(cmd) => {
-                                let resolved_cmd = match template::resolve(cmd, session) {
-                                    Ok(c) => c,
-                                    Err(e) => {
-                                        let e = e.with_step_context(&session.run_id, &step_id);
-                                        let _ = event_tx.send(ExecutorEvent::StepFailed {
-                                            step_id: step_id.clone(),
-                                            error: e.detail.clone(),
-                                        });
-                                        return Err(e);
-                                    }
-                                };
-                                match run_shell_command(&session.run_id, &step_id, &resolved_cmd) {
-                                    Ok((stdout, _stderr, _exit_code)) => stdout,
-                                    Err(e) => {
-                                        let _ = event_tx.send(ExecutorEvent::StepFailed {
-                                            step_id: step_id.clone(),
-                                            error: e.detail.clone(),
-                                        });
-                                        return Err(e);
-                                    }
-                                }
-                            }
-                        };
-                        resolved_append_system_prompt.push(text);
-                    }
-                }
+                let (resolved_system_prompt, resolved_append_system_prompt) =
+                    resolve_step_system_prompts(step, session, &step_id, pipeline_base_dir)
+                        .inspect_err(|e| {
+                            let _ = event_tx.send(ExecutorEvent::StepFailed {
+                                step_id: step_id.clone(),
+                                error: e.detail.clone(),
+                            });
+                        })?;
 
                 let resolved_provider = resolve_step_provider(session, step);
                 let effective_tools = step
