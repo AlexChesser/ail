@@ -68,3 +68,57 @@ impl Session {
         self
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::domain::Pipeline;
+    use crate::session::log_provider::NullProvider;
+
+    fn make_session() -> Session {
+        Session::new(Pipeline::passthrough(), "test prompt".to_string())
+            .with_log_provider(Box::new(NullProvider))
+    }
+
+    #[test]
+    fn session_new_run_id_is_nonempty_uuid_string() {
+        let session = make_session();
+        assert!(!session.run_id.is_empty());
+        // UUIDs are 36 chars: 8-4-4-4-12 with dashes
+        assert_eq!(session.run_id.len(), 36, "run_id should be a UUID string");
+        assert!(session.run_id.contains('-'), "run_id should contain dashes");
+    }
+
+    #[test]
+    fn two_session_new_calls_produce_distinct_run_ids() {
+        let s1 = make_session();
+        let s2 = make_session();
+        assert_ne!(s1.run_id, s2.run_id);
+    }
+
+    #[test]
+    fn with_log_provider_chaining_works() {
+        let session = Session::new(Pipeline::passthrough(), "hello".to_string())
+            .with_log_provider(Box::new(NullProvider));
+        // If chaining works, the session is usable and has the expected prompt
+        assert_eq!(session.invocation_prompt, "hello");
+        assert!(session.turn_log.entries().is_empty());
+    }
+
+    #[test]
+    fn with_pipeline_sets_source_on_pipeline() {
+        let session = make_session().with_pipeline("my-pipeline.ail.yaml");
+        let source = session
+            .pipeline
+            .source
+            .as_ref()
+            .expect("source should be set");
+        assert_eq!(source.to_str().unwrap(), "my-pipeline.ail.yaml");
+    }
+
+    #[test]
+    fn invocation_prompt_equals_prompt_passed_to_new() {
+        let session = make_session();
+        assert_eq!(session.invocation_prompt, "test prompt");
+    }
+}

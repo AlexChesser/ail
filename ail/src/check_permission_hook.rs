@@ -53,25 +53,37 @@ pub fn run(socket_path: &str) {
     }
 }
 
-fn print_allow() {
-    let response = json!({
+pub(crate) fn build_allow_response() -> serde_json::Value {
+    json!({
         "hookSpecificOutput": {
             "hookEventName": "PreToolUse",
             "permissionDecision": "allow"
         }
-    });
-    println!("{}", serde_json::to_string(&response).unwrap_or_default());
+    })
 }
 
-fn print_deny(reason: &str) {
-    let response = json!({
+pub(crate) fn build_deny_response(reason: &str) -> serde_json::Value {
+    json!({
         "hookSpecificOutput": {
             "hookEventName": "PreToolUse",
             "permissionDecision": "deny",
             "reason": reason
         }
-    });
-    println!("{}", serde_json::to_string(&response).unwrap_or_default());
+    })
+}
+
+fn print_allow() {
+    println!(
+        "{}",
+        serde_json::to_string(&build_allow_response()).unwrap_or_default()
+    );
+}
+
+fn print_deny(reason: &str) {
+    println!(
+        "{}",
+        serde_json::to_string(&build_deny_response(reason)).unwrap_or_default()
+    );
 }
 
 fn forward_to_socket(socket_path: &str, tool_name: &str, tool_input: &Value) -> io::Result<Value> {
@@ -97,6 +109,8 @@ fn forward_to_socket(socket_path: &str, tool_name: &str, tool_input: &Value) -> 
 mod tests {
     use serde_json::json;
 
+    use super::*;
+
     #[test]
     fn ask_user_question_is_handled_specially() {
         // The hook short-circuits for AskUserQuestion — verified by checking the
@@ -106,5 +120,52 @@ mod tests {
             "tool_input": { "questions": [] }
         });
         assert_eq!(hook_input["tool_name"].as_str().unwrap(), "AskUserQuestion");
+    }
+
+    #[test]
+    fn allow_response_has_correct_structure() {
+        let resp = build_allow_response();
+        let output = &resp["hookSpecificOutput"];
+        assert_eq!(output["hookEventName"], "PreToolUse");
+        assert_eq!(output["permissionDecision"], "allow");
+        assert!(output.get("reason").is_none());
+    }
+
+    #[test]
+    fn deny_response_has_correct_structure() {
+        let resp = build_deny_response("not permitted");
+        let output = &resp["hookSpecificOutput"];
+        assert_eq!(output["hookEventName"], "PreToolUse");
+        assert_eq!(output["permissionDecision"], "deny");
+        assert_eq!(output["reason"], "not permitted");
+    }
+
+    #[test]
+    fn deny_response_preserves_reason_string() {
+        let reason = "ail permission bridge error";
+        let resp = build_deny_response(reason);
+        assert_eq!(resp["hookSpecificOutput"]["reason"], reason);
+    }
+
+    #[test]
+    fn allow_response_is_valid_json() {
+        let resp = build_allow_response();
+        let serialized = serde_json::to_string(&resp).expect("serialization must succeed");
+        let reparsed: serde_json::Value =
+            serde_json::from_str(&serialized).expect("must round-trip");
+        assert_eq!(
+            reparsed["hookSpecificOutput"]["permissionDecision"],
+            "allow"
+        );
+    }
+
+    #[test]
+    fn deny_response_is_valid_json() {
+        let resp = build_deny_response("denied by ail");
+        let serialized = serde_json::to_string(&resp).expect("serialization must succeed");
+        let reparsed: serde_json::Value =
+            serde_json::from_str(&serialized).expect("must round-trip");
+        assert_eq!(reparsed["hookSpecificOutput"]["permissionDecision"], "deny");
+        assert_eq!(reparsed["hookSpecificOutput"]["reason"], "denied by ail");
     }
 }

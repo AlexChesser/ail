@@ -359,3 +359,800 @@ pub fn validate(dto: PipelineFileDto, source: PathBuf) -> Result<Pipeline, AilEr
         default_tools,
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use std::path::PathBuf;
+
+    use super::*;
+    use crate::config::dto::{
+        AppendSystemPromptEntryDto, AppendSystemPromptStructuredDto, ContextDto, DefaultsDto,
+        ExitCodeDto, OnResultBranchDto, PipelineFileDto, ProviderDto, StepDto, ToolsDto,
+    };
+    use crate::error::error_types;
+
+    fn source() -> PathBuf {
+        PathBuf::from("/tmp/test.ail.yaml")
+    }
+
+    fn minimal_step(id: &str, prompt: &str) -> StepDto {
+        StepDto {
+            id: Some(id.to_string()),
+            prompt: Some(prompt.to_string()),
+            skill: None,
+            pipeline: None,
+            action: None,
+            message: None,
+            context: None,
+            tools: None,
+            on_result: None,
+            model: None,
+            runner: None,
+            condition: None,
+            append_system_prompt: None,
+            system_prompt: None,
+            resume: None,
+        }
+    }
+
+    fn minimal_dto(steps: Vec<StepDto>) -> PipelineFileDto {
+        PipelineFileDto {
+            version: Some("1".to_string()),
+            defaults: None,
+            pipeline: Some(steps),
+        }
+    }
+
+    // ── valid minimal pipeline ───────────────────────────────────────────────
+
+    #[test]
+    fn valid_minimal_pipeline_returns_ok() {
+        let dto = minimal_dto(vec![minimal_step("review", "Please review the code")]);
+        let pipeline = validate(dto, source()).expect("should succeed");
+        assert_eq!(pipeline.steps.len(), 1);
+        assert_eq!(pipeline.steps[0].id.as_str(), "review");
+    }
+
+    // ── version field ────────────────────────────────────────────────────────
+
+    #[test]
+    fn missing_version_returns_error() {
+        let dto = PipelineFileDto {
+            version: None,
+            defaults: None,
+            pipeline: Some(vec![minimal_step("s1", "hello")]),
+        };
+        let err = validate(dto, source()).expect_err("should fail");
+        assert_eq!(err.error_type, error_types::CONFIG_VALIDATION_FAILED);
+        assert!(err.detail.contains("version"));
+    }
+
+    #[test]
+    fn empty_version_returns_error() {
+        let dto = PipelineFileDto {
+            version: Some("   ".to_string()),
+            defaults: None,
+            pipeline: Some(vec![minimal_step("s1", "hello")]),
+        };
+        let err = validate(dto, source()).expect_err("should fail");
+        assert_eq!(err.error_type, error_types::CONFIG_VALIDATION_FAILED);
+    }
+
+    // ── pipeline array ───────────────────────────────────────────────────────
+
+    #[test]
+    fn missing_pipeline_field_returns_error() {
+        let dto = PipelineFileDto {
+            version: Some("1".to_string()),
+            defaults: None,
+            pipeline: None,
+        };
+        let err = validate(dto, source()).expect_err("should fail");
+        assert_eq!(err.error_type, error_types::CONFIG_VALIDATION_FAILED);
+        assert!(err.detail.contains("pipeline"));
+    }
+
+    #[test]
+    fn empty_pipeline_array_returns_error() {
+        let dto = PipelineFileDto {
+            version: Some("1".to_string()),
+            defaults: None,
+            pipeline: Some(vec![]),
+        };
+        let err = validate(dto, source()).expect_err("should fail");
+        assert_eq!(err.error_type, error_types::CONFIG_VALIDATION_FAILED);
+    }
+
+    // ── step id validation ───────────────────────────────────────────────────
+
+    #[test]
+    fn step_missing_id_returns_error() {
+        let dto = minimal_dto(vec![StepDto {
+            id: None,
+            prompt: Some("hello".to_string()),
+            ..minimal_step("unused", "unused")
+        }]);
+        let err = validate(dto, source()).expect_err("should fail");
+        assert_eq!(err.error_type, error_types::CONFIG_VALIDATION_FAILED);
+        assert!(err.detail.contains("id"));
+    }
+
+    #[test]
+    fn duplicate_step_id_returns_error() {
+        let dto = minimal_dto(vec![
+            minimal_step("dupe", "first"),
+            minimal_step("dupe", "second"),
+        ]);
+        let err = validate(dto, source()).expect_err("should fail");
+        assert_eq!(err.error_type, error_types::CONFIG_VALIDATION_FAILED);
+        assert!(err.detail.contains("dupe"));
+    }
+
+    // ── invocation step ordering ─────────────────────────────────────────────
+
+    #[test]
+    fn invocation_step_not_first_returns_error() {
+        let dto = minimal_dto(vec![
+            minimal_step("first", "hello"),
+            minimal_step("invocation", "world"),
+        ]);
+        let err = validate(dto, source()).expect_err("should fail");
+        assert_eq!(err.error_type, error_types::CONFIG_VALIDATION_FAILED);
+        assert!(err.detail.contains("invocation"));
+    }
+
+    #[test]
+    fn invocation_step_first_is_valid() {
+        let dto = minimal_dto(vec![
+            minimal_step("invocation", "kick off"),
+            minimal_step("second", "continue"),
+        ]);
+        let pipeline = validate(dto, source()).expect("should succeed");
+        assert_eq!(pipeline.steps[0].id.as_str(), "invocation");
+    }
+
+    // ── step primary field count ─────────────────────────────────────────────
+
+    #[test]
+    fn step_with_no_primary_field_returns_error() {
+        let dto = minimal_dto(vec![StepDto {
+            id: Some("empty".to_string()),
+            prompt: None,
+            skill: None,
+            pipeline: None,
+            action: None,
+            message: None,
+            context: None,
+            tools: None,
+            on_result: None,
+            model: None,
+            runner: None,
+            condition: None,
+            append_system_prompt: None,
+            system_prompt: None,
+            resume: None,
+        }]);
+        let err = validate(dto, source()).expect_err("should fail");
+        assert_eq!(err.error_type, error_types::CONFIG_VALIDATION_FAILED);
+        assert!(err.detail.contains("empty"));
+    }
+
+    #[test]
+    fn step_with_two_primary_fields_returns_error() {
+        let dto = minimal_dto(vec![StepDto {
+            id: Some("conflict".to_string()),
+            prompt: Some("hello".to_string()),
+            skill: Some("my-skill".to_string()),
+            pipeline: None,
+            action: None,
+            message: None,
+            context: None,
+            tools: None,
+            on_result: None,
+            model: None,
+            runner: None,
+            condition: None,
+            append_system_prompt: None,
+            system_prompt: None,
+            resume: None,
+        }]);
+        let err = validate(dto, source()).expect_err("should fail");
+        assert_eq!(err.error_type, error_types::CONFIG_VALIDATION_FAILED);
+    }
+
+    // ── step body types ──────────────────────────────────────────────────────
+
+    #[test]
+    fn skill_step_round_trips() {
+        let dto = minimal_dto(vec![StepDto {
+            id: Some("sk".to_string()),
+            skill: Some("my-skill.yaml".to_string()),
+            prompt: None,
+            pipeline: None,
+            action: None,
+            message: None,
+            context: None,
+            tools: None,
+            on_result: None,
+            model: None,
+            runner: None,
+            condition: None,
+            append_system_prompt: None,
+            system_prompt: None,
+            resume: None,
+        }]);
+        let pipeline = validate(dto, source()).expect("should succeed");
+        assert!(matches!(pipeline.steps[0].body, StepBody::Skill(_)));
+    }
+
+    #[test]
+    fn sub_pipeline_step_round_trips() {
+        let dto = minimal_dto(vec![StepDto {
+            id: Some("sub".to_string()),
+            pipeline: Some("child.ail.yaml".to_string()),
+            prompt: None,
+            skill: None,
+            action: None,
+            message: None,
+            context: None,
+            tools: None,
+            on_result: None,
+            model: None,
+            runner: None,
+            condition: None,
+            append_system_prompt: None,
+            system_prompt: None,
+            resume: None,
+        }]);
+        let pipeline = validate(dto, source()).expect("should succeed");
+        assert!(matches!(
+            pipeline.steps[0].body,
+            StepBody::SubPipeline { .. }
+        ));
+    }
+
+    #[test]
+    fn action_pause_for_human_round_trips() {
+        let dto = minimal_dto(vec![StepDto {
+            id: Some("gate".to_string()),
+            action: Some("pause_for_human".to_string()),
+            prompt: None,
+            skill: None,
+            pipeline: None,
+            message: Some("Waiting for approval".to_string()),
+            context: None,
+            tools: None,
+            on_result: None,
+            model: None,
+            runner: None,
+            condition: None,
+            append_system_prompt: None,
+            system_prompt: None,
+            resume: None,
+        }]);
+        let pipeline = validate(dto, source()).expect("should succeed");
+        assert!(matches!(
+            pipeline.steps[0].body,
+            StepBody::Action(ActionKind::PauseForHuman)
+        ));
+    }
+
+    #[test]
+    fn unknown_action_returns_error() {
+        let dto = minimal_dto(vec![StepDto {
+            id: Some("bad-action".to_string()),
+            action: Some("fly_to_moon".to_string()),
+            prompt: None,
+            skill: None,
+            pipeline: None,
+            message: None,
+            context: None,
+            tools: None,
+            on_result: None,
+            model: None,
+            runner: None,
+            condition: None,
+            append_system_prompt: None,
+            system_prompt: None,
+            resume: None,
+        }]);
+        let err = validate(dto, source()).expect_err("should fail");
+        assert_eq!(err.error_type, error_types::CONFIG_VALIDATION_FAILED);
+        assert!(err.detail.contains("fly_to_moon"));
+    }
+
+    #[test]
+    fn context_shell_step_round_trips() {
+        let dto = minimal_dto(vec![StepDto {
+            id: Some("ctx".to_string()),
+            context: Some(ContextDto {
+                shell: Some("git status".to_string()),
+            }),
+            prompt: None,
+            skill: None,
+            pipeline: None,
+            action: None,
+            message: None,
+            tools: None,
+            on_result: None,
+            model: None,
+            runner: None,
+            condition: None,
+            append_system_prompt: None,
+            system_prompt: None,
+            resume: None,
+        }]);
+        let pipeline = validate(dto, source()).expect("should succeed");
+        assert!(matches!(
+            pipeline.steps[0].body,
+            StepBody::Context(ContextSource::Shell(_))
+        ));
+    }
+
+    #[test]
+    fn context_step_without_source_returns_error() {
+        let dto = minimal_dto(vec![StepDto {
+            id: Some("ctx".to_string()),
+            context: Some(ContextDto { shell: None }),
+            prompt: None,
+            skill: None,
+            pipeline: None,
+            action: None,
+            message: None,
+            tools: None,
+            on_result: None,
+            model: None,
+            runner: None,
+            condition: None,
+            append_system_prompt: None,
+            system_prompt: None,
+            resume: None,
+        }]);
+        let err = validate(dto, source()).expect_err("should fail");
+        assert_eq!(err.error_type, error_types::CONFIG_VALIDATION_FAILED);
+        assert!(err.detail.contains("context"));
+    }
+
+    // ── condition field ──────────────────────────────────────────────────────
+
+    #[test]
+    fn condition_always_is_accepted_and_returns_none() {
+        let mut step = minimal_step("s", "hello");
+        step.condition = Some("always".to_string());
+        let dto = minimal_dto(vec![step]);
+        let pipeline = validate(dto, source()).expect("should succeed");
+        assert!(pipeline.steps[0].condition.is_none());
+    }
+
+    #[test]
+    fn condition_never_round_trips() {
+        let mut step = minimal_step("s", "hello");
+        step.condition = Some("never".to_string());
+        let dto = minimal_dto(vec![step]);
+        let pipeline = validate(dto, source()).expect("should succeed");
+        assert_eq!(pipeline.steps[0].condition, Some(Condition::Never));
+    }
+
+    #[test]
+    fn condition_unknown_returns_error() {
+        let mut step = minimal_step("s", "hello");
+        step.condition = Some("maybe".to_string());
+        let dto = minimal_dto(vec![step]);
+        let err = validate(dto, source()).expect_err("should fail");
+        assert_eq!(err.error_type, error_types::CONFIG_VALIDATION_FAILED);
+        assert!(err.detail.contains("maybe"));
+    }
+
+    // ── on_result branches ───────────────────────────────────────────────────
+
+    #[test]
+    fn on_result_contains_continue_round_trips() {
+        let mut step = minimal_step("s", "hello");
+        step.on_result = Some(vec![OnResultBranchDto {
+            contains: Some("SUCCESS".to_string()),
+            exit_code: None,
+            always: None,
+            action: Some("continue".to_string()),
+            prompt: None,
+        }]);
+        let dto = minimal_dto(vec![step]);
+        let pipeline = validate(dto, source()).expect("should succeed");
+        let branch = &pipeline.steps[0].on_result.as_ref().unwrap()[0];
+        assert!(matches!(branch.matcher, ResultMatcher::Contains(_)));
+        assert!(matches!(branch.action, ResultAction::Continue));
+    }
+
+    #[test]
+    fn on_result_exit_code_exact_round_trips() {
+        let mut step = minimal_step("s", "hello");
+        step.on_result = Some(vec![OnResultBranchDto {
+            contains: None,
+            exit_code: Some(ExitCodeDto::Integer(1)),
+            always: None,
+            action: Some("break".to_string()),
+            prompt: None,
+        }]);
+        let dto = minimal_dto(vec![step]);
+        let pipeline = validate(dto, source()).expect("should succeed");
+        let branch = &pipeline.steps[0].on_result.as_ref().unwrap()[0];
+        assert!(matches!(
+            branch.matcher,
+            ResultMatcher::ExitCode(ExitCodeMatch::Exact(1))
+        ));
+        assert!(matches!(branch.action, ResultAction::Break));
+    }
+
+    #[test]
+    fn on_result_exit_code_any_round_trips() {
+        let mut step = minimal_step("s", "hello");
+        step.on_result = Some(vec![OnResultBranchDto {
+            contains: None,
+            exit_code: Some(ExitCodeDto::Keyword("any".to_string())),
+            always: None,
+            action: Some("abort_pipeline".to_string()),
+            prompt: None,
+        }]);
+        let dto = minimal_dto(vec![step]);
+        let pipeline = validate(dto, source()).expect("should succeed");
+        let branch = &pipeline.steps[0].on_result.as_ref().unwrap()[0];
+        assert!(matches!(
+            branch.matcher,
+            ResultMatcher::ExitCode(ExitCodeMatch::Any)
+        ));
+        assert!(matches!(branch.action, ResultAction::AbortPipeline));
+    }
+
+    #[test]
+    fn on_result_exit_code_invalid_keyword_returns_error() {
+        let mut step = minimal_step("s", "hello");
+        step.on_result = Some(vec![OnResultBranchDto {
+            contains: None,
+            exit_code: Some(ExitCodeDto::Keyword("none".to_string())),
+            always: None,
+            action: Some("continue".to_string()),
+            prompt: None,
+        }]);
+        let dto = minimal_dto(vec![step]);
+        let err = validate(dto, source()).expect_err("should fail");
+        assert_eq!(err.error_type, error_types::CONFIG_VALIDATION_FAILED);
+        assert!(err.detail.contains("none"));
+    }
+
+    #[test]
+    fn on_result_always_matcher_round_trips() {
+        let mut step = minimal_step("s", "hello");
+        step.on_result = Some(vec![OnResultBranchDto {
+            contains: None,
+            exit_code: None,
+            always: Some(true),
+            action: Some("pause_for_human".to_string()),
+            prompt: None,
+        }]);
+        let dto = minimal_dto(vec![step]);
+        let pipeline = validate(dto, source()).expect("should succeed");
+        let branch = &pipeline.steps[0].on_result.as_ref().unwrap()[0];
+        assert!(matches!(branch.matcher, ResultMatcher::Always));
+        assert!(matches!(branch.action, ResultAction::PauseForHuman));
+    }
+
+    #[test]
+    fn on_result_pipeline_action_round_trips() {
+        let mut step = minimal_step("s", "hello");
+        step.on_result = Some(vec![OnResultBranchDto {
+            contains: Some("ok".to_string()),
+            exit_code: None,
+            always: None,
+            action: Some("pipeline: child.ail.yaml".to_string()),
+            prompt: None,
+        }]);
+        let dto = minimal_dto(vec![step]);
+        let pipeline = validate(dto, source()).expect("should succeed");
+        let branch = &pipeline.steps[0].on_result.as_ref().unwrap()[0];
+        assert!(matches!(branch.action, ResultAction::Pipeline { .. }));
+    }
+
+    #[test]
+    fn on_result_pipeline_action_empty_path_returns_error() {
+        let mut step = minimal_step("s", "hello");
+        step.on_result = Some(vec![OnResultBranchDto {
+            contains: Some("ok".to_string()),
+            exit_code: None,
+            always: None,
+            action: Some("pipeline:".to_string()),
+            prompt: None,
+        }]);
+        let dto = minimal_dto(vec![step]);
+        let err = validate(dto, source()).expect_err("should fail");
+        assert_eq!(err.error_type, error_types::CONFIG_VALIDATION_FAILED);
+        assert!(err.detail.contains("path"));
+    }
+
+    #[test]
+    fn on_result_unknown_action_returns_error() {
+        let mut step = minimal_step("s", "hello");
+        step.on_result = Some(vec![OnResultBranchDto {
+            contains: Some("ok".to_string()),
+            exit_code: None,
+            always: None,
+            action: Some("teleport".to_string()),
+            prompt: None,
+        }]);
+        let dto = minimal_dto(vec![step]);
+        let err = validate(dto, source()).expect_err("should fail");
+        assert_eq!(err.error_type, error_types::CONFIG_VALIDATION_FAILED);
+        assert!(err.detail.contains("teleport"));
+    }
+
+    #[test]
+    fn on_result_branch_missing_action_returns_error() {
+        let mut step = minimal_step("s", "hello");
+        step.on_result = Some(vec![OnResultBranchDto {
+            contains: Some("ok".to_string()),
+            exit_code: None,
+            always: None,
+            action: None,
+            prompt: None,
+        }]);
+        let dto = minimal_dto(vec![step]);
+        let err = validate(dto, source()).expect_err("should fail");
+        assert_eq!(err.error_type, error_types::CONFIG_VALIDATION_FAILED);
+        assert!(err.detail.contains("action"));
+    }
+
+    #[test]
+    fn on_result_branch_zero_matchers_returns_error() {
+        let mut step = minimal_step("s", "hello");
+        step.on_result = Some(vec![OnResultBranchDto {
+            contains: None,
+            exit_code: None,
+            always: None,
+            action: Some("continue".to_string()),
+            prompt: None,
+        }]);
+        let dto = minimal_dto(vec![step]);
+        let err = validate(dto, source()).expect_err("should fail");
+        assert_eq!(err.error_type, error_types::CONFIG_VALIDATION_FAILED);
+    }
+
+    #[test]
+    fn on_result_branch_two_matchers_returns_error() {
+        let mut step = minimal_step("s", "hello");
+        step.on_result = Some(vec![OnResultBranchDto {
+            contains: Some("ok".to_string()),
+            exit_code: Some(ExitCodeDto::Integer(0)),
+            always: None,
+            action: Some("continue".to_string()),
+            prompt: None,
+        }]);
+        let dto = minimal_dto(vec![step]);
+        let err = validate(dto, source()).expect_err("should fail");
+        assert_eq!(err.error_type, error_types::CONFIG_VALIDATION_FAILED);
+    }
+
+    // ── defaults / ProviderConfig ────────────────────────────────────────────
+
+    #[test]
+    fn defaults_model_field_propagates() {
+        let dto = PipelineFileDto {
+            version: Some("1".to_string()),
+            defaults: Some(DefaultsDto {
+                model: Some("claude-3-5-haiku".to_string()),
+                provider: None,
+                timeout_seconds: None,
+                tools: None,
+            }),
+            pipeline: Some(vec![minimal_step("s", "hello")]),
+        };
+        let pipeline = validate(dto, source()).expect("should succeed");
+        assert_eq!(pipeline.defaults.model.as_deref(), Some("claude-3-5-haiku"));
+    }
+
+    #[test]
+    fn defaults_provider_model_wins_over_top_level_model() {
+        let dto = PipelineFileDto {
+            version: Some("1".to_string()),
+            defaults: Some(DefaultsDto {
+                model: Some("top-level".to_string()),
+                provider: Some(ProviderDto {
+                    model: Some("provider-wins".to_string()),
+                    base_url: None,
+                    auth_token: None,
+                    input_cost_per_1k: None,
+                    output_cost_per_1k: None,
+                }),
+                timeout_seconds: None,
+                tools: None,
+            }),
+            pipeline: Some(vec![minimal_step("s", "hello")]),
+        };
+        let pipeline = validate(dto, source()).expect("should succeed");
+        // provider.model takes precedence over defaults.model
+        assert_eq!(pipeline.defaults.model.as_deref(), Some("provider-wins"));
+    }
+
+    #[test]
+    fn defaults_no_provider_falls_through_to_top_level_model() {
+        let dto = PipelineFileDto {
+            version: Some("1".to_string()),
+            defaults: Some(DefaultsDto {
+                model: Some("fallback-model".to_string()),
+                provider: None,
+                timeout_seconds: None,
+                tools: None,
+            }),
+            pipeline: Some(vec![minimal_step("s", "hello")]),
+        };
+        let pipeline = validate(dto, source()).expect("should succeed");
+        assert_eq!(pipeline.defaults.model.as_deref(), Some("fallback-model"));
+    }
+
+    #[test]
+    fn timeout_seconds_propagates() {
+        let dto = PipelineFileDto {
+            version: Some("1".to_string()),
+            defaults: Some(DefaultsDto {
+                model: None,
+                provider: None,
+                timeout_seconds: Some(120),
+                tools: None,
+            }),
+            pipeline: Some(vec![minimal_step("s", "hello")]),
+        };
+        let pipeline = validate(dto, source()).expect("should succeed");
+        assert_eq!(pipeline.timeout_seconds, Some(120));
+    }
+
+    #[test]
+    fn default_tools_propagate() {
+        let dto = PipelineFileDto {
+            version: Some("1".to_string()),
+            defaults: Some(DefaultsDto {
+                model: None,
+                provider: None,
+                timeout_seconds: None,
+                tools: Some(ToolsDto {
+                    disabled: false,
+                    allow: vec!["Bash".to_string()],
+                    deny: vec![],
+                }),
+            }),
+            pipeline: Some(vec![minimal_step("s", "hello")]),
+        };
+        let pipeline = validate(dto, source()).expect("should succeed");
+        let default_tools = pipeline.default_tools.expect("should have default_tools");
+        assert_eq!(default_tools.allow, vec!["Bash".to_string()]);
+    }
+
+    // ── append_system_prompt ─────────────────────────────────────────────────
+
+    #[test]
+    fn append_system_prompt_text_shorthand_round_trips() {
+        let mut step = minimal_step("s", "hello");
+        step.append_system_prompt = Some(vec![AppendSystemPromptEntryDto::Text(
+            "Be concise".to_string(),
+        )]);
+        let dto = minimal_dto(vec![step]);
+        let pipeline = validate(dto, source()).expect("should succeed");
+        let entries = pipeline.steps[0]
+            .append_system_prompt
+            .as_ref()
+            .expect("should have entries");
+        assert_eq!(entries.len(), 1);
+        assert!(matches!(entries[0], SystemPromptEntry::Text(_)));
+    }
+
+    #[test]
+    fn append_system_prompt_structured_text_round_trips() {
+        let mut step = minimal_step("s", "hello");
+        step.append_system_prompt = Some(vec![AppendSystemPromptEntryDto::Structured(
+            AppendSystemPromptStructuredDto {
+                text: Some("Be helpful".to_string()),
+                file: None,
+                shell: None,
+            },
+        )]);
+        let dto = minimal_dto(vec![step]);
+        let pipeline = validate(dto, source()).expect("should succeed");
+        let entries = pipeline.steps[0]
+            .append_system_prompt
+            .as_ref()
+            .expect("should have entries");
+        assert!(matches!(entries[0], SystemPromptEntry::Text(_)));
+    }
+
+    #[test]
+    fn append_system_prompt_structured_file_round_trips() {
+        let mut step = minimal_step("s", "hello");
+        step.append_system_prompt = Some(vec![AppendSystemPromptEntryDto::Structured(
+            AppendSystemPromptStructuredDto {
+                text: None,
+                file: Some("rules.txt".to_string()),
+                shell: None,
+            },
+        )]);
+        let dto = minimal_dto(vec![step]);
+        let pipeline = validate(dto, source()).expect("should succeed");
+        let entries = pipeline.steps[0]
+            .append_system_prompt
+            .as_ref()
+            .expect("should have entries");
+        assert!(matches!(entries[0], SystemPromptEntry::File(_)));
+    }
+
+    #[test]
+    fn append_system_prompt_structured_shell_round_trips() {
+        let mut step = minimal_step("s", "hello");
+        step.append_system_prompt = Some(vec![AppendSystemPromptEntryDto::Structured(
+            AppendSystemPromptStructuredDto {
+                text: None,
+                file: None,
+                shell: Some("cat rules.txt".to_string()),
+            },
+        )]);
+        let dto = minimal_dto(vec![step]);
+        let pipeline = validate(dto, source()).expect("should succeed");
+        let entries = pipeline.steps[0]
+            .append_system_prompt
+            .as_ref()
+            .expect("should have entries");
+        assert!(matches!(entries[0], SystemPromptEntry::Shell(_)));
+    }
+
+    #[test]
+    fn append_system_prompt_structured_zero_keys_returns_error() {
+        let mut step = minimal_step("s", "hello");
+        step.append_system_prompt = Some(vec![AppendSystemPromptEntryDto::Structured(
+            AppendSystemPromptStructuredDto {
+                text: None,
+                file: None,
+                shell: None,
+            },
+        )]);
+        let dto = minimal_dto(vec![step]);
+        let err = validate(dto, source()).expect_err("should fail");
+        assert_eq!(err.error_type, error_types::CONFIG_VALIDATION_FAILED);
+    }
+
+    #[test]
+    fn append_system_prompt_structured_two_keys_returns_error() {
+        let mut step = minimal_step("s", "hello");
+        step.append_system_prompt = Some(vec![AppendSystemPromptEntryDto::Structured(
+            AppendSystemPromptStructuredDto {
+                text: Some("inline".to_string()),
+                file: Some("also-file.txt".to_string()),
+                shell: None,
+            },
+        )]);
+        let dto = minimal_dto(vec![step]);
+        let err = validate(dto, source()).expect_err("should fail");
+        assert_eq!(err.error_type, error_types::CONFIG_VALIDATION_FAILED);
+    }
+
+    // ── resume field ─────────────────────────────────────────────────────────
+
+    #[test]
+    fn resume_defaults_to_false() {
+        let dto = minimal_dto(vec![minimal_step("s", "hello")]);
+        let pipeline = validate(dto, source()).expect("should succeed");
+        assert!(!pipeline.steps[0].resume);
+    }
+
+    #[test]
+    fn resume_true_propagates() {
+        let mut step = minimal_step("s", "hello");
+        step.resume = Some(true);
+        let dto = minimal_dto(vec![step]);
+        let pipeline = validate(dto, source()).expect("should succeed");
+        assert!(pipeline.steps[0].resume);
+    }
+
+    // ── source path ──────────────────────────────────────────────────────────
+
+    #[test]
+    fn source_path_is_set_on_pipeline() {
+        let dto = minimal_dto(vec![minimal_step("s", "hello")]);
+        let src = PathBuf::from("/custom/path.ail.yaml");
+        let pipeline = validate(dto, src.clone()).expect("should succeed");
+        assert_eq!(pipeline.source, Some(src));
+    }
+}

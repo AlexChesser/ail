@@ -60,7 +60,7 @@ pub fn run(socket_path: &str) {
     println!("{}", serde_json::to_string(&response).unwrap_or_default());
 }
 
-fn build_answers_map(normalized: &Value, answer: &str) -> Value {
+pub(crate) fn build_answers_map(normalized: &Value, answer: &str) -> Value {
     let mut map = serde_json::Map::new();
     if let Some(questions) = normalized["questions"].as_array() {
         for q in questions {
@@ -72,14 +72,20 @@ fn build_answers_map(normalized: &Value, answer: &str) -> Value {
     Value::Object(map)
 }
 
-fn print_allow_passthrough() {
-    let response = json!({
+pub(crate) fn build_passthrough_response() -> Value {
+    json!({
         "hookSpecificOutput": {
             "hookEventName": "PreToolUse",
             "permissionDecision": "allow"
         }
-    });
-    println!("{}", serde_json::to_string(&response).unwrap_or_default());
+    })
+}
+
+fn print_allow_passthrough() {
+    println!(
+        "{}",
+        serde_json::to_string(&build_passthrough_response()).unwrap_or_default()
+    );
 }
 
 fn forward_to_socket(socket_path: &str, tool_input: &Value) -> io::Result<Value> {
@@ -214,5 +220,52 @@ mod tests {
         let normalized = json!({ "questions": [] });
         let answers = build_answers_map(&normalized, "whatever");
         assert!(answers.as_object().unwrap().is_empty());
+    }
+
+    #[test]
+    fn build_answers_map_handles_missing_questions_field() {
+        let normalized = json!({ "unrelated": "data" });
+        let answers = build_answers_map(&normalized, "something");
+        assert!(answers.as_object().unwrap().is_empty());
+    }
+
+    #[test]
+    fn build_answers_map_skips_questions_without_question_text() {
+        let normalized = json!({
+            "questions": [
+                { "options": [{ "label": "A" }] },
+                { "question": "Real question?", "options": [] }
+            ]
+        });
+        let answers = build_answers_map(&normalized, "answer");
+        let obj = answers.as_object().unwrap();
+        assert_eq!(obj.len(), 1);
+        assert_eq!(answers["Real question?"], "answer");
+    }
+
+    #[test]
+    fn passthrough_response_has_allow_decision() {
+        let resp = build_passthrough_response();
+        let output = &resp["hookSpecificOutput"];
+        assert_eq!(output["hookEventName"], "PreToolUse");
+        assert_eq!(output["permissionDecision"], "allow");
+    }
+
+    #[test]
+    fn passthrough_response_has_no_updated_input() {
+        let resp = build_passthrough_response();
+        assert!(resp["hookSpecificOutput"].get("updatedInput").is_none());
+    }
+
+    #[test]
+    fn passthrough_response_is_valid_json() {
+        let resp = build_passthrough_response();
+        let serialized = serde_json::to_string(&resp).expect("serialization must succeed");
+        let reparsed: serde_json::Value =
+            serde_json::from_str(&serialized).expect("must round-trip");
+        assert_eq!(
+            reparsed["hookSpecificOutput"]["permissionDecision"],
+            "allow"
+        );
     }
 }

@@ -240,3 +240,90 @@ impl TurnLog {
         &self.entries
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::runner::ToolEvent;
+    use crate::session::log_provider::NullProvider;
+    use std::time::SystemTime;
+
+    fn make_entry(step_id: &str, response: Option<&str>) -> TurnEntry {
+        TurnEntry {
+            step_id: step_id.to_string(),
+            prompt: "prompt".to_string(),
+            response: response.map(|s| s.to_string()),
+            timestamp: SystemTime::now(),
+            cost_usd: None,
+            input_tokens: 0,
+            output_tokens: 0,
+            runner_session_id: None,
+            stdout: None,
+            stderr: None,
+            exit_code: None,
+            thinking: None,
+            tool_events: Vec::<ToolEvent>::new(),
+        }
+    }
+
+    fn null_log() -> TurnLog {
+        TurnLog::with_provider("test-run".to_string(), Box::new(NullProvider))
+    }
+
+    #[test]
+    fn new_with_null_provider_has_empty_entries() {
+        let log = null_log();
+        assert!(log.entries().is_empty());
+    }
+
+    #[test]
+    fn append_entry_is_accessible_via_entries() {
+        let mut log = null_log();
+        log.append(make_entry("step-1", Some("response")));
+        assert_eq!(log.entries().len(), 1);
+        assert_eq!(log.entries()[0].step_id, "step-1");
+    }
+
+    #[test]
+    fn last_response_is_none_when_empty() {
+        let log = null_log();
+        assert!(log.last_response().is_none());
+    }
+
+    #[test]
+    fn last_response_returns_response_of_single_entry() {
+        let mut log = null_log();
+        log.append(make_entry("step-1", Some("hello")));
+        assert_eq!(log.last_response(), Some("hello"));
+    }
+
+    #[test]
+    fn last_response_returns_last_entry_response_with_multiple_entries() {
+        let mut log = null_log();
+        log.append(make_entry("step-1", Some("first")));
+        log.append(make_entry("step-2", Some("second")));
+        assert_eq!(log.last_response(), Some("second"));
+    }
+
+    #[test]
+    fn record_run_started_does_not_panic() {
+        let mut log = null_log();
+        log.record_run_started(Some("test.ail.yaml"));
+        log.record_run_started(None);
+    }
+
+    #[test]
+    fn record_step_started_does_not_panic() {
+        let mut log = null_log();
+        log.record_step_started("step-1", "do something");
+    }
+
+    #[test]
+    fn last_response_skips_entries_with_no_response() {
+        let mut log = null_log();
+        log.append(make_entry("step-1", Some("has response")));
+        // Entry with no response — last_response should skip it and return the previous one
+        log.append(make_entry("step-2", None));
+        assert_eq!(log.last_response(), Some("has response"));
+    }
+}
