@@ -251,86 +251,47 @@ pub fn run_chat_stream(
         let perm_slot_stdin = Arc::clone(&perm_slot);
 
         std::thread::spawn(move || {
+            use ail_core::protocol::{parse_control_message, ControlMessage};
             use std::io::BufRead;
             let stdin = std::io::stdin();
             for line in stdin.lock().lines() {
                 let line = match line {
-                    Ok(l) if !l.is_empty() => l,
-                    Ok(_) => continue,
+                    Ok(l) => l,
                     Err(_) => break,
                 };
-
-                let parsed: Option<serde_json::Value> = serde_json::from_str(&line).ok();
-                let msg_type = parsed
-                    .as_ref()
-                    .and_then(|v| v.get("type"))
-                    .and_then(|t| t.as_str())
-                    .map(|s| s.to_string());
-
-                match msg_type.as_deref() {
-                    Some("user_message") => {
-                        let text = parsed
-                            .as_ref()
-                            .and_then(|v| v.get("text"))
-                            .and_then(|t| t.as_str())
-                            .unwrap_or("")
-                            .to_string();
+                match parse_control_message(&line) {
+                    Some(ControlMessage::UserMessage(text)) => {
                         if prompt_tx_stdin.send(Some(text)).is_err() {
                             break;
                         }
                     }
-                    Some("end_session") => {
+                    Some(ControlMessage::EndSession) => {
                         let _ = prompt_tx_stdin.send(None);
                         break;
                     }
-                    Some("hitl_response") => {
-                        let text = parsed
-                            .as_ref()
-                            .and_then(|v| v.get("text"))
-                            .and_then(|t| t.as_str())
-                            .unwrap_or("")
-                            .to_string();
+                    Some(ControlMessage::HitlResponse(text)) => {
                         let guard = hitl_slot_stdin.lock().unwrap_or_else(|e| e.into_inner());
                         if let Some(ref tx) = *guard {
                             let _ = tx.send(text);
                         }
                     }
-                    Some("permission_response") => {
-                        let allowed = parsed
-                            .as_ref()
-                            .and_then(|v| v.get("allowed"))
-                            .and_then(|v| v.as_bool())
-                            .unwrap_or(false);
-                        let response = if allowed {
-                            PermissionResponse::Allow
-                        } else {
-                            let reason = parsed
-                                .as_ref()
-                                .and_then(|v| v.get("reason"))
-                                .and_then(|v| v.as_str())
-                                .unwrap_or("")
-                                .to_string();
-                            PermissionResponse::Deny(reason)
-                        };
+                    Some(ControlMessage::PermissionResponse { response, .. }) => {
                         let guard = perm_slot_stdin.lock().unwrap_or_else(|e| e.into_inner());
                         if let Some(ref tx) = *guard {
                             let _ = tx.send(response);
                         }
                     }
-                    Some("pause") => {
+                    Some(ControlMessage::Pause) => {
                         pause_stdin.store(true, Ordering::SeqCst);
                     }
-                    Some("resume") => {
+                    Some(ControlMessage::Resume) => {
                         pause_stdin.store(false, Ordering::SeqCst);
                     }
-                    Some("kill") => {
+                    Some(ControlMessage::Kill) => {
                         kill_stdin.store(true, Ordering::SeqCst);
                     }
-                    _ => {
-                        // Bare non-JSON line or unknown type: treat as user_message.
-                        if prompt_tx_stdin.send(Some(line)).is_err() {
-                            break;
-                        }
+                    None => {
+                        // Empty line or unknown type — ignore.
                     }
                 }
             }

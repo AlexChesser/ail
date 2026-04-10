@@ -6,6 +6,7 @@ pub mod formatter;
 pub mod ipc;
 pub mod logs;
 pub mod materialize;
+pub mod protocol;
 pub mod runner;
 pub mod session;
 pub mod template;

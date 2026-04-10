@@ -368,49 +368,22 @@ fn run_once_json(session: &mut ail_core::session::Session, runner: &dyn Runner, 
     let pending_perm_stdin = Arc::clone(&pending_permission);
     let allowlist_stdin = Arc::clone(&session_allowlist);
     std::thread::spawn(move || {
+        use ail_core::protocol::{parse_control_message, ControlMessage};
         use std::io::BufRead;
         let stdin = std::io::stdin();
         for line in stdin.lock().lines() {
             let line = match line {
-                Ok(l) if !l.is_empty() => l,
-                Ok(_) => continue,
+                Ok(l) => l,
                 Err(_) => break,
             };
-            let msg: serde_json::Value = match serde_json::from_str(&line) {
-                Ok(v) => v,
-                Err(_) => continue,
-            };
-            match msg.get("type").and_then(|t| t.as_str()) {
-                Some("hitl_response") => {
-                    let text = msg
-                        .get("text")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("")
-                        .to_string();
+            match parse_control_message(&line) {
+                Some(ControlMessage::HitlResponse(text)) => {
                     let _ = hitl_tx_stdin.send(text);
                 }
-                Some("permission_response") => {
-                    let allowed = msg
-                        .get("allowed")
-                        .and_then(|v| v.as_bool())
-                        .unwrap_or(false);
-                    let allow_for_session = msg
-                        .get("allow_for_session")
-                        .and_then(|v| v.as_bool())
-                        .unwrap_or(false);
-                    let response = if allowed {
-                        ail_core::runner::PermissionResponse::Allow
-                    } else {
-                        let reason = msg
-                            .get("reason")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("")
-                            .to_string();
-                        ail_core::runner::PermissionResponse::Deny(reason)
-                    };
+                Some(ControlMessage::PermissionResponse { response, allow_for_session }) => {
                     let mut guard = pending_perm_stdin.lock().unwrap_or_else(|e| e.into_inner());
                     if let Some((display_name, tx)) = guard.take() {
-                        if allowed && allow_for_session {
+                        if allow_for_session && response == ail_core::runner::PermissionResponse::Allow {
                             if let Ok(mut al) = allowlist_stdin.lock() {
                                 al.insert(display_name);
                             }
@@ -418,13 +391,13 @@ fn run_once_json(session: &mut ail_core::session::Session, runner: &dyn Runner, 
                         let _ = tx.send(response);
                     }
                 }
-                Some("pause") => {
+                Some(ControlMessage::Pause) => {
                     pause_stdin.store(true, std::sync::atomic::Ordering::SeqCst);
                 }
-                Some("resume") => {
+                Some(ControlMessage::Resume) => {
                     pause_stdin.store(false, std::sync::atomic::Ordering::SeqCst);
                 }
-                Some("kill") => {
+                Some(ControlMessage::Kill) => {
                     kill_stdin.store(true, std::sync::atomic::Ordering::SeqCst);
                 }
                 _ => {}
