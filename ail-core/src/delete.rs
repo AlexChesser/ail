@@ -37,7 +37,7 @@ pub fn delete_run(run_id: &str, force: bool) -> Result<(), AilError> {
 /// If `force` is false, returns an error if the JSONL file does not exist (protecting against
 /// accidental deletion of records without corresponding log files). If `force` is true, deletes
 /// the database records even if the JSONL file is missing.
-fn delete_run_at(run_id: &str, cwd_hash: &str, force: bool) -> Result<(), AilError> {
+pub(crate) fn delete_run_at(run_id: &str, cwd_hash: &str, force: bool) -> Result<(), AilError> {
     let db_path = project_dir_for_hash(cwd_hash).join("ail.db");
 
     // Check JSONL file existence unless force is set.
@@ -190,7 +190,7 @@ pub fn delete_runs(run_ids: &[String], force: bool) -> Result<usize, AilError> {
 
 /// Helper: compute project directory for a given CWD hash.
 /// Used by both delete_run and tests.
-fn project_dir_for_hash(cwd_hash: &str) -> PathBuf {
+pub(crate) fn project_dir_for_hash(cwd_hash: &str) -> PathBuf {
     dirs::home_dir()
         .unwrap_or_else(|| PathBuf::from("."))
         .join(".ail")
@@ -201,6 +201,7 @@ fn project_dir_for_hash(cwd_hash: &str) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tempfile::TempDir;
 
     #[test]
     fn project_dir_for_hash_returns_correct_path() {
@@ -208,5 +209,67 @@ mod tests {
         let path = project_dir_for_hash(hash);
         assert!(path.ends_with("abcd1234"));
         assert!(path.to_string_lossy().contains(".ail/projects"));
+    }
+
+    #[test]
+    fn project_dir_for_hash_contains_hash_segment() {
+        let hash = "deadbeef99";
+        let path = project_dir_for_hash(hash);
+        let path_str = path.to_string_lossy();
+        assert!(
+            path_str.contains("deadbeef99"),
+            "path should contain the hash segment"
+        );
+    }
+
+    #[test]
+    fn project_dir_for_hash_different_hashes_produce_different_paths() {
+        let path_a = project_dir_for_hash("hash_a");
+        let path_b = project_dir_for_hash("hash_b");
+        assert_ne!(path_a, path_b);
+    }
+
+    #[test]
+    fn delete_run_at_missing_jsonl_without_force_returns_error() {
+        let tempdir = TempDir::new().expect("tempdir");
+        let run_id = "no-jsonl-run";
+
+        // delete_run_at resolves paths via dirs::home_dir(). We pass a synthetic hash
+        // that does not exist under home, so the JSONL file will not be found.
+        let fake_hash = "hash-no-jsonl";
+        let _ = tempdir; // kept to make intent clear
+
+        // Call with a synthetic hash; the path won't exist so force=false should error.
+        let result = delete_run_at(run_id, fake_hash, false);
+        assert!(
+            result.is_err(),
+            "should return error when JSONL file is missing and force=false"
+        );
+        let err = result.unwrap_err();
+        assert_eq!(err.error_type, crate::error::error_types::PIPELINE_ABORTED);
+        assert!(
+            err.detail.contains(run_id),
+            "error detail should mention the run_id"
+        );
+    }
+
+    #[test]
+    fn delete_run_at_missing_jsonl_with_force_proceeds_to_db_open() {
+        // With force=true and a non-existent DB, we get a DB-related error (not a JSONL error).
+        let run_id = "force-no-jsonl-run";
+        let fake_hash = "hash-force-no-db";
+
+        let result = delete_run_at(run_id, fake_hash, true);
+        // Should not get a "Run not found" JSONL error. Instead we get a DB open error
+        // (since the DB doesn't exist either). Either way the JSONL check is bypassed.
+        // Both errors use PIPELINE_ABORTED; just confirm it's not the JSONL error message.
+        if let Err(e) = result {
+            assert!(
+                !e.detail.contains("No JSONL file found"),
+                "with force=true the JSONL check should be bypassed, got: {}",
+                e.detail
+            );
+        }
+        // If somehow it succeeds (empty DB), that's also fine.
     }
 }
