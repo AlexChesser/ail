@@ -40,24 +40,26 @@ pub fn run(socket_path: &str) {
         }
     };
 
-    // Build { question_text → answer } for each question in the normalized payload.
-    let answers = build_answers_map(&normalized, &answer);
+    let response = build_answer_response(&normalized, &answer);
+    println!("{}", serde_json::to_string(&response).unwrap_or_default());
+}
 
-    // updatedInput = normalized questions + answers map.
+/// Build the full `hookSpecificOutput` response carrying the user's answer.
+/// Injects an `answers` map into a clone of `normalized` and wraps it in the
+/// Claude hook envelope.
+pub(crate) fn build_answer_response(normalized: &Value, answer: &str) -> Value {
+    let answers = build_answers_map(normalized, answer);
     let mut updated_input = normalized.clone();
     if let Some(obj) = updated_input.as_object_mut() {
         obj.insert("answers".to_string(), answers);
     }
-
-    let response = json!({
+    json!({
         "hookSpecificOutput": {
             "hookEventName": "PreToolUse",
             "permissionDecision": "allow",
             "updatedInput": updated_input
         }
-    });
-
-    println!("{}", serde_json::to_string(&response).unwrap_or_default());
+    })
 }
 
 pub(crate) fn build_answers_map(normalized: &Value, answer: &str) -> Value {
@@ -255,6 +257,62 @@ mod tests {
     fn passthrough_response_has_no_updated_input() {
         let resp = build_passthrough_response();
         assert!(resp["hookSpecificOutput"].get("updatedInput").is_none());
+    }
+
+    #[test]
+    fn build_answer_response_has_allow_decision() {
+        let normalized = json!({ "questions": [{ "question": "Proceed?", "options": [] }] });
+        let resp = build_answer_response(&normalized, "Yes");
+        assert_eq!(resp["hookSpecificOutput"]["permissionDecision"], "allow");
+        assert_eq!(resp["hookSpecificOutput"]["hookEventName"], "PreToolUse");
+    }
+
+    #[test]
+    fn build_answer_response_updated_input_contains_answers() {
+        let normalized = json!({ "questions": [{ "question": "Color?", "options": [] }] });
+        let resp = build_answer_response(&normalized, "Blue");
+        let updated = &resp["hookSpecificOutput"]["updatedInput"];
+        assert_eq!(updated["answers"]["Color?"], "Blue");
+    }
+
+    #[test]
+    fn build_answer_response_updated_input_retains_questions() {
+        let normalized = json!({ "questions": [{ "question": "Q1?", "options": [] }] });
+        let resp = build_answer_response(&normalized, "A");
+        let updated = &resp["hookSpecificOutput"]["updatedInput"];
+        assert!(updated["questions"].is_array());
+    }
+
+    #[test]
+    fn build_answer_response_with_empty_answer() {
+        let normalized = json!({ "questions": [{ "question": "Q?", "options": [] }] });
+        let resp = build_answer_response(&normalized, "");
+        assert_eq!(
+            resp["hookSpecificOutput"]["updatedInput"]["answers"]["Q?"],
+            ""
+        );
+    }
+
+    #[test]
+    fn build_answer_response_with_multiple_questions_maps_same_answer() {
+        let normalized = json!({
+            "questions": [
+                { "question": "First?", "options": [] },
+                { "question": "Second?", "options": [] }
+            ]
+        });
+        let resp = build_answer_response(&normalized, "shared");
+        let updated = &resp["hookSpecificOutput"]["updatedInput"];
+        assert_eq!(updated["answers"]["First?"], "shared");
+        assert_eq!(updated["answers"]["Second?"], "shared");
+    }
+
+    #[test]
+    fn build_answer_response_with_empty_questions_produces_empty_answers() {
+        let normalized = json!({ "questions": [] });
+        let resp = build_answer_response(&normalized, "anything");
+        let answers = &resp["hookSpecificOutput"]["updatedInput"]["answers"];
+        assert!(answers.as_object().unwrap().is_empty());
     }
 
     #[test]

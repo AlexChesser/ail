@@ -44,12 +44,19 @@ pub fn run(socket_path: &str) {
         }
     };
 
+    let response = interpret_socket_response(&resp);
+    println!("{}", serde_json::to_string(&response).unwrap_or_default());
+}
+
+/// Map a socket response JSON value to the appropriate allow or deny hook response.
+/// Defaults to deny if the `behavior` field is absent or unrecognised.
+pub(crate) fn interpret_socket_response(resp: &Value) -> Value {
     let behavior = resp["behavior"].as_str().unwrap_or("deny");
     if behavior == "allow" {
-        print_allow();
+        build_allow_response()
     } else {
         let reason = resp["message"].as_str().unwrap_or("denied by ail");
-        print_deny(reason);
+        build_deny_response(reason)
     }
 }
 
@@ -120,6 +127,50 @@ mod tests {
             "tool_input": { "questions": [] }
         });
         assert_eq!(hook_input["tool_name"].as_str().unwrap(), "AskUserQuestion");
+    }
+
+    #[test]
+    fn interpret_socket_response_allow_behavior_returns_allow() {
+        let resp = json!({ "behavior": "allow" });
+        let result = interpret_socket_response(&resp);
+        assert_eq!(result["hookSpecificOutput"]["permissionDecision"], "allow");
+    }
+
+    #[test]
+    fn interpret_socket_response_deny_behavior_returns_deny() {
+        let resp = json!({ "behavior": "deny" });
+        let result = interpret_socket_response(&resp);
+        assert_eq!(result["hookSpecificOutput"]["permissionDecision"], "deny");
+    }
+
+    #[test]
+    fn interpret_socket_response_deny_with_message_preserves_reason() {
+        let resp = json!({ "behavior": "deny", "message": "tool not allowed" });
+        let result = interpret_socket_response(&resp);
+        assert_eq!(result["hookSpecificOutput"]["permissionDecision"], "deny");
+        assert_eq!(result["hookSpecificOutput"]["reason"], "tool not allowed");
+    }
+
+    #[test]
+    fn interpret_socket_response_missing_behavior_defaults_to_deny() {
+        let resp = json!({});
+        let result = interpret_socket_response(&resp);
+        assert_eq!(result["hookSpecificOutput"]["permissionDecision"], "deny");
+        assert_eq!(result["hookSpecificOutput"]["reason"], "denied by ail");
+    }
+
+    #[test]
+    fn interpret_socket_response_unknown_behavior_defaults_to_deny() {
+        let resp = json!({ "behavior": "maybe" });
+        let result = interpret_socket_response(&resp);
+        assert_eq!(result["hookSpecificOutput"]["permissionDecision"], "deny");
+    }
+
+    #[test]
+    fn interpret_socket_response_deny_without_message_uses_default_reason() {
+        let resp = json!({ "behavior": "deny" });
+        let result = interpret_socket_response(&resp);
+        assert_eq!(result["hookSpecificOutput"]["reason"], "denied by ail");
     }
 
     #[test]
