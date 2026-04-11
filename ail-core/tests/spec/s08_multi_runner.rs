@@ -100,6 +100,28 @@ pipeline:
     );
 }
 
+/// Factory builds an HTTP runner by name (object construction only — no live server needed).
+#[test]
+fn factory_builds_http_runner_by_name() {
+    let result = RunnerFactory::build("http", false);
+    assert!(
+        result.is_ok(),
+        "http runner construction should succeed: {:?}",
+        result.err()
+    );
+}
+
+/// "ollama" is an alias for "http" — both resolve to the same HttpRunner.
+#[test]
+fn factory_builds_ollama_runner_as_http_alias() {
+    let result = RunnerFactory::build("ollama", false);
+    assert!(
+        result.is_ok(),
+        "ollama alias should construct successfully: {:?}",
+        result.err()
+    );
+}
+
 /// Per-step runner field defaults to None when not specified in YAML.
 #[test]
 fn per_step_runner_field_defaults_to_none() {

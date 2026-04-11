@@ -6,6 +6,7 @@ mod s05_5_context_steps;
 mod s05_append_system_prompt;
 mod s05_step_specification;
 mod s06_pipeline_inheritance;
+mod s08_http_runner;
 mod s08_multi_runner;
 mod s08_runner_adapter;
 mod s09_sub_pipeline;

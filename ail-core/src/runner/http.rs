@@ -361,6 +361,32 @@ mod tests {
     }
 
     #[test]
+    fn invoke_without_model_returns_runner_invocation_failed() {
+        use crate::error::error_types;
+        // Port 1 is reserved and connection-refused on all platforms — never contacted.
+        let runner = HttpRunner::new(HttpRunnerConfig {
+            base_url: "http://127.0.0.1:1".to_string(),
+            auth_token: None,
+            default_model: None,
+            think: None,
+        });
+        let err = runner
+            .invoke("prompt", InvokeOptions::default())
+            .unwrap_err();
+        assert_eq!(
+            err.error_type(),
+            error_types::RUNNER_INVOCATION_FAILED,
+            "expected RUNNER_INVOCATION_FAILED, got: {}",
+            err.error_type()
+        );
+        assert!(
+            err.detail().contains("no model specified"),
+            "detail should mention missing model, got: {}",
+            err.detail()
+        );
+    }
+
+    #[test]
     fn conversation_store_starts_empty() {
         let r = HttpRunner::new(HttpRunnerConfig::default());
         let store = r.conversations.lock().unwrap();
