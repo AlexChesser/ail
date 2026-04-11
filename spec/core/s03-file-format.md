@@ -65,11 +65,8 @@ defaults:                   # optional; inherited by all steps
     model: gemma3:1b        # ✓ PARSED — alternative location for model; takes precedence over defaults.model
     base_url: http://localhost:11434   # set as ANTHROPIC_BASE_URL in subprocess env
     auth_token: ollama                 # set as ANTHROPIC_AUTH_TOKEN in subprocess env
-# on_error, tools at defaults level — not yet parsed
-  timeout_seconds: 120      # PARSED — not yet enforced at runtime
-# timeout_seconds, on_error at defaults level — not yet parsed
-  timeout_seconds: 120
-  on_error: pause_for_human
+  timeout_seconds: 120      # ✓ PARSED — not yet enforced at runtime
+  on_error: pause_for_human # not yet parsed
   tools:                    # ✓ PARSED — pipeline-wide tool policy fallback; per-step tools override entirely
     allow: [Read, Glob, LS]
     deny: [WebFetch]
