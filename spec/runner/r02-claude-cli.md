@@ -221,6 +221,12 @@ The `--resume` flag is not documented in the Claude CLI `--help` output but is f
 2. Each subsequent pipeline step spawns a new subprocess with `--resume <last_session_id>` and `-p <resolved_prompt>`
 3. The runner has full conversation history; template variable injection is used for cross-step references outside the active conversation thread
 
+#### Resume Limitation: Non-Default Base URLs
+
+`--resume` is only supported when connecting to the default Claude API endpoint. When a step is configured with a custom `base_url` (e.g. Bedrock, Vertex, or a local proxy), `--resume` is silently suppressed — the provider has no knowledge of Claude session IDs and attempting to pass one would cause the request to hang.
+
+When `resume: true` is declared on a step but a custom `base_url` is in effect (from `defaults.provider.base_url` or a step-level runner override), the runner emits a `WARN`-level log message that identifies the suppressed session ID and the active base URL. The step runs as a fresh session. To suppress the warning, set `resume: false` explicitly on the step.
+
 ### Flags Summary
 
 | Flag | Purpose | `ail` usage |
