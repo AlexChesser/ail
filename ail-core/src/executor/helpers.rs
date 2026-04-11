@@ -241,3 +241,254 @@ pub(super) fn resolve_prompt_file(
         context: None,
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::domain::{Pipeline, Step, StepBody, StepId, SystemPromptEntry, ToolPolicy};
+    use crate::runner::ToolPermissionPolicy;
+    use crate::session::log_provider::NullProvider;
+    use crate::session::Session;
+
+    // ── build_tool_policy ────────────────────────────────────────────────────
+
+    fn make_policy(disabled: bool, allow: Vec<&str>, deny: Vec<&str>) -> ToolPolicy {
+        ToolPolicy {
+            disabled,
+            allow: allow.iter().map(|s| s.to_string()).collect(),
+            deny: deny.iter().map(|s| s.to_string()).collect(),
+        }
+    }
+
+    #[test]
+    fn build_tool_policy_none_returns_runner_default() {
+        assert!(matches!(
+            build_tool_policy(None),
+            ToolPermissionPolicy::RunnerDefault
+        ));
+    }
+
+    #[test]
+    fn build_tool_policy_disabled_returns_no_tools() {
+        let policy = make_policy(true, vec![], vec![]);
+        assert!(matches!(
+            build_tool_policy(Some(&policy)),
+            ToolPermissionPolicy::NoTools
+        ));
+    }
+
+    #[test]
+    fn build_tool_policy_allow_and_deny_returns_mixed() {
+        let policy = make_policy(false, vec!["Bash"], vec!["Write"]);
+        assert!(matches!(
+            build_tool_policy(Some(&policy)),
+            ToolPermissionPolicy::Mixed { .. }
+        ));
+    }
+
+    #[test]
+    fn build_tool_policy_allow_only_returns_allowlist() {
+        let policy = make_policy(false, vec!["Read", "Bash"], vec![]);
+        assert!(matches!(
+            build_tool_policy(Some(&policy)),
+            ToolPermissionPolicy::Allowlist(_)
+        ));
+    }
+
+    #[test]
+    fn build_tool_policy_deny_only_returns_denylist() {
+        let policy = make_policy(false, vec![], vec!["Bash"]);
+        assert!(matches!(
+            build_tool_policy(Some(&policy)),
+            ToolPermissionPolicy::Denylist(_)
+        ));
+    }
+
+    #[test]
+    fn build_tool_policy_empty_returns_runner_default() {
+        let policy = make_policy(false, vec![], vec![]);
+        assert!(matches!(
+            build_tool_policy(Some(&policy)),
+            ToolPermissionPolicy::RunnerDefault
+        ));
+    }
+
+    // ── resolve_prompt_file ──────────────────────────────────────────────────
+
+    #[test]
+    fn resolve_prompt_file_plain_text_returns_unchanged() {
+        let text = "just a plain string with no path prefix";
+        let result = resolve_prompt_file(text, "step", None).unwrap();
+        assert_eq!(result, text);
+    }
+
+    #[test]
+    fn resolve_prompt_file_absolute_path_reads_content() {
+        let tmp = tempfile::NamedTempFile::new().unwrap();
+        std::fs::write(tmp.path(), "absolute content").unwrap();
+        let path_str = tmp.path().to_string_lossy().to_string();
+        let result = resolve_prompt_file(&path_str, "step", None).unwrap();
+        assert_eq!(result, "absolute content");
+    }
+
+    #[test]
+    fn resolve_prompt_file_relative_dot_slash_resolves_against_base_dir() {
+        let base = tempfile::tempdir().unwrap();
+        let file = base.path().join("prompt.txt");
+        std::fs::write(&file, "from base dir").unwrap();
+        let result = resolve_prompt_file("./prompt.txt", "step", Some(base.path())).unwrap();
+        assert_eq!(result, "from base dir");
+    }
+
+    #[test]
+    fn resolve_prompt_file_relative_dot_dot_resolves_against_base_dir() {
+        let parent = tempfile::tempdir().unwrap();
+        let child = parent.path().join("sub");
+        std::fs::create_dir_all(&child).unwrap();
+        let file = parent.path().join("up.txt");
+        std::fs::write(&file, "parent content").unwrap();
+        let result = resolve_prompt_file("../up.txt", "step", Some(&child)).unwrap();
+        assert_eq!(result, "parent content");
+    }
+
+    #[test]
+    fn resolve_prompt_file_missing_file_returns_config_file_not_found() {
+        let tmp = tempfile::tempdir().unwrap();
+        let result = resolve_prompt_file("/nonexistent/path/file.txt", "step", None);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert_eq!(
+            err.error_type(),
+            crate::error::error_types::CONFIG_FILE_NOT_FOUND
+        );
+        let _ = tmp; // ensure tempdir lives long enough
+    }
+
+    #[test]
+    fn resolve_prompt_file_tilde_prefix_reads_file_in_home() {
+        let home = dirs::home_dir().expect("home dir must be available in test environment");
+        let tmp = tempfile::Builder::new()
+            .prefix("ail_test_")
+            .suffix(".txt")
+            .tempfile_in(&home)
+            .expect("create tempfile in home dir");
+        std::fs::write(tmp.path(), "home content").unwrap();
+        let relative = tmp
+            .path()
+            .strip_prefix(&home)
+            .expect("tempfile is under home");
+        let tilde_path = format!("~/{}", relative.to_string_lossy());
+        let result = resolve_prompt_file(&tilde_path, "step", None).unwrap();
+        assert_eq!(result, "home content");
+    }
+
+    // ── resolve_step_system_prompts ──────────────────────────────────────────
+
+    fn make_step_with_append(entries: Vec<SystemPromptEntry>) -> Step {
+        Step {
+            id: StepId("test-step".to_string()),
+            body: StepBody::Prompt("say hi".to_string()),
+            message: None,
+            tools: None,
+            on_result: None,
+            model: None,
+            runner: None,
+            condition: None,
+            append_system_prompt: Some(entries),
+            system_prompt: None,
+            resume: false,
+        }
+    }
+
+    fn make_test_session() -> Session {
+        let pipeline = Pipeline {
+            steps: vec![],
+            source: None,
+            defaults: Default::default(),
+            timeout_seconds: None,
+            default_tools: None,
+        };
+        Session::new(pipeline, "test invocation".to_string())
+            .with_log_provider(Box::new(NullProvider))
+    }
+
+    #[test]
+    fn resolve_step_system_prompts_text_entry_returns_inline_text() {
+        let step = make_step_with_append(vec![SystemPromptEntry::Text("inline text".to_string())]);
+        let session = make_test_session();
+        let (system_prompt, append) =
+            resolve_step_system_prompts(&step, &session, "test-step", None).unwrap();
+        assert!(system_prompt.is_none());
+        assert_eq!(append, vec!["inline text"]);
+    }
+
+    #[test]
+    fn resolve_step_system_prompts_file_entry_reads_file_content() {
+        let tmp = tempfile::NamedTempFile::new().unwrap();
+        std::fs::write(tmp.path(), "from file").unwrap();
+        let step = make_step_with_append(vec![SystemPromptEntry::File(tmp.path().to_path_buf())]);
+        let session = make_test_session();
+        let (_system_prompt, append) =
+            resolve_step_system_prompts(&step, &session, "test-step", None).unwrap();
+        assert_eq!(append, vec!["from file"]);
+    }
+
+    #[test]
+    fn resolve_step_system_prompts_shell_entry_captures_stdout() {
+        let step = make_step_with_append(vec![SystemPromptEntry::Shell(
+            "echo 'from shell'".to_string(),
+        )]);
+        let session = make_test_session();
+        let (_system_prompt, append) =
+            resolve_step_system_prompts(&step, &session, "test-step", None).unwrap();
+        assert_eq!(append.len(), 1);
+        assert!(
+            append[0].contains("from shell"),
+            "expected shell output, got: {:?}",
+            append[0]
+        );
+    }
+
+    #[test]
+    fn resolve_step_system_prompts_multiple_entries_all_resolved() {
+        let tmp = tempfile::NamedTempFile::new().unwrap();
+        std::fs::write(tmp.path(), "file content").unwrap();
+        let step = make_step_with_append(vec![
+            SystemPromptEntry::Text("first".to_string()),
+            SystemPromptEntry::File(tmp.path().to_path_buf()),
+            SystemPromptEntry::Shell("echo 'third'".to_string()),
+        ]);
+        let session = make_test_session();
+        let (_system_prompt, append) =
+            resolve_step_system_prompts(&step, &session, "test-step", None).unwrap();
+        assert_eq!(append.len(), 3);
+        assert_eq!(append[0], "first");
+        assert_eq!(append[1], "file content");
+        assert!(
+            append[2].contains("third"),
+            "expected 'third' in shell output"
+        );
+    }
+
+    #[test]
+    fn resolve_step_system_prompts_no_entries_returns_empty() {
+        let step = Step {
+            id: StepId("no-append".to_string()),
+            body: StepBody::Prompt("hello".to_string()),
+            message: None,
+            tools: None,
+            on_result: None,
+            model: None,
+            runner: None,
+            condition: None,
+            append_system_prompt: None,
+            system_prompt: None,
+            resume: false,
+        };
+        let session = make_test_session();
+        let (system_prompt, append) =
+            resolve_step_system_prompts(&step, &session, "no-append", None).unwrap();
+        assert!(system_prompt.is_none());
+        assert!(append.is_empty());
+    }
+}

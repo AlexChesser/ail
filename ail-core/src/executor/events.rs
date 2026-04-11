@@ -44,6 +44,20 @@ impl Default for ExecutionControl {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::Ordering;
+
+    #[test]
+    fn execution_control_default_matches_new() {
+        let c = ExecutionControl::default();
+        assert!(!c.pause_requested.load(Ordering::SeqCst));
+        assert!(!c.kill_requested.load(Ordering::SeqCst));
+        assert!(c.permission_responder.is_none());
+    }
+}
+
 /// Events emitted by `execute_with_control()` to the TUI.
 #[derive(Debug, Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]

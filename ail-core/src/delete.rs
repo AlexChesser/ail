@@ -242,6 +242,79 @@ mod tests {
         );
     }
 
+    /// Full end-to-end: delete_run_at removes DB records and the JSONL file.
+    ///
+    /// Overrides HOME to a tempdir so project_dir_for_hash resolves inside the tempdir.
+    /// Note: HOME override is not thread-safe; this test must not run concurrently with
+    /// tests that also mutate HOME (none currently do, and nextest isolates processes).
+    #[test]
+    fn delete_run_at_happy_path_removes_db_records_and_jsonl() {
+        use crate::session::log_provider::LogProvider;
+        use crate::session::sqlite_provider::SqliteProvider;
+        use serde_json::json;
+        use std::fs;
+
+        let home_dir = TempDir::new().expect("tempdir");
+        // Override HOME so that project_dir_for_hash resolves inside our tempdir.
+        let orig_home = std::env::var("HOME").ok();
+        std::env::set_var("HOME", home_dir.path());
+
+        let hash = "test-happy-delete-hash";
+        let run_id = "happy-delete-run";
+
+        // Create directory structure: $HOME/.ail/projects/<hash>/runs/
+        let project_dir = home_dir.path().join(".ail").join("projects").join(hash);
+        let runs_dir = project_dir.join("runs");
+        fs::create_dir_all(&runs_dir).expect("create runs dir");
+
+        // Write DB records.
+        let db_path = project_dir.join("ail.db");
+        let mut provider = SqliteProvider::open(&db_path).expect("open sqlite");
+        provider
+            .write_entry(
+                run_id,
+                &json!({
+                    "step_id": "invocation",
+                    "type": "step_completed",
+                    "prompt": "hello",
+                    "response": "world",
+                }),
+            )
+            .expect("write entry");
+        drop(provider);
+
+        // Write JSONL file.
+        let jsonl_path = runs_dir.join(format!("{run_id}.jsonl"));
+        fs::write(&jsonl_path, r#"{"type":"step_completed"}"#).expect("write jsonl");
+        assert!(jsonl_path.exists(), "jsonl must exist before delete");
+
+        // Run the real production code.
+        let result = delete_run_at(run_id, hash, false);
+
+        // Restore HOME before any assertions so other tests aren't affected.
+        match orig_home {
+            Some(h) => std::env::set_var("HOME", h),
+            None => std::env::remove_var("HOME"),
+        }
+
+        result.expect("delete_run_at should succeed");
+        assert!(
+            !jsonl_path.exists(),
+            "jsonl file should be gone after delete"
+        );
+
+        // Verify DB record is removed.
+        let conn = rusqlite::Connection::open(&db_path).expect("open db");
+        let count: u32 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sessions WHERE run_id = ?1",
+                [run_id],
+                |row| row.get(0),
+            )
+            .expect("count query");
+        assert_eq!(count, 0, "session row should be deleted from DB");
+    }
+
     #[test]
     fn delete_run_at_missing_jsonl_with_force_proceeds_to_db_open() {
         // With force=true and a non-existent DB, we get a DB-related error (not a JSONL error).

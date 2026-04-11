@@ -73,10 +73,12 @@ impl Runner for EchoStubRunner {
     }
 }
 
-/// A recorded invocation call — captures the `tool_policy` for assertion in tests.
+/// A recorded invocation call — captures options passed to the runner for assertion in tests.
 pub struct RecordedCall {
     pub prompt: String,
     pub tool_policy: ToolPermissionPolicy,
+    pub append_system_prompt: Vec<String>,
+    pub system_prompt: Option<String>,
 }
 
 /// A stub runner that records each invocation for inspection in tests.
@@ -108,6 +110,8 @@ impl Runner for RecordingStubRunner {
             .push(RecordedCall {
                 prompt: prompt.to_string(),
                 tool_policy: options.tool_policy,
+                append_system_prompt: options.append_system_prompt,
+                system_prompt: options.system_prompt,
             });
         Ok(RunResult::stub(
             self.response.clone(),
