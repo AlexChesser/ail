@@ -150,8 +150,6 @@ pub fn validate(dto: PipelineFileDto, source: PathBuf) -> Result<Pipeline, AilEr
                     .or(d.model),
                 base_url: d.provider.as_ref().and_then(|p| p.base_url.clone()),
                 auth_token: d.provider.as_ref().and_then(|p| p.auth_token.clone()),
-                input_cost_per_1k: d.provider.as_ref().and_then(|p| p.input_cost_per_1k),
-                output_cost_per_1k: d.provider.as_ref().and_then(|p| p.output_cost_per_1k),
             };
             (provider_config, d.tools.map(tools_to_policy))
         })
@@ -914,8 +912,6 @@ mod tests {
                     model: Some("provider-wins".to_string()),
                     base_url: None,
                     auth_token: None,
-                    input_cost_per_1k: None,
-                    output_cost_per_1k: None,
                 }),
                 timeout_seconds: None,
                 tools: None,
