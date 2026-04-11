@@ -438,6 +438,28 @@ pub fn get_run_steps_at(run_id: &str, db_path: &Path) -> Result<Vec<StepRow>, Ai
     Ok(rows)
 }
 
+/// Returns `true` if the run represented by `steps` has reached a terminal state.
+///
+/// A run is complete when the last unique `step_id` has a `step_completed` or
+/// `step_failed` event. Returns `false` for an empty slice.
+pub fn is_run_complete(steps: &[StepRow]) -> bool {
+    if steps.is_empty() {
+        return false;
+    }
+
+    // Find the last step_id in insertion order.
+    let last_step_id = steps.last().map(|s| &s.step_id);
+
+    if let Some(last_id) = last_step_id {
+        steps.iter().any(|s| {
+            s.step_id == *last_id
+                && (s.event_type == "step_completed" || s.event_type == "step_failed")
+        })
+    } else {
+        false
+    }
+}
+
 /// Get the most recent run ID for the current working directory.
 ///
 /// Computes the SHA-1 hash of the absolute CWD path and queries the database.
@@ -485,4 +507,91 @@ pub fn get_latest_run_id_at(
         })?;
 
     Ok(run_id)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_row(step_id: &str, event_type: &str) -> StepRow {
+        StepRow {
+            step_id: step_id.to_string(),
+            event_type: event_type.to_string(),
+            prompt: None,
+            response: None,
+            thinking: None,
+            cost_usd: None,
+            input_tokens: None,
+            output_tokens: None,
+            stdout: None,
+            stderr: None,
+            exit_code: None,
+            recorded_at: 0,
+            tool_events: vec![],
+        }
+    }
+
+    #[test]
+    fn is_run_complete_empty_steps_returns_false() {
+        assert!(!is_run_complete(&[]));
+    }
+
+    #[test]
+    fn is_run_complete_returns_false_without_terminal_event() {
+        let steps = vec![
+            make_row("invocation", "step_started"),
+            make_row("invocation", "tool_call"),
+        ];
+        assert!(!is_run_complete(&steps));
+    }
+
+    #[test]
+    fn is_run_complete_returns_true_on_step_completed() {
+        let steps = vec![
+            make_row("invocation", "step_started"),
+            make_row("invocation", "step_completed"),
+        ];
+        assert!(is_run_complete(&steps));
+    }
+
+    #[test]
+    fn is_run_complete_returns_true_on_step_failed() {
+        let steps = vec![
+            make_row("invocation", "step_started"),
+            make_row("invocation", "step_failed"),
+        ];
+        assert!(is_run_complete(&steps));
+    }
+
+    #[test]
+    fn is_run_complete_only_checks_last_step_id() {
+        // "invocation" completes but "review" is the last step and has not finished.
+        let steps = vec![
+            make_row("invocation", "step_started"),
+            make_row("invocation", "step_completed"),
+            make_row("review", "step_started"),
+        ];
+        assert!(!is_run_complete(&steps));
+    }
+
+    #[test]
+    fn is_run_complete_true_when_last_step_completes() {
+        let steps = vec![
+            make_row("invocation", "step_started"),
+            make_row("invocation", "step_completed"),
+            make_row("review", "step_started"),
+            make_row("review", "step_completed"),
+        ];
+        assert!(is_run_complete(&steps));
+    }
+
+    #[test]
+    fn is_run_complete_true_when_last_step_fails() {
+        let steps = vec![
+            make_row("invocation", "step_completed"),
+            make_row("review", "step_started"),
+            make_row("review", "step_failed"),
+        ];
+        assert!(is_run_complete(&steps));
+    }
 }

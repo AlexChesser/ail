@@ -1,9 +1,10 @@
 use ail_core::runner::{InvokeOptions, Runner};
-use std::collections::HashSet;
 use std::io::Write;
 use std::sync::atomic::AtomicBool;
 use std::sync::mpsc;
 use std::sync::Arc;
+
+use crate::control_bridge;
 
 /// Run `--once` / positional prompt with NDJSON event stream to stdout.
 ///
@@ -41,91 +42,21 @@ pub async fn run_once_json(
     let pause_requested = Arc::new(AtomicBool::new(false));
     let kill_requested = Arc::new(AtomicBool::new(false));
 
-    // One-shot channel for permission responses. When the PermissionResponder
-    // callback fires, it parks a (display_name, SyncSender) here; the stdin
-    // reader picks it up and optionally adds the name to the session allowlist.
-    type PendingPerm = Arc<
-        std::sync::Mutex<
-            Option<(
-                String,
-                mpsc::SyncSender<ail_core::runner::PermissionResponse>,
-            )>,
-        >,
-    >;
-    let pending_permission: PendingPerm = Arc::new(std::sync::Mutex::new(None));
+    let pending_permission = control_bridge::make_pending_perm();
+    let session_allowlist = control_bridge::make_allowlist();
 
-    // Session allowlist — tool display_names approved for the lifetime of this run.
-    // Shared between the responder, event forwarding tasks, and stdin reader.
-    let session_allowlist: Arc<std::sync::Mutex<HashSet<String>>> =
-        Arc::new(std::sync::Mutex::new(HashSet::new()));
+    let responder = control_bridge::make_allowlist_responder(
+        Arc::clone(&pending_permission),
+        Arc::clone(&session_allowlist),
+    );
 
-    // Build the permission responder — checks session allowlist first, then blocks
-    // until the stdin reader delivers a decision.
-    let pending_perm_responder = Arc::clone(&pending_permission);
-    let allowlist_responder = Arc::clone(&session_allowlist);
-    let responder: ail_core::runner::PermissionResponder =
-        Arc::new(move |req: ail_core::runner::PermissionRequest| {
-            // Auto-approve tools already in the session allowlist — silent, no stdin block.
-            if let Ok(guard) = allowlist_responder.lock() {
-                if guard.contains(&req.display_name) {
-                    return ail_core::runner::PermissionResponse::Allow;
-                }
-            }
-            let (tx, rx) = mpsc::sync_channel(1);
-            if let Ok(mut guard) = pending_perm_responder.lock() {
-                *guard = Some((req.display_name, tx));
-            }
-            rx.recv_timeout(std::time::Duration::from_secs(300))
-                .unwrap_or(ail_core::runner::PermissionResponse::Deny(
-                    "timeout".to_string(),
-                ))
-        });
-
-    // Async stdin reader — routes NDJSON control messages from the extension (or any
-    // consumer) into the executor's control channels.
-    let hitl_tx_stdin = hitl_tx;
-    let pause_stdin = Arc::clone(&pause_requested);
-    let kill_stdin = Arc::clone(&kill_requested);
-    let pending_perm_stdin = Arc::clone(&pending_permission);
-    let allowlist_stdin = Arc::clone(&session_allowlist);
-    tokio::spawn(async move {
-        use ail_core::protocol::{parse_control_message, ControlMessage};
-        use tokio::io::AsyncBufReadExt;
-        let mut lines = tokio::io::BufReader::new(tokio::io::stdin()).lines();
-        while let Ok(Some(line)) = lines.next_line().await {
-            match parse_control_message(&line) {
-                Some(ControlMessage::HitlResponse(text)) => {
-                    let _ = hitl_tx_stdin.send(text);
-                }
-                Some(ControlMessage::PermissionResponse {
-                    response,
-                    allow_for_session,
-                }) => {
-                    let mut guard = pending_perm_stdin.lock().unwrap_or_else(|e| e.into_inner());
-                    if let Some((display_name, tx)) = guard.take() {
-                        if allow_for_session
-                            && response == ail_core::runner::PermissionResponse::Allow
-                        {
-                            if let Ok(mut al) = allowlist_stdin.lock() {
-                                al.insert(display_name);
-                            }
-                        }
-                        let _ = tx.send(response);
-                    }
-                }
-                Some(ControlMessage::Pause) => {
-                    pause_stdin.store(true, std::sync::atomic::Ordering::SeqCst);
-                }
-                Some(ControlMessage::Resume) => {
-                    pause_stdin.store(false, std::sync::atomic::Ordering::SeqCst);
-                }
-                Some(ControlMessage::Kill) => {
-                    kill_stdin.store(true, std::sync::atomic::Ordering::SeqCst);
-                }
-                _ => {}
-            }
-        }
-    });
+    control_bridge::spawn_stdin_reader_once(
+        hitl_tx,
+        Arc::clone(&pending_permission),
+        Arc::clone(&session_allowlist),
+        Arc::clone(&pause_requested),
+        Arc::clone(&kill_requested),
+    );
 
     let has_invocation_step = session.has_invocation_step();
 
@@ -156,29 +87,8 @@ pub async fn run_once_json(
 
         // Spawn a blocking task to forward runner events as NDJSON to stdout.
         let (runner_tx, runner_rx) = mpsc::channel::<ail_core::runner::RunnerEvent>();
-        let stdout_clone = std::io::stdout();
-        let allowlist_fwd = Arc::clone(&session_allowlist);
-        let fwd_handle = tokio::task::spawn_blocking(move || {
-            for ev in runner_rx {
-                // Suppress permission events for session-allowlisted tools — they are
-                // auto-approved by the responder and should not appear in the UI.
-                if let ail_core::runner::RunnerEvent::PermissionRequested(ref req) = ev {
-                    if let Ok(guard) = allowlist_fwd.lock() {
-                        if guard.contains(&req.display_name) {
-                            continue;
-                        }
-                    }
-                }
-                let wrapper = serde_json::json!({
-                    "type": "runner_event",
-                    "event": ev,
-                });
-                let mut out = stdout_clone.lock();
-                let _ = serde_json::to_writer(&mut out, &wrapper);
-                let _ = writeln!(out);
-                let _ = out.flush();
-            }
-        });
+        let fwd_handle =
+            control_bridge::spawn_runner_event_writer(runner_rx, Arc::clone(&session_allowlist));
 
         // Run invoke_streaming on the current thread (block_in_place keeps other
         // tokio tasks running on other threads while this one blocks).
@@ -235,33 +145,13 @@ pub async fn run_once_json(
         kill_requested: Arc::clone(&kill_requested),
         permission_responder: Some(responder),
     };
-    let disabled_steps = HashSet::new();
+    let disabled_steps = std::collections::HashSet::new();
 
     // Execute pipeline steps with event streaming.
     let (event_tx, event_rx) = mpsc::channel();
 
-    // Spawn blocking task — serializes ExecutorEvents as NDJSON.
-    let allowlist_writer = Arc::clone(&session_allowlist);
-    let writer_handle = tokio::task::spawn_blocking(move || {
-        let stdout = std::io::stdout();
-        for event in event_rx {
-            // Suppress permission events for session-allowlisted tools.
-            if let ail_core::executor::ExecutorEvent::RunnerEvent {
-                event: ail_core::runner::RunnerEvent::PermissionRequested(ref req),
-            } = event
-            {
-                if let Ok(guard) = allowlist_writer.lock() {
-                    if guard.contains(&req.display_name) {
-                        continue;
-                    }
-                }
-            }
-            let mut out = stdout.lock();
-            let _ = serde_json::to_writer(&mut out, &event);
-            let _ = writeln!(out);
-            let _ = out.flush();
-        }
-    });
+    let writer_handle =
+        control_bridge::spawn_executor_event_writer(event_rx, Some(Arc::clone(&session_allowlist)));
 
     // Run execute_with_control on the current thread (block_in_place).
     let result = tokio::task::block_in_place(|| {

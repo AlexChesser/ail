@@ -2,6 +2,7 @@ mod ask_user_hook;
 mod ask_user_types;
 mod chat;
 mod check_permission_hook;
+mod control_bridge;
 mod cli;
 mod delete;
 mod log;

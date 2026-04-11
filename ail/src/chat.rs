@@ -38,6 +38,8 @@ use std::sync::Arc;
 use std::time::Instant;
 use uuid::Uuid;
 
+use crate::control_bridge;
+
 /// Emit a single NDJSON line to stdout (locked).
 fn emit(value: &serde_json::Value) {
     let stdout = std::io::stdout();
@@ -162,14 +164,8 @@ async fn run_turn_stream(
     let disabled_steps = HashSet::new();
     let (event_tx, event_rx) = mpsc::channel::<ExecutorEvent>();
 
-    // Spawn blocking task to drain executor events to stdout.
-    let writer_handle = tokio::task::spawn_blocking(move || {
-        for event in event_rx {
-            if let Ok(v) = serde_json::to_value(&event) {
-                emit(&v);
-            }
-        }
-    });
+    // Drain executor events to stdout (no per-turn allowlist in chat mode).
+    let writer_handle = control_bridge::spawn_executor_event_writer(event_rx, None);
 
     let exec_result = tokio::task::block_in_place(|| {
         ail_core::executor::execute_with_control(
@@ -252,57 +248,13 @@ pub async fn run_chat_stream(
         let _ = prompt_tx.send(None).await;
     }
 
-    // Async stdin reader — always running; in one-shot mode it only reads control messages.
-    {
-        let prompt_tx_stdin = prompt_tx;
-        let pause_stdin = Arc::clone(&pause_requested);
-        let kill_stdin = Arc::clone(&kill_requested);
-        let hitl_slot_stdin = Arc::clone(&hitl_slot);
-        let perm_slot_stdin = Arc::clone(&perm_slot);
-
-        tokio::spawn(async move {
-            use ail_core::protocol::{parse_control_message, ControlMessage};
-            use tokio::io::AsyncBufReadExt;
-            let mut lines = tokio::io::BufReader::new(tokio::io::stdin()).lines();
-            while let Ok(Some(line)) = lines.next_line().await {
-                match parse_control_message(&line) {
-                    Some(ControlMessage::UserMessage(text)) => {
-                        if prompt_tx_stdin.send(Some(text)).await.is_err() {
-                            break;
-                        }
-                    }
-                    Some(ControlMessage::EndSession) => {
-                        let _ = prompt_tx_stdin.send(None).await;
-                        break;
-                    }
-                    Some(ControlMessage::HitlResponse(text)) => {
-                        let guard = hitl_slot_stdin.lock().unwrap_or_else(|e| e.into_inner());
-                        if let Some(ref tx) = *guard {
-                            let _ = tx.send(text);
-                        }
-                    }
-                    Some(ControlMessage::PermissionResponse { response, .. }) => {
-                        let guard = perm_slot_stdin.lock().unwrap_or_else(|e| e.into_inner());
-                        if let Some(ref tx) = *guard {
-                            let _ = tx.send(response);
-                        }
-                    }
-                    Some(ControlMessage::Pause) => {
-                        pause_stdin.store(true, Ordering::SeqCst);
-                    }
-                    Some(ControlMessage::Resume) => {
-                        pause_stdin.store(false, Ordering::SeqCst);
-                    }
-                    Some(ControlMessage::Kill) => {
-                        kill_stdin.store(true, Ordering::SeqCst);
-                    }
-                    None => {}
-                }
-            }
-            // EOF — signal shutdown.
-            let _ = prompt_tx_stdin.send(None).await;
-        });
-    }
+    control_bridge::spawn_stdin_reader_chat(
+        prompt_tx,
+        Arc::clone(&hitl_slot),
+        Arc::clone(&perm_slot),
+        Arc::clone(&pause_requested),
+        Arc::clone(&kill_requested),
+    );
 
     let mut last_runner_session_id: Option<String> = None;
     let mut turn_count: usize = 0;

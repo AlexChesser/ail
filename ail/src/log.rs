@@ -154,7 +154,7 @@ fn run_follow(run_id: &str, format: &str) {
                 }
             }
 
-            let mut is_final = check_is_final(run_id, &steps);
+            let mut is_final = ail_core::logs::is_run_complete(&steps);
 
             // Polling loop: exit when final step completes.
             while !is_final {
@@ -177,7 +177,7 @@ fn run_follow(run_id: &str, format: &str) {
                                 }
                             }
 
-                            is_final = check_is_final(run_id, &new_steps);
+                            is_final = ail_core::logs::is_run_complete(&new_steps);
                             tick_success = true;
                             break;
                         }
@@ -215,34 +215,6 @@ fn run_follow(run_id: &str, format: &str) {
     }
 }
 
-/// Check if the final step has completed by looking for a step_completed or step_failed
-/// event on the last step_id.
-fn check_is_final(_run_id: &str, steps: &[ail_core::logs::StepRow]) -> bool {
-    if steps.is_empty() {
-        return false;
-    }
-
-    // Get the last unique step_id.
-    let mut seen = std::collections::HashSet::new();
-    let mut last_step_id = None;
-    for step in steps {
-        last_step_id = Some(step.step_id.clone());
-        seen.insert(step.step_id.clone());
-    }
-
-    // Check if the last step has a completion or failure event.
-    if let Some(ref last_id) = last_step_id {
-        for step in steps {
-            if step.step_id == *last_id
-                && (step.event_type == "step_completed" || step.event_type == "step_failed")
-            {
-                return true;
-            }
-        }
-    }
-
-    false
-}
 
 /// Print raw JSONL entries from the run's stored JSONL file.
 fn print_raw_jsonl(run_id: &str) -> Result<(), ail_core::error::AilError> {
@@ -459,67 +431,4 @@ mod tests {
         assert!(result.is_empty());
     }
 
-    #[test]
-    fn check_is_final_empty_steps_returns_false() {
-        assert!(!check_is_final("run-1", &[]));
-    }
-
-    #[test]
-    fn check_is_final_returns_false_without_terminal_event() {
-        let steps = vec![
-            make_step_row("invocation", "step_started"),
-            make_step_row("invocation", "tool_call"),
-        ];
-        assert!(!check_is_final("run-1", &steps));
-    }
-
-    #[test]
-    fn check_is_final_returns_true_on_step_completed() {
-        let steps = vec![
-            make_step_row("invocation", "step_started"),
-            make_step_row("invocation", "step_completed"),
-        ];
-        assert!(check_is_final("run-1", &steps));
-    }
-
-    #[test]
-    fn check_is_final_returns_true_on_step_failed() {
-        let steps = vec![
-            make_step_row("invocation", "step_started"),
-            make_step_row("invocation", "step_failed"),
-        ];
-        assert!(check_is_final("run-1", &steps));
-    }
-
-    #[test]
-    fn check_is_final_only_checks_last_step_id() {
-        // "invocation" completes but "review" is the last step and has not finished.
-        let steps = vec![
-            make_step_row("invocation", "step_started"),
-            make_step_row("invocation", "step_completed"),
-            make_step_row("review", "step_started"),
-        ];
-        assert!(!check_is_final("run-1", &steps));
-    }
-
-    #[test]
-    fn check_is_final_true_when_last_step_completes() {
-        let steps = vec![
-            make_step_row("invocation", "step_started"),
-            make_step_row("invocation", "step_completed"),
-            make_step_row("review", "step_started"),
-            make_step_row("review", "step_completed"),
-        ];
-        assert!(check_is_final("run-1", &steps));
-    }
-
-    #[test]
-    fn check_is_final_true_when_last_step_fails() {
-        let steps = vec![
-            make_step_row("invocation", "step_completed"),
-            make_step_row("review", "step_started"),
-            make_step_row("review", "step_failed"),
-        ];
-        assert!(check_is_final("run-1", &steps));
-    }
 }
