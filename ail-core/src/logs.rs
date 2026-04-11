@@ -161,10 +161,12 @@ fn load_sessions(
          LIMIT ?{position}"
     );
 
-    let mut stmt = conn.prepare(&sql).map_err(|e| AilError::StorageQueryFailed {
-        detail: e.to_string(),
-        context: None,
-    })?;
+    let mut stmt = conn
+        .prepare(&sql)
+        .map_err(|e| AilError::StorageQueryFailed {
+            detail: e.to_string(),
+            context: None,
+        })?;
 
     // Bind parameters in order.
     let mut param_values: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();

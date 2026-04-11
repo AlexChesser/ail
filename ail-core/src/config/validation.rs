@@ -236,7 +236,7 @@ pub fn validate(dto: PipelineFileDto, source: PathBuf) -> Result<Pipeline, AilEr
             return Err(cfg_err!(
                 "Step '{id_str}' uses 'skill:' which is not yet implemented (planned for v0.2+). \
                  Use a 'pipeline:' step to compose pipelines instead."
-            ))
+            ));
         } else if let Some(action) = step_dto.action {
             match action.as_str() {
                 "pause_for_human" => StepBody::Action(ActionKind::PauseForHuman),
