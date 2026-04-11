@@ -74,16 +74,11 @@ fn resolve_variable(variable: &str, session: &Session) -> Result<String, AilErro
                             .response_for_step(step_id)
                             .map(|s| s.to_string())
                             .ok_or_else(|| {
-                                unresolved(format!(
-                                    "No response recorded for step '{step_id}'"
-                                ))
+                                unresolved(format!("No response recorded for step '{step_id}'"))
                             }),
-                        "result" => session
-                            .turn_log
-                            .result_for_step(step_id)
-                            .ok_or_else(|| {
-                                unresolved(format!("No result recorded for step '{step_id}'"))
-                            }),
+                        "result" => session.turn_log.result_for_step(step_id).ok_or_else(|| {
+                            unresolved(format!("No result recorded for step '{step_id}'"))
+                        }),
                         "stdout" => session
                             .turn_log
                             .stdout_for_step(step_id)

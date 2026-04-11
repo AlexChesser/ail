@@ -177,12 +177,13 @@ impl Runner for HttpRunner {
 
         if let Some(id) = resume_id {
             // Resume: load stored history (which ends with the last assistant turn).
-            let store = self.conversations.lock().map_err(|_| {
-                AilError::RunnerInvocationFailed {
-                    detail: "HttpRunner: conversation store lock poisoned".to_string(),
-                    context: None,
-                }
-            })?;
+            let store =
+                self.conversations
+                    .lock()
+                    .map_err(|_| AilError::RunnerInvocationFailed {
+                        detail: "HttpRunner: conversation store lock poisoned".to_string(),
+                        context: None,
+                    })?;
             if let Some(history) = store.get(id) {
                 api_messages.extend_from_slice(history);
             }
@@ -273,12 +274,13 @@ impl Runner for HttpRunner {
             .unwrap_or_else(|| Uuid::new_v4().to_string());
 
         {
-            let mut store = self.conversations.lock().map_err(|_| {
-                AilError::RunnerInvocationFailed {
-                    detail: "HttpRunner: conversation store lock poisoned".to_string(),
-                    context: None,
-                }
-            })?;
+            let mut store =
+                self.conversations
+                    .lock()
+                    .map_err(|_| AilError::RunnerInvocationFailed {
+                        detail: "HttpRunner: conversation store lock poisoned".to_string(),
+                        context: None,
+                    })?;
             // Store the full context: what we sent + the assistant response.
             let history = store.entry(session_id.clone()).or_default();
             *history = api_messages;

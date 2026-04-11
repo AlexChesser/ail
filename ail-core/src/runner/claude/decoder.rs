@@ -252,8 +252,8 @@ impl ClaudeNdjsonDecoder {
                     }
                 }
 
-                let usage: WireUsage = serde_json::from_value(event["message"]["usage"].clone())
-                    .unwrap_or_default();
+                let usage: WireUsage =
+                    serde_json::from_value(event["message"]["usage"].clone()).unwrap_or_default();
                 if usage.input_tokens > 0 || usage.output_tokens > 0 {
                     tracing::debug!(
                         event_type,
@@ -300,9 +300,7 @@ impl ClaudeNdjsonDecoder {
                             .as_ref()
                             .and_then(|v| v.as_str())
                             .or_else(|| {
-                                raw_content
-                                    .as_ref()
-                                    .and_then(|v| v.as_object().map(|_| ""))
+                                raw_content.as_ref().and_then(|v| v.as_object().map(|_| ""))
                             })
                             .map(str::to_string);
                         let _ = tx.send(RunnerEvent::ToolResult {
