@@ -1,6 +1,8 @@
 ## 19. Runners & Adapters
 
-> **Note:** This section describes the conceptual model for how `ail` connects to underlying CLI tools. The detailed contract for runner compliance is defined in a separate document — `RUNNER-SPEC.md` — which is currently a stub under active development. The interface described here should be considered directional, not final.
+> **Implementation status:** The "Three Tiers of Runner Support" and "Custom Adapters" subsections below describe the long-arc vision for runner extensibility. The current implementation provides three built-in runners (`claude`, `http`/`ollama`, `stub`) selected via `RunnerFactory`. The "RunnerFactory and Per-Step Dispatch" subsection describes what is actually implemented.
+
+> **Note:** This section describes the conceptual model for how `ail` connects to underlying CLI tools. The detailed contract for runner compliance is defined in a separate document — `RUNNER-SPEC.md`. The interface described here should be considered directional, not final.
 
 ### What a Runner Is
 
@@ -107,7 +109,7 @@ pipeline:
     runner: stub   # overrides for this step only
 ```
 
-Per-step runners are always headless (non-interactive subprocess invocations).
+Per-step runner overrides inherit the parent session's headless flag (`Session.headless`), so `--dangerously-skip-permissions` is passed (or not) consistently with the default runner invocation.
 
 #### Adding a New Runner
 

@@ -1,7 +1,8 @@
 # AIL — Artificial Intelligence Loops
 
-**ail** is a YAML-orchestrated pipeline runtime that fires a deterministic chain of
-automated prompts after every human prompt — before control returns to the user.
+**ail** is a YAML-orchestrated pipeline runtime that fires a declared sequence of
+automated steps after every human prompt — before control returns to the user.
+Steps run in order; individual steps may be skipped or exit early via declared outcomes.
 It is the control plane for agent behaviour after the human stops typing.
 
 ## Workspace Layout
@@ -119,7 +120,7 @@ If nothing found → passthrough mode (safe zero-config default).
 
 1. Discover and load pipeline (or passthrough).
 2. If no `invocation` step declared: run user prompt via `runner.invoke()`, append `TurnEntry(step_id="invocation")`, store `runner_session_id`.
-3. Call `executor::execute()` for all declared steps; each step resumes via `--resume <last_runner_session_id>`.
+3. Call `executor::execute()` for all declared steps; steps run isolated by default — set `resume: true` on a step to resume the prior session.
 4. Print invocation response, then last non-invocation step response.
 
 ## Template Variables (spec/core/s11)
@@ -148,7 +149,7 @@ Unresolved variables **abort with a typed error** — never silently empty.
 - No `unwrap()`/`expect()` outside tests
 - No `println!`/`eprintln!` in `ail-core` — use `tracing::{info, warn, error}`
 - `dto.rs` derives `Deserialize`; `domain.rs` does not — conversion in `validation.rs`
-- `#[allow(clippy::result_large_err)]` required in: `validation.rs`, `config/mod.rs`, `runner/mod.rs`, `template.rs`, `executor.rs`
+- `#[allow(clippy::result_large_err)]` required in every module that returns `Result<_, AilError>`. Apply at file scope (`#![allow(...)]`). Current files: `config/{mod,validation}.rs`, `template.rs`, `executor/{core,headless,controlled,helpers}.rs`, `runner/{mod,factory,http,subprocess,claude/mod,claude/permission}.rs`, `delete.rs`, `fs_util.rs`, `logs.rs`, `formatter.rs`
 - All errors use `AilError` with a stable `error_type` string constant from `error::error_types`
 - No co-authorship lines in git commits
 
