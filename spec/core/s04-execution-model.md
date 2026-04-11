@@ -73,6 +73,8 @@ The `before:` chain on `invocation` is a more powerful variant: rather than inse
 
 Every pipeline execution is backed by a **pipeline run log** — a durable, structured record written to disk before the next step begins. The log is the authoritative source for template variable resolution. An implementation that resolves template variables from an in-memory cache without a durable backing store does not conform to this spec.
 
+Each log entry must be flushed to the storage layer (`fsync`/`sync_data` equivalent) before execution continues. An implementation that buffers log entries without flushing does not conform to this spec. When a composite (multi-backend) log provider is used, the entry is considered durably recorded if at least one backend succeeds; all individual backend failures are logged as warnings, and the run is only aborted if all backends fail.
+
 #### Log Identity
 
 Each pipeline run is identified by a `pipeline.run_id` — the same identifier used in the tracing and observability systems (see §22). There is no separate context identifier; run identity is unified across logging, tracing, and template variable access.
