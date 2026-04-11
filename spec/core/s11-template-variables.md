@@ -15,13 +15,13 @@ Prompt strings, file-based prompts, and `pipeline:` paths may reference runtime 
 | `{{ step.<id>.stdout }}` | Standard output of a `shell:` context step. |
 | `{{ step.<id>.stderr }}` | Standard error of a `shell:` context step. |
 | `{{ step.<id>.exit_code }}` | Exit code of a `shell:` context step, as a string. |
-| `{{ step.<id>.tool_calls }}` | The tool calls made by a specific named step (array). |
-| `{{ session.tool }}` | The underlying runner name (e.g. `aider`, `claude-code`). |
+| `{{ step.<id>.tool_calls }}` | Tool call and result events from a specific named `prompt:` step, serialised as a JSON array. Empty array for context/action/sub-pipeline steps. |
+| `{{ session.tool }}` | The runner name resolved for the currently executing step (e.g. `claude`, `ollama`). Reflects per-step `runner:` overrides — updated at the start of each Prompt step. |
 | `{{ session.cwd }}` | The current working directory of the session. |
 | `{{ pipeline.run_id }}` | Unique ID for this pipeline execution. |
 | `{{ env.VAR_NAME }}` | An environment variable. Fails loudly if not set — use this form for required variables. Use `{{ env.VAR_NAME \| default("value") }}` to fall back to a string literal. v0.1 supports string literals only. File and inline fallbacks for complex JSON or prompt content are a planned extension — for now, declare required variables explicitly and handle optional configuration via separate steps. |
 
-> **Note:** There are no convenience aliases. All variable references use the dot-path structure above. This keeps the mental model consistent — every step, including `invocation`, is accessed the same way.
+> **Note:** All variable references use the dot-path structure above. `{{ session.invocation_prompt }}` is a supported but **deprecated** alias for `{{ step.invocation.prompt }}`; prefer the canonical form. No other aliases exist.
 
 **Skipped step variables:** If a template variable references a step that was skipped by its `condition`, `ail` raises a **parse-time error** if the reference is unconditional, or returns an empty string if the referencing step itself has a matching condition guard. Silently empty references are never permitted.
 

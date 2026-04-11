@@ -282,6 +282,14 @@ impl TurnLog {
             .and_then(|e| e.exit_code)
     }
 
+    /// Tool events recorded for a step (empty slice when step has no tool calls).
+    pub fn tool_events_for_step(&self, id: &str) -> Option<&[ToolEvent]> {
+        self.entries
+            .iter()
+            .find(|e| e.step_id == id)
+            .map(|e| e.tool_events.as_slice())
+    }
+
     pub fn entries(&self) -> &[TurnEntry] {
         &self.entries
     }

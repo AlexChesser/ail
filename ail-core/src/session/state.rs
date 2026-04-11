@@ -17,6 +17,10 @@ pub struct Session {
     pub cli_provider: ProviderConfig,
     /// Working directory captured at session creation time (used by `{{ session.cwd }}`).
     pub cwd: String,
+    /// The name of the runner currently active for the executing step.
+    /// Updated by the executor before each Prompt step so `{{ session.tool }}` reflects
+    /// the resolved runner (per-step `runner:` override → `AIL_DEFAULT_RUNNER` → `"claude"`).
+    pub runner_name: String,
 }
 
 impl Session {
@@ -46,6 +50,9 @@ impl Session {
             .map(|p| p.display().to_string())
             .unwrap_or_default();
 
+        let runner_name =
+            std::env::var("AIL_DEFAULT_RUNNER").unwrap_or_else(|_| "claude".to_string());
+
         Session {
             run_id,
             pipeline,
@@ -54,6 +61,7 @@ impl Session {
             tool_allowlist: Vec::new(),
             cli_provider: ProviderConfig::default(),
             cwd,
+            runner_name,
         }
     }
 
