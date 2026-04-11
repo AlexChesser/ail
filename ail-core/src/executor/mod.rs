@@ -5,6 +5,7 @@
 //! - [`execute_with_control`]: TUI-controlled mode with live event streaming
 
 mod controlled;
+mod core;
 mod events;
 mod headless;
 mod helpers;
