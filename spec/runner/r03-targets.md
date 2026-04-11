@@ -4,7 +4,8 @@ The following CLI tools are on the roadmap for first-class `ail` support. Each w
 
 | Runner | Status | Notes |
 |---|---|---|
-| Claude CLI (`claude`) | **In progress** — v0.0.1 target | Reference implementation |
+| Claude CLI (`claude`) | **Implemented** — v0.0.1 | Reference implementation; full tool support, MCP bridge, streaming NDJSON |
+| HTTP / Ollama (`http`, `ollama`) | **Implemented** — v0.1 | Direct OpenAI-compatible API; no tools; in-memory session continuity; see `r05-http-runner.md` |
 | Aider | Planned | |
 | OpenCode | Planned | |
 | Codex CLI | Planned | |
@@ -44,14 +45,14 @@ Set this to override the default runner for all steps that do not declare a per-
 AIL_DEFAULT_RUNNER=stub ail --once "Hello" --pipeline demo/.ail.yaml
 ```
 
-Recognised values: `claude`, `stub`. Any unrecognised value produces a `ail:runner/not-found` error with the unknown name in the detail.
+Recognised values: `claude`, `http`, `ollama`, `stub`. Any unrecognised value produces a `ail:runner/not-found` error with the unknown name in the detail.
 
 ### `RUNNER_NOT_FOUND` error
 
 When a runner name (from `AIL_DEFAULT_RUNNER` or a per-step `runner:` field) is not recognized, `ail` exits with:
 
 ```
-[ail:runner/not-found] Unknown runner: Runner '<name>' is not recognized. Known runners: claude, stub
+[ail:runner/not-found] Unknown runner: Runner '<name>' is not recognized. Known runners: claude, http, ollama, stub
 ```
 
 ---

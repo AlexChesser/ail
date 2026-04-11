@@ -59,5 +59,6 @@ The AIL Runner Contract — for CLI tool authors and adapter writers.
 |---|---|---|---|
 | [r01-overview.md](runner/r01-overview.md) | Purpose, Background, Compliance Tiers | What `ail` needs from any runner; minimum vs. extended compliance | reference |
 | [r02-claude-cli.md](runner/r02-claude-cli.md) | Reference Implementation — Claude CLI | Verified flags, event stream, session continuity, tool permission interface | v0.1 ✓ — invocation, session-continuity, `--allowedTools`, MCP bridge HITL all implemented and validated |
-| [r03-targets.md](runner/r03-targets.md) | Known Runners, Custom Adapters, Open Questions | Roadmap runners; Runner trait for adapters; remaining open questions | planned |
+| [r03-targets.md](runner/r03-targets.md) | Known Runners, Custom Adapters, Open Questions | Roadmap runners; Runner trait for adapters; remaining open questions | partial — `http`/`ollama` implemented |
 | [r04-ail-log-format.md](runner/r04-ail-log-format.md) | r04. AIL Log Format Specification | Terminal-safe markdown+directives format; version header, thinking/tool-call/tool-result/stdio directives, turns, costs, errors | **alpha** |
+| [r05-http-runner.md](runner/r05-http-runner.md) | r05. HTTP Runner — Direct OpenAI-Compatible API | Direct API runner for Ollama and any OpenAI-compatible endpoint; session continuity, config, tool policy, error mapping | **v0.1** ✓ |

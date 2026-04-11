@@ -86,6 +86,8 @@ The effective runner for a step is determined in priority order (highest first):
 | Name | Case-sensitive | Resulting type | Notes |
 |---|---|---|---|
 | `claude` | No (trimmed, lowercased) | `ClaudeCliRunner` | Production runner; shells out to the `claude` binary |
+| `http` | No | `HttpRunner` | Direct OpenAI-compatible API; no tools; in-memory session continuity |
+| `ollama` | No | `HttpRunner` | Alias for `http`; identical behaviour |
 | `stub` | No | `StubRunner` | Returns a fixed `"stub response"` string; for tests and development |
 
 Any unrecognised name returns `AilError { error_type: "ail:runner/not-found", ... }` and aborts the step.

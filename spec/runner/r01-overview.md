@@ -4,11 +4,11 @@
 
 ---
 
-> ⚠️ **This document is a stub under active development.**
+> ⚠️ **This document is under active development.**
 >
-> The direction and intent are established. The contract details — specific flags, output formats, exit code semantics, capability declarations — will be defined through implementation experience with the Claude CLI proof of concept and expanded as additional runners are brought into scope.
+> The Claude CLI and HTTP runner contracts are stable and implemented (see `r02-claude-cli.md` and `r05-http-runner.md`). The generic AIL Runner Contract for third-party CLI tool authors — capability declaration, structured output, `--ail-capabilities` flag — is still being defined through implementation experience.
 >
-> Do not implement against this document yet. Open a discussion issue if you are a CLI tool author interested in AIL compliance.
+> CLI tool authors: the minimum compliance tier below is stable. Extended compliance details are in flux. Open a discussion issue if you are interested in AIL compliance for your tool.
 
 ---
 
