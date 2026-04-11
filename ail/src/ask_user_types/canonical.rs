@@ -23,7 +23,7 @@
 
 use serde_json::Value;
 
-use super::{NormalizedOption, NormalizedQuestion};
+use super::NormalizedQuestion;
 
 /// Returns `Some` when `input["questions"]` is a non-empty array.
 /// Options must have at least a `label` string; `description` is optional.
@@ -55,39 +55,13 @@ fn parse_question(q: &Value) -> Option<NormalizedQuestion> {
         Some(Value::String(s)) => s.to_lowercase() == "true",
         _ => false,
     };
-    let options = parse_options(q.get("options").unwrap_or(&Value::Null));
+    let options = super::parse_options(q.get("options").unwrap_or(&Value::Null));
     Some(NormalizedQuestion {
         header,
         question,
         multi_select,
         options,
     })
-}
-
-fn parse_options(raw: &Value) -> Vec<NormalizedOption> {
-    let arr = match raw.as_array() {
-        Some(a) => a,
-        None => return vec![],
-    };
-    arr.iter().filter_map(parse_option).collect()
-}
-
-fn parse_option(opt: &Value) -> Option<NormalizedOption> {
-    match opt {
-        Value::String(s) => Some(NormalizedOption {
-            label: s.clone(),
-            description: None,
-        }),
-        Value::Object(m) => {
-            let label = m.get("label")?.as_str()?.to_string();
-            let description = m
-                .get("description")
-                .and_then(|v| v.as_str())
-                .map(|s| s.to_string());
-            Some(NormalizedOption { label, description })
-        }
-        _ => None,
-    }
 }
 
 #[cfg(test)]
