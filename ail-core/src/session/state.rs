@@ -21,6 +21,9 @@ pub struct Session {
     /// Updated by the executor before each Prompt step so `{{ session.tool }}` reflects
     /// the resolved runner (per-step `runner:` override → `AIL_DEFAULT_RUNNER` → `"claude"`).
     pub runner_name: String,
+    /// Whether this session runs in headless mode (`--dangerously-skip-permissions`).
+    /// Propagated to per-step runner overrides via `build_step_runner_box`.
+    pub headless: bool,
 }
 
 impl Session {
@@ -62,6 +65,7 @@ impl Session {
             cli_provider: ProviderConfig::default(),
             cwd,
             runner_name,
+            headless: false,
         }
     }
 

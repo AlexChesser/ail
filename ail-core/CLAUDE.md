@@ -54,6 +54,7 @@ pub enum ResultAction { Continue, Break, AbortPipeline, PauseForHuman, Pipeline 
 // Provider/model config (SPEC §15) — resolved chain: defaults → per-step → cli_provider
 pub struct ProviderConfig { pub model: Option<String>, pub base_url: Option<String>, pub auth_token: Option<String> }
 // merge(self, other): other wins on conflict; absent fields fall through from self
+// Note: input_cost_per_1k / output_cost_per_1k removed (dead code — cost is in RunResult.cost_usd)
 
 // Runner contract
 pub trait Runner { fn invoke(&self, prompt: &str, options: InvokeOptions) -> Result<RunResult, AilError>; }
@@ -98,7 +99,7 @@ pub struct HttpRunnerConfig { pub base_url: String, pub auth_token: Option<Strin
 pub enum ExecuteOutcome { Completed, Break { step_id: String } }
 
 // Session
-pub struct Session { pub run_id: String, pub pipeline: Pipeline, pub invocation_prompt: String, pub turn_log: TurnLog, pub cli_provider: ProviderConfig, pub cwd: String }
+pub struct Session { pub run_id: String, pub pipeline: Pipeline, pub invocation_prompt: String, pub turn_log: TurnLog, pub cli_provider: ProviderConfig, pub cwd: String, pub runner_name: String, pub headless: bool }
 // cwd: captured at Session::new() time via std::env::current_dir(); used by {{ session.cwd }} template variable.
 // TurnEntry carries prompt-step fields (response, runner_session_id, thinking, tool_events) and context-step fields (stdout, stderr, exit_code)
 // tool_events: Vec<ToolEvent> — populated from RunResult.tool_events for prompt steps; empty for context/action/sub-pipeline steps
