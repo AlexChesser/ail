@@ -167,7 +167,15 @@ impl ClaudeCliRunner {
         // (Ollama, Bedrock, etc.) have no knowledge of Claude session IDs and will
         // hang waiting to resolve them, causing the pipeline step to time out.
         if let Some(sid) = &options.resume_session_id {
-            if base_url.is_none() {
+            if let Some(url) = base_url {
+                tracing::warn!(
+                    base_url = %url,
+                    session_id = %sid,
+                    "resume suppressed: --resume is only supported on the default Claude API \
+                     endpoint; non-default base_url detected. The step will run as a fresh \
+                     session. Set resume: false on this step to silence this warning."
+                );
+            } else {
                 args.push("--resume".into());
                 args.push(sid.clone());
             }
