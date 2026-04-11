@@ -10,6 +10,7 @@ Prompt strings, file-based prompts, and `pipeline:` paths may reference runtime 
 | `{{ step.invocation.response }}` | The runner's response before any pipeline steps ran. |
 | `{{ last_response }}` | The full response from the immediately preceding step. |
 | `{{ step.<id>.response }}` | The response from a specific named `prompt:` step in this pipeline run. |
+| `{{ step.<id>__on_result.response }}` | The response from a sub-pipeline triggered by an `on_result: pipeline:` branch on step `<id>`. The derived ID `<id>__on_result` is used to avoid shadowing the parent step's own response in the turn log. |
 | `{{ step.<id>.result }}` | Output of a `context:` step. For `shell:`: stdout+stderr concatenated. For `mcp:`: tool output. |
 | `{{ step.<id>.stdout }}` | Standard output of a `shell:` context step. |
 | `{{ step.<id>.stderr }}` | Standard error of a `shell:` context step. |

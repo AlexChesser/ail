@@ -76,6 +76,8 @@ For automated runs (CI, the autonomous agent use case, Docker sandbox), HITL pro
 
 **`--once` text mode:** The `--once --output-format text` flow does not set a `permission_responder` and does not spawn a stdin reader thread. Interactive permission HITL is not available. Tools in text mode require either `--headless` (bypass all permissions) or `tools: allow:` in the pipeline YAML (pre-approve specific tools).
 
+When `pause_for_human` fires in headless / text mode (either as an explicit step or via `on_result: pause_for_human`), the executor emits a `WARN`-level log message identifying the step and any configured message, then **continues the pipeline**. No HITL gate is raised and no input is awaited. This is visible on stderr (as a structured JSON log entry) when the binary's tracing subscriber is active. Use `--output-format json` mode for interactive HITL gates.
+
 **Interactive questions in Claude's text output:** When the model's response contains a question (e.g., "Do you want option 1, 2, or 3?"), this is the step's completed response — not a HITL event. In `-p` mode (single-turn), there is no follow-up turn within a step. The question text is available to subsequent steps as `{{ step.<id>.response }}`. Pipelines that need human review of model output should use explicit `pause_for_human` gates.
 
 ---
