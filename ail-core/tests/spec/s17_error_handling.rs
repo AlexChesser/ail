@@ -15,3 +15,47 @@ fn ail_error_display_contains_type_and_detail() {
     assert!(display.contains(error_types::RUNNER_INVOCATION_FAILED));
     assert!(display.contains("process exited with code 1"));
 }
+
+/// SPEC §17, #84 — skill: steps are rejected at validation with CONFIG_VALIDATION_FAILED
+#[test]
+fn skill_step_rejected_at_validation_time() {
+    use ail_core::config;
+    use std::io::Write;
+    use tempfile::NamedTempFile;
+
+    let mut file = NamedTempFile::new().expect("tempfile");
+    writeln!(
+        file,
+        "version: \"0.0.1\"\npipeline:\n  - id: my_skill\n    skill: ./skills/my-skill.yaml\n"
+    )
+    .expect("write");
+    let path = file.path().to_path_buf();
+
+    let result = config::load(&path);
+    assert!(result.is_err(), "skill: step must be rejected at load time");
+    let err = result.unwrap_err();
+    assert_eq!(
+        err.error_type(),
+        error_types::CONFIG_VALIDATION_FAILED,
+        "skill: rejection must produce CONFIG_VALIDATION_FAILED, got: {}",
+        err.error_type()
+    );
+}
+
+/// SPEC §17, #76 — storage query failures produce STORAGE_QUERY_FAILED, not PIPELINE_ABORTED
+#[test]
+fn storage_error_types_are_distinct_from_pipeline_aborted() {
+    let err = AilError::storage_query_failed("connection refused");
+    assert_eq!(err.error_type(), error_types::STORAGE_QUERY_FAILED);
+    assert_ne!(
+        err.error_type(),
+        error_types::PIPELINE_ABORTED,
+        "storage query failures must not reuse PIPELINE_ABORTED"
+    );
+
+    let err = AilError::run_not_found("run abc not found");
+    assert_eq!(err.error_type(), error_types::RUN_NOT_FOUND);
+
+    let err = AilError::storage_delete_failed("disk full");
+    assert_eq!(err.error_type(), error_types::STORAGE_DELETE_FAILED);
+}

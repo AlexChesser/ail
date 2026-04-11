@@ -88,6 +88,24 @@ pub enum AilError {
         detail: String,
         context: Option<ErrorContext>,
     },
+
+    #[error("[ail:storage/query-failed] {detail}")]
+    StorageQueryFailed {
+        detail: String,
+        context: Option<ErrorContext>,
+    },
+
+    #[error("[ail:storage/run-not-found] {detail}")]
+    RunNotFound {
+        detail: String,
+        context: Option<ErrorContext>,
+    },
+
+    #[error("[ail:storage/delete-failed] {detail}")]
+    StorageDeleteFailed {
+        detail: String,
+        context: Option<ErrorContext>,
+    },
 }
 
 impl AilError {
@@ -107,6 +125,9 @@ impl AilError {
             Self::RunnerCancelled { .. } => error_types::RUNNER_CANCELLED,
             Self::RunnerNotFound { .. } => error_types::RUNNER_NOT_FOUND,
             Self::PipelineAborted { .. } => error_types::PIPELINE_ABORTED,
+            Self::StorageQueryFailed { .. } => error_types::STORAGE_QUERY_FAILED,
+            Self::RunNotFound { .. } => error_types::RUN_NOT_FOUND,
+            Self::StorageDeleteFailed { .. } => error_types::STORAGE_DELETE_FAILED,
         }
     }
 
@@ -122,7 +143,10 @@ impl AilError {
             | Self::RunnerInvocationFailed { detail, .. }
             | Self::RunnerCancelled { detail, .. }
             | Self::RunnerNotFound { detail, .. }
-            | Self::PipelineAborted { detail, .. } => detail,
+            | Self::PipelineAborted { detail, .. }
+            | Self::StorageQueryFailed { detail, .. }
+            | Self::RunNotFound { detail, .. }
+            | Self::StorageDeleteFailed { detail, .. } => detail,
         }
     }
 
@@ -136,7 +160,10 @@ impl AilError {
             | Self::RunnerInvocationFailed { detail, .. }
             | Self::RunnerCancelled { detail, .. }
             | Self::RunnerNotFound { detail, .. }
-            | Self::PipelineAborted { detail, .. } => detail,
+            | Self::PipelineAborted { detail, .. }
+            | Self::StorageQueryFailed { detail, .. }
+            | Self::RunNotFound { detail, .. }
+            | Self::StorageDeleteFailed { detail, .. } => detail,
         }
     }
 
@@ -152,7 +179,10 @@ impl AilError {
             | Self::RunnerInvocationFailed { context, .. }
             | Self::RunnerCancelled { context, .. }
             | Self::RunnerNotFound { context, .. }
-            | Self::PipelineAborted { context, .. } => context.as_ref(),
+            | Self::PipelineAborted { context, .. }
+            | Self::StorageQueryFailed { context, .. }
+            | Self::RunNotFound { context, .. }
+            | Self::StorageDeleteFailed { context, .. } => context.as_ref(),
         }
     }
 
@@ -191,6 +221,18 @@ impl AilError {
                 context: ctx,
             },
             Self::PipelineAborted { detail, .. } => Self::PipelineAborted {
+                detail,
+                context: ctx,
+            },
+            Self::StorageQueryFailed { detail, .. } => Self::StorageQueryFailed {
+                detail,
+                context: ctx,
+            },
+            Self::RunNotFound { detail, .. } => Self::RunNotFound {
+                detail,
+                context: ctx,
+            },
+            Self::StorageDeleteFailed { detail, .. } => Self::StorageDeleteFailed {
                 detail,
                 context: ctx,
             },
@@ -268,6 +310,27 @@ impl AilError {
             context: None,
         }
     }
+
+    pub fn storage_query_failed(detail: impl Into<String>) -> Self {
+        Self::StorageQueryFailed {
+            detail: detail.into(),
+            context: None,
+        }
+    }
+
+    pub fn run_not_found(detail: impl Into<String>) -> Self {
+        Self::RunNotFound {
+            detail: detail.into(),
+            context: None,
+        }
+    }
+
+    pub fn storage_delete_failed(detail: impl Into<String>) -> Self {
+        Self::StorageDeleteFailed {
+            detail: detail.into(),
+            context: None,
+        }
+    }
 }
 
 pub mod error_types {
@@ -279,6 +342,9 @@ pub mod error_types {
     pub const RUNNER_CANCELLED: &str = "ail:runner/cancelled";
     pub const RUNNER_NOT_FOUND: &str = "ail:runner/not-found";
     pub const PIPELINE_ABORTED: &str = "ail:pipeline/aborted";
+    pub const STORAGE_QUERY_FAILED: &str = "ail:storage/query-failed";
+    pub const RUN_NOT_FOUND: &str = "ail:storage/run-not-found";
+    pub const STORAGE_DELETE_FAILED: &str = "ail:storage/delete-failed";
 }
 
 #[cfg(test)]

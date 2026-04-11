@@ -72,7 +72,7 @@ pub fn query_logs_at(query: &LogQuery, db_path: &Path) -> Result<Vec<SessionSumm
         return Ok(Vec::new());
     }
 
-    let conn = Connection::open(db_path).map_err(|e| AilError::PipelineAborted {
+    let conn = Connection::open(db_path).map_err(|e| AilError::StorageQueryFailed {
         detail: e.to_string(),
         context: None,
     })?;
@@ -161,7 +161,7 @@ fn load_sessions(
          LIMIT ?{position}"
     );
 
-    let mut stmt = conn.prepare(&sql).map_err(|e| AilError::PipelineAborted {
+    let mut stmt = conn.prepare(&sql).map_err(|e| AilError::StorageQueryFailed {
         detail: e.to_string(),
         context: None,
     })?;
@@ -198,7 +198,7 @@ fn load_sessions(
         })?
         .collect::<Result<Vec<_>, _>>();
 
-    rows.map_err(|e| AilError::PipelineAborted {
+    rows.map_err(|e| AilError::StorageQueryFailed {
         detail: e.to_string(),
         context: None,
     })
@@ -251,7 +251,7 @@ fn load_steps(conn: &Connection, run_id: &str) -> Result<Vec<StepSummary>, AilEr
         })?
         .collect::<Result<Vec<_>, _>>();
 
-    let raw_rows = rows.map_err(|e| AilError::PipelineAborted {
+    let raw_rows = rows.map_err(|e| AilError::StorageQueryFailed {
         detail: e.to_string(),
         context: None,
     })?;
@@ -323,13 +323,13 @@ pub fn get_run_steps(run_id: &str) -> Result<Vec<StepRow>, AilError> {
 /// Query steps for a specific run from an explicit database path.
 pub fn get_run_steps_at(run_id: &str, db_path: &Path) -> Result<Vec<StepRow>, AilError> {
     if !db_path.exists() {
-        return Err(AilError::PipelineAborted {
+        return Err(AilError::RunNotFound {
             detail: "No ail database found at this location".to_string(),
             context: None,
         });
     }
 
-    let conn = Connection::open(db_path).map_err(|e| AilError::PipelineAborted {
+    let conn = Connection::open(db_path).map_err(|e| AilError::StorageQueryFailed {
         detail: e.to_string(),
         context: None,
     })?;
@@ -371,7 +371,7 @@ pub fn get_run_steps_at(run_id: &str, db_path: &Path) -> Result<Vec<StepRow>, Ai
         })?
         .collect::<Result<Vec<_>, _>>();
 
-    let mut rows = rows.map_err(|e| AilError::PipelineAborted {
+    let mut rows = rows.map_err(|e| AilError::StorageQueryFailed {
         detail: e.to_string(),
         context: None,
     })?;
@@ -481,7 +481,7 @@ pub fn get_latest_run_id_at(
         return Ok(None);
     }
 
-    let conn = Connection::open(db_path).map_err(|e| AilError::PipelineAborted {
+    let conn = Connection::open(db_path).map_err(|e| AilError::StorageQueryFailed {
         detail: e.to_string(),
         context: None,
     })?;

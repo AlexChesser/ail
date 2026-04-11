@@ -46,7 +46,7 @@ pub(crate) fn delete_run_at(run_id: &str, cwd_hash: &str, force: bool) -> Result
         .join(format!("{run_id}.jsonl"));
 
     if !force && !jsonl_path.exists() {
-        return Err(AilError::PipelineAborted {
+        return Err(AilError::RunNotFound {
             detail: format!(
                 "No JSONL file found for run {}. Use --force to delete database records only.",
                 run_id
@@ -55,7 +55,7 @@ pub(crate) fn delete_run_at(run_id: &str, cwd_hash: &str, force: bool) -> Result
         });
     }
 
-    let mut conn = Connection::open(&db_path).map_err(|e| AilError::PipelineAborted {
+    let mut conn = Connection::open(&db_path).map_err(|e| AilError::StorageDeleteFailed {
         detail: e.to_string(),
         context: None,
     })?;
@@ -64,7 +64,7 @@ pub(crate) fn delete_run_at(run_id: &str, cwd_hash: &str, force: bool) -> Result
 
     // Delete JSONL file if it exists.
     if jsonl_path.exists() {
-        std::fs::remove_file(&jsonl_path).map_err(|e| AilError::PipelineAborted {
+        std::fs::remove_file(&jsonl_path).map_err(|e| AilError::StorageDeleteFailed {
             detail: format!("Could not delete {}: {}", jsonl_path.display(), e),
             context: None,
         })?;
@@ -88,13 +88,13 @@ pub fn delete_run_from_conn(conn: &mut Connection, run_id: &str) -> Result<(), A
             [run_id],
             |row| row.get::<_, u32>(0).map(|c| c > 0),
         )
-        .map_err(|e| AilError::PipelineAborted {
+        .map_err(|e| AilError::StorageQueryFailed {
             detail: e.to_string(),
             context: None,
         })?;
 
     if !exists {
-        return Err(AilError::PipelineAborted {
+        return Err(AilError::RunNotFound {
             detail: format!("No session found with run_id {}", run_id),
             context: None,
         });
@@ -103,42 +103,42 @@ pub fn delete_run_from_conn(conn: &mut Connection, run_id: &str) -> Result<(), A
     // Start transaction for atomic cascade delete.
     // Note: no explicit foreign key constraints in the schema, but we follow
     // the logical dependency order.
-    let tx = conn.transaction().map_err(|e| AilError::PipelineAborted {
+    let tx = conn.transaction().map_err(|e| AilError::StorageDeleteFailed {
         detail: e.to_string(),
         context: None,
     })?;
 
     tx.execute("DELETE FROM run_events WHERE run_id = ?1", [run_id])
-        .map_err(|e| AilError::PipelineAborted {
+        .map_err(|e| AilError::StorageDeleteFailed {
             detail: e.to_string(),
             context: None,
         })?;
 
     tx.execute("DELETE FROM metadata WHERE run_id = ?1", [run_id])
-        .map_err(|e| AilError::PipelineAborted {
+        .map_err(|e| AilError::StorageDeleteFailed {
             detail: e.to_string(),
             context: None,
         })?;
 
     tx.execute("DELETE FROM traces WHERE run_id = ?1", [run_id])
-        .map_err(|e| AilError::PipelineAborted {
+        .map_err(|e| AilError::StorageDeleteFailed {
             detail: e.to_string(),
             context: None,
         })?;
 
     tx.execute("DELETE FROM steps WHERE run_id = ?1", [run_id])
-        .map_err(|e| AilError::PipelineAborted {
+        .map_err(|e| AilError::StorageDeleteFailed {
             detail: e.to_string(),
             context: None,
         })?;
 
     tx.execute("DELETE FROM sessions WHERE run_id = ?1", [run_id])
-        .map_err(|e| AilError::PipelineAborted {
+        .map_err(|e| AilError::StorageDeleteFailed {
             detail: e.to_string(),
             context: None,
         })?;
 
-    tx.commit().map_err(|e| AilError::PipelineAborted {
+    tx.commit().map_err(|e| AilError::StorageDeleteFailed {
         detail: e.to_string(),
         context: None,
     })?;
@@ -234,7 +234,7 @@ mod tests {
         let err = result.unwrap_err();
         assert_eq!(
             err.error_type(),
-            crate::error::error_types::PIPELINE_ABORTED
+            crate::error::error_types::RUN_NOT_FOUND
         );
         assert!(
             err.detail().contains(run_id),
@@ -322,9 +322,8 @@ mod tests {
         let fake_hash = "hash-force-no-db";
 
         let result = delete_run_at(run_id, fake_hash, true);
-        // Should not get a "Run not found" JSONL error. Instead we get a DB open error
+        // Should not get a RUN_NOT_FOUND (JSONL) error. Instead we get a StorageDeleteFailed
         // (since the DB doesn't exist either). Either way the JSONL check is bypassed.
-        // Both errors use PIPELINE_ABORTED; just confirm it's not the JSONL error message.
         if let Err(e) = result {
             assert!(
                 !e.detail().contains("No JSONL file found"),

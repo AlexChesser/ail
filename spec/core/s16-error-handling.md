@@ -49,4 +49,29 @@ pipeline:
     prompt: "Scan for security vulnerabilities."
 ```
 
+### Stable `error_type` Values
+
+Every `AilError` carries a stable `error_type` string used in NDJSON output and consumed by downstream tooling. These values must not change across releases.
+
+| Constant | Value | When produced |
+|---|---|---|
+| `CONFIG_INVALID_YAML` | `ail:config/invalid-yaml` | YAML parse failure |
+| `CONFIG_FILE_NOT_FOUND` | `ail:config/file-not-found` | Pipeline or prompt file missing |
+| `CONFIG_VALIDATION_FAILED` | `ail:config/validation-failed` | Pipeline fails structural validation (including unimplemented step types — see below) |
+| `TEMPLATE_UNRESOLVED` | `ail:template/unresolved-variable` | Template variable cannot be resolved |
+| `RUNNER_INVOCATION_FAILED` | `ail:runner/invocation-failed` | Runner subprocess or HTTP call failed |
+| `RUNNER_CANCELLED` | `ail:runner/cancelled` | Runner was cancelled via cancel token |
+| `RUNNER_NOT_FOUND` | `ail:runner/not-found` | No runner registered for the requested name |
+| `PIPELINE_ABORTED` | `ail:pipeline/aborted` | `abort_pipeline` action fired, or unrecoverable runtime error |
+| `STORAGE_QUERY_FAILED` | `ail:storage/query-failed` | SQLite or JSONL read error in the log/query layer |
+| `RUN_NOT_FOUND` | `ail:storage/run-not-found` | Requested run ID does not exist in the database or JSONL store |
+| `STORAGE_DELETE_FAILED` | `ail:storage/delete-failed` | SQLite delete or JSONL file removal failed |
+
+### Unimplemented Step Types
+
+Step types that are declared in the spec but not yet implemented in the current version are rejected at pipeline **load time** (validation), not at execution time. This ensures users see a clear `CONFIG_VALIDATION_FAILED` error immediately rather than a runtime abort.
+
+Currently unimplemented step types:
+- `skill:` — planned for v0.2+. Use `pipeline:` steps to compose pipelines.
+
 ---
