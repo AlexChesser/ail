@@ -215,7 +215,6 @@ fn run_follow(run_id: &str, format: &str) {
     }
 }
 
-
 /// Print raw JSONL entries from the run's stored JSONL file.
 fn print_raw_jsonl(run_id: &str) -> Result<(), ail_core::error::AilError> {
     let run_path = project_dir().join("runs").join(format!("{run_id}.jsonl"));
@@ -430,5 +429,4 @@ mod tests {
         let result = filter_new_steps(&[], 0);
         assert!(result.is_empty());
     }
-
 }

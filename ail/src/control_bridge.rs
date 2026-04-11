@@ -7,7 +7,7 @@
 //! the infrastructure.
 
 use ail_core::executor::ExecutorEvent;
-use ail_core::runner::{PermissionRequest, PermissionResponse, PermissionResponder, RunnerEvent};
+use ail_core::runner::{PermissionRequest, PermissionResponder, PermissionResponse, RunnerEvent};
 use std::collections::HashSet;
 use std::io::Write;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -18,8 +18,7 @@ pub type AllowlistArc = Arc<Mutex<HashSet<String>>>;
 
 /// Pending permission slot used to hand a `SyncSender` from the responder callback to
 /// the stdin reader so it can deliver the user's decision.
-pub type PendingPermSlot =
-    Arc<Mutex<Option<(String, mpsc::SyncSender<PermissionResponse>)>>>;
+pub type PendingPermSlot = Arc<Mutex<Option<(String, mpsc::SyncSender<PermissionResponse>)>>>;
 
 /// Build a fresh `AllowlistArc` (empty set).
 pub fn make_allowlist() -> AllowlistArc {
@@ -146,12 +145,9 @@ pub fn spawn_stdin_reader_once(
                     response,
                     allow_for_session,
                 }) => {
-                    let mut guard =
-                        pending_permission.lock().unwrap_or_else(|e| e.into_inner());
+                    let mut guard = pending_permission.lock().unwrap_or_else(|e| e.into_inner());
                     if let Some((display_name, tx)) = guard.take() {
-                        if allow_for_session
-                            && response == PermissionResponse::Allow
-                        {
+                        if allow_for_session && response == PermissionResponse::Allow {
                             if let Ok(mut al) = session_allowlist.lock() {
                                 al.insert(display_name);
                             }
