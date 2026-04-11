@@ -16,7 +16,10 @@ Consumed by `ail` (the binary) and future language-server / SDK targets.
 | `executor.rs` | `execute(&mut Session, &dyn Runner)` — SPEC §4.2 core invariant |
 | `materialize.rs` | `materialize(&Pipeline) → String` — annotated YAML round-trip |
 | `runner/mod.rs` | `Runner` trait, `RunResult`, `InvokeOptions` |
-| `runner/claude.rs` | `ClaudeCliRunner` — shells out to the `claude` CLI |
+| `runner/subprocess.rs` | `SubprocessSession` — generic CLI subprocess lifecycle (spawn, stderr drain, cancel watchdog, reap); shared by all CLI-based runners |
+| `runner/claude/mod.rs` | `ClaudeCliRunner` — orchestrates subprocess + decoder + permission listener |
+| `runner/claude/decoder.rs` | `ClaudeNdjsonDecoder` — stateful NDJSON stream decoder, no process coupling; unit-testable with raw byte strings |
+| `runner/claude/permission.rs` | `ClaudePermissionListener` — RAII guard for the tool-permission socket (hook settings file, accept loop, `__close__` sentinel, cleanup on drop) |
 | `runner/factory.rs` | `RunnerFactory` — builds runners by name; honours `AIL_DEFAULT_RUNNER` env |
 | `runner/stub.rs` | `StubRunner`, `CountingStubRunner`, `EchoStubRunner`, `RecordingStubRunner` — deterministic test doubles |
 | `session/log_provider.rs` | `LogProvider` trait + `JsonlProvider` (NDJSON) + `NullProvider` (tests) |

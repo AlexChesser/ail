@@ -16,12 +16,16 @@
 //! vs JSON, thinking block structures — are each runner's responsibility.
 //!
 //! [`stub::StubRunner`] and [`stub::CountingStubRunner`] are deterministic test doubles.
+//!
+//! CLI-based runners share the [`subprocess`] substrate which owns process lifecycle,
+//! stderr drain, and the cancel-watchdog. HTTP and in-process runners do not use it.
 
 #![allow(clippy::result_large_err)]
 
 pub mod claude;
 pub mod factory;
 pub mod stub;
+pub mod subprocess;
 
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::AtomicBool;
