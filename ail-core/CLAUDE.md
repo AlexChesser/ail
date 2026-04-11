@@ -21,6 +21,7 @@ Consumed by `ail` (the binary) and future language-server / SDK targets.
 | `runner/claude/decoder.rs` | `ClaudeNdjsonDecoder` — stateful NDJSON stream decoder, no process coupling; unit-testable with raw byte strings |
 | `runner/claude/permission.rs` | `ClaudePermissionListener` — RAII guard for the tool-permission socket (hook settings file, accept loop, `__close__` sentinel, cleanup on drop) |
 | `runner/factory.rs` | `RunnerFactory` — builds runners by name; honours `AIL_DEFAULT_RUNNER` env |
+| `runner/http.rs` | `HttpRunner` — direct OpenAI-compatible HTTP runner (Ollama, direct API); full system-prompt control, think flag, in-memory session continuity |
 | `runner/stub.rs` | `StubRunner`, `CountingStubRunner`, `EchoStubRunner`, `RecordingStubRunner` — deterministic test doubles |
 | `session/log_provider.rs` | `LogProvider` trait + `JsonlProvider` (NDJSON) + `NullProvider` (tests) |
 | `session/state.rs` | `Session` — `run_id`, `pipeline`, `invocation_prompt`, `turn_log` |
@@ -68,7 +69,8 @@ pub type PermissionResponder = Arc<dyn Fn(PermissionRequest) -> PermissionRespon
 pub struct PermissionRequest { pub display_name: String, pub display_detail: String, pub tool_input: Option<serde_json::Value> }
 // display_detail is pre-formatted by the runner from its native tool input format.
 // tool_input: raw JSON tool input from the runner; used by AskUserQuestion intercept. ClaudeCliRunner populates; others may leave None.
-pub enum ToolPermissionPolicy { RunnerDefault, Allowlist(Vec<String>), Denylist(Vec<String>), Mixed { allow: Vec<String>, deny: Vec<String> } }
+pub enum ToolPermissionPolicy { RunnerDefault, NoTools, Allowlist(Vec<String>), Denylist(Vec<String>), Mixed { allow: Vec<String>, deny: Vec<String> } }
+// NoTools → --tools "" on ClaudeCliRunner; disables all tool calls. ToolPolicy.disabled=true maps to this.
 pub struct InvokeOptions { pub resume_session_id: Option<String>, pub tool_policy: ToolPermissionPolicy, pub model: Option<String>, pub extensions: Option<Box<dyn Any + Send>>, pub permission_responder: Option<PermissionResponder> }
 // extensions: runners downcast to their own type (e.g. ClaudeInvokeExtensions { base_url, auth_token, permission_socket }).
 // Executor packs ClaudeInvokeExtensions pragmatically; to be injected via runner config in task 04.
@@ -84,11 +86,20 @@ pub struct ClaudeCliRunnerConfig { pub claude_bin: String, pub headless: bool }
 // Claude CLI runner extensions (runner/claude.rs)
 pub struct ClaudeInvokeExtensions { pub base_url: Option<String>, pub auth_token: Option<String>, pub permission_socket: Option<PathBuf> }
 
+// HTTP runner config (runner/http.rs) — calls any OpenAI-compatible /v1/chat/completions endpoint
+pub struct HttpRunnerConfig { pub base_url: String, pub auth_token: Option<String>, pub default_model: Option<String>, pub think: Option<bool> }
+// Default base_url: "http://localhost:11434/v1" (local Ollama)
+// think: Some(false) disables extended thinking for qwen3 and similar models
+// HttpRunner::ollama(model) convenience ctor: base_url=localhost:11434, think=Some(false)
+// Factory names: "http" or "ollama" — reads AIL_HTTP_BASE_URL, AIL_HTTP_TOKEN, AIL_HTTP_MODEL, AIL_HTTP_THINK
+// Session continuity: maintained in-memory; session_id is a UUID returned by invoke() and passed as resume_session_id by the executor
+
 // Executor outcome
 pub enum ExecuteOutcome { Completed, Break { step_id: String } }
 
 // Session
-pub struct Session { pub run_id: String, pub pipeline: Pipeline, pub invocation_prompt: String, pub turn_log: TurnLog, pub cli_provider: ProviderConfig }
+pub struct Session { pub run_id: String, pub pipeline: Pipeline, pub invocation_prompt: String, pub turn_log: TurnLog, pub cli_provider: ProviderConfig, pub cwd: String }
+// cwd: captured at Session::new() time via std::env::current_dir(); used by {{ session.cwd }} template variable.
 // TurnEntry carries prompt-step fields (response, runner_session_id, thinking, tool_events) and context-step fields (stdout, stderr, exit_code)
 // tool_events: Vec<ToolEvent> — populated from RunResult.tool_events for prompt steps; empty for context/action/sub-pipeline steps
 

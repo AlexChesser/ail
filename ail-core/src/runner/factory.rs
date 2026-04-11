@@ -16,6 +16,7 @@
 
 use super::{
     claude::{ClaudeCliRunner, ClaudeCliRunnerConfig},
+    http::{HttpRunner, HttpRunnerConfig},
     stub::StubRunner,
     Runner,
 };
@@ -36,19 +37,40 @@ impl RunnerFactory {
     ///
     /// Recognised names (case-insensitive, whitespace-trimmed):
     /// - `"claude"` — `ClaudeCliRunner` with the given headless flag
+    /// - `"http"` or `"ollama"` — `HttpRunner`; reads `AIL_HTTP_BASE_URL` (default:
+    ///   `http://localhost:11434/v1`), `AIL_HTTP_TOKEN`, `AIL_HTTP_MODEL`, `AIL_HTTP_THINK`
+    ///   from the environment.
     /// - `"stub"` — `StubRunner` with a fixed response (test/dev use)
     ///
     /// Returns `RUNNER_NOT_FOUND` if the name is not recognised.
     pub fn build(runner_name: &str, headless: bool) -> Result<Box<dyn Runner + Send>, AilError> {
+        let _ = headless; // consumed by claude only
         match runner_name.trim().to_lowercase().as_str() {
             "claude" => {
                 let runner: ClaudeCliRunner =
                     ClaudeCliRunnerConfig::default().headless(headless).build();
                 Ok(Box::new(runner))
             }
+            "http" | "ollama" => {
+                let base_url = std::env::var("AIL_HTTP_BASE_URL")
+                    .unwrap_or_else(|_| "http://localhost:11434/v1".to_string());
+                let auth_token = std::env::var("AIL_HTTP_TOKEN").ok();
+                let default_model = std::env::var("AIL_HTTP_MODEL").ok();
+                let think = std::env::var("AIL_HTTP_THINK")
+                    .ok()
+                    .map(|v| v.trim().to_lowercase() != "false");
+                Ok(Box::new(HttpRunner::new(HttpRunnerConfig {
+                    base_url,
+                    auth_token,
+                    default_model,
+                    think,
+                })))
+            }
             "stub" => Ok(Box::new(StubRunner::new("stub response"))),
             other => Err(AilError::RunnerNotFound {
-                detail: format!("Runner '{other}' is not recognized. Known runners: claude, stub"),
+                detail: format!(
+                    "Runner '{other}' is not recognized. Known runners: claude, http, ollama, stub"
+                ),
                 context: None,
             }),
         }
