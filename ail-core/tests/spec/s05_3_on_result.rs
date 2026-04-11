@@ -102,7 +102,7 @@ fn on_result_abort_pipeline_exits_as_ail_error() {
     assert!(result.is_err());
     let err = result.unwrap_err();
     assert_eq!(
-        err.error_type,
+        err.error_type(),
         ail_core::error::error_types::PIPELINE_ABORTED
     );
 

@@ -184,9 +184,7 @@ mod tests {
         struct ErrorRunner;
         impl crate::runner::Runner for ErrorRunner {
             fn invoke(&self, _: &str, _: InvokeOptions) -> Result<RunResult, AilError> {
-                Err(AilError {
-                    error_type: crate::error::error_types::RUNNER_INVOCATION_FAILED,
-                    title: "test error",
+                Err(AilError::RunnerInvocationFailed {
                     detail: "runner failed".to_string(),
                     context: None,
                 })

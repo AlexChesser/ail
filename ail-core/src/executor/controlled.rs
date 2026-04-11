@@ -3,7 +3,7 @@
 #![allow(clippy::result_large_err)]
 
 use crate::config::domain::{Condition, ContextSource, ResultAction, StepBody};
-use crate::error::{error_types, AilError};
+use crate::error::AilError;
 use crate::runner::{InvokeOptions, Runner, RunnerEvent};
 use crate::session::{Session, TurnEntry};
 use crate::template;
@@ -112,7 +112,7 @@ pub fn execute_with_control(
                         Err(e) => {
                             let _ = event_tx.send(ExecutorEvent::StepFailed {
                                 step_id: step_id.clone(),
-                                error: e.detail.clone(),
+                                error: e.detail().to_owned(),
                             });
                             return Err(e);
                         }
@@ -123,7 +123,7 @@ pub fn execute_with_control(
                         let e = e.with_step_context(&session.run_id, &step_id);
                         let _ = event_tx.send(ExecutorEvent::StepFailed {
                             step_id: step_id.clone(),
-                            error: e.detail.clone(),
+                            error: e.detail().to_owned(),
                         });
                         return Err(e);
                     }
@@ -152,7 +152,7 @@ pub fn execute_with_control(
                         .inspect_err(|e| {
                             let _ = event_tx.send(ExecutorEvent::StepFailed {
                                 step_id: step_id.clone(),
-                                error: e.detail.clone(),
+                                error: e.detail().to_owned(),
                             });
                         })?;
 
@@ -216,7 +216,7 @@ pub fn execute_with_control(
                     Err(e) => {
                         let _ = event_tx.send(ExecutorEvent::StepFailed {
                             step_id: step_id.clone(),
-                            error: e.detail.clone(),
+                            error: e.detail().to_owned(),
                         });
                         return Err(e);
                     }
@@ -231,7 +231,7 @@ pub fn execute_with_control(
                         Err(e) => {
                             let _ = event_tx.send(ExecutorEvent::StepFailed {
                                 step_id: step_id.clone(),
-                                error: e.detail.clone(),
+                                error: e.detail().to_owned(),
                             });
                             return Err(e);
                         }
@@ -303,7 +303,7 @@ pub fn execute_with_control(
                     Err(e) => {
                         let _ = event_tx.send(ExecutorEvent::StepFailed {
                             step_id: step_id.clone(),
-                            error: e.detail.clone(),
+                            error: e.detail().to_owned(),
                         });
                         return Err(e);
                     }
@@ -311,9 +311,7 @@ pub fn execute_with_control(
             }
 
             StepBody::Skill(_) => {
-                return Err(AilError {
-                    error_type: error_types::PIPELINE_ABORTED,
-                    title: "Unsupported step type",
+                return Err(AilError::PipelineAborted {
                     detail: format!(
                         "Step '{step_id}' uses a step type not yet implemented in v0.1"
                     ),
@@ -350,9 +348,7 @@ pub fn execute_with_control(
                         return Ok(outcome);
                     }
                     ResultAction::AbortPipeline => {
-                        let err = AilError {
-                            error_type: error_types::PIPELINE_ABORTED,
-                            title: "Pipeline aborted by on_result",
+                        let err = AilError::PipelineAborted {
                             detail: format!("Step '{step_id}' on_result fired abort_pipeline"),
                             context: Some(crate::error::ErrorContext::for_step(
                                 &session.run_id,
@@ -360,8 +356,8 @@ pub fn execute_with_control(
                             )),
                         };
                         let _ = event_tx.send(ExecutorEvent::PipelineError {
-                            error: err.detail.clone(),
-                            error_type: err.error_type.to_string(),
+                            error: err.detail().to_owned(),
+                            error_type: err.error_type().to_string(),
                         });
                         return Err(err);
                     }
@@ -400,8 +396,8 @@ pub fn execute_with_control(
                             }
                             Err(e) => {
                                 let _ = event_tx.send(ExecutorEvent::PipelineError {
-                                    error: e.detail.clone(),
-                                    error_type: e.error_type.to_string(),
+                                    error: e.detail().to_owned(),
+                                    error_type: e.error_type().to_string(),
                                 });
                                 return Err(e);
                             }

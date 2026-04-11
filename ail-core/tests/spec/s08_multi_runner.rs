@@ -31,15 +31,15 @@ fn factory_returns_runner_not_found_for_unknown_name() {
     assert!(result.is_err());
     let err = result.err().unwrap();
     assert_eq!(
-        err.error_type,
+        err.error_type(),
         error_types::RUNNER_NOT_FOUND,
         "expected RUNNER_NOT_FOUND, got: {}",
-        err.error_type
+        err.error_type()
     );
     assert!(
-        err.detail.contains("nonexistent"),
+        err.detail().contains("nonexistent"),
         "detail should contain the unknown name: {}",
-        err.detail
+        err.detail()
     );
 }
 

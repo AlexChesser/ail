@@ -302,7 +302,11 @@ fn run_once_text_verbose(
 ///
 /// Uses `execute_with_control()` to receive `ExecutorEvent`s and serializes each
 /// as one JSON line. The invocation step (if host-managed) is also emitted as events.
-fn run_once_json(session: &mut ail_core::session::Session, runner: &dyn Runner, prompt: &str) {
+async fn run_once_json(
+    session: &mut ail_core::session::Session,
+    runner: &dyn Runner,
+    prompt: &str,
+) {
     use ail_core::executor::ExecutionControl;
     use std::collections::HashSet;
     use std::io::Write;
@@ -349,7 +353,7 @@ fn run_once_json(session: &mut ail_core::session::Session, runner: &dyn Runner, 
     let pending_permission: PendingPerm = Arc::new(std::sync::Mutex::new(None));
 
     // Session allowlist — tool display_names approved for the lifetime of this run.
-    // Shared between the responder, event forwarding threads, and stdin reader.
+    // Shared between the responder, event forwarding tasks, and stdin reader.
     let session_allowlist: Arc<std::sync::Mutex<HashSet<String>>> =
         Arc::new(std::sync::Mutex::new(HashSet::new()));
 
@@ -375,22 +379,18 @@ fn run_once_json(session: &mut ail_core::session::Session, runner: &dyn Runner, 
                 ))
         });
 
-    // Spawn the stdin reader thread — routes NDJSON control messages from the
-    // extension (or any consumer) into the executor's control channels.
+    // Async stdin reader — routes NDJSON control messages from the extension (or any
+    // consumer) into the executor's control channels.
     let hitl_tx_stdin = hitl_tx;
     let pause_stdin = Arc::clone(&pause_requested);
     let kill_stdin = Arc::clone(&kill_requested);
     let pending_perm_stdin = Arc::clone(&pending_permission);
     let allowlist_stdin = Arc::clone(&session_allowlist);
-    std::thread::spawn(move || {
+    tokio::spawn(async move {
         use ail_core::protocol::{parse_control_message, ControlMessage};
-        use std::io::BufRead;
-        let stdin = std::io::stdin();
-        for line in stdin.lock().lines() {
-            let line = match line {
-                Ok(l) => l,
-                Err(_) => break,
-            };
+        use tokio::io::AsyncBufReadExt;
+        let mut lines = tokio::io::BufReader::new(tokio::io::stdin()).lines();
+        while let Ok(Some(line)) = lines.next_line().await {
             match parse_control_message(&line) {
                 Some(ControlMessage::HitlResponse(text)) => {
                     let _ = hitl_tx_stdin.send(text);
@@ -452,11 +452,11 @@ fn run_once_json(session: &mut ail_core::session::Session, runner: &dyn Runner, 
             ..InvokeOptions::default()
         };
 
-        // Spawn a thread to forward runner events as NDJSON to stdout.
+        // Spawn a blocking task to forward runner events as NDJSON to stdout.
         let (runner_tx, runner_rx) = mpsc::channel::<ail_core::runner::RunnerEvent>();
         let stdout_clone = std::io::stdout();
         let allowlist_fwd = Arc::clone(&session_allowlist);
-        let fwd_handle = std::thread::spawn(move || {
+        let fwd_handle = tokio::task::spawn_blocking(move || {
             for ev in runner_rx {
                 // Suppress permission events for session-allowlisted tools — they are
                 // auto-approved by the responder and should not appear in the UI.
@@ -478,9 +478,16 @@ fn run_once_json(session: &mut ail_core::session::Session, runner: &dyn Runner, 
             }
         });
 
-        match runner.invoke_streaming(prompt, invocation_options, runner_tx) {
+        // Run invoke_streaming on the current thread (block_in_place keeps other
+        // tokio tasks running on other threads while this one blocks).
+        let invoke_result = tokio::task::block_in_place(|| {
+            runner.invoke_streaming(prompt, invocation_options, runner_tx)
+        });
+        // runner_tx consumed by invoke_streaming; fwd task drains remaining events.
+        let _ = fwd_handle.await;
+
+        match invoke_result {
             Ok(result) => {
-                let _ = fwd_handle.join();
                 {
                     let mut out = stdout.lock();
                     let _ = serde_json::to_writer(
@@ -506,14 +513,13 @@ fn run_once_json(session: &mut ail_core::session::Session, runner: &dyn Runner, 
                     ));
             }
             Err(e) => {
-                let _ = fwd_handle.join();
                 let mut out = stdout.lock();
                 let _ = serde_json::to_writer(
                     &mut out,
                     &serde_json::json!({
                         "type": "pipeline_error",
-                        "error": e.detail,
-                        "error_type": e.error_type,
+                        "error": e.detail(),
+                        "error_type": e.error_type(),
                     }),
                 );
                 let _ = writeln!(out);
@@ -532,9 +538,9 @@ fn run_once_json(session: &mut ail_core::session::Session, runner: &dyn Runner, 
     // Execute pipeline steps with event streaming.
     let (event_tx, event_rx) = mpsc::channel();
 
-    // Spawn event writer thread — serializes ExecutorEvents as NDJSON.
+    // Spawn blocking task — serializes ExecutorEvents as NDJSON.
     let allowlist_writer = Arc::clone(&session_allowlist);
-    let writer_handle = std::thread::spawn(move || {
+    let writer_handle = tokio::task::spawn_blocking(move || {
         let stdout = std::io::stdout();
         for event in event_rx {
             // Suppress permission events for session-allowlisted tools.
@@ -555,17 +561,20 @@ fn run_once_json(session: &mut ail_core::session::Session, runner: &dyn Runner, 
         }
     });
 
-    let result = ail_core::executor::execute_with_control(
-        session,
-        runner,
-        &control,
-        &disabled_steps,
-        event_tx,
-        hitl_rx,
-    );
+    // Run execute_with_control on the current thread (block_in_place).
+    let result = tokio::task::block_in_place(|| {
+        ail_core::executor::execute_with_control(
+            session,
+            runner,
+            &control,
+            &disabled_steps,
+            event_tx,
+            hitl_rx,
+        )
+    });
 
-    // Wait for writer thread to drain.
-    let _ = writer_handle.join();
+    // Wait for writer task to drain.
+    let _ = writer_handle.await;
 
     match result {
         Ok(_) => {
@@ -579,8 +588,8 @@ fn run_once_json(session: &mut ail_core::session::Session, runner: &dyn Runner, 
                 &mut out,
                 &serde_json::json!({
                     "type": "pipeline_error",
-                    "error": e.detail,
-                    "error_type": e.error_type,
+                    "error": e.detail(),
+                    "error_type": e.error_type(),
                 }),
             );
             let _ = writeln!(out);
@@ -589,7 +598,8 @@ fn run_once_json(session: &mut ail_core::session::Session, runner: &dyn Runner, 
     }
 }
 
-fn main() {
+#[tokio::main]
+async fn main() {
     let cli = Cli::parse();
 
     init_tracing();
@@ -630,7 +640,7 @@ fn main() {
                     cli.watch,
                     cli.show_work,
                 ),
-                OutputFormat::Json => run_once_json(&mut session, runner.as_ref(), &prompt),
+                OutputFormat::Json => run_once_json(&mut session, runner.as_ref(), &prompt).await,
             }
         }
         (None, Some(cmd)) => match cmd {
@@ -721,7 +731,7 @@ fn main() {
                                 "{}",
                                 serde_json::json!({
                                     "valid": false,
-                                    "errors": [{"message": e.detail, "error_type": e.error_type}]
+                                    "errors": [{"message": e.detail(), "error_type": e.error_type()}]
                                 })
                             );
                             std::process::exit(1);
@@ -768,6 +778,7 @@ fn main() {
                         runner.as_ref(),
                         message,
                     )
+                    .await
                 } else {
                     chat::run_chat_text(discovered_pipeline, cli_provider, runner.as_ref(), message)
                 };

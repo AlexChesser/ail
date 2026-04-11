@@ -7,7 +7,7 @@ use std::process::{Command, Stdio};
 use crate::config::domain::{
     ExitCodeMatch, ProviderConfig, ResultAction, ResultMatcher, Step, SystemPromptEntry,
 };
-use crate::error::{error_types, AilError};
+use crate::error::AilError;
 use crate::runner::factory::RunnerFactory;
 use crate::runner::{InvokeOptions, RunResult, Runner, ToolPermissionPolicy};
 use crate::session::{Session, TurnEntry};
@@ -77,19 +77,17 @@ pub(super) fn run_shell_command(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .map_err(|e| AilError {
-            error_type: error_types::RUNNER_INVOCATION_FAILED,
-            title: "Failed to spawn shell command",
+        .map_err(|e| AilError::RunnerInvocationFailed {
             detail: format!("Could not run shell command for step '{step_id}': {e}"),
             context: Some(crate::error::ErrorContext::for_step(run_id, step_id)),
         })?;
 
-    let output = child.wait_with_output().map_err(|e| AilError {
-        error_type: error_types::RUNNER_INVOCATION_FAILED,
-        title: "Failed to wait for shell command",
-        detail: format!("Step '{step_id}': {e}"),
-        context: Some(crate::error::ErrorContext::for_step(run_id, step_id)),
-    })?;
+    let output = child
+        .wait_with_output()
+        .map_err(|e| AilError::RunnerInvocationFailed {
+            detail: format!("Step '{step_id}': {e}"),
+            context: Some(crate::error::ErrorContext::for_step(run_id, step_id)),
+        })?;
 
     let exit_code = output.status.code().unwrap_or(-1);
     let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
@@ -173,9 +171,7 @@ pub(super) fn resolve_step_system_prompts(
                 SystemPromptEntry::Text(s) => template::resolve(s, session)
                     .map_err(|e| e.with_step_context(&session.run_id, step_id))?,
                 SystemPromptEntry::File(path) => {
-                    let content = std::fs::read_to_string(path).map_err(|e| AilError {
-                        error_type: error_types::CONFIG_FILE_NOT_FOUND,
-                        title: "append_system_prompt file not found",
+                    let content = std::fs::read_to_string(path).map_err(|e| AilError::ConfigFileNotFound {
                         detail: format!(
                             "Step '{step_id}' append_system_prompt file '{}' could not be read: {e}",
                             path.display()
@@ -220,9 +216,7 @@ pub(super) fn resolve_prompt_file(
     }
 
     let path = if let Some(rel) = prompt_text.strip_prefix("~/") {
-        let home = dirs::home_dir().ok_or_else(|| AilError {
-            error_type: error_types::CONFIG_FILE_NOT_FOUND,
-            title: "Cannot resolve home directory",
+        let home = dirs::home_dir().ok_or_else(|| AilError::ConfigFileNotFound {
             detail: format!(
                 "Step '{step_id}' prompt path starts with ~/ but home dir is unavailable"
             ),
@@ -239,9 +233,7 @@ pub(super) fn resolve_prompt_file(
         std::path::PathBuf::from(prompt_text)
     };
 
-    std::fs::read_to_string(&path).map_err(|e| AilError {
-        error_type: error_types::CONFIG_FILE_NOT_FOUND,
-        title: "Prompt file not found",
+    std::fs::read_to_string(&path).map_err(|e| AilError::ConfigFileNotFound {
         detail: format!(
             "Step '{step_id}' prompt file '{}' could not be read: {e}",
             path.display()

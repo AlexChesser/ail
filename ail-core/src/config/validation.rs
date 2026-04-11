@@ -8,7 +8,7 @@ use super::domain::{
     ResultBranch, ResultMatcher, Step, StepBody, StepId, SystemPromptEntry, ToolPolicy,
 };
 use super::dto::{AppendSystemPromptEntryDto, ExitCodeDto, PipelineFileDto};
-use crate::error::{error_types, AilError};
+use crate::error::AilError;
 
 pub fn validate(dto: PipelineFileDto, source: PathBuf) -> Result<Pipeline, AilError> {
     // Resolve top-level defaults (provider/model config, tool policy, and timeout).
@@ -39,17 +39,13 @@ pub fn validate(dto: PipelineFileDto, source: PathBuf) -> Result<Pipeline, AilEr
     // version must be present and non-empty
     match &dto.version {
         None => {
-            return Err(AilError {
-                error_type: error_types::CONFIG_VALIDATION_FAILED,
-                title: "Missing version field",
+            return Err(AilError::ConfigValidationFailed {
                 detail: "The 'version' field is required".to_string(),
                 context: None,
             })
         }
         Some(v) if v.trim().is_empty() => {
-            return Err(AilError {
-                error_type: error_types::CONFIG_VALIDATION_FAILED,
-                title: "Empty version field",
+            return Err(AilError::ConfigValidationFailed {
                 detail: "The 'version' field must not be empty".to_string(),
                 context: None,
             })
@@ -60,18 +56,14 @@ pub fn validate(dto: PipelineFileDto, source: PathBuf) -> Result<Pipeline, AilEr
     // pipeline array must be present and non-empty
     let step_dtos = match dto.pipeline {
         None => {
-            return Err(AilError {
-                error_type: error_types::CONFIG_VALIDATION_FAILED,
-                title: "Missing pipeline field",
+            return Err(AilError::ConfigValidationFailed {
                 detail: "The 'pipeline' array is required and must contain at least one step"
                     .to_string(),
                 context: None,
             })
         }
         Some(v) if v.is_empty() => {
-            return Err(AilError {
-                error_type: error_types::CONFIG_VALIDATION_FAILED,
-                title: "Empty pipeline",
+            return Err(AilError::ConfigValidationFailed {
                 detail: "The 'pipeline' array must contain at least one step".to_string(),
                 context: None,
             })
@@ -85,9 +77,7 @@ pub fn validate(dto: PipelineFileDto, source: PathBuf) -> Result<Pipeline, AilEr
         .position(|s| s.id.as_deref() == Some("invocation"));
     if let Some(pos) = invocation_pos {
         if pos != 0 {
-            return Err(AilError {
-                error_type: error_types::CONFIG_VALIDATION_FAILED,
-                title: "invocation step must be first",
+            return Err(AilError::ConfigValidationFailed {
                 detail: "The 'invocation' step, if declared, must be the first step in the pipeline (SPEC §4.1)".to_string(),
                 context: None,
             });
@@ -98,17 +88,15 @@ pub fn validate(dto: PipelineFileDto, source: PathBuf) -> Result<Pipeline, AilEr
     let mut steps: Vec<Step> = Vec::with_capacity(step_dtos.len());
 
     for step_dto in step_dtos {
-        let id_str = step_dto.id.ok_or_else(|| AilError {
-            error_type: error_types::CONFIG_VALIDATION_FAILED,
-            title: "Step missing id",
-            detail: "Every step must declare an 'id' field".to_string(),
-            context: None,
-        })?;
+        let id_str = step_dto
+            .id
+            .ok_or_else(|| AilError::ConfigValidationFailed {
+                detail: "Every step must declare an 'id' field".to_string(),
+                context: None,
+            })?;
 
         if !seen_ids.insert(id_str.clone()) {
-            return Err(AilError {
-                error_type: error_types::CONFIG_VALIDATION_FAILED,
-                title: "Duplicate step id",
+            return Err(AilError::ConfigValidationFailed {
                 detail: format!("Step id '{id_str}' appears more than once"),
                 context: None,
             });
@@ -128,9 +116,7 @@ pub fn validate(dto: PipelineFileDto, source: PathBuf) -> Result<Pipeline, AilEr
         .count();
 
         if primary_count != 1 {
-            return Err(AilError {
-                error_type: error_types::CONFIG_VALIDATION_FAILED,
-                title: "Invalid step primary field",
+            return Err(AilError::ConfigValidationFailed {
                 detail: format!(
                     "Step '{id_str}' must have exactly one primary field (prompt, skill, pipeline, action, or context); found {primary_count}"
                 ),
@@ -151,9 +137,7 @@ pub fn validate(dto: PipelineFileDto, source: PathBuf) -> Result<Pipeline, AilEr
             match action.as_str() {
                 "pause_for_human" => StepBody::Action(ActionKind::PauseForHuman),
                 other => {
-                    return Err(AilError {
-                        error_type: error_types::CONFIG_VALIDATION_FAILED,
-                        title: "Unknown action",
+                    return Err(AilError::ConfigValidationFailed {
                         detail: format!("Step '{id_str}' specifies unknown action '{other}'"),
                         context: None,
                     })
@@ -163,9 +147,7 @@ pub fn validate(dto: PipelineFileDto, source: PathBuf) -> Result<Pipeline, AilEr
             match context_dto.shell {
                 Some(cmd) => StepBody::Context(ContextSource::Shell(cmd)),
                 None => {
-                    return Err(AilError {
-                        error_type: error_types::CONFIG_VALIDATION_FAILED,
-                        title: "context step missing source",
+                    return Err(AilError::ConfigValidationFailed {
                         detail: format!(
                         "Step '{id_str}' declares context: but no source (shell:, mcp:) is present"
                     ),
@@ -200,9 +182,7 @@ pub fn validate(dto: PipelineFileDto, source: PathBuf) -> Result<Pipeline, AilEr
                         .count();
 
                         if matcher_count != 1 {
-                            return Err(AilError {
-                                error_type: error_types::CONFIG_VALIDATION_FAILED,
-                                title: "Invalid on_result branch",
+                            return Err(AilError::ConfigValidationFailed {
                                 detail: format!(
                                     "Step '{id_str}' on_result branch {i} must have exactly one matcher (contains, exit_code, always); found {matcher_count}"
                                 ),
@@ -210,9 +190,7 @@ pub fn validate(dto: PipelineFileDto, source: PathBuf) -> Result<Pipeline, AilEr
                             });
                         }
 
-                        let action_str = branch.action.ok_or_else(|| AilError {
-                            error_type: error_types::CONFIG_VALIDATION_FAILED,
-                            title: "on_result branch missing action",
+                        let action_str = branch.action.ok_or_else(|| AilError::ConfigValidationFailed {
                             detail: format!(
                                 "Step '{id_str}' on_result branch {i} must declare an 'action'"
                             ),
@@ -223,9 +201,7 @@ pub fn validate(dto: PipelineFileDto, source: PathBuf) -> Result<Pipeline, AilEr
                             action_str.strip_prefix("pipeline:").map(str::trim)
                         {
                             if path.is_empty() {
-                                return Err(AilError {
-                                    error_type: error_types::CONFIG_VALIDATION_FAILED,
-                                    title: "pipeline: action missing path",
+                                return Err(AilError::ConfigValidationFailed {
                                     detail: format!(
                                         "Step '{id_str}' on_result branch {i} action 'pipeline:' requires a path"
                                     ),
@@ -243,9 +219,7 @@ pub fn validate(dto: PipelineFileDto, source: PathBuf) -> Result<Pipeline, AilEr
                                 "abort_pipeline" => ResultAction::AbortPipeline,
                                 "pause_for_human" => ResultAction::PauseForHuman,
                                 other => {
-                                    return Err(AilError {
-                                        error_type: error_types::CONFIG_VALIDATION_FAILED,
-                                        title: "Unknown on_result action",
+                                    return Err(AilError::ConfigValidationFailed {
                                         detail: format!(
                                             "Step '{id_str}' on_result branch {i} specifies unknown action '{other}'"
                                         ),
@@ -262,9 +236,7 @@ pub fn validate(dto: PipelineFileDto, source: PathBuf) -> Result<Pipeline, AilEr
                                 ExitCodeDto::Integer(n) => ExitCodeMatch::Exact(n),
                                 ExitCodeDto::Keyword(k) if k == "any" => ExitCodeMatch::Any,
                                 ExitCodeDto::Keyword(k) => {
-                                    return Err(AilError {
-                                        error_type: error_types::CONFIG_VALIDATION_FAILED,
-                                        title: "Invalid exit_code value",
+                                    return Err(AilError::ConfigValidationFailed {
                                         detail: format!(
                                             "Step '{id_str}' on_result branch {i} exit_code must be an integer or 'any', got '{k}'"
                                         ),
@@ -288,9 +260,7 @@ pub fn validate(dto: PipelineFileDto, source: PathBuf) -> Result<Pipeline, AilEr
             None | Some("always") => None,
             Some("never") => Some(Condition::Never),
             Some(other) => {
-                return Err(AilError {
-                    error_type: error_types::CONFIG_VALIDATION_FAILED,
-                    title: "Unknown condition value",
+                return Err(AilError::ConfigValidationFailed {
                     detail: format!(
                         "Step '{id_str}' specifies unknown condition '{other}'; supported values are 'always' and 'never'"
                     ),
@@ -312,9 +282,7 @@ pub fn validate(dto: PipelineFileDto, source: PathBuf) -> Result<Pipeline, AilEr
                                 .filter(|&&b| b)
                                 .count();
                             if set_count != 1 {
-                                return Err(AilError {
-                                    error_type: error_types::CONFIG_VALIDATION_FAILED,
-                                    title: "Invalid append_system_prompt entry",
+                                return Err(AilError::ConfigValidationFailed {
                                     detail: format!(
                                         "Step '{id_str}' append_system_prompt entry {i} must have exactly one key (text, file, or shell); found {set_count}"
                                     ),
@@ -423,8 +391,8 @@ mod tests {
             pipeline: Some(vec![minimal_step("s1", "hello")]),
         };
         let err = validate(dto, source()).expect_err("should fail");
-        assert_eq!(err.error_type, error_types::CONFIG_VALIDATION_FAILED);
-        assert!(err.detail.contains("version"));
+        assert_eq!(err.error_type(), error_types::CONFIG_VALIDATION_FAILED);
+        assert!(err.detail().contains("version"));
     }
 
     #[test]
@@ -435,7 +403,7 @@ mod tests {
             pipeline: Some(vec![minimal_step("s1", "hello")]),
         };
         let err = validate(dto, source()).expect_err("should fail");
-        assert_eq!(err.error_type, error_types::CONFIG_VALIDATION_FAILED);
+        assert_eq!(err.error_type(), error_types::CONFIG_VALIDATION_FAILED);
     }
 
     // ── pipeline array ───────────────────────────────────────────────────────
@@ -448,8 +416,8 @@ mod tests {
             pipeline: None,
         };
         let err = validate(dto, source()).expect_err("should fail");
-        assert_eq!(err.error_type, error_types::CONFIG_VALIDATION_FAILED);
-        assert!(err.detail.contains("pipeline"));
+        assert_eq!(err.error_type(), error_types::CONFIG_VALIDATION_FAILED);
+        assert!(err.detail().contains("pipeline"));
     }
 
     #[test]
@@ -460,7 +428,7 @@ mod tests {
             pipeline: Some(vec![]),
         };
         let err = validate(dto, source()).expect_err("should fail");
-        assert_eq!(err.error_type, error_types::CONFIG_VALIDATION_FAILED);
+        assert_eq!(err.error_type(), error_types::CONFIG_VALIDATION_FAILED);
     }
 
     // ── step id validation ───────────────────────────────────────────────────
@@ -473,8 +441,8 @@ mod tests {
             ..minimal_step("unused", "unused")
         }]);
         let err = validate(dto, source()).expect_err("should fail");
-        assert_eq!(err.error_type, error_types::CONFIG_VALIDATION_FAILED);
-        assert!(err.detail.contains("id"));
+        assert_eq!(err.error_type(), error_types::CONFIG_VALIDATION_FAILED);
+        assert!(err.detail().contains("id"));
     }
 
     #[test]
@@ -484,8 +452,8 @@ mod tests {
             minimal_step("dupe", "second"),
         ]);
         let err = validate(dto, source()).expect_err("should fail");
-        assert_eq!(err.error_type, error_types::CONFIG_VALIDATION_FAILED);
-        assert!(err.detail.contains("dupe"));
+        assert_eq!(err.error_type(), error_types::CONFIG_VALIDATION_FAILED);
+        assert!(err.detail().contains("dupe"));
     }
 
     // ── invocation step ordering ─────────────────────────────────────────────
@@ -497,8 +465,8 @@ mod tests {
             minimal_step("invocation", "world"),
         ]);
         let err = validate(dto, source()).expect_err("should fail");
-        assert_eq!(err.error_type, error_types::CONFIG_VALIDATION_FAILED);
-        assert!(err.detail.contains("invocation"));
+        assert_eq!(err.error_type(), error_types::CONFIG_VALIDATION_FAILED);
+        assert!(err.detail().contains("invocation"));
     }
 
     #[test]
@@ -533,8 +501,8 @@ mod tests {
             resume: None,
         }]);
         let err = validate(dto, source()).expect_err("should fail");
-        assert_eq!(err.error_type, error_types::CONFIG_VALIDATION_FAILED);
-        assert!(err.detail.contains("empty"));
+        assert_eq!(err.error_type(), error_types::CONFIG_VALIDATION_FAILED);
+        assert!(err.detail().contains("empty"));
     }
 
     #[test]
@@ -557,7 +525,7 @@ mod tests {
             resume: None,
         }]);
         let err = validate(dto, source()).expect_err("should fail");
-        assert_eq!(err.error_type, error_types::CONFIG_VALIDATION_FAILED);
+        assert_eq!(err.error_type(), error_types::CONFIG_VALIDATION_FAILED);
     }
 
     // ── step body types ──────────────────────────────────────────────────────
@@ -657,8 +625,8 @@ mod tests {
             resume: None,
         }]);
         let err = validate(dto, source()).expect_err("should fail");
-        assert_eq!(err.error_type, error_types::CONFIG_VALIDATION_FAILED);
-        assert!(err.detail.contains("fly_to_moon"));
+        assert_eq!(err.error_type(), error_types::CONFIG_VALIDATION_FAILED);
+        assert!(err.detail().contains("fly_to_moon"));
     }
 
     #[test]
@@ -709,8 +677,8 @@ mod tests {
             resume: None,
         }]);
         let err = validate(dto, source()).expect_err("should fail");
-        assert_eq!(err.error_type, error_types::CONFIG_VALIDATION_FAILED);
-        assert!(err.detail.contains("context"));
+        assert_eq!(err.error_type(), error_types::CONFIG_VALIDATION_FAILED);
+        assert!(err.detail().contains("context"));
     }
 
     // ── condition field ──────────────────────────────────────────────────────
@@ -739,8 +707,8 @@ mod tests {
         step.condition = Some("maybe".to_string());
         let dto = minimal_dto(vec![step]);
         let err = validate(dto, source()).expect_err("should fail");
-        assert_eq!(err.error_type, error_types::CONFIG_VALIDATION_FAILED);
-        assert!(err.detail.contains("maybe"));
+        assert_eq!(err.error_type(), error_types::CONFIG_VALIDATION_FAILED);
+        assert!(err.detail().contains("maybe"));
     }
 
     // ── on_result branches ───────────────────────────────────────────────────
@@ -814,8 +782,8 @@ mod tests {
         }]);
         let dto = minimal_dto(vec![step]);
         let err = validate(dto, source()).expect_err("should fail");
-        assert_eq!(err.error_type, error_types::CONFIG_VALIDATION_FAILED);
-        assert!(err.detail.contains("none"));
+        assert_eq!(err.error_type(), error_types::CONFIG_VALIDATION_FAILED);
+        assert!(err.detail().contains("none"));
     }
 
     #[test]
@@ -863,8 +831,8 @@ mod tests {
         }]);
         let dto = minimal_dto(vec![step]);
         let err = validate(dto, source()).expect_err("should fail");
-        assert_eq!(err.error_type, error_types::CONFIG_VALIDATION_FAILED);
-        assert!(err.detail.contains("path"));
+        assert_eq!(err.error_type(), error_types::CONFIG_VALIDATION_FAILED);
+        assert!(err.detail().contains("path"));
     }
 
     #[test]
@@ -879,8 +847,8 @@ mod tests {
         }]);
         let dto = minimal_dto(vec![step]);
         let err = validate(dto, source()).expect_err("should fail");
-        assert_eq!(err.error_type, error_types::CONFIG_VALIDATION_FAILED);
-        assert!(err.detail.contains("teleport"));
+        assert_eq!(err.error_type(), error_types::CONFIG_VALIDATION_FAILED);
+        assert!(err.detail().contains("teleport"));
     }
 
     #[test]
@@ -895,8 +863,8 @@ mod tests {
         }]);
         let dto = minimal_dto(vec![step]);
         let err = validate(dto, source()).expect_err("should fail");
-        assert_eq!(err.error_type, error_types::CONFIG_VALIDATION_FAILED);
-        assert!(err.detail.contains("action"));
+        assert_eq!(err.error_type(), error_types::CONFIG_VALIDATION_FAILED);
+        assert!(err.detail().contains("action"));
     }
 
     #[test]
@@ -911,7 +879,7 @@ mod tests {
         }]);
         let dto = minimal_dto(vec![step]);
         let err = validate(dto, source()).expect_err("should fail");
-        assert_eq!(err.error_type, error_types::CONFIG_VALIDATION_FAILED);
+        assert_eq!(err.error_type(), error_types::CONFIG_VALIDATION_FAILED);
     }
 
     #[test]
@@ -926,7 +894,7 @@ mod tests {
         }]);
         let dto = minimal_dto(vec![step]);
         let err = validate(dto, source()).expect_err("should fail");
-        assert_eq!(err.error_type, error_types::CONFIG_VALIDATION_FAILED);
+        assert_eq!(err.error_type(), error_types::CONFIG_VALIDATION_FAILED);
     }
 
     // ── defaults / ProviderConfig ────────────────────────────────────────────
@@ -1110,7 +1078,7 @@ mod tests {
         )]);
         let dto = minimal_dto(vec![step]);
         let err = validate(dto, source()).expect_err("should fail");
-        assert_eq!(err.error_type, error_types::CONFIG_VALIDATION_FAILED);
+        assert_eq!(err.error_type(), error_types::CONFIG_VALIDATION_FAILED);
     }
 
     #[test]
@@ -1125,7 +1093,7 @@ mod tests {
         )]);
         let dto = minimal_dto(vec![step]);
         let err = validate(dto, source()).expect_err("should fail");
-        assert_eq!(err.error_type, error_types::CONFIG_VALIDATION_FAILED);
+        assert_eq!(err.error_type(), error_types::CONFIG_VALIDATION_FAILED);
     }
 
     // ── resume field ─────────────────────────────────────────────────────────

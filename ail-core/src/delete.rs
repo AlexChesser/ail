@@ -9,7 +9,7 @@ use std::path::PathBuf;
 
 use rusqlite::Connection;
 
-use crate::error::{error_types, AilError};
+use crate::error::AilError;
 use crate::session::cwd_hash as compute_cwd_hash;
 
 /// Delete a single run from the database and remove its JSONL file.
@@ -46,9 +46,7 @@ pub(crate) fn delete_run_at(run_id: &str, cwd_hash: &str, force: bool) -> Result
         .join(format!("{run_id}.jsonl"));
 
     if !force && !jsonl_path.exists() {
-        return Err(AilError {
-            error_type: error_types::PIPELINE_ABORTED,
-            title: "Run not found",
+        return Err(AilError::PipelineAborted {
             detail: format!(
                 "No JSONL file found for run {}. Use --force to delete database records only.",
                 run_id
@@ -57,9 +55,7 @@ pub(crate) fn delete_run_at(run_id: &str, cwd_hash: &str, force: bool) -> Result
         });
     }
 
-    let mut conn = Connection::open(&db_path).map_err(|e| AilError {
-        error_type: error_types::PIPELINE_ABORTED,
-        title: "Failed to open database",
+    let mut conn = Connection::open(&db_path).map_err(|e| AilError::PipelineAborted {
         detail: e.to_string(),
         context: None,
     })?;
@@ -68,9 +64,7 @@ pub(crate) fn delete_run_at(run_id: &str, cwd_hash: &str, force: bool) -> Result
 
     // Delete JSONL file if it exists.
     if jsonl_path.exists() {
-        std::fs::remove_file(&jsonl_path).map_err(|e| AilError {
-            error_type: error_types::PIPELINE_ABORTED,
-            title: "Failed to delete JSONL file",
+        std::fs::remove_file(&jsonl_path).map_err(|e| AilError::PipelineAborted {
             detail: format!("Could not delete {}: {}", jsonl_path.display(), e),
             context: None,
         })?;
@@ -94,17 +88,13 @@ pub fn delete_run_from_conn(conn: &mut Connection, run_id: &str) -> Result<(), A
             [run_id],
             |row| row.get::<_, u32>(0).map(|c| c > 0),
         )
-        .map_err(|e| AilError {
-            error_type: error_types::PIPELINE_ABORTED,
-            title: "Failed to check run existence",
+        .map_err(|e| AilError::PipelineAborted {
             detail: e.to_string(),
             context: None,
         })?;
 
     if !exists {
-        return Err(AilError {
-            error_type: error_types::PIPELINE_ABORTED,
-            title: "Run not found",
+        return Err(AilError::PipelineAborted {
             detail: format!("No session found with run_id {}", run_id),
             context: None,
         });
@@ -113,56 +103,42 @@ pub fn delete_run_from_conn(conn: &mut Connection, run_id: &str) -> Result<(), A
     // Start transaction for atomic cascade delete.
     // Note: no explicit foreign key constraints in the schema, but we follow
     // the logical dependency order.
-    let tx = conn.transaction().map_err(|e| AilError {
-        error_type: error_types::PIPELINE_ABORTED,
-        title: "Failed to start transaction",
+    let tx = conn.transaction().map_err(|e| AilError::PipelineAborted {
         detail: e.to_string(),
         context: None,
     })?;
 
     tx.execute("DELETE FROM run_events WHERE run_id = ?1", [run_id])
-        .map_err(|e| AilError {
-            error_type: error_types::PIPELINE_ABORTED,
-            title: "Failed to delete run_events",
+        .map_err(|e| AilError::PipelineAborted {
             detail: e.to_string(),
             context: None,
         })?;
 
     tx.execute("DELETE FROM metadata WHERE run_id = ?1", [run_id])
-        .map_err(|e| AilError {
-            error_type: error_types::PIPELINE_ABORTED,
-            title: "Failed to delete metadata",
+        .map_err(|e| AilError::PipelineAborted {
             detail: e.to_string(),
             context: None,
         })?;
 
     tx.execute("DELETE FROM traces WHERE run_id = ?1", [run_id])
-        .map_err(|e| AilError {
-            error_type: error_types::PIPELINE_ABORTED,
-            title: "Failed to delete traces",
+        .map_err(|e| AilError::PipelineAborted {
             detail: e.to_string(),
             context: None,
         })?;
 
     tx.execute("DELETE FROM steps WHERE run_id = ?1", [run_id])
-        .map_err(|e| AilError {
-            error_type: error_types::PIPELINE_ABORTED,
-            title: "Failed to delete steps",
+        .map_err(|e| AilError::PipelineAborted {
             detail: e.to_string(),
             context: None,
         })?;
 
     tx.execute("DELETE FROM sessions WHERE run_id = ?1", [run_id])
-        .map_err(|e| AilError {
-            error_type: error_types::PIPELINE_ABORTED,
-            title: "Failed to delete session",
+        .map_err(|e| AilError::PipelineAborted {
             detail: e.to_string(),
             context: None,
         })?;
 
-    tx.commit().map_err(|e| AilError {
-        error_type: error_types::PIPELINE_ABORTED,
-        title: "Failed to commit transaction",
+    tx.commit().map_err(|e| AilError::PipelineAborted {
         detail: e.to_string(),
         context: None,
     })?;
@@ -256,9 +232,12 @@ mod tests {
             "should return error when JSONL file is missing and force=false"
         );
         let err = result.unwrap_err();
-        assert_eq!(err.error_type, crate::error::error_types::PIPELINE_ABORTED);
+        assert_eq!(
+            err.error_type(),
+            crate::error::error_types::PIPELINE_ABORTED
+        );
         assert!(
-            err.detail.contains(run_id),
+            err.detail().contains(run_id),
             "error detail should mention the run_id"
         );
     }
@@ -275,9 +254,9 @@ mod tests {
         // Both errors use PIPELINE_ABORTED; just confirm it's not the JSONL error message.
         if let Err(e) = result {
             assert!(
-                !e.detail.contains("No JSONL file found"),
+                !e.detail().contains("No JSONL file found"),
                 "with force=true the JSONL check should be bypassed, got: {}",
-                e.detail
+                e.detail()
             );
         }
         // If somehow it succeeds (empty DB), that's also fine.

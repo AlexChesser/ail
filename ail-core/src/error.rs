@@ -33,101 +33,168 @@ impl ErrorContext {
 
 /// RFC 9457-inspired error type used throughout ail-core.
 ///
-/// The `error_type` field is a stable namespaced identifier consumed by downstream
-/// tooling (VS Code extension, NDJSON output). It must not change across releases.
+/// Each variant encodes a stable `error_type` string consumed by downstream tooling
+/// (VS Code extension, NDJSON output). The `error_type()` method returns that string.
+/// Use `detail()` / `into_detail()` to access the human-readable detail message.
 ///
-/// Use the constructor helpers (`AilError::config_validation(...)` etc.) to build
-/// errors concisely rather than spelling out all four fields every time.
+/// Prefer the variant constructors over `thiserror`'s generated field syntax where
+/// possible to keep construction sites concise.
 #[derive(Debug, thiserror::Error)]
-#[error("[{error_type}] {title}: {detail}")]
-pub struct AilError {
-    pub error_type: &'static str,
-    pub title: &'static str,
-    pub detail: String,
-    pub context: Option<ErrorContext>,
+pub enum AilError {
+    #[error("[ail:config/invalid-yaml] {detail}")]
+    ConfigInvalidYaml {
+        detail: String,
+        context: Option<ErrorContext>,
+    },
+
+    #[error("[ail:config/file-not-found] {detail}")]
+    ConfigFileNotFound {
+        detail: String,
+        context: Option<ErrorContext>,
+    },
+
+    #[error("[ail:config/validation-failed] {detail}")]
+    ConfigValidationFailed {
+        detail: String,
+        context: Option<ErrorContext>,
+    },
+
+    #[error("[ail:template/unresolved-variable] {detail}")]
+    TemplateUnresolved {
+        detail: String,
+        context: Option<ErrorContext>,
+    },
+
+    #[error("[ail:runner/invocation-failed] {detail}")]
+    RunnerInvocationFailed {
+        detail: String,
+        context: Option<ErrorContext>,
+    },
+
+    #[error("[ail:runner/cancelled] {detail}")]
+    RunnerCancelled {
+        detail: String,
+        context: Option<ErrorContext>,
+    },
+
+    #[error("[ail:runner/not-found] {detail}")]
+    RunnerNotFound {
+        detail: String,
+        context: Option<ErrorContext>,
+    },
+
+    #[error("[ail:pipeline/aborted] {detail}")]
+    PipelineAborted {
+        detail: String,
+        context: Option<ErrorContext>,
+    },
 }
 
 impl AilError {
-    // ── Constructors ──────────────────────────────────────────────────────────
+    // ── Stable identifier ─────────────────────────────────────────────────────
 
-    pub fn config_not_found(title: &'static str, detail: impl Into<String>) -> Self {
-        Self {
-            error_type: error_types::CONFIG_FILE_NOT_FOUND,
-            title,
-            detail: detail.into(),
-            context: None,
+    /// Return the stable `error_type` string for this error variant.
+    ///
+    /// This string is serialised into NDJSON output and consumed by downstream
+    /// tooling. It must not change across releases.
+    pub fn error_type(&self) -> &'static str {
+        match self {
+            Self::ConfigInvalidYaml { .. } => error_types::CONFIG_INVALID_YAML,
+            Self::ConfigFileNotFound { .. } => error_types::CONFIG_FILE_NOT_FOUND,
+            Self::ConfigValidationFailed { .. } => error_types::CONFIG_VALIDATION_FAILED,
+            Self::TemplateUnresolved { .. } => error_types::TEMPLATE_UNRESOLVED,
+            Self::RunnerInvocationFailed { .. } => error_types::RUNNER_INVOCATION_FAILED,
+            Self::RunnerCancelled { .. } => error_types::RUNNER_CANCELLED,
+            Self::RunnerNotFound { .. } => error_types::RUNNER_NOT_FOUND,
+            Self::PipelineAborted { .. } => error_types::PIPELINE_ABORTED,
         }
     }
 
-    pub fn config_invalid_yaml(title: &'static str, detail: impl Into<String>) -> Self {
-        Self {
-            error_type: error_types::CONFIG_INVALID_YAML,
-            title,
-            detail: detail.into(),
-            context: None,
+    // ── Detail accessors ──────────────────────────────────────────────────────
+
+    /// Borrow the human-readable detail message.
+    pub fn detail(&self) -> &str {
+        match self {
+            Self::ConfigInvalidYaml { detail, .. }
+            | Self::ConfigFileNotFound { detail, .. }
+            | Self::ConfigValidationFailed { detail, .. }
+            | Self::TemplateUnresolved { detail, .. }
+            | Self::RunnerInvocationFailed { detail, .. }
+            | Self::RunnerCancelled { detail, .. }
+            | Self::RunnerNotFound { detail, .. }
+            | Self::PipelineAborted { detail, .. } => detail,
         }
     }
 
-    pub fn config_validation(title: &'static str, detail: impl Into<String>) -> Self {
-        Self {
-            error_type: error_types::CONFIG_VALIDATION_FAILED,
-            title,
-            detail: detail.into(),
-            context: None,
+    /// Consume this error and return the detail string by value.
+    pub fn into_detail(self) -> String {
+        match self {
+            Self::ConfigInvalidYaml { detail, .. }
+            | Self::ConfigFileNotFound { detail, .. }
+            | Self::ConfigValidationFailed { detail, .. }
+            | Self::TemplateUnresolved { detail, .. }
+            | Self::RunnerInvocationFailed { detail, .. }
+            | Self::RunnerCancelled { detail, .. }
+            | Self::RunnerNotFound { detail, .. }
+            | Self::PipelineAborted { detail, .. } => detail,
         }
     }
 
-    pub fn template_unresolved(title: &'static str, detail: impl Into<String>) -> Self {
-        Self {
-            error_type: error_types::TEMPLATE_UNRESOLVED,
-            title,
-            detail: detail.into(),
-            context: None,
-        }
-    }
+    // ── Context accessor ──────────────────────────────────────────────────────
 
-    pub fn runner_failed(title: &'static str, detail: impl Into<String>) -> Self {
-        Self {
-            error_type: error_types::RUNNER_INVOCATION_FAILED,
-            title,
-            detail: detail.into(),
-            context: None,
-        }
-    }
-
-    pub fn runner_cancelled(detail: impl Into<String>) -> Self {
-        Self {
-            error_type: error_types::RUNNER_CANCELLED,
-            title: "Runner cancelled",
-            detail: detail.into(),
-            context: None,
-        }
-    }
-
-    pub fn runner_not_found(detail: impl Into<String>) -> Self {
-        Self {
-            error_type: error_types::RUNNER_NOT_FOUND,
-            title: "Unknown runner",
-            detail: detail.into(),
-            context: None,
-        }
-    }
-
-    pub fn pipeline_aborted(title: &'static str, detail: impl Into<String>) -> Self {
-        Self {
-            error_type: error_types::PIPELINE_ABORTED,
-            title,
-            detail: detail.into(),
-            context: None,
+    /// Borrow the optional step-scoped context attached to this error.
+    pub fn context(&self) -> Option<&ErrorContext> {
+        match self {
+            Self::ConfigInvalidYaml { context, .. }
+            | Self::ConfigFileNotFound { context, .. }
+            | Self::ConfigValidationFailed { context, .. }
+            | Self::TemplateUnresolved { context, .. }
+            | Self::RunnerInvocationFailed { context, .. }
+            | Self::RunnerCancelled { context, .. }
+            | Self::RunnerNotFound { context, .. }
+            | Self::PipelineAborted { context, .. } => context.as_ref(),
         }
     }
 
     // ── Context attachment ────────────────────────────────────────────────────
 
     /// Attach step-scoped context to this error, returning `self`.
-    pub fn with_step_context(mut self, run_id: &str, step_id: &str) -> Self {
-        self.context = Some(ErrorContext::for_step(run_id, step_id));
-        self
+    pub fn with_step_context(self, run_id: &str, step_id: &str) -> Self {
+        let ctx = Some(ErrorContext::for_step(run_id, step_id));
+        match self {
+            Self::ConfigInvalidYaml { detail, .. } => Self::ConfigInvalidYaml {
+                detail,
+                context: ctx,
+            },
+            Self::ConfigFileNotFound { detail, .. } => Self::ConfigFileNotFound {
+                detail,
+                context: ctx,
+            },
+            Self::ConfigValidationFailed { detail, .. } => Self::ConfigValidationFailed {
+                detail,
+                context: ctx,
+            },
+            Self::TemplateUnresolved { detail, .. } => Self::TemplateUnresolved {
+                detail,
+                context: ctx,
+            },
+            Self::RunnerInvocationFailed { detail, .. } => Self::RunnerInvocationFailed {
+                detail,
+                context: ctx,
+            },
+            Self::RunnerCancelled { detail, .. } => Self::RunnerCancelled {
+                detail,
+                context: ctx,
+            },
+            Self::RunnerNotFound { detail, .. } => Self::RunnerNotFound {
+                detail,
+                context: ctx,
+            },
+            Self::PipelineAborted { detail, .. } => Self::PipelineAborted {
+                detail,
+                context: ctx,
+            },
+        }
     }
 
     // ── Recovery hint ─────────────────────────────────────────────────────────
@@ -138,16 +205,67 @@ impl AilError {
     /// does not currently act on recovery strategies; they are intended for future
     /// use in retry loops and step-skip logic.
     pub fn recovery_strategy(&self) -> RecoveryStrategy {
-        match self.error_type {
-            error_types::CONFIG_INVALID_YAML => RecoveryStrategy::Abort,
-            error_types::CONFIG_FILE_NOT_FOUND => RecoveryStrategy::Abort,
-            error_types::CONFIG_VALIDATION_FAILED => RecoveryStrategy::Abort,
-            error_types::TEMPLATE_UNRESOLVED => RecoveryStrategy::Abort,
-            error_types::RUNNER_INVOCATION_FAILED => RecoveryStrategy::Retry { max_attempts: 2 },
-            error_types::RUNNER_CANCELLED => RecoveryStrategy::Abort,
-            error_types::RUNNER_NOT_FOUND => RecoveryStrategy::Abort,
-            error_types::PIPELINE_ABORTED => RecoveryStrategy::Abort,
+        match self {
+            Self::RunnerInvocationFailed { .. } => RecoveryStrategy::Retry { max_attempts: 2 },
             _ => RecoveryStrategy::Abort,
+        }
+    }
+
+    // ── Constructor helpers ───────────────────────────────────────────────────
+
+    pub fn config_not_found(detail: impl Into<String>) -> Self {
+        Self::ConfigFileNotFound {
+            detail: detail.into(),
+            context: None,
+        }
+    }
+
+    pub fn config_invalid_yaml(detail: impl Into<String>) -> Self {
+        Self::ConfigInvalidYaml {
+            detail: detail.into(),
+            context: None,
+        }
+    }
+
+    pub fn config_validation(detail: impl Into<String>) -> Self {
+        Self::ConfigValidationFailed {
+            detail: detail.into(),
+            context: None,
+        }
+    }
+
+    pub fn template_unresolved(detail: impl Into<String>) -> Self {
+        Self::TemplateUnresolved {
+            detail: detail.into(),
+            context: None,
+        }
+    }
+
+    pub fn runner_failed(detail: impl Into<String>) -> Self {
+        Self::RunnerInvocationFailed {
+            detail: detail.into(),
+            context: None,
+        }
+    }
+
+    pub fn runner_cancelled(detail: impl Into<String>) -> Self {
+        Self::RunnerCancelled {
+            detail: detail.into(),
+            context: None,
+        }
+    }
+
+    pub fn runner_not_found(detail: impl Into<String>) -> Self {
+        Self::RunnerNotFound {
+            detail: detail.into(),
+            context: None,
+        }
+    }
+
+    pub fn pipeline_aborted(detail: impl Into<String>) -> Self {
+        Self::PipelineAborted {
+            detail: detail.into(),
+            context: None,
         }
     }
 }
@@ -168,9 +286,7 @@ mod tests {
     use super::*;
 
     fn make_err() -> AilError {
-        AilError {
-            error_type: error_types::CONFIG_INVALID_YAML,
-            title: "Invalid YAML",
+        AilError::ConfigInvalidYaml {
             detail: "unexpected token at line 3".to_string(),
             context: None,
         }
@@ -190,14 +306,12 @@ mod tests {
 
     #[test]
     fn test_with_step_context() {
-        let err = AilError {
-            error_type: "test",
-            title: "Test",
+        let err = AilError::ConfigValidationFailed {
             detail: "test".to_string(),
             context: None,
         };
         let err = err.with_step_context("run-1", "step-1");
-        let ctx = err.context.unwrap();
+        let ctx = err.context().unwrap();
         assert_eq!(ctx.pipeline_run_id, Some("run-1".to_string()));
         assert_eq!(ctx.step_id, Some("step-1".to_string()));
         assert!(ctx.source.is_none());
@@ -205,9 +319,7 @@ mod tests {
 
     #[test]
     fn none_context_does_not_affect_display() {
-        let err_with = AilError {
-            error_type: error_types::CONFIG_INVALID_YAML,
-            title: "Invalid YAML",
+        let err_with = AilError::ConfigInvalidYaml {
             detail: "some detail".to_string(),
             context: Some(ErrorContext {
                 pipeline_run_id: Some("run-1".to_string()),
@@ -215,9 +327,7 @@ mod tests {
                 source: None,
             }),
         };
-        let err_without = AilError {
-            error_type: error_types::CONFIG_INVALID_YAML,
-            title: "Invalid YAML",
+        let err_without = AilError::ConfigInvalidYaml {
             detail: "some detail".to_string(),
             context: None,
         };
@@ -227,42 +337,42 @@ mod tests {
     #[test]
     fn constructors_set_correct_error_type() {
         assert_eq!(
-            AilError::config_not_found("t", "d").error_type,
+            AilError::config_not_found("d").error_type(),
             error_types::CONFIG_FILE_NOT_FOUND
         );
         assert_eq!(
-            AilError::config_invalid_yaml("t", "d").error_type,
+            AilError::config_invalid_yaml("d").error_type(),
             error_types::CONFIG_INVALID_YAML
         );
         assert_eq!(
-            AilError::config_validation("t", "d").error_type,
+            AilError::config_validation("d").error_type(),
             error_types::CONFIG_VALIDATION_FAILED
         );
         assert_eq!(
-            AilError::template_unresolved("t", "d").error_type,
+            AilError::template_unresolved("d").error_type(),
             error_types::TEMPLATE_UNRESOLVED
         );
         assert_eq!(
-            AilError::runner_failed("t", "d").error_type,
+            AilError::runner_failed("d").error_type(),
             error_types::RUNNER_INVOCATION_FAILED
         );
         assert_eq!(
-            AilError::runner_not_found("d").error_type,
+            AilError::runner_not_found("d").error_type(),
             error_types::RUNNER_NOT_FOUND
         );
         assert_eq!(
-            AilError::pipeline_aborted("t", "d").error_type,
+            AilError::pipeline_aborted("d").error_type(),
             error_types::PIPELINE_ABORTED
         );
         assert_eq!(
-            AilError::runner_cancelled("d").error_type,
+            AilError::runner_cancelled("d").error_type(),
             error_types::RUNNER_CANCELLED
         );
     }
 
     #[test]
     fn recovery_strategy_runner_failed_is_retry() {
-        let err = AilError::runner_failed("t", "d");
+        let err = AilError::runner_failed("d");
         assert_eq!(
             err.recovery_strategy(),
             RecoveryStrategy::Retry { max_attempts: 2 }
@@ -272,16 +382,34 @@ mod tests {
     #[test]
     fn recovery_strategy_config_errors_abort() {
         assert_eq!(
-            AilError::config_validation("t", "d").recovery_strategy(),
+            AilError::config_validation("d").recovery_strategy(),
             RecoveryStrategy::Abort
         );
         assert_eq!(
-            AilError::config_not_found("t", "d").recovery_strategy(),
+            AilError::config_not_found("d").recovery_strategy(),
             RecoveryStrategy::Abort
         );
         assert_eq!(
-            AilError::config_invalid_yaml("t", "d").recovery_strategy(),
+            AilError::config_invalid_yaml("d").recovery_strategy(),
             RecoveryStrategy::Abort
         );
+    }
+
+    #[test]
+    fn detail_accessor_returns_correct_string() {
+        let err = AilError::TemplateUnresolved {
+            detail: "missing var".to_string(),
+            context: None,
+        };
+        assert_eq!(err.detail(), "missing var");
+    }
+
+    #[test]
+    fn into_detail_consumes_and_returns_string() {
+        let err = AilError::PipelineAborted {
+            detail: "aborted reason".to_string(),
+            context: None,
+        };
+        assert_eq!(err.into_detail(), "aborted reason");
     }
 }

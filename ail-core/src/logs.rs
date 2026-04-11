@@ -10,7 +10,7 @@ use std::path::Path;
 use rusqlite::{params, Connection, OptionalExtension};
 use std::collections::HashMap;
 
-use crate::error::{error_types, AilError};
+use crate::error::AilError;
 use crate::runner::ToolEvent;
 use crate::session::cwd_hash;
 use crate::session::sqlite_provider::db_path;
@@ -72,9 +72,7 @@ pub fn query_logs_at(query: &LogQuery, db_path: &Path) -> Result<Vec<SessionSumm
         return Ok(Vec::new());
     }
 
-    let conn = Connection::open(db_path).map_err(|e| AilError {
-        error_type: error_types::PIPELINE_ABORTED,
-        title: "Failed to open log database",
+    let conn = Connection::open(db_path).map_err(|e| AilError::PipelineAborted {
         detail: e.to_string(),
         context: None,
     })?;
@@ -83,24 +81,18 @@ pub fn query_logs_at(query: &LogQuery, db_path: &Path) -> Result<Vec<SessionSumm
     let fts_run_ids: Option<Vec<String>> = if let Some(ref fts) = query.fts_query {
         let mut stmt = conn
             .prepare("SELECT DISTINCT run_id FROM traces_fts WHERE traces_fts MATCH ?1 LIMIT 1000")
-            .map_err(|e| AilError {
-                error_type: error_types::PIPELINE_ABORTED,
-                title: "Failed to prepare FTS query",
+            .map_err(|e| AilError::PipelineAborted {
                 detail: e.to_string(),
                 context: None,
             })?;
         let ids: Result<Vec<String>, _> = stmt
             .query_map(params![fts], |row| row.get(0))
-            .map_err(|e| AilError {
-                error_type: error_types::PIPELINE_ABORTED,
-                title: "Failed to execute FTS query",
+            .map_err(|e| AilError::PipelineAborted {
                 detail: e.to_string(),
                 context: None,
             })?
             .collect::<Result<Vec<_>, _>>();
-        let ids = ids.map_err(|e| AilError {
-            error_type: error_types::PIPELINE_ABORTED,
-            title: "Failed to collect FTS results",
+        let ids = ids.map_err(|e| AilError::PipelineAborted {
             detail: e.to_string(),
             context: None,
         })?;
@@ -169,9 +161,7 @@ fn load_sessions(
          LIMIT ?{position}"
     );
 
-    let mut stmt = conn.prepare(&sql).map_err(|e| AilError {
-        error_type: error_types::PIPELINE_ABORTED,
-        title: "Failed to prepare sessions query",
+    let mut stmt = conn.prepare(&sql).map_err(|e| AilError::PipelineAborted {
         detail: e.to_string(),
         context: None,
     })?;
@@ -202,17 +192,13 @@ fn load_sessions(
                 steps: Vec::new(),
             })
         })
-        .map_err(|e| AilError {
-            error_type: error_types::PIPELINE_ABORTED,
-            title: "Failed to query sessions",
+        .map_err(|e| AilError::PipelineAborted {
             detail: e.to_string(),
             context: None,
         })?
         .collect::<Result<Vec<_>, _>>();
 
-    rows.map_err(|e| AilError {
-        error_type: error_types::PIPELINE_ABORTED,
-        title: "Failed to collect session rows",
+    rows.map_err(|e| AilError::PipelineAborted {
         detail: e.to_string(),
         context: None,
     })
@@ -240,9 +226,7 @@ fn load_steps(conn: &Connection, run_id: &str) -> Result<Vec<StepSummary>, AilEr
              WHERE run_id = ?1
              ORDER BY recorded_at ASC",
         )
-        .map_err(|e| AilError {
-            error_type: error_types::PIPELINE_ABORTED,
-            title: "Failed to prepare steps query",
+        .map_err(|e| AilError::PipelineAborted {
             detail: e.to_string(),
             context: None,
         })?;
@@ -261,17 +245,13 @@ fn load_steps(conn: &Connection, run_id: &str) -> Result<Vec<StepSummary>, AilEr
                 recorded_at: row.get(8)?,
             })
         })
-        .map_err(|e| AilError {
-            error_type: error_types::PIPELINE_ABORTED,
-            title: "Failed to query steps",
+        .map_err(|e| AilError::PipelineAborted {
             detail: e.to_string(),
             context: None,
         })?
         .collect::<Result<Vec<_>, _>>();
 
-    let raw_rows = rows.map_err(|e| AilError {
-        error_type: error_types::PIPELINE_ABORTED,
-        title: "Failed to collect step rows",
+    let raw_rows = rows.map_err(|e| AilError::PipelineAborted {
         detail: e.to_string(),
         context: None,
     })?;
@@ -343,17 +323,13 @@ pub fn get_run_steps(run_id: &str) -> Result<Vec<StepRow>, AilError> {
 /// Query steps for a specific run from an explicit database path.
 pub fn get_run_steps_at(run_id: &str, db_path: &Path) -> Result<Vec<StepRow>, AilError> {
     if !db_path.exists() {
-        return Err(AilError {
-            error_type: error_types::PIPELINE_ABORTED,
-            title: "Database not found",
+        return Err(AilError::PipelineAborted {
             detail: "No ail database found at this location".to_string(),
             context: None,
         });
     }
 
-    let conn = Connection::open(db_path).map_err(|e| AilError {
-        error_type: error_types::PIPELINE_ABORTED,
-        title: "Failed to open log database",
+    let conn = Connection::open(db_path).map_err(|e| AilError::PipelineAborted {
         detail: e.to_string(),
         context: None,
     })?;
@@ -366,9 +342,7 @@ pub fn get_run_steps_at(run_id: &str, db_path: &Path) -> Result<Vec<StepRow>, Ai
              WHERE run_id = ?1
              ORDER BY recorded_at ASC",
         )
-        .map_err(|e| AilError {
-            error_type: error_types::PIPELINE_ABORTED,
-            title: "Failed to prepare steps query",
+        .map_err(|e| AilError::PipelineAborted {
             detail: e.to_string(),
             context: None,
         })?;
@@ -391,17 +365,13 @@ pub fn get_run_steps_at(run_id: &str, db_path: &Path) -> Result<Vec<StepRow>, Ai
                 tool_events: vec![],
             })
         })
-        .map_err(|e| AilError {
-            error_type: error_types::PIPELINE_ABORTED,
-            title: "Failed to query steps",
+        .map_err(|e| AilError::PipelineAborted {
             detail: e.to_string(),
             context: None,
         })?
         .collect::<Result<Vec<_>, _>>();
 
-    let mut rows = rows.map_err(|e| AilError {
-        error_type: error_types::PIPELINE_ABORTED,
-        title: "Failed to collect step rows",
+    let mut rows = rows.map_err(|e| AilError::PipelineAborted {
         detail: e.to_string(),
         context: None,
     })?;
@@ -422,9 +392,7 @@ pub fn get_run_steps_at(run_id: &str, db_path: &Path) -> Result<Vec<StepRow>, Ai
                 "SELECT step_id, seq, event_type, tool_name, tool_id, content_json
                  FROM run_events WHERE run_id = ?1 ORDER BY seq ASC",
             )
-            .map_err(|e| AilError {
-                error_type: error_types::PIPELINE_ABORTED,
-                title: "Failed to prepare run_events query",
+            .map_err(|e| AilError::PipelineAborted {
                 detail: e.to_string(),
                 context: None,
             })?;
@@ -442,17 +410,13 @@ pub fn get_run_steps_at(run_id: &str, db_path: &Path) -> Result<Vec<StepRow>, Ai
                     },
                 ))
             })
-            .map_err(|e| AilError {
-                error_type: error_types::PIPELINE_ABORTED,
-                title: "Failed to query run_events",
+            .map_err(|e| AilError::PipelineAborted {
                 detail: e.to_string(),
                 context: None,
             })?
             .collect::<Result<Vec<_>, _>>();
 
-        let event_rows = event_rows.map_err(|e| AilError {
-            error_type: error_types::PIPELINE_ABORTED,
-            title: "Failed to collect run_events rows",
+        let event_rows = event_rows.map_err(|e| AilError::PipelineAborted {
             detail: e.to_string(),
             context: None,
         })?;
@@ -495,9 +459,7 @@ pub fn get_latest_run_id_at(
         return Ok(None);
     }
 
-    let conn = Connection::open(db_path).map_err(|e| AilError {
-        error_type: error_types::PIPELINE_ABORTED,
-        title: "Failed to open log database",
+    let conn = Connection::open(db_path).map_err(|e| AilError::PipelineAborted {
         detail: e.to_string(),
         context: None,
     })?;
@@ -509,9 +471,7 @@ pub fn get_latest_run_id_at(
              ORDER BY started_at DESC
              LIMIT 1",
         )
-        .map_err(|e| AilError {
-            error_type: error_types::PIPELINE_ABORTED,
-            title: "Failed to prepare query",
+        .map_err(|e| AilError::PipelineAborted {
             detail: e.to_string(),
             context: None,
         })?;
@@ -519,9 +479,7 @@ pub fn get_latest_run_id_at(
     let run_id: Option<String> = stmt
         .query_row(params![project_sha1], |row| row.get(0))
         .optional()
-        .map_err(|e| AilError {
-            error_type: error_types::PIPELINE_ABORTED,
-            title: "Failed to query latest run",
+        .map_err(|e| AilError::PipelineAborted {
             detail: e.to_string(),
             context: None,
         })?;

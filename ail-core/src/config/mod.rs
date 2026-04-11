@@ -8,25 +8,22 @@ pub mod validation;
 
 use std::path::Path;
 
-use crate::error::{error_types, AilError};
+use crate::error::AilError;
 use domain::Pipeline;
 use dto::PipelineFileDto;
 use validation::validate;
 
 pub fn load(path: &Path) -> Result<Pipeline, AilError> {
-    let contents = std::fs::read_to_string(path).map_err(|e| AilError {
-        error_type: error_types::CONFIG_FILE_NOT_FOUND,
-        title: "Pipeline file not found",
+    let contents = std::fs::read_to_string(path).map_err(|e| AilError::ConfigFileNotFound {
         detail: format!("Could not read '{}': {e}", path.display()),
         context: None,
     })?;
 
-    let dto: PipelineFileDto = serde_yaml::from_str(&contents).map_err(|e| AilError {
-        error_type: error_types::CONFIG_INVALID_YAML,
-        title: "Invalid YAML",
-        detail: format!("Failed to parse '{}': {e}", path.display()),
-        context: None,
-    })?;
+    let dto: PipelineFileDto =
+        serde_yaml::from_str(&contents).map_err(|e| AilError::ConfigInvalidYaml {
+            detail: format!("Failed to parse '{}': {e}", path.display()),
+            context: None,
+        })?;
 
     // Normalize to absolute so parent() always returns a usable directory (SPEC §9).
     // Guards against bare filenames (e.g. `.ail.yaml`) where parent() returns "" instead
@@ -45,6 +42,7 @@ pub fn load(path: &Path) -> Result<Pipeline, AilError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::error::error_types;
     use std::path::PathBuf;
 
     fn fixtures_dir() -> PathBuf {
@@ -96,10 +94,10 @@ mod tests {
         let path = PathBuf::from("/no/such/path/pipeline.ail.yaml");
         let err = load(&path).unwrap_err();
         assert_eq!(
-            err.error_type,
+            err.error_type(),
             error_types::CONFIG_FILE_NOT_FOUND,
             "wrong error_type: got {}",
-            err.error_type
+            err.error_type()
         );
     }
 
@@ -109,9 +107,9 @@ mod tests {
         let path = PathBuf::from("/no/such/path/pipeline.ail.yaml");
         let err = load(&path).unwrap_err();
         assert!(
-            err.detail.contains("pipeline.ail.yaml"),
+            err.detail().contains("pipeline.ail.yaml"),
             "error detail should mention the file path: {}",
-            err.detail
+            err.detail()
         );
     }
 
@@ -124,10 +122,10 @@ mod tests {
 
         let err = load(&bad_path).unwrap_err();
         assert_eq!(
-            err.error_type,
+            err.error_type(),
             error_types::CONFIG_INVALID_YAML,
             "wrong error_type: got {}",
-            err.error_type
+            err.error_type()
         );
     }
 
@@ -139,7 +137,7 @@ mod tests {
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(
-            err.error_type == error_types::CONFIG_VALIDATION_FAILED
+            err.error_type() == error_types::CONFIG_VALIDATION_FAILED
                 || err.to_string().contains("version"),
             "expected a validation error mentioning version, got: {}",
             err

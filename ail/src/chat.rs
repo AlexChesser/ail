@@ -52,7 +52,7 @@ fn emit(value: &serde_json::Value) {
 /// Returns `(last_runner_session_id, turn_cost_usd)` on success,
 /// or `Err(detail)` on fatal invocation failure (error already emitted as `pipeline_error`).
 #[allow(clippy::too_many_arguments)]
-fn run_turn_stream(
+async fn run_turn_stream(
     pipeline: Pipeline,
     cli_provider: &ProviderConfig,
     runner: &dyn Runner,
@@ -64,6 +64,7 @@ fn run_turn_stream(
     pending_permission: Arc<
         std::sync::Mutex<Option<mpsc::SyncSender<ail_core::runner::PermissionResponse>>>,
     >,
+    perm_notify: Arc<tokio::sync::Notify>,
     hitl_rx: mpsc::Receiver<String>,
 ) -> Result<(Option<String>, f64), String> {
     let mut session = Session::new(pipeline, prompt.to_string());
@@ -79,14 +80,17 @@ fn run_turn_stream(
 
     let has_invocation_step = session.has_invocation_step();
 
-    // Build per-turn permission responder.
+    // Build per-turn permission responder. Signals perm_notify after parking the
+    // sender so the bridge task (in run_chat_stream) can route stdin responses.
     let pending_perm = Arc::clone(&pending_permission);
+    let perm_notify_responder = Arc::clone(&perm_notify);
     let responder: ail_core::runner::PermissionResponder =
         Arc::new(move |_req: ail_core::runner::PermissionRequest| {
             let (tx, rx) = mpsc::sync_channel(1);
             if let Ok(mut guard) = pending_perm.lock() {
                 *guard = Some(tx);
             }
+            perm_notify_responder.notify_one();
             rx.recv_timeout(std::time::Duration::from_secs(300))
                 .unwrap_or(PermissionResponse::Deny("timeout".to_string()))
         });
@@ -108,9 +112,9 @@ fn run_turn_stream(
             ..InvokeOptions::default()
         };
 
-        // Forward runner events as NDJSON while the invocation runs.
+        // Spawn blocking task to forward runner events as NDJSON.
         let (runner_tx, runner_rx) = mpsc::channel::<RunnerEvent>();
-        let fwd_handle = std::thread::spawn(move || {
+        let fwd_handle = tokio::task::spawn_blocking(move || {
             for ev in runner_rx {
                 emit(&serde_json::json!({
                     "type": "runner_event",
@@ -119,9 +123,13 @@ fn run_turn_stream(
             }
         });
 
-        match runner.invoke_streaming(prompt, invocation_options, runner_tx) {
+        let invoke_result = tokio::task::block_in_place(|| {
+            runner.invoke_streaming(prompt, invocation_options, runner_tx)
+        });
+        let _ = fwd_handle.await;
+
+        match invoke_result {
             Ok(result) => {
-                let _ = fwd_handle.join();
                 emit(&serde_json::json!({
                     "type": "step_completed",
                     "step_id": "invocation",
@@ -136,13 +144,12 @@ fn run_turn_stream(
                 ));
             }
             Err(e) => {
-                let _ = fwd_handle.join();
                 emit(&serde_json::json!({
                     "type": "pipeline_error",
-                    "error": e.detail,
-                    "error_type": e.error_type,
+                    "error": e.detail(),
+                    "error_type": e.error_type(),
                 }));
-                return Err(e.detail);
+                return Err(e.into_detail());
             }
         }
     }
@@ -155,8 +162,8 @@ fn run_turn_stream(
     let disabled_steps = HashSet::new();
     let (event_tx, event_rx) = mpsc::channel::<ExecutorEvent>();
 
-    // Writer thread drains executor events to stdout.
-    let writer_handle = std::thread::spawn(move || {
+    // Spawn blocking task to drain executor events to stdout.
+    let writer_handle = tokio::task::spawn_blocking(move || {
         for event in event_rx {
             if let Ok(v) = serde_json::to_value(&event) {
                 emit(&v);
@@ -164,16 +171,18 @@ fn run_turn_stream(
         }
     });
 
-    let exec_result = ail_core::executor::execute_with_control(
-        &mut session,
-        runner,
-        &control,
-        &disabled_steps,
-        event_tx,
-        hitl_rx,
-    );
+    let exec_result = tokio::task::block_in_place(|| {
+        ail_core::executor::execute_with_control(
+            &mut session,
+            runner,
+            &control,
+            &disabled_steps,
+            event_tx,
+            hitl_rx,
+        )
+    });
 
-    let _ = writer_handle.join();
+    let _ = writer_handle.await;
 
     let turn_cost = session
         .turn_log
@@ -192,10 +201,10 @@ fn run_turn_stream(
         Err(e) => {
             emit(&serde_json::json!({
                 "type": "pipeline_error",
-                "error": e.detail,
-                "error_type": e.error_type,
+                "error": e.detail(),
+                "error_type": e.error_type(),
             }));
-            Err(e.detail)
+            Err(e.into_detail())
         }
     }
 }
@@ -204,7 +213,7 @@ fn run_turn_stream(
 ///
 /// If `initial_message` is `Some`, that message is processed first; in one-shot mode
 /// (`--message`) the loop exits after that single turn without reading stdin.
-pub fn run_chat_stream(
+pub async fn run_chat_stream(
     pipeline: Pipeline,
     cli_provider: ProviderConfig,
     runner: &dyn Runner,
@@ -227,11 +236,10 @@ pub fn run_chat_stream(
         std::sync::Mutex<Option<mpsc::SyncSender<ail_core::runner::PermissionResponse>>>,
     > = Arc::new(std::sync::Mutex::new(None));
 
-    // Channel for user prompts (None = shutdown sentinel).
-    let (prompt_tx, prompt_rx) = mpsc::sync_channel::<Option<String>>(32);
+    // Async channel for user prompts (None = shutdown sentinel).
+    let (prompt_tx, mut prompt_rx) = tokio::sync::mpsc::channel::<Option<String>>(32);
 
-    // Channel for routed control messages during a turn (hitl, permission, pause, kill).
-    // We use a slot (Mutex<Option<Sender>>) so the stdin reader can target the current turn.
+    // Slots so the stdin reader can target control messages to the current turn.
     let hitl_slot: Arc<std::sync::Mutex<Option<mpsc::SyncSender<String>>>> =
         Arc::new(std::sync::Mutex::new(None));
     let perm_slot: Arc<std::sync::Mutex<Option<mpsc::SyncSender<PermissionResponse>>>> =
@@ -239,12 +247,12 @@ pub fn run_chat_stream(
 
     // Enqueue the initial message if provided (one-shot mode).
     if let Some(msg) = initial_message {
-        let _ = prompt_tx.send(Some(msg));
+        let _ = prompt_tx.send(Some(msg)).await;
         // In one-shot mode we immediately send the shutdown sentinel after the message.
-        let _ = prompt_tx.send(None);
+        let _ = prompt_tx.send(None).await;
     }
 
-    // Spawn stdin reader (always — in one-shot mode it only reads control messages for the turn).
+    // Async stdin reader — always running; in one-shot mode it only reads control messages.
     {
         let prompt_tx_stdin = prompt_tx;
         let pause_stdin = Arc::clone(&pause_requested);
@@ -252,23 +260,19 @@ pub fn run_chat_stream(
         let hitl_slot_stdin = Arc::clone(&hitl_slot);
         let perm_slot_stdin = Arc::clone(&perm_slot);
 
-        std::thread::spawn(move || {
+        tokio::spawn(async move {
             use ail_core::protocol::{parse_control_message, ControlMessage};
-            use std::io::BufRead;
-            let stdin = std::io::stdin();
-            for line in stdin.lock().lines() {
-                let line = match line {
-                    Ok(l) => l,
-                    Err(_) => break,
-                };
+            use tokio::io::AsyncBufReadExt;
+            let mut lines = tokio::io::BufReader::new(tokio::io::stdin()).lines();
+            while let Ok(Some(line)) = lines.next_line().await {
                 match parse_control_message(&line) {
                     Some(ControlMessage::UserMessage(text)) => {
-                        if prompt_tx_stdin.send(Some(text)).is_err() {
+                        if prompt_tx_stdin.send(Some(text)).await.is_err() {
                             break;
                         }
                     }
                     Some(ControlMessage::EndSession) => {
-                        let _ = prompt_tx_stdin.send(None);
+                        let _ = prompt_tx_stdin.send(None).await;
                         break;
                     }
                     Some(ControlMessage::HitlResponse(text)) => {
@@ -292,13 +296,11 @@ pub fn run_chat_stream(
                     Some(ControlMessage::Kill) => {
                         kill_stdin.store(true, Ordering::SeqCst);
                     }
-                    None => {
-                        // Empty line or unknown type — ignore.
-                    }
+                    None => {}
                 }
             }
             // EOF — signal shutdown.
-            let _ = prompt_tx_stdin.send(None);
+            let _ = prompt_tx_stdin.send(None).await;
         });
     }
 
@@ -306,117 +308,116 @@ pub fn run_chat_stream(
     let mut turn_count: usize = 0;
     let mut total_cost_usd: f64 = 0.0;
 
-    while let Ok(Some(prompt)) = prompt_rx.recv() {
-        if prompt.trim().is_empty() {
-            continue;
-        }
-
-        let turn_id = Uuid::new_v4().to_string();
-        emit(&serde_json::json!({
-            "type": "turn_started",
-            "turn_id": turn_id,
-            "prompt": prompt,
-        }));
-
-        // Reset kill flag between turns.
-        kill_requested.store(false, Ordering::SeqCst);
-
-        // Install per-turn HITL channel.
-        let (hitl_sync_tx, hitl_sync_rx) = mpsc::sync_channel::<String>(32);
-        let (hitl_tx, hitl_rx) = mpsc::channel::<String>();
+    while let Some(Some(prompt)) = prompt_rx.recv().await {
         {
-            let mut guard = hitl_slot.lock().unwrap_or_else(|e| e.into_inner());
-            *guard = Some(hitl_sync_tx);
-        }
-        // Bridge the sync channel to the regular mpsc channel the executor expects.
-        std::thread::spawn(move || {
-            for msg in hitl_sync_rx {
-                if hitl_tx.send(msg).is_err() {
-                    break;
-                }
+            if prompt.trim().is_empty() {
+                continue;
             }
-        });
 
-        // Install per-turn permission channel in pending_permission via a bridge.
-        // The permission responder built in run_turn_stream installs itself into pending_permission;
-        // the stdin reader writes into perm_slot. We bridge them here.
-        {
-            let pending_perm = Arc::clone(&pending_permission);
-            let perm_slot_loop = Arc::clone(&perm_slot);
-            std::thread::spawn(move || {
-                loop {
-                    // Poll until a pending sender appears (set by the permission responder callback).
-                    let tx_opt = {
-                        let guard = pending_perm.lock().unwrap_or_else(|e| e.into_inner());
-                        guard.clone()
-                    };
-                    if let Some(tx) = tx_opt {
-                        // Install the sender into perm_slot so the stdin reader can deliver.
-                        {
-                            let mut guard =
-                                perm_slot_loop.lock().unwrap_or_else(|e| e.into_inner());
-                            *guard = Some(tx);
-                        }
+            let turn_id = Uuid::new_v4().to_string();
+            emit(&serde_json::json!({
+                "type": "turn_started",
+                "turn_id": turn_id,
+                "prompt": prompt,
+            }));
+
+            // Reset kill flag between turns.
+            kill_requested.store(false, Ordering::SeqCst);
+
+            // Install per-turn HITL channel.
+            let (hitl_sync_tx, hitl_sync_rx) = mpsc::sync_channel::<String>(32);
+            let (hitl_tx, hitl_rx) = mpsc::channel::<String>();
+            {
+                let mut guard = hitl_slot.lock().unwrap_or_else(|e| e.into_inner());
+                *guard = Some(hitl_sync_tx);
+            }
+            // Bridge the sync channel to the regular mpsc channel the executor expects.
+            tokio::task::spawn_blocking(move || {
+                for msg in hitl_sync_rx {
+                    if hitl_tx.send(msg).is_err() {
                         break;
                     }
-                    std::thread::sleep(std::time::Duration::from_millis(10));
                 }
             });
-        }
 
-        let start = Instant::now();
-        let result = run_turn_stream(
-            pipeline.clone(),
-            &cli_provider,
-            runner,
-            &prompt,
-            last_runner_session_id.as_deref(),
-            &turn_id,
-            Arc::clone(&pause_requested),
-            Arc::clone(&kill_requested),
-            Arc::clone(&pending_permission),
-            hitl_rx,
-        );
+            // Permission bridge: replaces the former polling sleep loop.
+            // The per-turn responder (in run_turn_stream) signals perm_notify after
+            // parking the sender in pending_permission. This task wakes immediately,
+            // moves the sender to perm_slot so the stdin reader can deliver a response.
+            let perm_notify = Arc::new(tokio::sync::Notify::new());
+            {
+                let pending_perm_bridge = Arc::clone(&pending_permission);
+                let perm_slot_bridge = Arc::clone(&perm_slot);
+                let perm_notify_bridge = Arc::clone(&perm_notify);
+                tokio::spawn(async move {
+                    perm_notify_bridge.notified().await;
+                    let tx_opt = pending_perm_bridge
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .take();
+                    if let Some(tx) = tx_opt {
+                        let mut guard = perm_slot_bridge.lock().unwrap_or_else(|e| e.into_inner());
+                        *guard = Some(tx);
+                    }
+                });
+            }
 
-        // Clear slots after turn completes.
-        {
-            let mut guard = hitl_slot.lock().unwrap_or_else(|e| e.into_inner());
-            *guard = None;
-        }
-        {
-            let mut guard = perm_slot.lock().unwrap_or_else(|e| e.into_inner());
-            *guard = None;
-        }
+            let start = Instant::now();
+            let result = run_turn_stream(
+                pipeline.clone(),
+                &cli_provider,
+                runner,
+                &prompt,
+                last_runner_session_id.as_deref(),
+                &turn_id,
+                Arc::clone(&pause_requested),
+                Arc::clone(&kill_requested),
+                Arc::clone(&pending_permission),
+                perm_notify,
+                hitl_rx,
+            )
+            .await;
 
-        let duration_ms = start.elapsed().as_millis();
-        turn_count += 1;
+            // Clear slots after turn completes.
+            {
+                let mut guard = hitl_slot.lock().unwrap_or_else(|e| e.into_inner());
+                *guard = None;
+            }
+            {
+                let mut guard = perm_slot.lock().unwrap_or_else(|e| e.into_inner());
+                *guard = None;
+            }
 
-        match result {
-            Ok((new_session_id, turn_cost)) => {
-                if new_session_id.is_some() {
-                    last_runner_session_id = new_session_id;
+            let duration_ms = start.elapsed().as_millis();
+            turn_count += 1;
+
+            match result {
+                Ok((new_session_id, turn_cost)) => {
+                    if new_session_id.is_some() {
+                        last_runner_session_id = new_session_id;
+                    }
+                    total_cost_usd += turn_cost;
+                    emit(&serde_json::json!({
+                        "type": "turn_completed",
+                        "turn_id": turn_id,
+                        "total_cost_usd": total_cost_usd,
+                        "duration_ms": duration_ms,
+                    }));
                 }
-                total_cost_usd += turn_cost;
-                emit(&serde_json::json!({
-                    "type": "turn_completed",
-                    "turn_id": turn_id,
-                    "total_cost_usd": total_cost_usd,
-                    "duration_ms": duration_ms,
-                }));
+                Err(_) => {
+                    // Error already emitted as pipeline_error inside run_turn_stream.
+                    emit(&serde_json::json!({
+                        "type": "turn_completed",
+                        "turn_id": turn_id,
+                        "total_cost_usd": total_cost_usd,
+                        "duration_ms": duration_ms,
+                        "error": true,
+                    }));
+                }
             }
-            Err(_) => {
-                // Error already emitted as pipeline_error inside run_turn_stream.
-                emit(&serde_json::json!({
-                    "type": "turn_completed",
-                    "turn_id": turn_id,
-                    "total_cost_usd": total_cost_usd,
-                    "duration_ms": duration_ms,
-                    "error": true,
-                }));
-            }
-        }
 
-        emit(&serde_json::json!({ "type": "ready" }));
+            emit(&serde_json::json!({ "type": "ready" }));
+        }
     }
 
     emit(&serde_json::json!({
@@ -455,7 +456,7 @@ pub fn run_chat_text(
                 ..InvokeOptions::default()
             };
             ail_core::executor::run_invocation_step(&mut session, runner, prompt, options)
-                .map_err(|e| e.detail)?;
+                .map_err(|e| e.into_detail())?;
         }
 
         let pause_requested = Arc::new(AtomicBool::new(false));
@@ -478,7 +479,7 @@ pub fn run_chat_text(
             hitl_rx,
         ) {
             Ok(_) => {}
-            Err(e) => return Err(e.detail),
+            Err(e) => return Err(e.into_detail()),
         }
 
         // Print invocation response (if pipeline declared it) and last pipeline step response.

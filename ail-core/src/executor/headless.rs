@@ -7,7 +7,7 @@ use std::time::SystemTime;
 use crate::config::domain::{
     Condition, ContextSource, ResultAction, StepBody, MAX_SUB_PIPELINE_DEPTH,
 };
-use crate::error::{error_types, AilError};
+use crate::error::AilError;
 use crate::runner::{InvokeOptions, Runner};
 use crate::session::{Session, TurnEntry};
 use crate::template;
@@ -36,9 +36,7 @@ pub(super) fn execute_sub_pipeline(
     base_dir: Option<&std::path::Path>,
 ) -> Result<TurnEntry, AilError> {
     if depth >= MAX_SUB_PIPELINE_DEPTH {
-        return Err(AilError {
-            error_type: error_types::PIPELINE_ABORTED,
-            title: "Sub-pipeline depth limit exceeded",
+        return Err(AilError::PipelineAborted {
             detail: format!(
                 "Step '{step_id}' would exceed the maximum sub-pipeline nesting depth of {MAX_SUB_PIPELINE_DEPTH}"
             ),
@@ -239,9 +237,7 @@ pub(super) fn execute_inner(
             }
 
             StepBody::Skill(_) => {
-                return Err(AilError {
-                    error_type: error_types::PIPELINE_ABORTED,
-                    title: "Unsupported step type",
+                return Err(AilError::PipelineAborted {
                     detail: format!(
                         "Step '{step_id}' uses a step type not yet implemented in v0.1"
                     ),
@@ -272,9 +268,7 @@ pub(super) fn execute_inner(
                         });
                     }
                     ResultAction::AbortPipeline => {
-                        return Err(AilError {
-                            error_type: error_types::PIPELINE_ABORTED,
-                            title: "Pipeline aborted by on_result",
+                        return Err(AilError::PipelineAborted {
                             detail: format!("Step '{step_id}' on_result fired abort_pipeline"),
                             context: Some(crate::error::ErrorContext::for_step(
                                 &session.run_id,
@@ -587,12 +581,12 @@ mod tests {
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert_eq!(
-            err.error_type,
+            err.error_type(),
             error_types::PIPELINE_ABORTED,
             "on_result abort_pipeline must return PIPELINE_ABORTED"
         );
         assert!(
-            err.detail.contains("aborter"),
+            err.detail().contains("aborter"),
             "error detail should reference the step id"
         );
     }
@@ -638,7 +632,7 @@ mod tests {
 
         assert!(result.is_err());
         assert_eq!(
-            result.unwrap_err().error_type,
+            result.unwrap_err().error_type(),
             error_types::PIPELINE_ABORTED
         );
     }
@@ -674,7 +668,7 @@ mod tests {
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert_eq!(
-            err.error_type,
+            err.error_type(),
             error_types::PIPELINE_ABORTED,
             "skill: step must abort with PIPELINE_ABORTED until implemented"
         );

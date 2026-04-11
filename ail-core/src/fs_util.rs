@@ -27,9 +27,7 @@ use crate::error::AilError;
 pub fn atomic_write(target: &Path, content: &[u8]) -> Result<(), AilError> {
     let dir = target.parent().unwrap_or(Path::new("."));
 
-    let mut tmp = tempfile::NamedTempFile::new_in(dir).map_err(|e| AilError {
-        error_type: crate::error::error_types::PIPELINE_ABORTED,
-        title: "Atomic write failed — temp file creation",
+    let mut tmp = tempfile::NamedTempFile::new_in(dir).map_err(|e| AilError::PipelineAborted {
         detail: format!(
             "Could not create temp file in '{}' for '{}': {e}",
             dir.display(),
@@ -38,16 +36,13 @@ pub fn atomic_write(target: &Path, content: &[u8]) -> Result<(), AilError> {
         context: None,
     })?;
 
-    tmp.write_all(content).map_err(|e| AilError {
-        error_type: crate::error::error_types::PIPELINE_ABORTED,
-        title: "Atomic write failed — write",
-        detail: format!("Could not write temp file for '{}': {e}", target.display()),
-        context: None,
-    })?;
+    tmp.write_all(content)
+        .map_err(|e| AilError::PipelineAborted {
+            detail: format!("Could not write temp file for '{}': {e}", target.display()),
+            context: None,
+        })?;
 
-    tmp.persist(target).map_err(|e| AilError {
-        error_type: crate::error::error_types::PIPELINE_ABORTED,
-        title: "Atomic write failed — rename",
+    tmp.persist(target).map_err(|e| AilError::PipelineAborted {
         detail: format!("Could not rename temp file to '{}': {e}", target.display()),
         context: None,
     })?;
@@ -98,6 +93,9 @@ mod tests {
         let result = atomic_write(&target, b"content");
         assert!(result.is_err());
         let err = result.unwrap_err();
-        assert_eq!(err.error_type, crate::error::error_types::PIPELINE_ABORTED);
+        assert_eq!(
+            err.error_type(),
+            crate::error::error_types::PIPELINE_ABORTED
+        );
     }
 }

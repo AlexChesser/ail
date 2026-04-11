@@ -32,7 +32,7 @@ fn context_step_without_source_fails_validation() {
     assert!(result.is_err());
     let err = result.unwrap_err();
     assert_eq!(
-        err.error_type,
+        err.error_type(),
         ail_core::error::error_types::CONFIG_VALIDATION_FAILED
     );
 }
@@ -54,7 +54,7 @@ pipeline:
     let result = load(&path);
     assert!(result.is_err());
     assert_eq!(
-        result.unwrap_err().error_type,
+        result.unwrap_err().error_type(),
         ail_core::error::error_types::CONFIG_VALIDATION_FAILED
     );
 }
@@ -152,7 +152,7 @@ pipeline:
     let result = load(&path);
     assert!(result.is_err());
     assert_eq!(
-        result.unwrap_err().error_type,
+        result.unwrap_err().error_type(),
         ail_core::error::error_types::CONFIG_VALIDATION_FAILED
     );
 }
@@ -549,7 +549,7 @@ fn prompt_file_not_found_returns_error() {
     let result = execute(&mut session, &StubRunner::new("x"));
     assert!(result.is_err());
     assert_eq!(
-        result.unwrap_err().error_type,
+        result.unwrap_err().error_type(),
         ail_core::error::error_types::CONFIG_FILE_NOT_FOUND
     );
 

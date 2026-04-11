@@ -19,7 +19,7 @@ use super::{
     stub::StubRunner,
     Runner,
 };
-use crate::error::{error_types, AilError};
+use crate::error::AilError;
 
 /// Factory that constructs `Runner` boxed trait objects by name.
 ///
@@ -47,9 +47,7 @@ impl RunnerFactory {
                 Ok(Box::new(runner))
             }
             "stub" => Ok(Box::new(StubRunner::new("stub response"))),
-            other => Err(AilError {
-                error_type: error_types::RUNNER_NOT_FOUND,
-                title: "Unknown runner",
+            other => Err(AilError::RunnerNotFound {
                 detail: format!("Runner '{other}' is not recognized. Known runners: claude, stub"),
                 context: None,
             }),
@@ -108,8 +106,8 @@ mod tests {
         let result = RunnerFactory::build("nonexistent", false);
         assert!(result.is_err());
         let err = result.err().unwrap();
-        assert_eq!(err.error_type, error_types::RUNNER_NOT_FOUND);
-        assert!(err.detail.contains("nonexistent"));
+        assert_eq!(err.error_type(), error_types::RUNNER_NOT_FOUND);
+        assert!(err.detail().contains("nonexistent"));
     }
 
     #[test]

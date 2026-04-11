@@ -134,11 +134,11 @@ fn cascade_delete_run_not_found_returns_error() {
     assert!(result.is_err(), "should error when run not found");
     let err = result.unwrap_err();
     assert_eq!(
-        err.error_type,
+        err.error_type(),
         ail_core::error::error_types::PIPELINE_ABORTED
     );
     assert!(
-        err.detail.contains("nonexistent-run-id"),
+        err.detail().contains("nonexistent-run-id"),
         "error should name the missing run_id"
     );
 }

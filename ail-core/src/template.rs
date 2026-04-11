@@ -1,6 +1,6 @@
 #![allow(clippy::result_large_err)]
 
-use crate::error::{error_types, AilError};
+use crate::error::AilError;
 use crate::session::Session;
 
 /// Resolve `{{ variable }}` template syntax in `template` against `session` state.
@@ -16,12 +16,12 @@ pub fn resolve(template: &str, session: &Session) -> Result<String, AilError> {
         output.push_str(&remaining[..start]);
         remaining = &remaining[start + 2..];
 
-        let end = remaining.find("}}").ok_or_else(|| AilError {
-            error_type: error_types::TEMPLATE_UNRESOLVED,
-            title: "Unclosed template variable",
-            detail: "Found '{{' without matching '}}'".to_string(),
-            context: None,
-        })?;
+        let end = remaining
+            .find("}}")
+            .ok_or_else(|| AilError::TemplateUnresolved {
+                detail: "Found '{{' without matching '}}'".to_string(),
+                context: None,
+            })?;
 
         let variable = remaining[..end].trim();
         remaining = &remaining[end + 2..];
@@ -44,9 +44,7 @@ fn resolve_variable(variable: &str, session: &Session) -> Result<String, AilErro
             .turn_log
             .response_for_step("invocation")
             .map(|s| s.to_string())
-            .ok_or_else(|| AilError {
-                error_type: error_types::TEMPLATE_UNRESOLVED,
-                title: "Step response not found",
+            .ok_or_else(|| AilError::TemplateUnresolved {
                 detail: "No response recorded for step 'invocation'".to_string(),
                 context: None,
             }),
@@ -55,9 +53,7 @@ fn resolve_variable(variable: &str, session: &Session) -> Result<String, AilErro
             .turn_log
             .last_response()
             .map(|s| s.to_string())
-            .ok_or_else(|| AilError {
-                error_type: error_types::TEMPLATE_UNRESOLVED,
-                title: "No last response",
+            .ok_or_else(|| AilError::TemplateUnresolved {
                 detail: "No responses have been recorded yet".to_string(),
                 context: None,
             }),
@@ -66,9 +62,7 @@ fn resolve_variable(variable: &str, session: &Session) -> Result<String, AilErro
 
         "session.cwd" => std::env::current_dir()
             .map(|p| p.display().to_string())
-            .map_err(|e| AilError {
-                error_type: error_types::TEMPLATE_UNRESOLVED,
-                title: "Cannot determine working directory",
+            .map_err(|e| AilError::TemplateUnresolved {
                 detail: e.to_string(),
                 context: None,
             }),
@@ -86,9 +80,7 @@ fn resolve_variable(variable: &str, session: &Session) -> Result<String, AilErro
                     .turn_log
                     .response_for_step(step_id)
                     .map(|s| s.to_string())
-                    .ok_or_else(|| AilError {
-                        error_type: error_types::TEMPLATE_UNRESOLVED,
-                        title: "Step response not found",
+                    .ok_or_else(|| AilError::TemplateUnresolved {
                         detail: format!("No response recorded for step '{step_id}'"),
                         context: None,
                     });
@@ -98,15 +90,12 @@ fn resolve_variable(variable: &str, session: &Session) -> Result<String, AilErro
                 .strip_prefix("step.")
                 .and_then(|s| s.strip_suffix(".result"))
             {
-                return session
-                    .turn_log
-                    .result_for_step(step_id)
-                    .ok_or_else(|| AilError {
-                        error_type: error_types::TEMPLATE_UNRESOLVED,
-                        title: "Step result not found",
+                return session.turn_log.result_for_step(step_id).ok_or_else(|| {
+                    AilError::TemplateUnresolved {
                         detail: format!("No result recorded for step '{step_id}'"),
                         context: None,
-                    });
+                    }
+                });
             }
 
             if let Some(step_id) = other
@@ -117,9 +106,7 @@ fn resolve_variable(variable: &str, session: &Session) -> Result<String, AilErro
                     .turn_log
                     .stdout_for_step(step_id)
                     .map(|s| s.to_string())
-                    .ok_or_else(|| AilError {
-                        error_type: error_types::TEMPLATE_UNRESOLVED,
-                        title: "Step stdout not found",
+                    .ok_or_else(|| AilError::TemplateUnresolved {
                         detail: format!("No stdout recorded for step '{step_id}'"),
                         context: None,
                     });
@@ -133,9 +120,7 @@ fn resolve_variable(variable: &str, session: &Session) -> Result<String, AilErro
                     .turn_log
                     .stderr_for_step(step_id)
                     .map(|s| s.to_string())
-                    .ok_or_else(|| AilError {
-                        error_type: error_types::TEMPLATE_UNRESOLVED,
-                        title: "Step stderr not found",
+                    .ok_or_else(|| AilError::TemplateUnresolved {
                         detail: format!("No stderr recorded for step '{step_id}'"),
                         context: None,
                     });
@@ -149,26 +134,20 @@ fn resolve_variable(variable: &str, session: &Session) -> Result<String, AilErro
                     .turn_log
                     .exit_code_for_step(step_id)
                     .map(|c| c.to_string())
-                    .ok_or_else(|| AilError {
-                        error_type: error_types::TEMPLATE_UNRESOLVED,
-                        title: "Step exit_code not found",
+                    .ok_or_else(|| AilError::TemplateUnresolved {
                         detail: format!("No exit_code recorded for step '{step_id}'"),
                         context: None,
                     });
             }
 
             if let Some(var_name) = other.strip_prefix("env.") {
-                return std::env::var(var_name).map_err(|_| AilError {
-                    error_type: error_types::TEMPLATE_UNRESOLVED,
-                    title: "Environment variable not set",
+                return std::env::var(var_name).map_err(|_| AilError::TemplateUnresolved {
                     detail: format!("Environment variable '{var_name}' is not set"),
                     context: None,
                 });
             }
 
-            Err(AilError {
-                error_type: error_types::TEMPLATE_UNRESOLVED,
-                title: "Unrecognised template variable",
+            Err(AilError::TemplateUnresolved {
                 detail: format!("'{{ {other} }}' is not a recognised template variable"),
                 context: None,
             })
@@ -278,7 +257,7 @@ mod tests {
     fn invocation_response_missing_returns_error() {
         let session = make_session();
         let err = resolve("{{ step.invocation.response }}", &session).unwrap_err();
-        assert_eq!(err.error_type, error_types::TEMPLATE_UNRESOLVED);
+        assert_eq!(err.error_type(), error_types::TEMPLATE_UNRESOLVED);
     }
 
     // ── 4. last_response ─────────────────────────────────────────────────────
@@ -296,7 +275,7 @@ mod tests {
     fn last_response_no_entries_returns_error() {
         let session = make_session();
         let err = resolve("{{ last_response }}", &session).unwrap_err();
-        assert_eq!(err.error_type, error_types::TEMPLATE_UNRESOLVED);
+        assert_eq!(err.error_type(), error_types::TEMPLATE_UNRESOLVED);
     }
 
     // ── 5. env.<VAR> ─────────────────────────────────────────────────────────
@@ -316,8 +295,8 @@ mod tests {
         unsafe { std::env::remove_var("AIL_MISSING_VAR_XYZ_999") };
         let session = make_session();
         let err = resolve("{{ env.AIL_MISSING_VAR_XYZ_999 }}", &session).unwrap_err();
-        assert_eq!(err.error_type, error_types::TEMPLATE_UNRESOLVED);
-        assert!(err.detail.contains("AIL_MISSING_VAR_XYZ_999"));
+        assert_eq!(err.error_type(), error_types::TEMPLATE_UNRESOLVED);
+        assert!(err.detail().contains("AIL_MISSING_VAR_XYZ_999"));
     }
 
     // ── 6. session.cwd ───────────────────────────────────────────────────────
@@ -369,8 +348,8 @@ mod tests {
     fn named_step_response_missing_returns_error() {
         let session = make_session();
         let err = resolve("{{ step.unknown_step.response }}", &session).unwrap_err();
-        assert_eq!(err.error_type, error_types::TEMPLATE_UNRESOLVED);
-        assert!(err.detail.contains("unknown_step"));
+        assert_eq!(err.error_type(), error_types::TEMPLATE_UNRESOLVED);
+        assert!(err.detail().contains("unknown_step"));
     }
 
     #[test]
@@ -379,7 +358,7 @@ mod tests {
         let mut session = make_session();
         append_context(&mut session, "ctx_step", "output", "", 0);
         let err = resolve("{{ step.ctx_step.response }}", &session).unwrap_err();
-        assert_eq!(err.error_type, error_types::TEMPLATE_UNRESOLVED);
+        assert_eq!(err.error_type(), error_types::TEMPLATE_UNRESOLVED);
     }
 
     // ── 10. step.<id>.stdout / stderr / exit_code / result ───────────────────
@@ -446,28 +425,28 @@ mod tests {
     fn step_stdout_missing_step_returns_error() {
         let session = make_session();
         let err = resolve("{{ step.missing.stdout }}", &session).unwrap_err();
-        assert_eq!(err.error_type, error_types::TEMPLATE_UNRESOLVED);
+        assert_eq!(err.error_type(), error_types::TEMPLATE_UNRESOLVED);
     }
 
     #[test]
     fn step_stderr_missing_step_returns_error() {
         let session = make_session();
         let err = resolve("{{ step.missing.stderr }}", &session).unwrap_err();
-        assert_eq!(err.error_type, error_types::TEMPLATE_UNRESOLVED);
+        assert_eq!(err.error_type(), error_types::TEMPLATE_UNRESOLVED);
     }
 
     #[test]
     fn step_exit_code_missing_step_returns_error() {
         let session = make_session();
         let err = resolve("{{ step.missing.exit_code }}", &session).unwrap_err();
-        assert_eq!(err.error_type, error_types::TEMPLATE_UNRESOLVED);
+        assert_eq!(err.error_type(), error_types::TEMPLATE_UNRESOLVED);
     }
 
     #[test]
     fn step_result_missing_step_returns_error() {
         let session = make_session();
         let err = resolve("{{ step.missing.result }}", &session).unwrap_err();
-        assert_eq!(err.error_type, error_types::TEMPLATE_UNRESOLVED);
+        assert_eq!(err.error_type(), error_types::TEMPLATE_UNRESOLVED);
     }
 
     // ── 11. session.invocation_prompt alias ───────────────────────────────────
@@ -493,21 +472,21 @@ mod tests {
     fn unknown_top_level_namespace_returns_error() {
         let session = make_session();
         let err = resolve("{{ totally.unknown.variable }}", &session).unwrap_err();
-        assert_eq!(err.error_type, error_types::TEMPLATE_UNRESOLVED);
+        assert_eq!(err.error_type(), error_types::TEMPLATE_UNRESOLVED);
     }
 
     #[test]
     fn unknown_variable_error_contains_variable_name() {
         let session = make_session();
         let err = resolve("{{ totally.unknown.variable }}", &session).unwrap_err();
-        assert!(err.detail.contains("totally.unknown.variable"));
+        assert!(err.detail().contains("totally.unknown.variable"));
     }
 
     #[test]
     fn bare_word_returns_error() {
         let session = make_session();
         let err = resolve("{{ notavariable }}", &session).unwrap_err();
-        assert_eq!(err.error_type, error_types::TEMPLATE_UNRESOLVED);
+        assert_eq!(err.error_type(), error_types::TEMPLATE_UNRESOLVED);
     }
 
     // ── 13. Multiple variables in one template ────────────────────────────────
@@ -537,7 +516,7 @@ mod tests {
             &session,
         )
         .unwrap_err();
-        assert_eq!(err.error_type, error_types::TEMPLATE_UNRESOLVED);
+        assert_eq!(err.error_type(), error_types::TEMPLATE_UNRESOLVED);
     }
 
     // ── 14. Malformed / edge-case syntax ──────────────────────────────────────
@@ -546,15 +525,15 @@ mod tests {
     fn unclosed_brace_returns_error() {
         let session = make_session();
         let err = resolve("{{ unclosed", &session).unwrap_err();
-        assert_eq!(err.error_type, error_types::TEMPLATE_UNRESOLVED);
-        assert!(err.detail.contains("}}"));
+        assert_eq!(err.error_type(), error_types::TEMPLATE_UNRESOLVED);
+        assert!(err.detail().contains("}}"));
     }
 
     #[test]
     fn unclosed_brace_with_text_after_returns_error() {
         let session = make_session();
         let err = resolve("prefix {{ no_close more text", &session).unwrap_err();
-        assert_eq!(err.error_type, error_types::TEMPLATE_UNRESOLVED);
+        assert_eq!(err.error_type(), error_types::TEMPLATE_UNRESOLVED);
     }
 
     #[test]
@@ -578,7 +557,7 @@ mod tests {
         let session = make_session();
         // {{}} → variable="" → unrecognised
         let err = resolve("{{}}", &session).unwrap_err();
-        assert_eq!(err.error_type, error_types::TEMPLATE_UNRESOLVED);
+        assert_eq!(err.error_type(), error_types::TEMPLATE_UNRESOLVED);
     }
 
     // ── 15. Text surrounding variables is preserved ───────────────────────────

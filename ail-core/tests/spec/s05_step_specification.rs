@@ -70,13 +70,13 @@ pipeline:
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert_eq!(
-            err.error_type,
+            err.error_type(),
             ail_core::error::error_types::CONFIG_VALIDATION_FAILED
         );
         assert!(
-            err.detail.contains("append_system_prompt"),
+            err.detail().contains("append_system_prompt"),
             "Expected error detail to mention append_system_prompt, got: {}",
-            err.detail
+            err.detail()
         );
     }
 }

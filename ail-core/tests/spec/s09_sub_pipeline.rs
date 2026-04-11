@@ -137,7 +137,7 @@ fn unresolvable_pipeline_path_aborts_with_template_unresolved_error() {
     assert!(result.is_err());
     let err = result.unwrap_err();
     assert_eq!(
-        err.error_type,
+        err.error_type(),
         ail_core::error::error_types::TEMPLATE_UNRESOLVED
     );
 
@@ -159,7 +159,7 @@ fn missing_sub_pipeline_file_aborts_with_file_not_found_error() {
     assert!(result.is_err());
     let err = result.unwrap_err();
     assert_eq!(
-        err.error_type,
+        err.error_type(),
         ail_core::error::error_types::CONFIG_FILE_NOT_FOUND
     );
 
@@ -261,7 +261,7 @@ pipeline:
     assert!(result.is_err());
     let err = result.unwrap_err();
     assert_eq!(
-        err.error_type,
+        err.error_type(),
         ail_core::error::error_types::CONFIG_VALIDATION_FAILED
     );
 }
@@ -360,15 +360,15 @@ fn execute_with_control_depth_limit_prevents_infinite_recursion() {
     );
     let err = result.unwrap_err();
     assert_eq!(
-        err.error_type,
+        err.error_type(),
         error_types::PIPELINE_ABORTED,
         "Expected PIPELINE_ABORTED for depth limit, got: {}",
-        err.error_type
+        err.error_type()
     );
     assert!(
-        err.detail.contains("depth"),
+        err.detail().contains("depth"),
         "Error detail should mention depth: {}",
-        err.detail
+        err.detail()
     );
 
     std::env::set_current_dir(orig).unwrap();
@@ -405,7 +405,7 @@ fn execute_depth_limit_prevents_infinite_recursion() {
         "Expected depth limit error, got: {result:?}"
     );
     let err = result.unwrap_err();
-    assert_eq!(err.error_type, error_types::PIPELINE_ABORTED);
+    assert_eq!(err.error_type(), error_types::PIPELINE_ABORTED);
 
     std::env::set_current_dir(orig).unwrap();
 }

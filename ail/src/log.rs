@@ -73,7 +73,7 @@ pub fn run_log_command(run_id: Option<String>, format: &str, follow: bool) {
                 std::process::exit(1);
             }
             Err(e) => {
-                eprintln!("ail: {}", e.detail);
+                eprintln!("ail: {}", e.detail());
                 std::process::exit(2);
             }
         },
@@ -103,7 +103,7 @@ fn run_once(run_id: &str, format: &str) {
         Ok(steps) => {
             if format == "raw" {
                 if let Err(e) = print_raw_jsonl(run_id) {
-                    eprintln!("ail: {}", e.detail);
+                    eprintln!("ail: {}", e.detail());
                     std::process::exit(2);
                 }
             } else {
@@ -112,9 +112,13 @@ fn run_once(run_id: &str, format: &str) {
             std::process::exit(0);
         }
         Err(e) => {
-            eprintln!("ail: {}", e.detail);
+            eprintln!("ail: {}", e.detail());
             // If the run_id doesn't exist, exit with code 1. If DB error, code 2.
-            let exit_code = if e.detail.contains("not found") { 1 } else { 2 };
+            let exit_code = if e.detail().contains("not found") {
+                1
+            } else {
+                2
+            };
             std::process::exit(exit_code);
         }
     }
@@ -135,7 +139,7 @@ fn run_follow(run_id: &str, format: &str) {
 
             if format == "raw" {
                 if let Err(e) = print_raw_jsonl(run_id) {
-                    eprintln!("ail: {}", e.detail);
+                    eprintln!("ail: {}", e.detail());
                     std::process::exit(2);
                 }
                 if let Ok(s) = get_run_steps(run_id) {
@@ -179,15 +183,15 @@ fn run_follow(run_id: &str, format: &str) {
                         }
                         Err(e) => {
                             // Check if error is SQLITE_BUSY (or similar transient DB error)
-                            let is_transient = e.detail.contains("database is locked")
-                                || e.detail.contains("SQLITE_BUSY");
+                            let is_transient = e.detail().contains("database is locked")
+                                || e.detail().contains("SQLITE_BUSY");
 
                             if is_transient && attempt < 2 {
                                 // Retry with 50ms backoff
                                 std::thread::sleep(std::time::Duration::from_millis(50));
                             } else if !is_transient {
                                 // Non-transient error: exit immediately with code 1
-                                eprintln!("ail: database error: {}", e.detail);
+                                eprintln!("ail: database error: {}", e.detail());
                                 std::process::exit(1);
                             } else {
                                 // Transient error after max retries: skip this tick
@@ -205,7 +209,7 @@ fn run_follow(run_id: &str, format: &str) {
             }
         }
         Err(e) => {
-            eprintln!("ail: {}", e.detail);
+            eprintln!("ail: {}", e.detail());
             std::process::exit(2);
         }
     }
@@ -245,19 +249,17 @@ fn print_raw_jsonl(run_id: &str) -> Result<(), ail_core::error::AilError> {
     let run_path = project_dir().join("runs").join(format!("{run_id}.jsonl"));
 
     if !run_path.exists() {
-        return Err(ail_core::error::AilError {
-            error_type: ail_core::error::error_types::PIPELINE_ABORTED,
-            title: "Run file not found",
+        return Err(ail_core::error::AilError::PipelineAborted {
             detail: format!("No run file found at {}", run_path.display()),
             context: None,
         });
     }
 
-    let content = std::fs::read_to_string(&run_path).map_err(|e| ail_core::error::AilError {
-        error_type: ail_core::error::error_types::PIPELINE_ABORTED,
-        title: "Failed to read run file",
-        detail: e.to_string(),
-        context: None,
+    let content = std::fs::read_to_string(&run_path).map_err(|e| {
+        ail_core::error::AilError::PipelineAborted {
+            detail: e.to_string(),
+            context: None,
+        }
     })?;
 
     print!("{content}");

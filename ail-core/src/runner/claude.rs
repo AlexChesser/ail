@@ -14,7 +14,7 @@ use super::{
     InvokeOptions, PermissionRequest, PermissionResponder, RunResult, Runner, RunnerEvent,
     ToolEvent, ToolPermissionPolicy,
 };
-use crate::error::{error_types, AilError};
+use crate::error::AilError;
 use crate::fs_util::atomic_write_str;
 
 /// Terminal outcome of parsing a single `stream-json` NDJSON event.
@@ -428,11 +428,11 @@ impl ClaudeCliRunner {
                 ]
             }
         });
-        atomic_write_str(&settings_path, &settings.to_string()).map_err(|e| AilError {
-            error_type: error_types::RUNNER_INVOCATION_FAILED,
-            title: "Failed to write hook settings",
-            detail: e.detail,
-            context: None,
+        atomic_write_str(&settings_path, &settings.to_string()).map_err(|e| {
+            AilError::RunnerInvocationFailed {
+                detail: e.into_detail(),
+                context: None,
+            }
         })?;
         Ok(settings_path)
     }
@@ -651,9 +651,7 @@ impl ClaudeCliRunner {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()
-            .map_err(|e| AilError {
-                error_type: error_types::RUNNER_INVOCATION_FAILED,
-                title: "Failed to spawn claude CLI",
+            .map_err(|e| AilError::RunnerInvocationFailed {
                 detail: format!("Could not start '{}': {e}", self.claude_bin),
                 context: None,
             })?;
@@ -704,9 +702,7 @@ impl Runner for ClaudeCliRunner {
         let mut tool_seq: i64 = 0;
 
         for line in reader.lines() {
-            let line = line.map_err(|e| AilError {
-                error_type: error_types::RUNNER_INVOCATION_FAILED,
-                title: "Failed to read claude CLI output",
+            let line = line.map_err(|e| AilError::RunnerInvocationFailed {
                 detail: e.to_string(),
                 context: None,
             })?;
@@ -715,12 +711,11 @@ impl Runner for ClaudeCliRunner {
                 continue;
             }
 
-            let event: serde_json::Value = serde_json::from_str(&line).map_err(|e| AilError {
-                error_type: error_types::RUNNER_INVOCATION_FAILED,
-                title: "Malformed JSON from claude CLI",
-                detail: format!("Could not parse line: {e}\nLine: {line}"),
-                context: None,
-            })?;
+            let event: serde_json::Value =
+                serde_json::from_str(&line).map_err(|e| AilError::RunnerInvocationFailed {
+                    detail: format!("Could not parse line: {e}\nLine: {line}"),
+                    context: None,
+                })?;
 
             tracing::trace!(line = %line, "stream-json raw line");
 
@@ -756,9 +751,7 @@ impl Runner for ClaudeCliRunner {
             }
         }
 
-        let exit_status = child.wait().map_err(|e| AilError {
-            error_type: error_types::RUNNER_INVOCATION_FAILED,
-            title: "Failed to wait for claude CLI",
+        let exit_status = child.wait().map_err(|e| AilError::RunnerInvocationFailed {
             detail: e.to_string(),
             context: None,
         })?;
@@ -767,9 +760,7 @@ impl Runner for ClaudeCliRunner {
         let stderr_output = stderr_reader.join().unwrap_or_default();
 
         if let Some(detail) = error_detail {
-            return Err(AilError {
-                error_type: error_types::RUNNER_INVOCATION_FAILED,
-                title: "claude CLI returned an error result",
+            return Err(AilError::RunnerInvocationFailed {
                 detail,
                 context: None,
             });
@@ -786,17 +777,13 @@ impl Runner for ClaudeCliRunner {
                 format!("Process exited with {code}: {}", stderr_output.trim())
             };
             tracing::error!(stderr = %stderr_output.trim(), "claude CLI exited non-zero");
-            return Err(AilError {
-                error_type: error_types::RUNNER_INVOCATION_FAILED,
-                title: "claude CLI exited non-zero",
+            return Err(AilError::RunnerInvocationFailed {
                 detail,
                 context: None,
             });
         }
 
-        let response = result_response.ok_or_else(|| AilError {
-            error_type: error_types::RUNNER_INVOCATION_FAILED,
-            title: "No result event from claude CLI",
+        let response = result_response.ok_or_else(|| AilError::RunnerInvocationFailed {
             detail: "Stream ended without a 'result' event".to_string(),
             context: None,
         })?;
@@ -980,9 +967,7 @@ impl Runner for ClaudeCliRunner {
             .lock()
             .expect("child mutex not poisoned")
             .wait()
-            .map_err(|e| AilError {
-                error_type: error_types::RUNNER_INVOCATION_FAILED,
-                title: "Failed to wait for claude CLI",
+            .map_err(|e| AilError::RunnerInvocationFailed {
                 detail: e.to_string(),
                 context: None,
             })?;
@@ -1014,9 +999,7 @@ impl Runner for ClaudeCliRunner {
             if let Some(ref addr) = permission_socket_path {
                 crate::ipc::cleanup_address(addr);
             }
-            return Err(AilError {
-                error_type: error_types::RUNNER_CANCELLED,
-                title: "Invocation cancelled",
+            return Err(AilError::RunnerCancelled {
                 detail: "Runner subprocess was cancelled by user request".to_string(),
                 context: None,
             });
@@ -1024,9 +1007,7 @@ impl Runner for ClaudeCliRunner {
 
         if let Some(detail) = error_detail {
             let _ = tx.send(RunnerEvent::Error(detail.clone()));
-            return Err(AilError {
-                error_type: error_types::RUNNER_INVOCATION_FAILED,
-                title: "claude CLI returned an error result",
+            return Err(AilError::RunnerInvocationFailed {
                 detail,
                 context: None,
             });
@@ -1044,17 +1025,13 @@ impl Runner for ClaudeCliRunner {
             };
             tracing::error!(stderr = %stderr_output.trim(), "claude CLI exited non-zero");
             let _ = tx.send(RunnerEvent::Error(detail.clone()));
-            return Err(AilError {
-                error_type: error_types::RUNNER_INVOCATION_FAILED,
-                title: "claude CLI exited non-zero",
+            return Err(AilError::RunnerInvocationFailed {
                 detail,
                 context: None,
             });
         }
 
-        let response = result_response.ok_or_else(|| AilError {
-            error_type: error_types::RUNNER_INVOCATION_FAILED,
-            title: "No result event from claude CLI",
+        let response = result_response.ok_or_else(|| AilError::RunnerInvocationFailed {
             detail: "Stream ended without a 'result' event".to_string(),
             context: None,
         })?;
