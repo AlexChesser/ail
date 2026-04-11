@@ -63,6 +63,41 @@ impl NormalizedQuestion {
     }
 }
 
+// ── Shared option parsing ────────────────────────────────────────────────────
+
+/// Parse a raw options array (`null`, missing, or `Value::Array`) into normalised options.
+/// Shared by `canonical` and `flat` — callers pass the raw `options` value.
+pub(super) fn parse_options(raw: &Value) -> Vec<NormalizedOption> {
+    match raw.as_array() {
+        Some(a) => a.iter().filter_map(parse_option).collect(),
+        None => vec![],
+    }
+}
+
+/// Parse a single raw option value into a `NormalizedOption`.
+///
+/// Handles:
+/// - `Value::String` — label only, no description
+/// - `Value::Object` with `label` (required) and optional `description` / `preview` fields
+pub(super) fn parse_option(opt: &Value) -> Option<NormalizedOption> {
+    match opt {
+        Value::String(s) => Some(NormalizedOption {
+            label: s.clone(),
+            description: None,
+        }),
+        Value::Object(m) => {
+            let label = m.get("label")?.as_str()?.to_string();
+            let description = m
+                .get("description")
+                .or_else(|| m.get("preview"))
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
+            Some(NormalizedOption { label, description })
+        }
+        _ => None,
+    }
+}
+
 // ── Parse chain ──────────────────────────────────────────────────────────────
 
 /// Parse a raw `ail_ask_user` / `AskUserQuestion` tool input into the canonical
