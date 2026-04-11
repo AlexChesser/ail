@@ -1,0 +1,318 @@
+OFF HOURS:  2026-04-07 20:25:30 -0400 | fixed warning
+WORK HOURS: 2026-04-07 14:01:05 +0000 | refactor: complete oh-my-ail prompt modernization — librarian + README differences section
+WORK HOURS: 2026-04-07 13:59:05 +0000 | refactor: modernize oh-my-ail prompts — replace persona assignment with task-grounded objectives
+WORK HOURS: 2026-04-06 15:45:15 -0400 | Merge pull request #65 from AlexChesser/claude/plan-ail-pipeline-LhbR6
+WORK HOURS: 2026-04-06 19:43:30 +0000 | docs: add prompt engineering improvements section to research article
+WORK HOURS: 2026-04-06 19:41:11 +0000 | refactor: modernize prompt files — remove persona assignment, add task-grounded structure
+WORK HOURS: 2026-04-06 19:29:23 +0000 | feat: reproduce obra/superpowers as AIL pipeline workflows
+WORK HOURS: 2026-04-06 14:35:09 -0400 | Merge pull request #64 from AlexChesser/claude/update-root-readme-yoDac
+WORK HOURS: 2026-04-06 18:16:08 +0000 | docs: update root README to reflect v0.2 state
+WORK HOURS: 2026-04-06 13:14:01 -0400 | Merge pull request #62 from AlexChesser/claude/add-pipeline-graph-webview-EkDLL
+WORK HOURS: 2026-04-06 13:13:32 -0400 | Merge pull request #63 from AlexChesser/claude/fix-macos-path-resolution-doCdD
+WORK HOURS: 2026-04-06 17:07:21 +0000 | fix: resolve macOS /tmp vs /private/tmp path mismatch in tests and cwd_hash
+WORK HOURS: 2026-04-06 17:02:32 +0000 | feat(vscode-ail-chat): pipeline graph P3 — rich detail panel and toolbar
+WORK HOURS: 2026-04-06 16:39:43 +0000 | feat(vscode-ail-chat): pipeline graph P2 — collapse/expand sub-pipelines
+WORK HOURS: 2026-04-06 16:30:47 +0000 | feat(vscode-ail-chat): pipeline graph P1 — polish and sub-pipeline groups
+WORK HOURS: 2026-04-06 16:22:04 +0000 | feat(vscode-ail-chat): add pipeline graph webview (P0)
+OFF HOURS:  2026-04-06 08:08:33 -0400 | fix: add model to provider dto
+OFF HOURS:  2026-04-06 08:03:52 -0400 | fix: pathing on multi agent pipelines
+OFF HOURS:  2026-04-06 07:55:16 -0400 | fix: cargo fmt
+OFF HOURS:  2026-04-06 07:54:47 -0400 | fix: added "approve for session"
+OFF HOURS:  2026-04-06 07:43:46 -0400 | fix: allow ui to stop when stopped
+OFF HOURS:  2026-04-06 07:30:44 -0400 | fix: tool call permission grouping
+OFF HOURS:  2026-04-06 06:46:44 -0400 | fix: progressive disclosure on tool calls
+OFF HOURS:  2026-04-06 06:22:01 -0400 | cleanup: renamed ohmyail yaml
+OFF HOURS:  2026-04-05 23:58:53 -0400 | fix: pipeline paths
+OFF HOURS:  2026-04-05 23:40:11 -0400 | feat: implement Allow for Session permission handling
+OFF HOURS:  2026-04-05 23:16:06 -0400 | fix: use simplified permissions handing via defer.
+OFF HOURS:  2026-04-05 22:42:30 -0400 | fix: resolve filepaths in pipelines
+OFF HOURS:  2026-04-05 22:35:28 -0400 | fix: chat window height (ail + o-m-a + qwen3.5:0.8b)
+OFF HOURS:  2026-04-05 22:17:02 -0400 | fix: streamlining for oh-my-ail
+OFF HOURS:  2026-04-05 21:16:20 -0400 | fix: askuserquestion strict mcp
+OFF HOURS:  2026-04-05 21:00:40 -0400 | fix: improved handling of ask user question
+OFF HOURS:  2026-04-05 20:19:48 -0400 | Merge pull request #57 from AlexChesser/claude/fix-chat-widget-layout-3T0yn
+OFF HOURS:  2026-04-06 00:19:19 +0000 | merge: resolve conflicts with main, take upstream ask-user styles
+OFF HOURS:  2026-04-06 00:16:21 +0000 | fix: resolve chat widget layout overlap on collapsible blocks
+OFF HOURS:  2026-04-05 20:05:27 -0400 | Merge pull request #56 from AlexChesser/claude/improve-question-card-design-1llVl
+OFF HOURS:  2026-04-05 19:56:51 -0400 | fix: ask user question
+OFF HOURS:  2026-04-05 23:34:08 +0000 | Style AskUserQuestionCard options as themed clickable cards
+OFF HOURS:  2026-04-05 18:49:11 -0400 | fix: further updates to help aksuserquestion
+OFF HOURS:  2026-04-05 18:31:14 -0400 | fix: ask user question (maybe)
+OFF HOURS:  2026-04-05 17:46:19 -0400 | feat(v0.2): transparent passthrough, lean feedback modes, TUI removal
+OFF HOURS:  2026-04-05 17:39:41 -0400 | Merge pull request #54 from AlexChesser/worktree-agent-a5f085f7
+OFF HOURS:  2026-04-05 17:37:47 -0400 | Merge pull request #53 from AlexChesser/fix/step-transition-routing
+OFF HOURS:  2026-04-05 17:37:34 -0400 | feat: intercept AskUserQuestion with structured question UI
+OFF HOURS:  2026-04-05 17:35:57 -0400 | fix: step-aware stream routing for vscode-ail-chat pipeline transitions
+OFF HOURS:  2026-04-05 16:43:26 -0400 | feat: wire system_prompt, append_system_prompt, and resume fields
+OFF HOURS:  2026-04-05 16:30:28 -0400 | fix: chat interface not detecting next steps
+OFF HOURS:  2026-04-05 11:53:03 -0400 | feat: attempt to replicate oh my opencode orchestration as pipelines
+OFF HOURS:  2026-04-05 11:42:04 -0400 | Merge branch 'main' of https://github.com/AlexChesser/ail into main
+OFF HOURS:  2026-04-05 11:41:00 -0400 | old sysyphus persona
+OFF HOURS:  2026-04-05 11:40:43 -0400 | fix: agent behavior
+OFF HOURS:  2026-04-05 11:39:29 -0400 | Merge pull request #51 from AlexChesser/claude/demo-pipeline-prompt-mTE4U
+OFF HOURS:  2026-04-05 11:38:31 -0400 | fix: deleted file
+OFF HOURS:  2026-04-05 11:38:16 -0400 | feat: working towards omo pipeline demo
+OFF HOURS:  2026-04-05 15:37:01 +0000 | demo: add oy-my-ail solo developer quality loop pipeline
+OFF HOURS:  2026-04-05 11:36:00 -0400 | refactor(ail-core): split executor into focused modules and fix DI violations
+OFF HOURS:  2026-04-05 11:26:15 -0400 | test(vscode-ail-chat): add missing component and session-manager tests
+OFF HOURS:  2026-04-05 10:48:19 -0400 | Merge pull request #49 from AlexChesser/claude/restyle-chat-interface-rXvcv
+OFF HOURS:  2026-04-05 10:47:29 -0400 | Merge branch 'main' into claude/restyle-chat-interface-rXvcv
+OFF HOURS:  2026-04-05 14:29:45 +0000 | fix: link webview.css and codicon.css in ChatViewProvider HTML
+OFF HOURS:  2026-04-05 14:28:23 +0000 | fix: link webview.css in HTML so styles actually load
+OFF HOURS:  2026-04-05 10:27:38 -0400 | fix: build for passthrough base case
+OFF HOURS:  2026-04-05 10:21:01 -0400 | Merge branch 'main' of https://github.com/AlexChesser/ail into main
+OFF HOURS:  2026-04-05 10:21:00 -0400 | fix: regressions after major refactors
+OFF HOURS:  2026-04-05 10:17:18 -0400 | Merge pull request #48 from AlexChesser/claude/restyle-chat-interface-rXvcv
+OFF HOURS:  2026-04-05 10:15:51 -0400 | Merge branch 'main' into claude/restyle-chat-interface-rXvcv
+OFF HOURS:  2026-04-05 13:55:57 +0000 | style: restyle chat interface to match Claude Code / Cursor / Copilot quality
+OFF HOURS:  2026-04-05 09:39:37 -0400 | fix:  ail chat as webview provider
+OFF HOURS:  2026-04-05 09:15:14 -0400 | Merge pull request #47 from AlexChesser/claude/style-chat-window-xTpau
+OFF HOURS:  2026-04-05 09:14:47 -0400 | fix: various cleanups
+OFF HOURS:  2026-04-05 04:39:51 +0000 | style: upgrade chat window to Claude Code-inspired activity feed UI
+OFF HOURS:  2026-04-04 23:51:58 -0400 | cicd bugs
+OFF HOURS:  2026-04-04 23:40:18 -0400 | fix: duplicate attribute
+OFF HOURS:  2026-04-04 23:29:56 -0400 | Merge branch 'main' of https://github.com/AlexChesser/ail into main
+OFF HOURS:  2026-04-04 23:29:33 -0400 | Merge pull request #46 from AlexChesser/claude/review-vscode-requirements-zeXNT
+OFF HOURS:  2026-04-05 03:18:09 +0000 | fix: resolve 2 CI failures (Rust compile + vscode-ail npm test)
+OFF HOURS:  2026-04-04 23:00:39 -0400 | docs(spec): document execute_with_control(), RunnerFactory, and ail logs command
+OFF HOURS:  2026-04-04 22:53:57 -0400 | docs(spec): document execute_with_control(), RunnerFactory, and ail logs command
+OFF HOURS:  2026-04-04 22:50:15 -0400 | feat(config): parse append_system_prompt field into domain types
+OFF HOURS:  2026-04-04 22:46:25 -0400 | feat(executor): wire per-step runner: field dispatch via RunnerFactory
+OFF HOURS:  2026-04-04 22:44:15 -0400 | feat(config,executor): parse defaults.tools with per-step override; also merge executor conflict
+OFF HOURS:  2026-04-04 22:37:49 -0400 | feat(config): parse defaults.timeout_seconds into Pipeline domain type
+OFF HOURS:  2026-04-04 22:36:20 -0400 | feat(config,executor): parse defaults.tools and apply as fallback tool policy
+OFF HOURS:  2026-04-04 22:34:25 -0400 | feat(config): parse append_system_prompt field into domain types
+OFF HOURS:  2026-04-04 22:33:28 -0400 | feat(executor): wire per-step runner: field dispatch via RunnerFactory
+OFF HOURS:  2026-04-04 22:33:22 -0400 | feat(config): parse defaults.timeout_seconds into Pipeline domain type
+OFF HOURS:  2026-04-04 22:26:39 -0400 | feat(config,executor): implement condition: field with never/always variants
+OFF HOURS:  2026-04-04 22:22:56 -0400 | Merge branch 'fix/sub-pipeline-depth-tracking' into main
+OFF HOURS:  2026-04-04 22:22:55 -0400 | Merge branch 'fix/spec-status-corrections' into main
+OFF HOURS:  2026-04-04 22:20:08 -0400 | feat(config,executor): implement condition: field with never/always variants
+OFF HOURS:  2026-04-05 02:09:25 +0000 | chore(vscode-ail-chat): add .gitignore, untrack node_modules + dist
+OFF HOURS:  2026-04-05 02:09:03 +0000 | feat(vscode-ail-chat): scaffold new chat extension (Phases 1–5)
+OFF HOURS:  2026-04-04 21:58:14 -0400 | fix(runner): add skip_serializing_if to ToolResult Option fields; fix delete.rs clippy allow
+OFF HOURS:  2026-04-04 21:48:17 -0400 | fix(executor): correct sub-pipeline depth tracking in execute_with_control
+OFF HOURS:  2026-04-04 21:44:42 -0400 | fix(spec): correct status labels for s05, s09, s11, s13; add context: to s02 vocabulary
+OFF HOURS:  2026-04-04 21:27:26 -0400 | vscode ail chat ultraplan requirements
+OFF HOURS:  2026-04-04 19:55:57 -0400 | Merge branch 'main' of https://github.com/AlexChesser/ail into worktree-chat-ui-redesign
+OFF HOURS:  2026-04-04 12:49:58 -0400 | feat(vscode-ail): implement Trojan Horse chat interface redesign
+OFF HOURS:  2026-04-04 11:03:55 -0400 | Merge pull request #43 from AlexChesser/claude/spec-drift-audit-ClaIG
+OFF HOURS:  2026-04-04 10:58:02 -0400 | Merge branch 'main' of https://github.com/AlexChesser/ail into main
+OFF HOURS:  2026-04-04 14:56:11 +0000 | docs: Add spec drift audit & implementation roadmap
+OFF HOURS:  2026-04-04 10:52:59 -0400 | Merge pull request #42 from AlexChesser/claude/redesign-agent-ux-QZJcm
+OFF HOURS:  2026-04-04 14:51:42 +0000 | docs: Add comprehensive UX redesign plan (CLI + IDE)
+OFF HOURS:  2026-04-03 22:24:05 -0400 | fix: populate tool result content in runner events
+OFF HOURS:  2026-04-03 22:23:14 -0400 | test: add spec coverage for log deletion
+OFF HOURS:  2026-04-03 22:22:58 -0400 | feat: make ail-log directive blocks collapsible in Markdown preview
+OFF HOURS:  2026-04-03 22:22:25 -0400 | feat: load AIL MONITOR history on extension startup
+OFF HOURS:  2026-04-03 22:22:16 -0400 | fix: correct timestamp conversion in HistoryService
+OFF HOURS:  2026-04-03 22:20:58 -0400 | feat: implement log deletion with cascading database/JSONL cleanup
+OFF HOURS:  2026-04-03 22:19:51 -0400 | fix: add prompt field to TURN 1 log output
+OFF HOURS:  2026-04-03 22:09:11 -0400 | fix broken build
+OFF HOURS:  2026-04-03 21:56:08 -0400 | wip:
+OFF HOURS:  2026-04-03 21:39:11 -0400 | Merge branch 'worktree-agent-ad2de2aa' into main
+OFF HOURS:  2026-04-03 21:39:07 -0400 | feat: add tool-event capture chain and emit tool-call/result/stdio in ail-log
+OFF HOURS:  2026-04-03 21:38:52 -0400 | feat(ext): wire ail-log native viewer as primary UI
+OFF HOURS:  2026-04-03 21:10:49 -0400 | chore: remove accidentally committed worktree and add to .gitignore
+OFF HOURS:  2026-04-03 21:06:35 -0400 | Merge branch 'main' of https://github.com/AlexChesser/ail into main
+OFF HOURS:  2026-04-03 21:05:32 -0400 | fix: extract token counts from assistant event, not result event
+OFF HOURS:  2026-04-03 21:03:50 -0400 | feat: make new ail-log spec default
+OFF HOURS:  2026-04-03 20:54:05 -0400 | fix: populate DETAILS section in UnifiedPanel and add model field
+OFF HOURS:  2026-04-03 20:39:08 -0400 | fix: sqlite display
+OFF HOURS:  2026-04-03 19:15:50 -0400 | fix: compile issues for vscode extension
+OFF HOURS:  2026-04-03 18:28:47 -0400 | feat: implement live tail streaming via `ail log --follow`
+OFF HOURS:  2026-04-03 18:26:12 -0400 | test: add cross-format consistency tests for ail-log formatter
+OFF HOURS:  2026-04-03 18:22:16 -0400 | feat(ext): implement virtual document provider and ail.openLog command
+OFF HOURS:  2026-04-03 18:19:39 -0400 | feat(cli): implement `ail log` subcommand with markdown/json/raw formats and --follow streaming
+OFF HOURS:  2026-04-03 18:17:18 -0400 | feat(ext): scaffold log display with AilProcess.log() method and directives types
+OFF HOURS:  2026-04-03 18:14:50 -0400 | feat(spec): add ail-log format contract (r04) and log command interface (s24)
+OFF HOURS:  2026-04-03 18:14:08 -0400 | docs(ext): document log display architecture in vscode-ail/CLAUDE.md
+OFF HOURS:  2026-04-03 17:22:08 -0400 | fix(core): include provider cost fields in executor ProviderConfig construction
+OFF HOURS:  2026-04-03 17:21:56 -0400 | feat(ext): migrate Monitor to WebviewViewProvider for dockable panel
+OFF HOURS:  2026-04-03 17:21:51 -0400 | feat(core): add provider cost overrides to pipeline YAML config
+OFF HOURS:  2026-04-03 17:07:54 -0400 | fix(ext): remove focus-stealing channel.show() in materializePipeline (issue 30)
+WORK HOURS: 2026-04-03 10:06:27 -0400 | fix: resolve formatting issues and open handles in tests
+WORK HOURS: 2026-04-03 09:07:05 -0400 | fix: general debuigger view feedback
+OFF HOURS:  2026-04-03 07:01:31 -0400 | fix: broken history
+OFF HOURS:  2026-04-03 06:47:58 -0400 | Merge branch 'main' of https://github.com/AlexChesser/ail into main
+OFF HOURS:  2026-04-03 06:45:48 -0400 | Merge branch 'main' of https://github.com/AlexChesser/ail into worktree-agent-a039eb89
+OFF HOURS:  2026-04-03 06:38:11 -0400 | feat(vscode-ail): Power Debugger — per-step file diff integration (#23)
+OFF HOURS:  2026-04-03 06:36:20 -0400 | feat(vscode-ail): Power Debugger — per-step file diff integration (#23)
+OFF HOURS:  2026-04-03 06:27:17 -0400 | feat(ail): Interactive REPL mode — ail chat command (#24)
+OFF HOURS:  2026-04-03 06:27:11 -0400 | feat(ail): Interactive REPL mode — ail chat command (#24)
+OFF HOURS:  2026-04-03 06:25:02 -0400 | feat(vscode-ail): Power Debugger — per-step metadata visualization (#22)
+OFF HOURS:  2026-04-03 06:23:49 -0400 | feat(vscode-ail): Power Debugger — per-step metadata visualization (#22)
+OFF HOURS:  2026-04-03 06:18:25 -0400 | feat: use composite logger for jsonl and sqlite
+OFF HOURS:  2026-04-03 06:13:29 -0400 | fix: lingering plan file updates
+OFF HOURS:  2026-04-03 00:29:56 -0400 | feat(vscode-ail): Phase 4 — history enrichment, cost regression detection
+OFF HOURS:  2026-04-03 00:29:40 -0400 | feat: Phase 2 — HITL notifications, gate timeout, message field, auto-scroll
+OFF HOURS:  2026-04-02 23:56:03 -0400 | fix(vscode-ail): make HistoryService._fetchLogs protected for testability
+OFF HOURS:  2026-04-02 23:43:56 -0400 | feat(vscode-ail): Phase 1 — trust signals, onboarding, cost tracking
+OFF HOURS:  2026-04-02 22:15:13 -0400 | feat(vscode-ail): UX overhaul — ail logs integration, global search, live trace, plan approval
+OFF HOURS:  2026-04-02 22:08:11 -0400 | feat: add ail logs CLI subcommand for querying execution history
+OFF HOURS:  2026-04-02 22:07:10 -0400 | wip: ail logs CLI (pre-rebase)
+OFF HOURS:  2026-04-02 22:00:34 -0400 | feat: implement SqliteProvider with FTS5 for LogProvider trait
+OFF HOURS:  2026-04-02 18:21:05 -0400 | fix: minor issue in extension compilation
+OFF HOURS:  2026-04-02 18:20:14 -0400 | feat: extract LogProvider trait from TurnLog for injectable persistence
+OFF HOURS:  2026-04-02 07:59:19 -0400 | feat: full bidirectional HITL
+OFF HOURS:  2026-04-02 07:08:06 -0400 | runlog from demo
+OFF HOURS:  2026-04-02 06:51:24 -0400 | fix: cargo fmt
+OFF HOURS:  2026-04-02 06:44:45 -0400 | fix: improved test coverage
+OFF HOURS:  2026-04-02 06:43:07 -0400 | wip: testing
+OFF HOURS:  2026-04-02 06:13:06 -0400 | fix: extract history service
+OFF HOURS:  2026-04-02 06:08:05 -0400 | wip: an overnight run that claude should have turned into incremental commits (oops)
+OFF HOURS:  2026-04-01 22:22:38 -0400 | feat(vscode-ail): Phase 5 — StagePanel race fix and regression test suite
+OFF HOURS:  2026-04-01 22:05:55 -0400 | style: cargo fmt
+OFF HOURS:  2026-04-01 22:00:48 -0400 | feat(vscode-ail): Phase 4 — multi-pipeline concurrency and structured diagnostics
+OFF HOURS:  2026-04-01 21:23:38 -0400 | feat(phase-3): bidirectional stdin protocol, HITL/permission UI, prompt fork
+OFF HOURS:  2026-04-01 21:12:16 -0400 | feat(vscode-ail): Phase 2 — run history, StagePanel, AIL_SELECTION bridge
+OFF HOURS:  2026-04-01 21:03:12 -0400 | Phase 1: Daily Driver Foundation
+OFF HOURS:  2026-04-01 20:45:41 -0400 | fix: vscode Phase 0 — Hygiene
+OFF HOURS:  2026-04-01 20:11:04 -0400 | fix(vscode-ail): restore ExecutionPanel output via onRawEvent channel
+OFF HOURS:  2026-04-01 19:53:19 -0400 | Merge branch 'main' of https://github.com/AlexChesser/ail into worktree-agent-acba95b4
+OFF HOURS:  2026-04-01 19:53:13 -0400 | refactor(vscode-ail): clean architecture — IAilClient, EventBus, DI
+OFF HOURS:  2026-04-01 18:28:50 -0400 | feat(ail-core): RunnerFactory + AIL_DEFAULT_RUNNER + per-step runner field
+OFF HOURS:  2026-04-01 17:57:44 -0400 | docs: issue fix plans
+OFF HOURS:  2026-04-01 17:57:18 -0400 | fix: view outputs in vscode runner & json output format
+OFF HOURS:  2026-04-01 08:28:38 -0400 | wip: updated format of outputs in vscode extension
+OFF HOURS:  2026-04-01 08:25:31 -0400 | fix: added show thinking and output blocks to extension
+OFF HOURS:  2026-04-01 08:22:29 -0400 | fix: runner tokens instead of cost
+OFF HOURS:  2026-04-01 08:04:33 -0400 | wip: greatly inmproved pipeline experience in vscode
+OFF HOURS:  2026-04-01 06:28:43 -0400 | fix: package extension
+OFF HOURS:  2026-04-01 06:14:57 -0400 | fix: osx compiler versions
+OFF HOURS:  2026-04-01 06:08:00 -0400 | fix: cargo fmt
+OFF HOURS:  2026-04-01 06:02:37 -0400 | Merge branch 'main' of https://github.com/AlexChesser/ail into main
+OFF HOURS:  2026-04-01 06:02:35 -0400 | fix: extra files required to build extension
+OFF HOURS:  2026-04-01 05:51:56 -0400 | feat: added vscode extension
+WORK HOURS: 2026-03-31 15:52:40 -0400 | docs: added star history
+WORK HOURS: 2026-03-31 10:25:56 -0400 | Create 00-planning.md
+OFF HOURS:  2026-03-31 08:28:47 -0400 | fix: experimental - permission prompt tool for ollama
+OFF HOURS:  2026-03-31 08:07:07 -0400 | fix: send cancel signal on shutdown
+OFF HOURS:  2026-03-31 08:06:41 -0400 | docs: added debug info for TUI
+OFF HOURS:  2026-03-31 07:18:44 -0400 | fix: dsiplay bug under ollama
+OFF HOURS:  2026-03-31 00:44:55 -0400 | fix: windows build
+OFF HOURS:  2026-03-31 00:13:57 -0400 | fix: 07-quality-silent-deny
+OFF HOURS:  2026-03-31 00:12:26 -0400 | fix: 06-tui-testability
+OFF HOURS:  2026-03-31 00:04:25 -0400 | fix: 05-appstate-decomposition
+OFF HOURS:  2026-03-30 23:53:52 -0400 | fix: 04-claude-runner-config
+OFF HOURS:  2026-03-30 23:50:44 -0400 | fix: 03-invoke-options-cleanup
+OFF HOURS:  2026-03-30 23:37:39 -0400 | wip: ensured document cleanup in refactor
+OFF HOURS:  2026-03-30 23:23:17 -0400 | fix: 02-permission-bridge-extraction
+OFF HOURS:  2026-03-30 23:16:01 -0400 | fix: 01-runner-injection-through-tui
+OFF HOURS:  2026-03-30 23:15:19 -0400 | wip: architectural refactor plans
+OFF HOURS:  2026-03-30 22:49:32 -0400 | wip: some samples of prompts  running via ail
+OFF HOURS:  2026-03-29 08:10:04 -0400 | wip: update to local running.
+OFF HOURS:  2026-03-28 23:48:45 -0400 | this was all generated by Qwen3.5:0.8b on ollama
+OFF HOURS:  2026-03-28 23:47:47 -0400 | notes: LOOK HERE !!!!
+OFF HOURS:  2026-03-28 23:45:05 -0400 | fix: ail terminal display
+OFF HOURS:  2026-03-28 21:52:15 -0400 | wip: fixing for non claude providers
+OFF HOURS:  2026-03-28 21:47:29 -0400 | wip: fixing permissions
+OFF HOURS:  2026-03-28 21:26:13 -0400 | wip: more interactive permissions  ui
+OFF HOURS:  2026-03-28 21:14:29 -0400 | wip: permission ui incremental
+OFF HOURS:  2026-03-28 10:34:59 -0400 | wip: permission passing
+OFF HOURS:  2026-03-27 23:47:01 -0400 | fix: slightly less terrible UI.
+OFF HOURS:  2026-03-27 23:19:23 -0400 | wip: compltetely wonky UI
+OFF HOURS:  2026-03-27 21:37:38 -0400 | fix: added cargo dependency
+OFF HOURS:  2026-03-27 21:32:44 -0400 | fix(tui): restore Alt+Enter as newline fallback alongside Shift+Enter
+OFF HOURS:  2026-03-27 21:31:22 -0400 | feat(tui): arrow navigation within multiline prompt; remove Alt+Enter fallback
+OFF HOURS:  2026-03-27 21:28:57 -0400 | fix(tui): Shift+Enter newline — filter key releases, add Alt+Enter fallback
+OFF HOURS:  2026-03-27 21:25:10 -0400 | fix(tui): Shift+Enter inserts newline in prompt (keyboard enhancement + multiline render)
+OFF HOURS:  2026-03-27 21:15:26 -0400 | feat(tui): word wrap and auto-expand the prompt input area
+OFF HOURS:  2026-03-27 21:14:18 -0400 | fix(tui): fix scrollback drift during streaming
+OFF HOURS:  2026-03-27 21:13:53 -0400 | fix(tui): write tracing to ~/.ail/tui.log instead of stderr
+OFF HOURS:  2026-03-27 17:10:22 -0400 | fix(tui): lower sidebar breakpoints so it stays visible at narrow widths
+OFF HOURS:  2026-03-27 17:09:54 -0400 | feat(tui): display extended thinking blocks in dim grey
+OFF HOURS:  2026-03-27 17:09:02 -0400 | fix(tui): run invocation step before pipeline steps (SPEC §4.1)
+OFF HOURS:  2026-03-27 17:07:12 -0400 | fix(tui): replace cost display with input/output token counters
+OFF HOURS:  2026-03-27 17:06:26 -0400 | fix(tui): preserve scroll position during streaming
+OFF HOURS:  2026-03-27 17:05:44 -0400 | fix(tui): enable word wrap in the viewport
+OFF HOURS:  2026-03-27 17:05:14 -0400 | fix(tui): redirect tracing output to stderr
+OFF HOURS:  2026-03-27 17:04:49 -0400 | fix(tui): remove mouse capture so native terminal text selection works
+WORK HOURS: 2026-03-27 16:25:46 -0400 | feat: enable runtime pipeline switching based on string
+WORK HOURS: 2026-03-27 16:02:03 -0400 | fix: closes issue #2
+WORK HOURS: 2026-03-27 15:34:04 -0400 | feat(tui): i-1 — pipeline switcher with : autocomplete and hot-reload
+OFF HOURS:  2026-03-27 01:35:33 -0400 | feat(tui): M11 — interrupt system: Escape to pause, modal with three paths, Ctrl+K kill
+OFF HOURS:  2026-03-27 01:32:56 -0400 | feat(tui): M10 — HITL gate UI with yellow prompt prefix and empty-Enter unblock
+OFF HOURS:  2026-03-27 01:31:42 -0400 | feat(tui): M9 — per-step output buffers, Ctrl+P/N session navigation
+OFF HOURS:  2026-03-27 01:30:28 -0400 | feat(tui): M8 — step detail HUD overlay
+OFF HOURS:  2026-03-27 01:29:02 -0400 | feat(tui): M7 — sidebar focus, navigation, and step-disable
+OFF HOURS:  2026-03-27 01:24:05 -0400 | feat(tui): M5+M6 — streaming viewport and live status bar
+OFF HOURS:  2026-03-27 01:06:33 -0400 | feat(tui): M4 — backend thread bridge; live glyph updates on prompt submit
+OFF HOURS:  2026-03-26 22:46:30 -0400 | feat(tui): M3 — prompt input with text editing
+OFF HOURS:  2026-03-26 22:45:22 -0400 | feat(tui): M2 — pipeline sidebar from real YAML
+OFF HOURS:  2026-03-26 22:41:54 -0400 | feat(M1): static three-region layout with responsive width tiers
+OFF HOURS:  2026-03-26 22:40:09 -0400 | feat(M0): ratatui skeleton — TUI launches on `ail` with no flags
+OFF HOURS:  2026-03-26 22:38:18 -0400 | feat(M-pre): provider/model config — YAML-first with CLI override
+OFF HOURS:  2026-03-26 22:25:39 -0400 | wip: added tui plan
+OFF HOURS:  2026-03-26 21:52:38 -0400 | Merge branch 'main' of https://github.com/AlexChesser/ail into main
+OFF HOURS:  2026-03-26 21:52:35 -0400 | added -plan for manually testing CORE as well as TUI description
+WORK HOURS: 2026-03-26 14:50:07 -0400 | Create strategy-do-not-build-our-own-agent.md
+OFF HOURS:  2026-03-26 04:32:12 -0400 | wip: raw plan results
+OFF HOURS:  2026-03-25 23:39:51 -0400 | runner spec updates
+OFF HOURS:  2026-03-25 22:52:04 -0400 | wip
+OFF HOURS:  2026-03-25 22:44:36 -0400 | fix: rebase conflicts
+OFF HOURS:  2026-03-13 23:48:48 -0400 | parent f854a4f3891b8916ce93b6f78157b495f74cdd12 author Alex Chesser <alex.chesser@gmail.com> 1773460128 -0400 committer Alexander Chesser <alex.chesser@gmail.com> 1774492788 -0400
+OFF HOURS:  2026-03-13 23:43:51 -0400 | Create cognitive-load-during-problem-solving-1988.md
+OFF HOURS:  2026-03-13 23:39:00 -0400 | Create surpassing-ourselves-1993.md
+OFF HOURS:  2026-03-13 23:30:33 -0400 | Create sciences-of-the-artificial-1996.md
+OFF HOURS:  2026-03-13 23:28:06 -0400 | Create human-problem-solving-1970.md
+OFF HOURS:  2026-03-13 23:26:42 -0400 | Create self-efficacy-the-motive-to-learn-2000.md
+OFF HOURS:  2026-03-13 23:23:48 -0400 | Create reciprocal-teaching-of-comprehension-1984.md
+OFF HOURS:  2026-03-13 23:21:33 -0400 | Create the-tacit-dimension-1966.md
+OFF HOURS:  2026-03-13 23:19:27 -0400 | Create source-monitoring-1993.md
+OFF HOURS:  2026-03-13 23:17:38 -0400 | Create structure-mapping-1983.md
+OFF HOURS:  2026-03-13 23:15:02 -0400 | Create metacognition-and-cognitive-monitoring-1979.md
+OFF HOURS:  2026-03-13 23:12:07 -0400 | Create executive-functions-2013.md
+OFF HOURS:  2026-03-13 23:10:20 -0400 | Create cognition-in-the-wild-1995.md
+OFF HOURS:  2026-03-13 23:08:05 -0400 | Create how-we-think-1910.md
+OFF HOURS:  2026-03-13 23:06:47 -0400 | fix: corrected language
+OFF HOURS:  2026-03-13 23:01:58 -0400 | Create experiential-learning-1984.md
+OFF HOURS:  2026-03-13 22:59:55 -0400 | Create stochastic-parrots-2021.md
+OFF HOURS:  2026-03-13 22:58:03 -0400 | Create scripts-plans-goals-understanding-1977.md
+OFF HOURS:  2026-03-13 22:55:44 -0400 | Create working-memoty-1974.md
+OFF HOURS:  2026-03-13 22:53:16 -0400 | Create the-reflective-practicioner-1982.md
+WORK HOURS: 2026-03-13 14:17:17 -0400 | Create remembering-bartlett-1932.md
+WORK HOURS: 2026-03-13 14:13:24 -0400 | Update plans-and-the-structure-of-behavior-1960.md
+WORK HOURS: 2026-03-13 14:11:58 -0400 | Create plans-and-the-structure-of-behavior-1960.md
+WORK HOURS: 2026-03-13 14:07:09 -0400 | Update mind-in-society-1978.md
+WORK HOURS: 2026-03-13 14:05:28 -0400 | Update luria-higher-cortical-functions-in-man-1966.md
+WORK HOURS: 2026-03-13 13:48:59 -0400 | Update luria-higher-cortical-functions-in-man-1966.md
+WORK HOURS: 2026-03-13 13:48:13 -0400 | Create luria-higher-cortical-functions-in-man-1966.md
+WORK HOURS: 2026-03-13 13:41:18 -0400 | Update mind-in-society-1978.md
+WORK HOURS: 2026-03-13 13:40:23 -0400 | Create mind-in-society-1978.md
+WORK HOURS: 2026-03-13 13:15:13 -0400 | Rename FUNDING.yaml to FUNDING.yml
+WORK HOURS: 2026-03-13 13:13:53 -0400 | Create FUNDING.yaml
+OFF HOURS:  2026-03-07 16:10:23 -0500 | ail readme
+OFF HOURS:  2026-03-07 15:08:18 -0500 | project naming
+OFF HOURS:  2026-03-07 15:00:51 -0500 | basic readme
+OFF HOURS:  2026-03-07 15:00:26 -0500 | rename materialize chain to materialize
+OFF HOURS:  2026-03-07 12:22:21 -0500 | dialed back LLM enthusasm
+OFF HOURS:  2026-03-07 12:15:50 -0500 | restructured spec for use with LLM contexts
+OFF HOURS:  2026-03-07 12:10:41 -0500 | added base claude docs
+OFF HOURS:  2026-03-07 11:47:46 -0500 | add tools permissions to yaml
+OFF HOURS:  2026-03-07 11:32:53 -0500 | use path based runner sessions (ail)
+OFF HOURS:  2026-03-07 11:00:23 -0500 | working through appropriate default functionality
+OFF HOURS:  2026-03-07 01:44:46 -0500 | refactor: split spec_coverage.rs into per-section files under tests/spec/
+OFF HOURS:  2026-03-07 01:40:29 -0500 | phase-10: v0.0.1 cleanup, spec coverage audit, CHANGELOG, tag
+OFF HOURS:  2026-03-07 01:38:35 -0500 | phase-9: pipeline executor, core invariant fires, v0.0.1 demo works
+OFF HOURS:  2026-03-07 01:33:31 -0500 | phase-9: pipeline executor, §4.2 core invariant, wire --once
+OFF HOURS:  2026-03-07 01:32:03 -0500 | phase-8: Runner trait, StubRunner, ClaudeCliRunner (stream-json --verbose)
+OFF HOURS:  2026-03-07 01:21:33 -0500 | phase-7: template variable resolution, §11 variables, error on unresolved
+OFF HOURS:  2026-03-07 01:20:19 -0500 | phase-6: TurnLog, Session, NDJSON audit trail
+OFF HOURS:  2026-03-07 01:18:40 -0500 | phase-5: materialize-chain, single-file pipeline, round-trip verified
+OFF HOURS:  2026-03-07 01:17:20 -0500 | phase-4: pipeline discovery, YAML parsing, DTO->domain validation
+OFF HOURS:  2026-03-07 01:13:46 -0500 | phase-3: full v0.0.1 CLI surface, all commands stubbed
+OFF HOURS:  2026-03-07 01:12:58 -0500 | phase-2: AilError, RFC 9457 inspired, error_type constants
+OFF HOURS:  2026-03-07 01:11:53 -0500 | phase-1: workspace skeleton, two-crate structure, structured logging
+OFF HOURS:  2026-03-07 00:56:36 -0500 | rename
+OFF HOURS:  2026-03-07 00:55:51 -0500 | ready to go
+OFF HOURS:  2026-03-06 22:58:27 -0500 | cleaned up
+OFF HOURS:  2026-03-06 22:39:39 -0500 | fixing LLM destruction
+WORK HOURS: 2026-03-06 13:38:45 -0500 | tidy up spec pass
+WORK HOURS: 2026-03-06 11:50:25 -0500 | adds "before" hook to balance "then"
+OFF HOURS:  2026-03-05 23:15:07 -0500 | move file
+OFF HOURS:  2026-03-05 23:04:28 -0500 | docs: iteration
+OFF HOURS:  2026-03-05 21:31:18 -0500 | further progress, pre initial plan
+OFF HOURS:  2026-03-04 21:01:12 -0500 | first refactor
+OFF HOURS:  2026-03-04 01:16:59 -0500 | initial commit
+OFF HOURS:  2026-03-05 23:06:55 -0500 | Initial commit
