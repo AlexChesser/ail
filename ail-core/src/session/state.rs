@@ -15,6 +15,8 @@ pub struct Session {
     /// CLI-supplied provider/model overrides. Highest priority in the resolution chain:
     /// pipeline defaults → per-step model → cli_provider.
     pub cli_provider: ProviderConfig,
+    /// Working directory captured at session creation time (used by `{{ session.cwd }}`).
+    pub cwd: String,
 }
 
 impl Session {
@@ -40,6 +42,10 @@ impl Session {
         let pipeline_source = pipeline.source.as_deref().and_then(|p| p.to_str());
         turn_log.record_run_started(pipeline_source);
 
+        let cwd = std::env::current_dir()
+            .map(|p| p.display().to_string())
+            .unwrap_or_default();
+
         Session {
             run_id,
             pipeline,
@@ -47,6 +53,7 @@ impl Session {
             turn_log,
             tool_allowlist: Vec::new(),
             cli_provider: ProviderConfig::default(),
+            cwd,
         }
     }
 

@@ -9,6 +9,7 @@
 use std::sync::mpsc;
 
 use super::super::{RunResult, RunnerEvent, ToolEvent};
+use super::wire_dto::{WireContentBlock, WireUsage};
 use crate::error::AilError;
 
 // ── Internal parse action ──────────────────────────────────────────────────────────────────────
@@ -92,10 +93,7 @@ impl ClaudeNdjsonDecoder {
 
         tracing::trace!(line = %line, "stream-json raw line");
 
-        self.accumulate_thinking(&event);
-        self.accumulate_tool_events(&event);
-
-        match Self::parse_event(&event, tx) {
+        match self.process_event(&event, tx) {
             ParseAction::Continue => {}
             ParseAction::TokensObserved { input, output } => {
                 self.input_tokens = self.input_tokens.saturating_add(input);
@@ -174,82 +172,13 @@ impl ClaudeNdjsonDecoder {
 
     // ── Private helpers ───────────────────────────────────────────────────────────────────────
 
-    /// Accumulate thinking block text from an `assistant` event into the internal buffer.
-    fn accumulate_thinking(&mut self, event: &serde_json::Value) {
-        if event["type"].as_str() != Some("assistant") {
-            return;
-        }
-        if let Some(content) = event["message"]["content"].as_array() {
-            for item in content {
-                if item["type"].as_str() == Some("thinking") {
-                    if let Some(text) = item["thinking"].as_str() {
-                        if !text.is_empty() {
-                            if !self.thinking.is_empty() {
-                                self.thinking.push('\n');
-                            }
-                            self.thinking.push_str(text);
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    /// Accumulate tool call and tool result events.
+    /// Process a single parsed NDJSON event: emit [`RunnerEvent`]s, accumulate thinking and
+    /// tool events, and return the terminal [`ParseAction`].
     ///
-    /// - `assistant` events with `tool_use` content blocks → `ToolEvent { event_type: "tool_call" }`
-    /// - `user` events with `tool_result` content items → `ToolEvent { event_type: "tool_result" }`
-    fn accumulate_tool_events(&mut self, event: &serde_json::Value) {
-        let event_type = event["type"].as_str().unwrap_or("");
-        match event_type {
-            "assistant" => {
-                if let Some(content) = event["message"]["content"].as_array() {
-                    for item in content {
-                        if item["type"].as_str() == Some("tool_use") {
-                            let tool_name = item["name"].as_str().unwrap_or("").to_string();
-                            let tool_id = item["id"].as_str().unwrap_or("").to_string();
-                            let content_json = serde_json::to_string(&item["input"])
-                                .unwrap_or_else(|_| "{}".to_string());
-                            self.tool_events.push(ToolEvent {
-                                event_type: "tool_call".to_string(),
-                                tool_name,
-                                tool_id,
-                                content_json,
-                                seq: self.tool_seq,
-                            });
-                            self.tool_seq += 1;
-                        }
-                    }
-                }
-            }
-            "user" => {
-                if let Some(content) = event["message"]["content"].as_array() {
-                    for item in content {
-                        if item["type"].as_str() == Some("tool_result") {
-                            let tool_id = item["tool_use_id"].as_str().unwrap_or("").to_string();
-                            let content_json = match &item["content"] {
-                                serde_json::Value::String(s) => s.clone(),
-                                other => serde_json::to_string(other)
-                                    .unwrap_or_else(|_| "{}".to_string()),
-                            };
-                            self.tool_events.push(ToolEvent {
-                                event_type: "tool_result".to_string(),
-                                tool_name: String::new(),
-                                tool_id,
-                                content_json,
-                                seq: self.tool_seq,
-                            });
-                            self.tool_seq += 1;
-                        }
-                    }
-                }
-            }
-            _ => {}
-        }
-    }
-
-    /// Parse a single NDJSON event and emit streaming [`RunnerEvent`]s.
-    fn parse_event(
+    /// This is a single pass over each content block — accumulation and emission happen
+    /// together rather than in separate traversals.
+    fn process_event(
+        &mut self,
         event: &serde_json::Value,
         tx: Option<&mpsc::Sender<RunnerEvent>>,
     ) -> ParseAction {
@@ -257,112 +186,137 @@ impl ClaudeNdjsonDecoder {
 
         match event_type {
             "assistant" => {
-                let input_tokens = event["message"]["usage"]["input_tokens"]
-                    .as_u64()
-                    .unwrap_or(0);
-                let output_tokens = event["message"]["usage"]["output_tokens"]
-                    .as_u64()
-                    .unwrap_or(0);
+                let blocks = self.parse_content_blocks(&event["message"]["content"]);
+                let block_types: Vec<&str> = blocks.iter().map(|b| b.block_type.as_str()).collect();
+                tracing::debug!(event_type, ?block_types, "stream-json assistant event");
 
-                // Process content blocks BEFORE checking usage. With Ollama and some API
-                // configurations, usage and content appear in the same event — an early
-                // return on token counts would silently drop all content blocks.
-                if let Some(content) = event["message"]["content"].as_array() {
-                    let block_types: Vec<&str> = content
-                        .iter()
-                        .map(|item| item["type"].as_str().unwrap_or("unknown"))
-                        .collect();
-                    tracing::debug!(event_type, ?block_types, "stream-json assistant event");
-                    for item in content {
-                        let block_type = item["type"].as_str().unwrap_or("");
-                        match block_type {
-                            "text" => {
-                                if let Some(text) = item["text"].as_str() {
-                                    if !text.is_empty() {
-                                        if let Some(tx) = tx {
-                                            let _ = tx.send(RunnerEvent::StreamDelta {
-                                                text: text.to_string(),
-                                            });
-                                        }
-                                    }
+                // Single pass: accumulate and emit for all content block types.
+                for block in blocks {
+                    match block.block_type.as_str() {
+                        "text" => {
+                            let text = block.text.unwrap_or_default();
+                            if !text.is_empty() {
+                                if let Some(tx) = tx {
+                                    let _ = tx.send(RunnerEvent::StreamDelta { text });
                                 }
-                            }
-                            "thinking" => {
-                                if let Some(text) = item["thinking"].as_str() {
-                                    if !text.is_empty() {
-                                        if let Some(tx) = tx {
-                                            let _ = tx.send(RunnerEvent::Thinking {
-                                                text: text.to_string(),
-                                            });
-                                        }
-                                    }
-                                }
-                            }
-                            "tool_use" => {
-                                if let Some(name) = item["name"].as_str() {
-                                    if let Some(tx) = tx {
-                                        let _ = tx.send(RunnerEvent::ToolUse {
-                                            tool_name: name.to_string(),
-                                            tool_use_id: item["id"].as_str().map(str::to_string),
-                                            input: item.get("input").cloned(),
-                                        });
-                                    }
-                                }
-                            }
-                            other => {
-                                tracing::debug!(
-                                    block_type = other,
-                                    "stream-json: unrecognized assistant content block type"
-                                );
                             }
                         }
+                        "thinking" => {
+                            let text = block.thinking.unwrap_or_default();
+                            if !text.is_empty() {
+                                // Accumulate
+                                if !self.thinking.is_empty() {
+                                    self.thinking.push('\n');
+                                }
+                                self.thinking.push_str(&text);
+                                // Emit
+                                if let Some(tx) = tx {
+                                    let _ = tx.send(RunnerEvent::Thinking { text });
+                                }
+                            }
+                        }
+                        "tool_use" => {
+                            let name = block.name.unwrap_or_default();
+                            let id = block.id.unwrap_or_default();
+                            let input = block.input;
+                            // Accumulate
+                            let content_json = input
+                                .as_ref()
+                                .map(|v| {
+                                    serde_json::to_string(v).unwrap_or_else(|_| "{}".to_string())
+                                })
+                                .unwrap_or_else(|| "{}".to_string());
+                            self.tool_events.push(ToolEvent {
+                                event_type: "tool_call".to_string(),
+                                tool_name: name.clone(),
+                                tool_id: id.clone(),
+                                content_json,
+                                seq: self.tool_seq,
+                            });
+                            self.tool_seq += 1;
+                            // Emit
+                            if let Some(tx) = tx {
+                                let _ = tx.send(RunnerEvent::ToolUse {
+                                    tool_name: name,
+                                    tool_use_id: Some(id),
+                                    input,
+                                });
+                            }
+                        }
+                        other => {
+                            tracing::debug!(
+                                block_type = other,
+                                "stream-json: unrecognized assistant content block type"
+                            );
+                        }
                     }
-                } else {
-                    tracing::debug!(
-                        event_type,
-                        "stream-json assistant event: message.content is not an array"
-                    );
                 }
 
-                if input_tokens > 0 || output_tokens > 0 {
+                let usage: WireUsage = serde_json::from_value(event["message"]["usage"].clone())
+                    .unwrap_or_default();
+                if usage.input_tokens > 0 || usage.output_tokens > 0 {
                     tracing::debug!(
                         event_type,
-                        input_tokens,
-                        output_tokens,
+                        input_tokens = usage.input_tokens,
+                        output_tokens = usage.output_tokens,
                         "stream-json assistant event with usage"
                     );
                     return ParseAction::TokensObserved {
-                        input: input_tokens,
-                        output: output_tokens,
+                        input: usage.input_tokens,
+                        output: usage.output_tokens,
                     };
                 }
 
                 ParseAction::Continue
             }
+
             "user" => {
-                if let Some(content) = event["message"]["content"].as_array() {
-                    for item in content {
-                        if item["type"].as_str() == Some("tool_result") {
-                            if let Some(tx) = tx {
-                                let tool_use_id = item["tool_use_id"].as_str().map(str::to_string);
-                                let content = item["content"]
-                                    .as_str()
-                                    .or_else(|| item["content"].as_object().map(|_| ""))
-                                    .map(str::to_string);
-                                let is_error = item["is_error"].as_bool();
-                                let _ = tx.send(RunnerEvent::ToolResult {
-                                    tool_name: item["tool_name"].as_str().unwrap_or("").to_string(),
-                                    tool_use_id,
-                                    content,
-                                    is_error,
-                                });
-                            }
+                let blocks = self.parse_content_blocks(&event["message"]["content"]);
+                for block in blocks {
+                    if block.block_type != "tool_result" {
+                        continue;
+                    }
+                    let tool_use_id = block.tool_use_id.unwrap_or_default();
+                    let raw_content = block.content;
+                    // Accumulate: content_json for storage
+                    let content_json = match &raw_content {
+                        Some(serde_json::Value::String(s)) => s.clone(),
+                        Some(other) => {
+                            serde_json::to_string(other).unwrap_or_else(|_| "{}".to_string())
                         }
+                        None => "{}".to_string(),
+                    };
+                    self.tool_events.push(ToolEvent {
+                        event_type: "tool_result".to_string(),
+                        tool_name: String::new(),
+                        tool_id: tool_use_id.clone(),
+                        content_json,
+                        seq: self.tool_seq,
+                    });
+                    self.tool_seq += 1;
+                    // Emit: content as string for RunnerEvent
+                    if let Some(tx) = tx {
+                        let content_str = raw_content
+                            .as_ref()
+                            .and_then(|v| v.as_str())
+                            .or_else(|| {
+                                raw_content
+                                    .as_ref()
+                                    .and_then(|v| v.as_object().map(|_| ""))
+                            })
+                            .map(str::to_string);
+                        let _ = tx.send(RunnerEvent::ToolResult {
+                            tool_name: block.tool_name.unwrap_or_default(),
+                            tool_use_id: Some(tool_use_id),
+                            content: content_str,
+                            is_error: block.is_error,
+                        });
                     }
                 }
                 tracing::debug!(event_type, "stream-json user event");
                 ParseAction::Continue
             }
+
             "result" => {
                 let subtype = event["subtype"].as_str().unwrap_or("");
                 let is_error = subtype == "error" || event["is_error"].as_bool().unwrap_or(false);
@@ -388,8 +342,6 @@ impl ClaudeNdjsonDecoder {
                             .to_string(),
                     )
                 } else {
-                    // Tokens are extracted from assistant events' message.usage, not from
-                    // the result event. The result event only carries cost.
                     ParseAction::ResultReceived {
                         response: event["result"].as_str().map(str::to_string),
                         cost_usd: cost,
@@ -398,15 +350,30 @@ impl ClaudeNdjsonDecoder {
                     }
                 }
             }
+
             "system" => {
                 tracing::debug!(event_type, "stream-json system event");
                 ParseAction::Continue
             }
+
             other => {
                 tracing::warn!(event_type = other, "unexpected stream-json event type");
                 ParseAction::Continue
             }
         }
+    }
+
+    /// Deserialize the `content` array from an assistant or user message into typed blocks.
+    /// Returns an empty vec if the value is not an array or deserialization fails.
+    fn parse_content_blocks(&self, content: &serde_json::Value) -> Vec<WireContentBlock> {
+        content
+            .as_array()
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|item| serde_json::from_value(item.clone()).ok())
+                    .collect()
+            })
+            .unwrap_or_default()
     }
 }
 

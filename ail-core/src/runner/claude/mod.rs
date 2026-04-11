@@ -12,6 +12,7 @@
 
 pub mod decoder;
 pub mod permission;
+mod wire_dto;
 
 use std::io::BufRead;
 use std::sync::mpsc;
