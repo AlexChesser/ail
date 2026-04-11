@@ -2,6 +2,7 @@
 
 use ail_core::config::domain::Pipeline;
 use ail_core::error::error_types;
+use ail_core::runner::ToolEvent;
 use ail_core::session::{NullProvider, Session, TurnEntry};
 use ail_core::template::resolve;
 use std::time::SystemTime;
@@ -156,10 +157,22 @@ fn session_cwd_resolves_to_nonempty_string() {
 // ── 7. session.tool ──────────────────────────────────────────────────────
 
 #[test]
-fn session_tool_resolves_to_claude() {
-    let session = make_session();
+fn session_tool_resolves_to_runner_name() {
+    // session.runner_name defaults to "claude" when AIL_DEFAULT_RUNNER is unset.
+    let mut session = make_session();
+    // Explicitly set runner_name to verify the template reads the field, not a hardcoded string.
+    session.runner_name = "ollama".to_string();
     let result = resolve("{{ session.tool }}", &session).unwrap();
-    assert_eq!(result, "claude");
+    assert_eq!(result, "ollama");
+}
+
+#[test]
+fn session_tool_default_is_claude_when_env_unset() {
+    let session = make_session();
+    // Default: AIL_DEFAULT_RUNNER not set → "claude"
+    let result = resolve("{{ session.tool }}", &session).unwrap();
+    // runner_name is set from env at Session::new() time; in tests it's "claude" (default).
+    assert_eq!(result, session.runner_name);
 }
 
 // ── 8. pipeline.run_id ───────────────────────────────────────────────────
@@ -438,4 +451,58 @@ fn step_result_falls_back_to_response_for_prompt_step() {
     append_response(&mut session, "ask", "the answer");
     let result = resolve("{{ step.ask.result }}", &session).unwrap();
     assert_eq!(result, "the answer");
+}
+
+// ── 17. step.<id>.tool_calls ─────────────────────────────────────────────
+
+#[test]
+fn step_tool_calls_empty_array_when_no_events() {
+    let mut session = make_session();
+    append_response(&mut session, "ask", "response with no tools");
+    let result = resolve("{{ step.ask.tool_calls }}", &session).unwrap();
+    // Empty tool_events → serialises to "[]"
+    assert_eq!(result, "[]");
+}
+
+#[test]
+fn step_tool_calls_serialises_events_as_json() {
+    let mut session = make_session();
+    let event = ToolEvent {
+        event_type: "tool_call".to_string(),
+        tool_name: "Bash".to_string(),
+        tool_id: "tool-abc".to_string(),
+        content_json: "{\"command\":\"ls\"}".to_string(),
+        seq: 0,
+    };
+    session.turn_log.append(TurnEntry {
+        step_id: "run_check".to_string(),
+        prompt: "do it".to_string(),
+        response: Some("done".to_string()),
+        timestamp: SystemTime::now(),
+        cost_usd: None,
+        input_tokens: 0,
+        output_tokens: 0,
+        runner_session_id: None,
+        stdout: None,
+        stderr: None,
+        exit_code: None,
+        thinking: None,
+        tool_events: vec![event],
+    });
+
+    let result = resolve("{{ step.run_check.tool_calls }}", &session).unwrap();
+    // Must be a valid JSON array containing the event fields
+    let parsed: serde_json::Value = serde_json::from_str(&result).expect("must be valid JSON");
+    let arr = parsed.as_array().expect("must be array");
+    assert_eq!(arr.len(), 1);
+    assert_eq!(arr[0]["tool_name"], "Bash");
+    assert_eq!(arr[0]["event_type"], "tool_call");
+}
+
+#[test]
+fn step_tool_calls_missing_step_returns_error() {
+    let session = make_session();
+    let err = resolve("{{ step.missing.tool_calls }}", &session).unwrap_err();
+    assert_eq!(err.error_type(), error_types::TEMPLATE_UNRESOLVED);
+    assert!(err.detail().contains("missing"));
 }

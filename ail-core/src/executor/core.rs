@@ -19,8 +19,8 @@ use crate::template;
 
 use super::events::ExecuteOutcome;
 use super::helpers::{
-    build_step_runner_box, build_tool_policy, evaluate_on_result, resolve_prompt_file,
-    resolve_step_provider, resolve_step_system_prompts, run_shell_command,
+    build_step_runner_box, build_tool_policy, evaluate_on_result, resolve_effective_runner_name,
+    resolve_prompt_file, resolve_step_provider, resolve_step_system_prompts, run_shell_command,
 };
 
 // ── Observer trait ────────────────────────────────────────────────────────────
@@ -355,6 +355,8 @@ pub(super) fn execute_core<O: StepObserver>(
                     .tools
                     .as_ref()
                     .or(session.pipeline.default_tools.as_ref());
+                // Update session.runner_name so {{ session.tool }} reflects the active runner.
+                session.runner_name = resolve_effective_runner_name(step);
                 let step_runner_box = build_step_runner_box(step)
                     .inspect_err(|e| observer.on_step_failed(&step_id, e.detail()))?;
                 let effective_runner: &dyn Runner = step_runner_box

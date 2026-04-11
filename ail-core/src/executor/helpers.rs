@@ -66,6 +66,22 @@ pub(super) fn build_step_runner_box(
     }
 }
 
+/// Resolve the effective runner name for a step without constructing the runner.
+///
+/// Mirrors the `RunnerFactory` selection hierarchy:
+/// 1. Per-step `runner:` field
+/// 2. `AIL_DEFAULT_RUNNER` environment variable
+/// 3. `"claude"` fallback
+///
+/// Used to update `session.runner_name` so `{{ session.tool }}` reflects the actual runner.
+pub(super) fn resolve_effective_runner_name(step: &Step) -> String {
+    if let Some(ref name) = step.runner {
+        name.clone()
+    } else {
+        std::env::var("AIL_DEFAULT_RUNNER").unwrap_or_else(|_| "claude".to_string())
+    }
+}
+
 /// Spawn `/bin/sh -c cmd` and return `(stdout, stderr, exit_code)`.
 pub(super) fn run_shell_command(
     run_id: &str,
