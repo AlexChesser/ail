@@ -236,10 +236,8 @@ mod tests {
     fn composite_provider_returns_err_when_all_providers_fail() {
         use super::test_support::FailingProvider;
 
-        let mut composite = CompositeProvider::new(vec![
-            Box::new(FailingProvider),
-            Box::new(FailingProvider),
-        ]);
+        let mut composite =
+            CompositeProvider::new(vec![Box::new(FailingProvider), Box::new(FailingProvider)]);
         let value = json!({"step_id": "all-fail"});
         let result = composite.write_entry("run-all-fail", &value);
         assert!(result.is_err(), "should return Err when all providers fail");
@@ -249,13 +247,14 @@ mod tests {
     fn composite_provider_returns_ok_when_one_of_two_providers_succeeds() {
         use super::test_support::FailingProvider;
 
-        let mut composite = CompositeProvider::new(vec![
-            Box::new(FailingProvider),
-            Box::new(NullProvider),
-        ]);
+        let mut composite =
+            CompositeProvider::new(vec![Box::new(FailingProvider), Box::new(NullProvider)]);
         let value = json!({"step_id": "partial-fail"});
         let result = composite.write_entry("run-partial-fail", &value);
-        assert!(result.is_ok(), "should return Ok when at least one provider succeeds");
+        assert!(
+            result.is_ok(),
+            "should return Ok when at least one provider succeeds"
+        );
     }
 }
 
