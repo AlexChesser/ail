@@ -50,11 +50,11 @@ fn subprocess_true_exits_success() {
 
     assert!(outcome.exit_status.success(), "Expected exit code 0");
     assert!(!outcome.was_cancelled, "Should not be cancelled");
-    assert!(
-        outcome.stderr.is_empty(),
-        "Expected empty stderr, got: {:?}",
-        outcome.stderr
-    );
+    // Note: we intentionally do NOT assert stderr.is_empty() here. When other
+    // tests in the suite change the process CWD to a temporary directory that is
+    // later deleted, /bin/sh emits "getcwd() failed" on stderr even though the
+    // command succeeds. Asserting on stderr would make this test flaky.
+    // Stderr drain correctness is tested in subprocess_stderr_drained_to_outcome.
 }
 
 #[test]

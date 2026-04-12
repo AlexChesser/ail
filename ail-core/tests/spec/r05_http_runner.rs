@@ -1,6 +1,9 @@
 //! Specification r05 — HTTP Runner contract.
 //!
-//! Covers: no-model error, RunResult field invariants.
+//! Covers: no-model error, RunResult field invariants, and stub-server-backed
+//! integration tests that exercise the full HttpRunner pipeline without needing
+//! a live Ollama instance.
+//!
 //! Factory construction tests live in s08_multi_runner.rs alongside the other factory tests.
 //! Live tests require a running Ollama instance and are marked #[ignore].
 
@@ -9,6 +12,7 @@ use ail_core::runner::http::{HttpRunner, HttpRunnerConfig, HttpSessionStore};
 use ail_core::runner::{InvokeOptions, Runner};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
+use stub_llm::{StubLlmServer, StubResponse};
 
 fn fresh_store() -> HttpSessionStore {
     Arc::new(Mutex::new(HashMap::new()))
@@ -430,5 +434,317 @@ fn live_invoke_tool_events_is_always_empty() {
     assert!(
         result.tool_events.is_empty(),
         "tool_events must always be empty"
+    );
+}
+
+// ── Stub-server-backed integration tests ─────────────────────────────────────
+//
+// These tests use stub-llm's `StubLlmServer` to serve pre-recorded responses,
+// exercising the full HttpRunner pipeline (request building, HTTP call, response
+// parsing, session continuity) without requiring a live Ollama instance.
+
+/// Helper: create an HttpRunner pointed at the stub server.
+fn runner_for(server: &StubLlmServer, model: &str) -> HttpRunner {
+    HttpRunner::new(
+        HttpRunnerConfig {
+            base_url: server.base_url(),
+            default_model: Some(model.to_string()),
+            ..HttpRunnerConfig::default()
+        },
+        fresh_store(),
+    )
+}
+
+/// Basic roundtrip: invoke returns the canned response content.
+#[test]
+fn stub_invoke_returns_canned_response() {
+    let server = StubLlmServer::new(vec![StubResponse::Success {
+        content: "Hello from stub!".to_string(),
+        model: None,
+        usage: None,
+    }]);
+    let runner = runner_for(&server, "test-model");
+    let result = runner.invoke("hi", InvokeOptions::default()).unwrap();
+    assert_eq!(result.response, "Hello from stub!");
+}
+
+/// Verify the model field is passed in the request body.
+#[test]
+fn stub_invoke_passes_model_in_request() {
+    let server = StubLlmServer::new(vec![StubResponse::Success {
+        content: "ok".to_string(),
+        model: None,
+        usage: None,
+    }]);
+    let runner = runner_for(&server, "my-special-model");
+    runner.invoke("test", InvokeOptions::default()).unwrap();
+
+    let requests = server.requests();
+    assert_eq!(requests.len(), 1);
+    let body: serde_json::Value = serde_json::from_str(&requests[0].body).unwrap();
+    assert_eq!(body["model"].as_str().unwrap(), "my-special-model");
+}
+
+/// Verify Authorization header is sent when auth_token is set.
+#[test]
+fn stub_invoke_passes_auth_header() {
+    let server = StubLlmServer::new(vec![StubResponse::Success {
+        content: "ok".to_string(),
+        model: None,
+        usage: None,
+    }]);
+    let runner = HttpRunner::new(
+        HttpRunnerConfig {
+            base_url: server.base_url(),
+            auth_token: Some("secret-token-123".to_string()),
+            default_model: Some("m".to_string()),
+            ..HttpRunnerConfig::default()
+        },
+        fresh_store(),
+    );
+    runner.invoke("test", InvokeOptions::default()).unwrap();
+
+    let requests = server.requests();
+    let auth_header = requests[0]
+        .headers
+        .iter()
+        .find(|(k, _)| k.eq_ignore_ascii_case("authorization"));
+    assert!(
+        auth_header.is_some(),
+        "Authorization header should be present"
+    );
+    assert_eq!(
+        auth_header.unwrap().1,
+        "Bearer secret-token-123",
+        "Authorization header should contain the token"
+    );
+}
+
+/// Verify no Authorization header is sent when auth_token is None.
+#[test]
+fn stub_invoke_no_auth_header_when_absent() {
+    let server = StubLlmServer::new(vec![StubResponse::Success {
+        content: "ok".to_string(),
+        model: None,
+        usage: None,
+    }]);
+    let runner = runner_for(&server, "m");
+    runner.invoke("test", InvokeOptions::default()).unwrap();
+
+    let requests = server.requests();
+    let auth_header = requests[0]
+        .headers
+        .iter()
+        .find(|(k, _)| k.eq_ignore_ascii_case("authorization"));
+    assert!(
+        auth_header.is_none(),
+        "Authorization header should NOT be present when no token is set"
+    );
+}
+
+/// Verify system prompt is prepended as the first message.
+#[test]
+fn stub_invoke_system_prompt_in_messages() {
+    let server = StubLlmServer::new(vec![StubResponse::Success {
+        content: "ok".to_string(),
+        model: None,
+        usage: None,
+    }]);
+    let runner = runner_for(&server, "m");
+    runner
+        .invoke(
+            "hello",
+            InvokeOptions {
+                system_prompt: Some("You are a helpful assistant.".to_string()),
+                ..InvokeOptions::default()
+            },
+        )
+        .unwrap();
+
+    let requests = server.requests();
+    let body: serde_json::Value = serde_json::from_str(&requests[0].body).unwrap();
+    let messages = body["messages"].as_array().unwrap();
+
+    assert!(messages.len() >= 2, "should have system + user messages");
+    assert_eq!(messages[0]["role"].as_str().unwrap(), "system");
+    assert_eq!(
+        messages[0]["content"].as_str().unwrap(),
+        "You are a helpful assistant."
+    );
+    assert_eq!(messages[1]["role"].as_str().unwrap(), "user");
+    assert_eq!(messages[1]["content"].as_str().unwrap(), "hello");
+}
+
+/// Verify session continuity: second call with resume includes full history.
+#[test]
+fn stub_invoke_session_continuity() {
+    let server = StubLlmServer::new(vec![
+        StubResponse::Success {
+            content: "I remember blue.".to_string(),
+            model: None,
+            usage: None,
+        },
+        StubResponse::Success {
+            content: "Your colour is blue.".to_string(),
+            model: None,
+            usage: None,
+        },
+    ]);
+    // Both calls must share the same store for session continuity
+    let store = fresh_store();
+    let runner = HttpRunner::new(
+        HttpRunnerConfig {
+            base_url: server.base_url(),
+            default_model: Some("m".to_string()),
+            ..HttpRunnerConfig::default()
+        },
+        store,
+    );
+
+    // First invocation
+    let first = runner
+        .invoke("My colour is blue.", InvokeOptions::default())
+        .unwrap();
+    let session_id = first.session_id.clone().unwrap();
+
+    // Second invocation with resume
+    let _second = runner
+        .invoke(
+            "What is my colour?",
+            InvokeOptions {
+                resume_session_id: Some(session_id),
+                ..InvokeOptions::default()
+            },
+        )
+        .unwrap();
+
+    // The second request should contain the full conversation history
+    let requests = server.requests();
+    assert_eq!(requests.len(), 2);
+    let body: serde_json::Value = serde_json::from_str(&requests[1].body).unwrap();
+    let messages = body["messages"].as_array().unwrap();
+
+    // Should have: user("My colour is blue"), assistant("I remember blue."), user("What is my colour?")
+    assert!(
+        messages.len() >= 3,
+        "resumed session should have at least 3 messages, got {}",
+        messages.len()
+    );
+    assert_eq!(messages[0]["role"].as_str().unwrap(), "user");
+    assert_eq!(
+        messages[0]["content"].as_str().unwrap(),
+        "My colour is blue."
+    );
+    assert_eq!(messages[1]["role"].as_str().unwrap(), "assistant");
+    assert_eq!(messages[1]["content"].as_str().unwrap(), "I remember blue.");
+    assert_eq!(messages[2]["role"].as_str().unwrap(), "user");
+    assert_eq!(
+        messages[2]["content"].as_str().unwrap(),
+        "What is my colour?"
+    );
+}
+
+/// HTTP 500 from server returns RUNNER_INVOCATION_FAILED.
+#[test]
+fn stub_invoke_http_500_returns_error() {
+    let server = StubLlmServer::new(vec![StubResponse::Raw {
+        status_code: 500,
+        body: "internal server error".to_string(),
+    }]);
+    let runner = runner_for(&server, "m");
+    let err = runner.invoke("test", InvokeOptions::default()).unwrap_err();
+    assert_eq!(err.error_type(), error_types::RUNNER_INVOCATION_FAILED);
+    assert!(
+        err.detail().contains("500"),
+        "error detail should mention status code 500, got: {}",
+        err.detail()
+    );
+}
+
+/// Malformed JSON response returns RUNNER_INVOCATION_FAILED.
+#[test]
+fn stub_invoke_malformed_json_returns_error() {
+    let server = StubLlmServer::new(vec![StubResponse::Raw {
+        status_code: 200,
+        body: "this is not json at all {{{{".to_string(),
+    }]);
+    let runner = runner_for(&server, "m");
+    let err = runner.invoke("test", InvokeOptions::default()).unwrap_err();
+    assert_eq!(err.error_type(), error_types::RUNNER_INVOCATION_FAILED);
+    assert!(
+        err.detail().contains("parse") || err.detail().contains("JSON"),
+        "error detail should mention JSON parsing, got: {}",
+        err.detail()
+    );
+}
+
+/// Verify usage tokens are extracted from the response.
+#[test]
+fn stub_invoke_usage_tokens_extracted() {
+    let server = StubLlmServer::new(vec![StubResponse::Success {
+        content: "ok".to_string(),
+        model: None,
+        usage: Some((42, 17)),
+    }]);
+    let runner = runner_for(&server, "m");
+    let result = runner.invoke("test", InvokeOptions::default()).unwrap();
+    assert_eq!(result.input_tokens, 42, "input_tokens should be 42");
+    assert_eq!(result.output_tokens, 17, "output_tokens should be 17");
+}
+
+/// HttpRunner always returns cost_usd as None (no pricing tables).
+#[test]
+fn stub_invoke_cost_is_none() {
+    let server = StubLlmServer::new(vec![StubResponse::Success {
+        content: "ok".to_string(),
+        model: None,
+        usage: None,
+    }]);
+    let runner = runner_for(&server, "m");
+    let result = runner.invoke("test", InvokeOptions::default()).unwrap();
+    assert!(result.cost_usd.is_none(), "cost_usd should always be None");
+}
+
+/// HttpRunner always returns empty tool_events (no tool support).
+#[test]
+fn stub_invoke_tool_events_empty() {
+    let server = StubLlmServer::new(vec![StubResponse::Success {
+        content: "ok".to_string(),
+        model: None,
+        usage: None,
+    }]);
+    let runner = runner_for(&server, "m");
+    let result = runner.invoke("test", InvokeOptions::default()).unwrap();
+    assert!(
+        result.tool_events.is_empty(),
+        "tool_events should always be empty"
+    );
+}
+
+/// Verify the think field is sent in the request body when configured.
+#[test]
+fn stub_invoke_think_field_sent() {
+    let server = StubLlmServer::new(vec![StubResponse::Success {
+        content: "ok".to_string(),
+        model: None,
+        usage: None,
+    }]);
+    let runner = HttpRunner::new(
+        HttpRunnerConfig {
+            base_url: server.base_url(),
+            default_model: Some("m".to_string()),
+            think: Some(false),
+            ..HttpRunnerConfig::default()
+        },
+        fresh_store(),
+    );
+    runner.invoke("test", InvokeOptions::default()).unwrap();
+
+    let requests = server.requests();
+    let body: serde_json::Value = serde_json::from_str(&requests[0].body).unwrap();
+    assert_eq!(
+        body["think"].as_bool(),
+        Some(false),
+        "think field should be false in request body"
     );
 }

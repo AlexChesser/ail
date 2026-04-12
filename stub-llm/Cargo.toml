@@ -1,0 +1,8 @@
+[package]
+name = "stub-llm"
+version = "0.0.1"
+edition = "2021"
+description = "Lightweight stub HTTP server for LLM integration testing"
+
+[dependencies]
+serde_json = "1"
