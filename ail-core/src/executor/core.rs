@@ -7,14 +7,14 @@
 
 #![allow(clippy::result_large_err)]
 
-use crate::config::domain::{ActionKind, Condition, ContextSource, ResultAction, StepBody};
+use crate::config::domain::{ActionKind, ContextSource, ResultAction, StepBody};
 use crate::error::AilError;
 use crate::runner::{InvokeOptions, RunResult, Runner};
 use crate::session::Session;
 
 use super::dispatch;
 use super::events::ExecuteOutcome;
-use super::helpers::evaluate_on_result;
+use super::helpers::{evaluate_condition, evaluate_on_result};
 
 // ── Observer trait ────────────────────────────────────────────────────────────
 
@@ -32,11 +32,12 @@ pub(super) enum BeforeStepAction {
 pub(super) trait StepObserver {
     /// Pre-step guard: kill/pause/disabled/condition checks.
     /// Returns `Stop` (break), `Skip` (continue), or `Run` (proceed).
+    /// `condition_skip` is `true` when the condition evaluated to `false` (skip step).
     fn before_step(
         &mut self,
         step_id: &str,
         step_index: usize,
-        condition_never: bool,
+        condition_skip: bool,
     ) -> BeforeStepAction;
 
     /// Called before a non-Prompt step is dispatched. Controlled: emit `StepStarted` with
@@ -104,9 +105,9 @@ pub(super) trait StepObserver {
 pub(super) struct NullObserver;
 
 impl StepObserver for NullObserver {
-    fn before_step(&mut self, step_id: &str, _: usize, condition_never: bool) -> BeforeStepAction {
-        if condition_never {
-            tracing::info!(step_id = %step_id, "step skipped by condition: never");
+    fn before_step(&mut self, step_id: &str, _: usize, condition_skip: bool) -> BeforeStepAction {
+        if condition_skip {
+            tracing::info!(step_id = %step_id, "step skipped by condition");
             BeforeStepAction::Skip
         } else {
             BeforeStepAction::Run
@@ -182,9 +183,15 @@ pub(super) fn execute_core<O: StepObserver>(
 
     for (step_index, step) in steps.iter().enumerate() {
         let step_id = step.id.as_str().to_string();
-        let condition_never = step.condition == Some(Condition::Never);
 
-        match observer.before_step(&step_id, step_index, condition_never) {
+        // Evaluate the condition — `None` means always run.
+        let condition_skip = if let Some(ref cond) = step.condition {
+            !evaluate_condition(cond, session, &step_id)?
+        } else {
+            false
+        };
+
+        match observer.before_step(&step_id, step_index, condition_skip) {
             BeforeStepAction::Run => {}
             BeforeStepAction::Skip => continue,
             BeforeStepAction::Stop => break,
