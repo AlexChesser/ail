@@ -76,7 +76,8 @@ impl LogProvider for JsonlProvider {
         let path = dir.join(format!("{run_id}.jsonl"));
         let line = serde_json::to_string(value).map_err(std::io::Error::other)?;
         let mut file = OpenOptions::new().create(true).append(true).open(path)?;
-        writeln!(file, "{line}")
+        writeln!(file, "{line}")?;
+        file.sync_data()
     }
 }
 
@@ -89,8 +90,9 @@ impl LogProvider for NullProvider {
     }
 }
 
-/// Fans out writes to multiple `LogProvider`s. Best-effort: failures in one provider are
-/// logged as warnings but do not prevent writes to the remaining providers.
+/// Fans out writes to multiple `LogProvider`s. Individual provider failures are
+/// logged as warnings. Returns `Err` only when **all** providers fail — if at least
+/// one succeeds the entry is considered durably recorded.
 pub struct CompositeProvider {
     providers: Vec<Box<dyn LogProvider>>,
 }
@@ -103,12 +105,25 @@ impl CompositeProvider {
 
 impl LogProvider for CompositeProvider {
     fn write_entry(&mut self, run_id: &str, value: &Value) -> std::io::Result<()> {
+        let mut last_err: Option<std::io::Error> = None;
+        let mut any_ok = false;
         for provider in &mut self.providers {
-            if let Err(e) = provider.write_entry(run_id, value) {
-                tracing::warn!(run_id = %run_id, error = %e, "composite provider: write_entry failed");
+            match provider.write_entry(run_id, value) {
+                Ok(()) => any_ok = true,
+                Err(e) => {
+                    tracing::warn!(run_id = %run_id, error = %e, "composite provider: write_entry failed");
+                    last_err = Some(e);
+                }
             }
         }
-        Ok(())
+        if any_ok {
+            Ok(())
+        } else if let Some(e) = last_err {
+            Err(e)
+        } else {
+            // No providers configured — treat as success (no-op composite).
+            Ok(())
+        }
     }
 
     fn finish(&mut self, run_id: &str, status: &str) -> std::io::Result<()> {
@@ -216,6 +231,32 @@ mod tests {
         // Suppress unused variable warning
         let _ = (cap1, cap2);
     }
+
+    #[test]
+    fn composite_provider_returns_err_when_all_providers_fail() {
+        use super::test_support::FailingProvider;
+
+        let mut composite = CompositeProvider::new(vec![
+            Box::new(FailingProvider),
+            Box::new(FailingProvider),
+        ]);
+        let value = json!({"step_id": "all-fail"});
+        let result = composite.write_entry("run-all-fail", &value);
+        assert!(result.is_err(), "should return Err when all providers fail");
+    }
+
+    #[test]
+    fn composite_provider_returns_ok_when_one_of_two_providers_succeeds() {
+        use super::test_support::FailingProvider;
+
+        let mut composite = CompositeProvider::new(vec![
+            Box::new(FailingProvider),
+            Box::new(NullProvider),
+        ]);
+        let value = json!({"step_id": "partial-fail"});
+        let result = composite.write_entry("run-partial-fail", &value);
+        assert!(result.is_ok(), "should return Ok when at least one provider succeeds");
+    }
 }
 
 /// Test support types. Not intended for production use.
@@ -245,6 +286,15 @@ pub mod test_support {
         fn write_entry(&mut self, _run_id: &str, value: &Value) -> std::io::Result<()> {
             self.entries.push(value.clone());
             Ok(())
+        }
+    }
+
+    /// Always returns an I/O error. Used to test `CompositeProvider` all-fail behaviour.
+    pub struct FailingProvider;
+
+    impl LogProvider for FailingProvider {
+        fn write_entry(&mut self, _run_id: &str, _value: &Value) -> std::io::Result<()> {
+            Err(std::io::Error::other("injected failure"))
         }
     }
 }
