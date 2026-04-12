@@ -1,10 +1,12 @@
 //! Sub-pipeline dispatch — recursion, depth guard, child session creation.
+//! Also handles named pipeline execution (SPEC §10).
 
 #![allow(clippy::result_large_err)]
 
+use std::collections::HashSet;
 use std::time::SystemTime;
 
-use crate::config::domain::MAX_SUB_PIPELINE_DEPTH;
+use crate::config::domain::{Pipeline, MAX_SUB_PIPELINE_DEPTH};
 use crate::error::AilError;
 use crate::runner::Runner;
 use crate::session::{Session, TurnEntry};
@@ -127,6 +129,165 @@ pub(in crate::executor) fn execute_sub_pipeline(
     Ok(TurnEntry {
         step_id: step_id.to_string(),
         prompt: resolved_path,
+        response: Some(response),
+        timestamp: SystemTime::now(),
+        cost_usd: None,
+        input_tokens: 0,
+        output_tokens: 0,
+        runner_session_id: child_session
+            .turn_log
+            .last_runner_session_id()
+            .map(str::to_string),
+        stdout: None,
+        stderr: None,
+        exit_code: None,
+        thinking: None,
+        tool_events: vec![],
+        modified: None,
+    })
+}
+
+// ── Named pipeline execution (SPEC §10) ─────────────────────────────────────
+
+/// Execute a named pipeline reference, returning a `TurnEntry` for the calling step.
+///
+/// Named pipelines are defined in the `pipelines:` section of the YAML file and
+/// referenced by name from `pipeline:` step bodies. The named pipeline's steps
+/// are cloned into a child `Pipeline` and executed in isolation (fresh `Session`).
+///
+/// Circular references are detected by tracking visited pipeline names through
+/// the call chain. If a name is encountered again, a typed
+/// `PIPELINE_CIRCULAR_REFERENCE` error is returned.
+#[allow(clippy::too_many_arguments)]
+pub(in crate::executor) fn execute_named<O: StepObserver>(
+    name: &str,
+    prompt_override: Option<&str>,
+    step_id: &str,
+    session: &mut Session,
+    runner: &dyn Runner,
+    depth: usize,
+    observer: &mut O,
+) -> Result<TurnEntry, AilError> {
+    session.turn_log.record_step_started(step_id, name);
+    let entry = execute_named_pipeline(
+        name,
+        prompt_override,
+        step_id,
+        session,
+        runner,
+        depth,
+        &mut HashSet::new(),
+    )
+    .inspect_err(|e| observer.on_step_failed(step_id, e.detail()))?;
+    observer.on_non_prompt_completed(step_id);
+    Ok(entry)
+}
+
+/// Inner named pipeline execution logic.
+///
+/// `visited` tracks the set of named pipeline names already in the call chain
+/// to detect circular references. Each recursive call adds the current name
+/// before executing, and the caller is responsible for inserting the root name.
+pub(in crate::executor) fn execute_named_pipeline(
+    name: &str,
+    prompt_override: Option<&str>,
+    step_id: &str,
+    session: &mut Session,
+    runner: &dyn Runner,
+    depth: usize,
+    visited: &mut HashSet<String>,
+) -> Result<TurnEntry, AilError> {
+    if depth >= MAX_SUB_PIPELINE_DEPTH {
+        return Err(AilError::PipelineAborted {
+            detail: format!(
+                "Step '{step_id}' would exceed the maximum sub-pipeline nesting depth \
+                 of {MAX_SUB_PIPELINE_DEPTH}"
+            ),
+            context: Some(crate::error::ErrorContext::for_step(
+                &session.run_id,
+                step_id,
+            )),
+        });
+    }
+
+    // Circular reference detection
+    if !visited.insert(name.to_string()) {
+        return Err(AilError::PipelineCircularReference {
+            detail: format!(
+                "Circular reference detected: named pipeline '{name}' references itself \
+                 (directly or transitively)"
+            ),
+            context: Some(crate::error::ErrorContext::for_step(
+                &session.run_id,
+                step_id,
+            )),
+        });
+    }
+
+    // Look up the named pipeline in the parent pipeline's definitions.
+    let named_steps = session
+        .pipeline
+        .named_pipelines
+        .get(name)
+        .ok_or_else(|| AilError::PipelineAborted {
+            detail: format!(
+                "Step '{step_id}' references named pipeline '{name}' which is not defined \
+                 in the pipelines: section"
+            ),
+            context: Some(crate::error::ErrorContext::for_step(
+                &session.run_id,
+                step_id,
+            )),
+        })?
+        .clone();
+
+    // The child session's invocation prompt: use the explicit override when provided
+    // (template-resolved against the parent session), otherwise fall back to the
+    // parent's most recent response (SPEC §10, §9).
+    let invocation_prompt = if let Some(override_template) = prompt_override {
+        template::resolve(override_template, session)
+            .map_err(|e| e.with_step_context(&session.run_id, step_id))?
+    } else {
+        session
+            .turn_log
+            .last_response()
+            .unwrap_or(&session.invocation_prompt)
+            .to_string()
+    };
+
+    // Build a child pipeline from the named pipeline's steps. Named pipelines
+    // from the parent are passed through so nested named pipeline references work.
+    let child_pipeline = Pipeline {
+        steps: named_steps,
+        source: session.pipeline.source.clone(),
+        defaults: session.pipeline.defaults.clone(),
+        timeout_seconds: session.pipeline.timeout_seconds,
+        default_tools: session.pipeline.default_tools.clone(),
+        named_pipelines: session.pipeline.named_pipelines.clone(),
+    };
+
+    let mut child_session = crate::session::Session::new(child_pipeline, invocation_prompt);
+    child_session.cli_provider = session.cli_provider.clone();
+
+    tracing::info!(
+        run_id = %session.run_id,
+        step_id = %step_id,
+        named_pipeline = %name,
+        depth,
+        "executing named pipeline"
+    );
+
+    execute_core(&mut child_session, runner, &mut NullObserver, depth + 1)?;
+
+    let response = child_session
+        .turn_log
+        .last_response()
+        .unwrap_or("")
+        .to_string();
+
+    Ok(TurnEntry {
+        step_id: step_id.to_string(),
+        prompt: format!("named:{name}"),
         response: Some(response),
         timestamp: SystemTime::now(),
         cost_usd: None,

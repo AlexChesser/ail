@@ -54,6 +54,7 @@ pub fn run_dry_run(session: &mut ail_core::session::Session, runner: &dyn Runner
             ail_core::config::domain::StepBody::Prompt(_) => "prompt",
             ail_core::config::domain::StepBody::Skill(_) => "skill",
             ail_core::config::domain::StepBody::SubPipeline { .. } => "pipeline",
+            ail_core::config::domain::StepBody::NamedPipeline { .. } => "named-pipeline",
             ail_core::config::domain::StepBody::Action(_) => "action",
             ail_core::config::domain::StepBody::Context(
                 ail_core::config::domain::ContextSource::Shell(_),
@@ -109,6 +110,12 @@ pub fn run_dry_run(session: &mut ail_core::session::Session, runner: &dyn Runner
             }
             ail_core::config::domain::StepBody::Skill(path) => {
                 println!("  Skill: {}", path.display());
+            }
+            ail_core::config::domain::StepBody::NamedPipeline { name, prompt: p } => {
+                println!("  Named pipeline: {name}");
+                if let Some(p) = p {
+                    println!("  Prompt override: {}", truncate(p, 200));
+                }
             }
         }
 

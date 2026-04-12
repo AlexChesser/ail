@@ -209,6 +209,7 @@ mod tests {
             defaults: Default::default(),
             timeout_seconds: None,
             default_tools: None,
+            named_pipelines: Default::default(),
         };
         Session::new(pipeline, "test invocation".to_string())
             .with_log_provider(Box::new(NullProvider))

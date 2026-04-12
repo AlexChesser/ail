@@ -87,6 +87,10 @@ pub enum Commands {
         /// Write output to a file instead of stdout.
         #[arg(long, value_name = "PATH")]
         out: Option<PathBuf>,
+
+        /// Expand named pipeline references inline (SPEC §10, §17).
+        #[arg(long)]
+        expand_pipelines: bool,
     },
     /// Validate a pipeline file without running it.
     Validate {
@@ -239,6 +243,32 @@ mod tests {
         let cli = Cli::try_parse_from(["ail", "materialize", "--out", "/tmp/out.yaml"]).unwrap();
         if let Some(Commands::Materialize { out, .. }) = cli.command {
             assert_eq!(out, Some(PathBuf::from("/tmp/out.yaml")));
+        } else {
+            panic!("expected Materialize command");
+        }
+    }
+
+    #[test]
+    fn materialize_expand_pipelines_flag_parses() {
+        let cli = Cli::try_parse_from(["ail", "materialize", "--expand-pipelines"]).unwrap();
+        if let Some(Commands::Materialize {
+            expand_pipelines, ..
+        }) = cli.command
+        {
+            assert!(expand_pipelines);
+        } else {
+            panic!("expected Materialize command");
+        }
+    }
+
+    #[test]
+    fn materialize_expand_pipelines_defaults_to_false() {
+        let cli = Cli::try_parse_from(["ail", "materialize"]).unwrap();
+        if let Some(Commands::Materialize {
+            expand_pipelines, ..
+        }) = cli.command
+        {
+            assert!(!expand_pipelines);
         } else {
             panic!("expected Materialize command");
         }

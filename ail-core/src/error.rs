@@ -136,6 +136,12 @@ pub enum AilError {
         detail: String,
         context: Option<ErrorContext>,
     },
+
+    #[error("[ail:pipeline/circular-reference] {detail}")]
+    PipelineCircularReference {
+        detail: String,
+        context: Option<ErrorContext>,
+    },
 }
 
 impl AilError {
@@ -163,6 +169,7 @@ impl AilError {
             Self::PluginProtocolError { .. } => error_types::PLUGIN_PROTOCOL_ERROR,
             Self::PluginTimeout { .. } => error_types::PLUGIN_TIMEOUT,
             Self::ConditionInvalid { .. } => error_types::CONDITION_INVALID,
+            Self::PipelineCircularReference { .. } => error_types::PIPELINE_CIRCULAR_REFERENCE,
         }
     }
 
@@ -186,7 +193,8 @@ impl AilError {
             | Self::PluginSpawnFailed { detail, .. }
             | Self::PluginProtocolError { detail, .. }
             | Self::PluginTimeout { detail, .. }
-            | Self::ConditionInvalid { detail, .. } => detail,
+            | Self::ConditionInvalid { detail, .. }
+            | Self::PipelineCircularReference { detail, .. } => detail,
         }
     }
 
@@ -208,7 +216,8 @@ impl AilError {
             | Self::PluginSpawnFailed { detail, .. }
             | Self::PluginProtocolError { detail, .. }
             | Self::PluginTimeout { detail, .. }
-            | Self::ConditionInvalid { detail, .. } => detail,
+            | Self::ConditionInvalid { detail, .. }
+            | Self::PipelineCircularReference { detail, .. } => detail,
         }
     }
 
@@ -232,7 +241,8 @@ impl AilError {
             | Self::PluginSpawnFailed { context, .. }
             | Self::PluginProtocolError { context, .. }
             | Self::PluginTimeout { context, .. }
-            | Self::ConditionInvalid { context, .. } => context.as_ref(),
+            | Self::ConditionInvalid { context, .. }
+            | Self::PipelineCircularReference { context, .. } => context.as_ref(),
         }
     }
 
@@ -303,6 +313,10 @@ impl AilError {
                 context: ctx,
             },
             Self::ConditionInvalid { detail, .. } => Self::ConditionInvalid {
+                detail,
+                context: ctx,
+            },
+            Self::PipelineCircularReference { detail, .. } => Self::PipelineCircularReference {
                 detail,
                 context: ctx,
             },
@@ -438,6 +452,13 @@ impl AilError {
             context: None,
         }
     }
+
+    pub fn pipeline_circular_reference(detail: impl Into<String>) -> Self {
+        Self::PipelineCircularReference {
+            detail: detail.into(),
+            context: None,
+        }
+    }
 }
 
 pub mod error_types {
@@ -457,6 +478,7 @@ pub mod error_types {
     pub const PLUGIN_PROTOCOL_ERROR: &str = "ail:plugin/protocol-error";
     pub const PLUGIN_TIMEOUT: &str = "ail:plugin/timeout";
     pub const CONDITION_INVALID: &str = "ail:condition/invalid";
+    pub const PIPELINE_CIRCULAR_REFERENCE: &str = "ail:pipeline/circular-reference";
 }
 
 #[cfg(test)]

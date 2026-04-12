@@ -138,9 +138,13 @@ async fn main() {
             Commands::CheckPermissionHook { socket } => {
                 check_permission_hook::run(&socket);
             }
-            Commands::Materialize { pipeline, out } => {
+            Commands::Materialize {
+                pipeline,
+                out,
+                expand_pipelines,
+            } => {
                 let p = load_pipeline(pipeline);
-                let cmd = materialize::MaterializeCommand::new(p, out);
+                let cmd = materialize::MaterializeCommand::new(p, out, expand_pipelines);
                 exit_with(cmd.execute());
             }
             Commands::Validate {

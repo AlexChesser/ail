@@ -64,9 +64,14 @@ pub enum Condition { Always, Never, Expression(ConditionExpr) }  // SPEC §12 �
 pub struct ConditionExpr { pub lhs: String, pub op: ConditionOp, pub rhs: String }
 pub enum ConditionOp { Eq, Ne, Contains, StartsWith, EndsWith }
 pub struct Pipeline { pub steps: Vec<Step>, pub source: Option<PathBuf>, pub defaults: ProviderConfig, pub default_tools: Option<ToolPolicy> }
+pub enum Condition { Always, Never }  // SPEC §12 — None means Always; Never skips the step
+pub struct Pipeline { pub steps: Vec<Step>, pub source: Option<PathBuf>, pub defaults: ProviderConfig, pub default_tools: Option<ToolPolicy>, pub named_pipelines: HashMap<String, Vec<Step>> }
 // default_tools: pipeline-wide fallback; per-step tools override entirely (SPEC §3.2)
+// named_pipelines: named pipeline definitions from the `pipelines:` section (SPEC §10)
 pub struct Step    { pub id: StepId, pub body: StepBody, pub tools: Option<ToolPolicy>, pub on_result: Option<Vec<ResultBranch>>, pub model: Option<String>, pub runner: Option<String> }
-pub enum StepBody  { Prompt(String), Skill(PathBuf), SubPipeline { path: String, prompt: Option<String> }, Action(ActionKind), Context(ContextSource) }
+pub enum StepBody  { Prompt(String), Skill(PathBuf), SubPipeline { path: String, prompt: Option<String> }, NamedPipeline { name: String, prompt: Option<String> }, Action(ActionKind), Context(ContextSource) }
+// NamedPipeline: references a named pipeline defined in pipelines: section (SPEC §10)
+// NamedPipeline.prompt: when Some, overrides child session's invocation_prompt (same as SubPipeline)
 // SubPipeline.path may contain {{ variable }} syntax — resolved at execution time (SPEC §11)
 // SubPipeline.prompt: when Some, overrides child session's invocation_prompt instead of using parent's last_response (SPEC §9.3)
 pub enum ContextSource { Shell(String) }
@@ -165,6 +170,7 @@ pub struct AilError { pub error_type: &'static str, pub title: &'static str, pub
 | `PLUGIN_PROTOCOL_ERROR` | `ail:plugin/protocol-error` |
 | `PLUGIN_TIMEOUT` | `ail:plugin/timeout` |
 | `CONDITION_INVALID` | `ail:condition/invalid` |
+| `PIPELINE_CIRCULAR_REFERENCE` | `ail:pipeline/circular-reference` |
 
 ## Invariants (do not break)
 
@@ -199,6 +205,7 @@ s05_5 — context:shell: steps + file path resolution
 s08  — runner adapter
 s09  — sub-pipeline execution + template vars in pipeline: paths
 s09  — tool permissions (separate file: s09_tool_permissions)
+s10  — named pipelines (definition, reference, execution, circular detection, materialize)
 s11  — template variables
 s18  — materialize
 s21  — MVP scope

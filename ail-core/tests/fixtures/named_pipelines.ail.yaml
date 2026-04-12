@@ -1,0 +1,20 @@
+version: "0.0.1"
+
+pipelines:
+  security_gates:
+    - id: vuln_scan
+      prompt: "Identify vulnerabilities."
+    - id: license_check
+      prompt: "Check license compliance."
+
+  quality_check:
+    - id: lint
+      prompt: "Run linting."
+
+pipeline:
+  - id: main_step
+    prompt: "Do the main work."
+  - id: run_security
+    pipeline: security_gates
+  - id: run_quality
+    pipeline: quality_check

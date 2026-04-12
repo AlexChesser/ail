@@ -337,6 +337,16 @@ pub(super) fn execute_core<O: StepObserver>(
                 observer,
             )?,
 
+            StepBody::NamedPipeline { name, prompt } => dispatch::sub_pipeline::execute_named(
+                name,
+                prompt.as_deref(),
+                &step_id,
+                session,
+                runner,
+                depth,
+                observer,
+            )?,
+
             StepBody::Skill(_) => {
                 let err = AilError::PipelineAborted {
                     detail: format!(

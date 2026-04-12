@@ -75,6 +75,7 @@ mod s9_tool_permissions {
                 allow: vec!["Bash".to_string()],
                 deny: vec![],
             }),
+            named_pipelines: Default::default(),
         };
         let mut session = Session::new(pipeline, "p".to_string());
         let runner = RecordingStubRunner::new("ok");
@@ -137,6 +138,7 @@ mod s9_tool_permissions {
                 allow: vec!["Bash".to_string()],
                 deny: vec![],
             }),
+            named_pipelines: Default::default(),
         };
         let mut session = Session::new(pipeline, "p".to_string());
         let runner = RecordingStubRunner::new("ok");
@@ -200,6 +202,7 @@ mod s9_tool_permissions {
             timeout_seconds: None,
             source: None,
             default_tools: None,
+            named_pipelines: Default::default(),
         };
         let mut session = Session::new(pipeline, "p".to_string());
         // StubRunner ignores tool policy (it's a test double); we verify it doesn't error
