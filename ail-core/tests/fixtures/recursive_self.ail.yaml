@@ -1,0 +1,4 @@
+version: "0.0.1"
+pipeline:
+  - id: recurse
+    pipeline: ./recursive_self.ail.yaml
