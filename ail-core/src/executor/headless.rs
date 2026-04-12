@@ -25,7 +25,7 @@ mod tests {
         ResultMatcher, Step, StepBody, StepId,
     };
     use crate::error::error_types;
-    use crate::runner::stub::StubRunner;
+    use crate::runner::stub::{CountingStubRunner, StubRunner};
     use crate::session::{NullProvider, Session};
     use crate::test_helpers::{make_session, prompt_step};
 
@@ -435,6 +435,83 @@ mod tests {
 
         assert!(result.is_ok());
         assert_eq!(session.turn_log.entries().len(), 2);
+    }
+
+    /// Invariant 2 (CLAUDE.md): template resolution failure aborts the step BEFORE
+    /// the runner is called — no TurnEntry for the failed step and runner invocation
+    /// count is zero.
+    #[test]
+    fn template_failure_aborts_before_runner_invoked() {
+        let step = prompt_step("unresolvable", "{{ nonexistent.variable }}");
+        let mut session = make_session(vec![step]);
+        let runner = CountingStubRunner::new("should never see this");
+        let result = execute(&mut session, &runner);
+
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert_eq!(
+            err.error_type(),
+            error_types::TEMPLATE_UNRESOLVED,
+            "Expected TEMPLATE_UNRESOLVED, got: {}",
+            err.error_type()
+        );
+        assert_eq!(
+            runner.invocation_count(),
+            0,
+            "Runner must not be invoked when template resolution fails"
+        );
+        assert!(
+            session.turn_log.entries().is_empty(),
+            "No TurnEntry should be recorded for the failed step"
+        );
+    }
+
+    /// Invariant 2: when a step in a multi-step pipeline has a template failure,
+    /// prior steps still produce entries but the runner is not called for the
+    /// failing step.
+    #[test]
+    fn template_failure_mid_pipeline_preserves_prior_entries() {
+        let ok_step = prompt_step("first", "valid prompt");
+        let bad_step = prompt_step("second", "{{ step.nonexistent.response }}");
+        let mut session = make_session(vec![ok_step, bad_step]);
+        let runner = CountingStubRunner::new("response");
+        let result = execute(&mut session, &runner);
+
+        assert!(result.is_err());
+        assert_eq!(
+            runner.invocation_count(),
+            1,
+            "Runner should be called once for the first step only"
+        );
+        assert_eq!(
+            session.turn_log.entries().len(),
+            1,
+            "Only the first step should produce a TurnEntry"
+        );
+        assert_eq!(session.turn_log.entries()[0].step_id, "first");
+    }
+
+    /// Mixed prompt + context dispatch: both step types produce correct entries in sequence.
+    #[test]
+    fn mixed_prompt_and_context_pipeline_produces_correct_entries() {
+        let p = prompt_step("ask", "question");
+        let c = context_shell_step("check", "echo ok");
+        let mut session = make_session(vec![p, c]);
+        let runner = StubRunner::new("answer");
+        let result = execute(&mut session, &runner);
+
+        assert!(result.is_ok());
+        let entries = session.turn_log.entries();
+        assert_eq!(entries.len(), 2);
+        // Prompt step has response, no exit_code
+        assert_eq!(entries[0].step_id, "ask");
+        assert!(entries[0].response.is_some());
+        assert!(entries[0].exit_code.is_none());
+        // Context step has exit_code and stdout, no response
+        assert_eq!(entries[1].step_id, "check");
+        assert!(entries[1].response.is_none());
+        assert_eq!(entries[1].exit_code, Some(0));
+        assert!(entries[1].stdout.as_deref().unwrap_or("").contains("ok"));
     }
 
     /// SPEC §5.4 — on_result: continue branch fires and pipeline continues to next step.
