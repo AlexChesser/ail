@@ -6,6 +6,7 @@
 
 mod controlled;
 mod core;
+mod dispatch;
 mod events;
 mod headless;
 mod helpers;

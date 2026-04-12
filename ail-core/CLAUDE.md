@@ -10,10 +10,27 @@ Consumed by `ail` (the binary) and future language-server / SDK targets.
 | `config/discovery.rs` | Walk the four-step file resolution order (SPEC §3.1) |
 | `config/dto.rs` | Serde-deserialised raw structs — derives `Deserialize` |
 | `config/domain.rs` | Validated domain types — no `Deserialize` derives |
-| `config/validation.rs` | `dto → domain` conversion with typed `AilError` on failure |
+| `config/validation/mod.rs` | `validate()` entry point, `cfg_err!` macro, `tools_to_policy` helper |
+| `config/validation/step_body.rs` | `parse_step_body()` — primary field count check + body construction |
+| `config/validation/on_result.rs` | `parse_result_branches()` — DTO → domain for result matchers and actions |
+| `config/validation/system_prompt.rs` | `parse_append_system_prompt()` — DTO → domain for system prompt entries |
 | `config/mod.rs` | `load(path)` public entry point |
 | `error.rs` | `AilError`, `ErrorContext`, `error_types` string constants |
-| `executor.rs` | `execute(&mut Session, &dyn Runner)` — SPEC §4.2 core invariant |
+| `executor/mod.rs` | `execute(&mut Session, &dyn Runner)` — SPEC §4.2 core invariant |
+| `executor/core.rs` | `StepObserver` trait, `NullObserver`, `execute_core()` — shared step-dispatch loop |
+| `executor/headless.rs` | `execute()` — headless mode entry point using `NullObserver` |
+| `executor/controlled.rs` | `execute_with_control()` — TUI-controlled mode with `ChannelObserver` |
+| `executor/events.rs` | `ExecuteOutcome`, `ExecutionControl`, `ExecutorEvent` |
+| `executor/helpers/mod.rs` | Re-exports all helper functions for the executor |
+| `executor/helpers/invocation.rs` | `run_invocation_step()` — host-managed invocation step lifecycle |
+| `executor/helpers/runner_resolution.rs` | `resolve_step_provider()`, `build_step_runner_box()`, `resolve_effective_runner_name()` |
+| `executor/helpers/shell.rs` | `run_shell_command()` — `/bin/sh -c` subprocess execution |
+| `executor/helpers/on_result.rs` | `evaluate_on_result()`, `build_tool_policy()` — on_result branch evaluation + tool policy |
+| `executor/helpers/system_prompt.rs` | `resolve_step_system_prompts()`, `resolve_prompt_file()` — system prompt resolution and file loading |
+| `executor/dispatch/mod.rs` | Re-exports step-type dispatch modules |
+| `executor/dispatch/prompt.rs` | Prompt step dispatch — template resolution, runner invocation, TurnEntry construction |
+| `executor/dispatch/context.rs` | Context shell step dispatch — shell execution and TurnEntry construction |
+| `executor/dispatch/sub_pipeline.rs` | Sub-pipeline dispatch — recursion, depth guard, child session creation |
 | `materialize.rs` | `materialize(&Pipeline) → String` — annotated YAML round-trip |
 | `runner/mod.rs` | `Runner` trait, `RunResult`, `InvokeOptions` |
 | `runner/subprocess.rs` | `SubprocessSession` — generic CLI subprocess lifecycle (spawn, stderr drain, cancel watchdog, reap); shared by all CLI-based runners |
