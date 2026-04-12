@@ -753,12 +753,14 @@ fn on_result_pipeline_uses_derived_step_id_in_turn_log() {
     );
 
     // First entry: the parent step — ID must match the declared step ID exactly.
-    assert_eq!(entries[0].step_id, "trigger", "parent step should use declared step ID");
+    assert_eq!(
+        entries[0].step_id, "trigger",
+        "parent step should use declared step ID"
+    );
 
     // Second entry: the on_result sub-pipeline — ID must use the derived form.
     assert_eq!(
-        entries[1].step_id,
-        "trigger__on_result",
+        entries[1].step_id, "trigger__on_result",
         "on_result sub-pipeline entry must use '<id>__on_result' derived step ID (SPEC §11)"
     );
 
