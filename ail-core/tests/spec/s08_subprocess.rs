@@ -1,8 +1,9 @@
 //! Tests for the generic subprocess session lifecycle (`runner/subprocess.rs`).
 //!
 //! These tests exercise `SubprocessSession::{spawn, take_stdout, finish}` using
-//! real system binaries (`/bin/true`, `/bin/false`, `/bin/sh`, `/bin/sleep`).
-//! They cover the full lifecycle: spawn, stdout streaming, stderr drain,
+//! real system binaries via `/bin/sh -c`. We avoid hardcoded paths like `/bin/true`
+//! or `/bin/false` because macOS places them at `/usr/bin/` instead.
+//! Tests cover the full lifecycle: spawn, stdout streaming, stderr drain,
 //! cancel-watchdog, environment manipulation, and error on missing binary.
 
 #![cfg(unix)]
@@ -44,8 +45,8 @@ fn drain_and_finish(mut session: SubprocessSession) -> SubprocessOutcome {
 
 #[test]
 fn subprocess_true_exits_success() {
-    let session = SubprocessSession::spawn(simple_spec("/bin/true"), None)
-        .expect("spawn /bin/true should succeed");
+    let session =
+        SubprocessSession::spawn(sh_spec("true"), None).expect("spawn 'true' should succeed");
     let outcome = drain_and_finish(session);
 
     assert!(outcome.exit_status.success(), "Expected exit code 0");
@@ -59,8 +60,8 @@ fn subprocess_true_exits_success() {
 
 #[test]
 fn subprocess_false_nonzero_exit() {
-    let session = SubprocessSession::spawn(simple_spec("/bin/false"), None)
-        .expect("spawn /bin/false should succeed");
+    let session =
+        SubprocessSession::spawn(sh_spec("false"), None).expect("spawn 'false' should succeed");
     let outcome = drain_and_finish(session);
 
     assert!(
@@ -89,7 +90,7 @@ fn subprocess_stdout_stream_readable() {
 #[test]
 fn subprocess_take_stdout_returns_none_on_second_call() {
     let mut session =
-        SubprocessSession::spawn(simple_spec("/bin/true"), None).expect("spawn should succeed");
+        SubprocessSession::spawn(sh_spec("true"), None).expect("spawn should succeed");
 
     let first = session.take_stdout();
     assert!(first.is_some(), "First take_stdout should return Some");
@@ -179,8 +180,7 @@ fn subprocess_cancel_token_kills_child() {
 
 #[test]
 fn subprocess_was_cancelled_false_without_token() {
-    let session =
-        SubprocessSession::spawn(simple_spec("/bin/true"), None).expect("spawn should succeed");
+    let session = SubprocessSession::spawn(sh_spec("true"), None).expect("spawn should succeed");
     assert!(
         !session.was_cancelled(),
         "was_cancelled should be false without a token"
