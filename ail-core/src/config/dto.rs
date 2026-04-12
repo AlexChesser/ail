@@ -1,13 +1,17 @@
 use serde::Deserialize;
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 pub struct PipelineFileDto {
     pub version: Option<String>,
+    /// `FROM` field for pipeline inheritance (SPEC §7).
+    /// Accepts file paths only — relative, absolute, or home-relative.
+    #[serde(rename = "FROM")]
+    pub from: Option<String>,
     pub defaults: Option<DefaultsDto>,
     pub pipeline: Option<Vec<StepDto>>,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 pub struct DefaultsDto {
     pub model: Option<String>,
     pub provider: Option<ProviderDto>,
@@ -15,7 +19,7 @@ pub struct DefaultsDto {
     pub tools: Option<ToolsDto>,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 pub struct ProviderDto {
     pub model: Option<String>,
     pub base_url: Option<String>,
@@ -25,7 +29,7 @@ pub struct ProviderDto {
     pub max_history_messages: Option<usize>,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 pub struct StepDto {
     pub id: Option<String>,
     pub prompt: Option<String>,
@@ -57,14 +61,24 @@ pub struct StepDto {
     /// Whether this step should resume the previous runner session (SPEC §15.4).
     /// Defaults to `false` — each step starts a fresh session.
     pub resume: Option<bool>,
+    /// Hook operation: insert this step immediately before the named step (SPEC §7.2).
+    pub run_before: Option<String>,
+    /// Hook operation: insert this step immediately after the named step (SPEC §7.2).
+    pub run_after: Option<String>,
+    /// Hook operation: replace the named step with this step's body (SPEC §7.2).
+    #[serde(rename = "override")]
+    pub override_step: Option<String>,
+    /// Hook operation: remove the named step entirely (SPEC §7.2).
+    /// This is a bare string field — no step body is needed.
+    pub disable: Option<String>,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 pub struct ContextDto {
     pub shell: Option<String>,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 pub struct OnResultBranchDto {
     pub contains: Option<String>,
     pub exit_code: Option<ExitCodeDto>,
@@ -76,14 +90,14 @@ pub struct OnResultBranchDto {
 }
 
 /// Handles both `exit_code: 0` (integer) and `exit_code: any` (string).
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(untagged)]
 pub enum ExitCodeDto {
     Integer(i32),
     Keyword(String),
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 pub struct ToolsDto {
     /// When `true`, passes `--tools ""` to the runner — disables all tools for this step.
     /// Overrides `allow` and `deny` if set. SPEC §5.8.

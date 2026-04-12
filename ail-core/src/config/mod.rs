@@ -4,27 +4,16 @@ pub mod discovery;
 pub mod domain;
 pub use discovery::PipelineEntry;
 pub mod dto;
+pub mod inheritance;
 pub mod validation;
 
 use std::path::Path;
 
 use crate::error::AilError;
 use domain::Pipeline;
-use dto::PipelineFileDto;
 use validation::validate;
 
 pub fn load(path: &Path) -> Result<Pipeline, AilError> {
-    let contents = std::fs::read_to_string(path).map_err(|e| AilError::ConfigFileNotFound {
-        detail: format!("Could not read '{}': {e}", path.display()),
-        context: None,
-    })?;
-
-    let dto: PipelineFileDto =
-        serde_yaml::from_str(&contents).map_err(|e| AilError::ConfigInvalidYaml {
-            detail: format!("Failed to parse '{}': {e}", path.display()),
-            context: None,
-        })?;
-
     // Normalize to absolute so parent() always returns a usable directory (SPEC §9).
     // Guards against bare filenames (e.g. `.ail.yaml`) where parent() returns "" instead
     // of None — an empty base joined with "./relative" leaves the path unresolved.
@@ -35,6 +24,10 @@ pub fn load(path: &Path) -> Result<Pipeline, AilError> {
             .map(|cwd| cwd.join(path))
             .unwrap_or_else(|_| path.to_path_buf())
     };
+
+    // Load the pipeline DTO with FROM inheritance resolution (SPEC §7).
+    let mut chain = Vec::new();
+    let dto = inheritance::load_with_inheritance(&abs_source, &mut chain)?;
 
     validate(dto, abs_source)
 }
