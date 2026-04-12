@@ -118,6 +118,9 @@ pub struct AilError { pub error_type: &'static str, pub title: &'static str, pub
 | `RUNNER_INVOCATION_FAILED` | `ail:runner/invocation-failed` |
 | `RUNNER_NOT_FOUND` | `ail:runner/not-found` |
 | `PIPELINE_ABORTED` | `ail:pipeline/aborted` |
+| `STORAGE_QUERY_FAILED` | `ail:storage/query-failed` |
+| `RUN_NOT_FOUND` | `ail:storage/run-not-found` |
+| `STORAGE_DELETE_FAILED` | `ail:storage/delete-failed` |
 
 ## Invariants (do not break)
 

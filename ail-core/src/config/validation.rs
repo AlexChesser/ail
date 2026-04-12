@@ -234,8 +234,11 @@ pub fn validate(dto: PipelineFileDto, source: PathBuf) -> Result<Pipeline, AilEr
             }
         } else if let Some(prompt) = step_dto.prompt {
             StepBody::Prompt(prompt)
-        } else if let Some(skill) = step_dto.skill {
-            StepBody::Skill(PathBuf::from(skill))
+        } else if let Some(_skill) = step_dto.skill {
+            return Err(cfg_err!(
+                "Step '{id_str}' uses 'skill:' which is not yet implemented (planned for v0.2+). \
+                 Use a 'pipeline:' step to compose pipelines instead."
+            ));
         } else if let Some(action) = step_dto.action {
             match action.as_str() {
                 "pause_for_human" => StepBody::Action(ActionKind::PauseForHuman),
@@ -506,7 +509,9 @@ mod tests {
     // ── step body types ──────────────────────────────────────────────────────
 
     #[test]
-    fn skill_step_round_trips() {
+    fn skill_step_is_rejected_at_validation() {
+        // skill: is not yet implemented; validation must reject it with CONFIG_VALIDATION_FAILED
+        // so users get a clear error at load time rather than a runtime PIPELINE_ABORTED.
         let dto = minimal_dto(vec![StepDto {
             id: Some("sk".to_string()),
             skill: Some("my-skill.yaml".to_string()),
@@ -524,8 +529,17 @@ mod tests {
             system_prompt: None,
             resume: None,
         }]);
-        let pipeline = validate(dto, source()).expect("should succeed");
-        assert!(matches!(pipeline.steps[0].body, StepBody::Skill(_)));
+        let err = validate(dto, source()).expect_err("skill: step must be rejected at validation");
+        assert_eq!(
+            err.error_type(),
+            error_types::CONFIG_VALIDATION_FAILED,
+            "skill: step must yield CONFIG_VALIDATION_FAILED"
+        );
+        assert!(
+            err.detail().contains("skill:"),
+            "error detail should mention 'skill:', got: {}",
+            err.detail()
+        );
     }
 
     #[test]
