@@ -105,9 +105,7 @@ fn resolve_variable(variable: &str, session: &Session) -> Result<String, AilErro
                                 .turn_log
                                 .tool_events_for_step(step_id)
                                 .ok_or_else(|| {
-                                    unresolved(format!(
-                                        "No entry recorded for step '{step_id}'"
-                                    ))
+                                    unresolved(format!("No entry recorded for step '{step_id}'"))
                                 })?;
                             serde_json::to_string(events).map_err(|e| {
                                 unresolved(format!(
