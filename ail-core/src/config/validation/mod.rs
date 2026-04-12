@@ -305,6 +305,8 @@ mod tests {
             pipeline: None,
             action: None,
             message: None,
+            on_headless: None,
+            default_value: None,
             context: None,
             tools: None,
             on_result: None,
@@ -444,6 +446,8 @@ mod tests {
             pipeline: None,
             action: None,
             message: None,
+            on_headless: None,
+            default_value: None,
             context: None,
             tools: None,
             on_result: None,
@@ -468,6 +472,8 @@ mod tests {
             pipeline: None,
             action: None,
             message: None,
+            on_headless: None,
+            default_value: None,
             context: None,
             tools: None,
             on_result: None,
@@ -495,6 +501,8 @@ mod tests {
             pipeline: None,
             action: None,
             message: None,
+            on_headless: None,
+            default_value: None,
             context: None,
             tools: None,
             on_result: None,
@@ -527,6 +535,8 @@ mod tests {
             skill: None,
             action: None,
             message: None,
+            on_headless: None,
+            default_value: None,
             context: None,
             tools: None,
             on_result: None,
@@ -553,6 +563,8 @@ mod tests {
             skill: None,
             pipeline: None,
             message: Some("Waiting for approval".to_string()),
+            on_headless: None,
+            default_value: None,
             context: None,
             tools: None,
             on_result: None,
@@ -579,6 +591,8 @@ mod tests {
             skill: None,
             pipeline: None,
             message: None,
+            on_headless: None,
+            default_value: None,
             context: None,
             tools: None,
             on_result: None,
@@ -606,6 +620,8 @@ mod tests {
             pipeline: None,
             action: None,
             message: None,
+            on_headless: None,
+            default_value: None,
             tools: None,
             on_result: None,
             model: None,
@@ -632,6 +648,8 @@ mod tests {
             pipeline: None,
             action: None,
             message: None,
+            on_headless: None,
+            default_value: None,
             tools: None,
             on_result: None,
             model: None,
@@ -1228,5 +1246,90 @@ mod tests {
         let src = PathBuf::from("/custom/path.ail.yaml");
         let pipeline = validate(dto, src.clone()).expect("should succeed");
         assert_eq!(pipeline.source, Some(src));
+    }
+
+    // ── modify_output action ────────────────────────────────────────────────
+
+    #[test]
+    fn action_modify_output_round_trips_with_skip_default() {
+        let mut step = minimal_step("gate", "unused");
+        step.prompt = None;
+        step.action = Some("modify_output".to_string());
+        step.message = Some("Please review".to_string());
+        let dto = minimal_dto(vec![step]);
+        let pipeline = validate(dto, source()).expect("should succeed");
+        assert!(matches!(
+            pipeline.steps[0].body,
+            StepBody::Action(ActionKind::ModifyOutput {
+                headless_behavior: crate::config::domain::HitlHeadlessBehavior::Skip,
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn action_modify_output_abort_headless_round_trips() {
+        let mut step = minimal_step("gate", "unused");
+        step.prompt = None;
+        step.action = Some("modify_output".to_string());
+        step.on_headless = Some("abort".to_string());
+        let dto = minimal_dto(vec![step]);
+        let pipeline = validate(dto, source()).expect("should succeed");
+        assert!(matches!(
+            pipeline.steps[0].body,
+            StepBody::Action(ActionKind::ModifyOutput {
+                headless_behavior: crate::config::domain::HitlHeadlessBehavior::Abort,
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn action_modify_output_use_default_requires_default_value() {
+        let mut step = minimal_step("gate", "unused");
+        step.prompt = None;
+        step.action = Some("modify_output".to_string());
+        step.on_headless = Some("use_default".to_string());
+        // default_value is None → validation should fail
+        let dto = minimal_dto(vec![step]);
+        let err = validate(dto, source()).expect_err("should fail");
+        assert_eq!(err.error_type(), error_types::CONFIG_VALIDATION_FAILED);
+        assert!(err.detail().contains("default_value"));
+    }
+
+    #[test]
+    fn action_modify_output_use_default_with_value_round_trips() {
+        let mut step = minimal_step("gate", "unused");
+        step.prompt = None;
+        step.action = Some("modify_output".to_string());
+        step.on_headless = Some("use_default".to_string());
+        step.default_value = Some("fallback text".to_string());
+        let dto = minimal_dto(vec![step]);
+        let pipeline = validate(dto, source()).expect("should succeed");
+        if let StepBody::Action(ActionKind::ModifyOutput {
+            headless_behavior,
+            default_value,
+        }) = &pipeline.steps[0].body
+        {
+            assert_eq!(
+                *headless_behavior,
+                crate::config::domain::HitlHeadlessBehavior::UseDefault
+            );
+            assert_eq!(default_value.as_deref(), Some("fallback text"));
+        } else {
+            panic!("expected ModifyOutput step body");
+        }
+    }
+
+    #[test]
+    fn action_modify_output_unknown_on_headless_returns_error() {
+        let mut step = minimal_step("gate", "unused");
+        step.prompt = None;
+        step.action = Some("modify_output".to_string());
+        step.on_headless = Some("magic".to_string());
+        let dto = minimal_dto(vec![step]);
+        let err = validate(dto, source()).expect_err("should fail");
+        assert_eq!(err.error_type(), error_types::CONFIG_VALIDATION_FAILED);
+        assert!(err.detail().contains("magic"));
     }
 }

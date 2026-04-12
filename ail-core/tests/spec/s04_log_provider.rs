@@ -21,6 +21,7 @@ mod log_provider_tests {
             exit_code: None,
             thinking: None,
             tool_events: vec![],
+            modified: None,
         }
     }
 

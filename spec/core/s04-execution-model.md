@@ -183,6 +183,7 @@ Every state change is emitted as one of the following variants. In JSON mode, ea
 | `StepSkipped` | `"step_skipped"` | When a step is in the `disabled_steps` set |
 | `StepFailed` | `"step_failed"` | When a step errors (includes `error` string detail) |
 | `HitlGateReached` | `"hitl_gate_reached"` | When a `pause_for_human` step is reached; executor blocks until `hitl_rx` receives a value |
+| `HitlModifyReached` | `"hitl_modify_reached"` | When a `modify_output` step is reached (§13.2); includes `last_response` for the human to edit; blocks until `hitl_rx` receives the modified text |
 | `RunnerEvent` | `"runner_event"` | Wraps a streaming `RunnerEvent` (thinking, stream delta, tool call, etc.) as `"event"` field |
 | `PipelineCompleted` | `"pipeline_completed"` | When all steps complete; `"outcome"` field is `"completed"` or `"break"` |
 | `PipelineError` | `"pipeline_error"` | When the pipeline aborts due to an error; includes `"error"` and `"error_type"` |
@@ -210,6 +211,12 @@ The inner `"event"` object uses the `RunnerEvent` JSON schema (e.g., `"type": "t
 {"type": "hitl_gate_reached", "step_id": "review_gate", "message": "Please review before continuing."}
 ```
 The `"message"` field is omitted when not declared in the step YAML.
+
+**`HitlModifyReached` payload (§13.2):**
+```json
+{"type": "hitl_modify_reached", "step_id": "review_gate", "message": "Edit the output.", "last_response": "Generated document text..."}
+```
+`"message"` and `"last_response"` are omitted when not available. The consumer sends a `hitl_response` message with the edited text to unblock the executor.
 
 #### Function Signature
 

@@ -208,4 +208,35 @@ mod tests {
         assert_eq!(json["outcome"], "break");
         assert_eq!(json["step_id"], "s1");
     }
+
+    #[test]
+    fn executor_event_serializes_hitl_modify_reached() {
+        let event = ExecutorEvent::HitlModifyReached {
+            step_id: "review_gate".into(),
+            message: Some("Edit the output".into()),
+            last_response: Some("generated text".into()),
+        };
+        let json: serde_json::Value =
+            serde_json::from_str(&serde_json::to_string(&event).unwrap()).unwrap();
+        assert_eq!(json["type"], "hitl_modify_reached");
+        assert_eq!(json["step_id"], "review_gate");
+        assert_eq!(json["message"], "Edit the output");
+        assert_eq!(json["last_response"], "generated text");
+    }
+
+    #[test]
+    fn executor_event_serializes_hitl_modify_reached_without_optional_fields() {
+        let event = ExecutorEvent::HitlModifyReached {
+            step_id: "gate".into(),
+            message: None,
+            last_response: None,
+        };
+        let json: serde_json::Value =
+            serde_json::from_str(&serde_json::to_string(&event).unwrap()).unwrap();
+        assert_eq!(json["type"], "hitl_modify_reached");
+        assert_eq!(json["step_id"], "gate");
+        // Optional fields should be absent.
+        assert!(json.get("message").is_none());
+        assert!(json.get("last_response").is_none());
+    }
 }

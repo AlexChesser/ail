@@ -2,7 +2,7 @@
 
 #![allow(clippy::result_large_err)]
 
-use crate::config::domain::{ActionKind, ContextSource, StepBody};
+use crate::config::domain::{ActionKind, ContextSource, HitlHeadlessBehavior, StepBody};
 use crate::config::dto::StepDto;
 use crate::error::AilError;
 
@@ -50,6 +50,30 @@ pub(in crate::config) fn parse_step_body(
     } else if let Some(ref action) = step_dto.action {
         match action.as_str() {
             "pause_for_human" => Ok(StepBody::Action(ActionKind::PauseForHuman)),
+            "modify_output" => {
+                let headless_behavior = match step_dto.on_headless.as_deref() {
+                    None | Some("skip") => HitlHeadlessBehavior::Skip,
+                    Some("abort") => HitlHeadlessBehavior::Abort,
+                    Some("use_default") => {
+                        if step_dto.default_value.is_none() {
+                            return Err(cfg_err!(
+                                "Step '{id_str}' uses on_headless: use_default but no default_value is provided"
+                            ));
+                        }
+                        HitlHeadlessBehavior::UseDefault
+                    }
+                    Some(other) => {
+                        return Err(cfg_err!(
+                            "Step '{id_str}' specifies unknown on_headless value '{other}'; \
+                             supported values are 'skip', 'abort', 'use_default'"
+                        ))
+                    }
+                };
+                Ok(StepBody::Action(ActionKind::ModifyOutput {
+                    headless_behavior,
+                    default_value: step_dto.default_value.clone(),
+                }))
+            }
             other => Err(cfg_err!(
                 "Step '{id_str}' specifies unknown action '{other}'"
             )),

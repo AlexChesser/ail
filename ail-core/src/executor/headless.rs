@@ -541,4 +541,111 @@ mod tests {
         assert!(matches!(result.unwrap(), ExecuteOutcome::Completed));
         assert_eq!(session.turn_log.entries().len(), 2);
     }
+
+    // ── modify_output HITL gate tests (headless mode, SPEC §13.2) ───────────
+
+    fn modify_step(
+        id: &str,
+        behavior: crate::config::domain::HitlHeadlessBehavior,
+        default_value: Option<&str>,
+    ) -> Step {
+        Step {
+            id: StepId(id.to_string()),
+            body: StepBody::Action(crate::config::domain::ActionKind::ModifyOutput {
+                headless_behavior: behavior,
+                default_value: default_value.map(str::to_string),
+            }),
+            message: Some("Review and edit".to_string()),
+            tools: None,
+            on_result: None,
+            model: None,
+            runner: None,
+            condition: None,
+            append_system_prompt: None,
+            system_prompt: None,
+            resume: false,
+        }
+    }
+
+    /// SPEC §13.2 — modify_output with on_headless: skip is a no-op; pipeline continues.
+    #[test]
+    fn modify_output_skip_is_noop_in_headless_mode() {
+        let gate = modify_step(
+            "gate",
+            crate::config::domain::HitlHeadlessBehavior::Skip,
+            None,
+        );
+        let after = prompt_step("after", "continue");
+        let mut session = make_session(vec![gate, after]);
+        let runner = StubRunner::new("ok");
+        let result = execute(&mut session, &runner);
+
+        assert!(result.is_ok());
+        assert!(matches!(result.unwrap(), ExecuteOutcome::Completed));
+        // Only the prompt step produces an entry; the skipped gate produces no entry.
+        let entries = session.turn_log.entries();
+        assert_eq!(entries.len(), 1, "skipped modify gate produces no entry");
+        assert_eq!(entries[0].step_id, "after");
+    }
+
+    /// SPEC §13.2 — modify_output with on_headless: abort terminates the pipeline.
+    #[test]
+    fn modify_output_abort_terminates_pipeline_in_headless_mode() {
+        let gate = modify_step(
+            "gate",
+            crate::config::domain::HitlHeadlessBehavior::Abort,
+            None,
+        );
+        let after = prompt_step("after", "never reached");
+        let mut session = make_session(vec![gate, after]);
+        let runner = StubRunner::new("ok");
+        let result = execute(&mut session, &runner);
+
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert_eq!(err.error_type(), error_types::PIPELINE_ABORTED);
+        assert!(err.detail().contains("gate"));
+    }
+
+    /// SPEC §13.2 — modify_output with on_headless: use_default stores the default value.
+    #[test]
+    fn modify_output_use_default_stores_default_value_in_headless_mode() {
+        let gate = modify_step(
+            "gate",
+            crate::config::domain::HitlHeadlessBehavior::UseDefault,
+            Some("fallback text"),
+        );
+        let after = prompt_step("after", "continue");
+        let mut session = make_session(vec![gate, after]);
+        let runner = StubRunner::new("ok");
+        let result = execute(&mut session, &runner);
+
+        assert!(result.is_ok());
+        let entries = session.turn_log.entries();
+        // Both the modify gate (with entry) and the prompt step produce entries.
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].step_id, "gate");
+        assert_eq!(entries[0].modified.as_deref(), Some("fallback text"));
+        assert_eq!(entries[1].step_id, "after");
+    }
+
+    /// SPEC §13.2 — modified output is available as {{ step.<id>.modified }} template variable.
+    #[test]
+    fn modify_output_use_default_accessible_via_template() {
+        let gate = modify_step(
+            "review_gate",
+            crate::config::domain::HitlHeadlessBehavior::UseDefault,
+            Some("edited content"),
+        );
+        let after = prompt_step("finalize", "Result: {{ step.review_gate.modified }}");
+        let mut session = make_session(vec![gate, after]);
+        let runner = StubRunner::new("ok");
+        let result = execute(&mut session, &runner);
+
+        assert!(result.is_ok());
+        let entries = session.turn_log.entries();
+        assert_eq!(entries.len(), 2);
+        // The finalize step's prompt should contain the resolved modified output.
+        assert_eq!(entries[1].prompt, "Result: edited content");
+    }
 }

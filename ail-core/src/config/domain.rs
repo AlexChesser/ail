@@ -206,6 +206,25 @@ pub enum ContextSource {
 #[derive(Debug, Clone)]
 pub enum ActionKind {
     PauseForHuman,
+    /// HITL modify gate (SPEC §13.2): presents step output to the human, who can edit it.
+    /// The modified text is stored in the turn log and available as `{{ step.<id>.modified }}`.
+    /// `headless_behavior` controls what happens when this action fires in headless/`--once` mode.
+    ModifyOutput {
+        headless_behavior: HitlHeadlessBehavior,
+        /// Optional default value used when `headless_behavior` is `UseDefault`.
+        default_value: Option<String>,
+    },
+}
+
+/// Behavior for HITL gates in headless/`--once` mode (SPEC §13.2).
+#[derive(Debug, Clone, PartialEq)]
+pub enum HitlHeadlessBehavior {
+    /// Skip the gate and continue the pipeline with the unmodified output (default).
+    Skip,
+    /// Abort the pipeline with a PIPELINE_ABORTED error.
+    Abort,
+    /// Use a configured default value as the modified output.
+    UseDefault,
 }
 
 /// One branch in an `on_result` multi-branch array (SPEC §5.4).

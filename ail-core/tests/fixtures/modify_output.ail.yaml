@@ -1,0 +1,9 @@
+version: "0.0.1"
+pipeline:
+  - id: generate
+    prompt: "Generate a document"
+  - id: review_gate
+    action: modify_output
+    message: "Review and edit the generated document before continuing."
+  - id: finalize
+    prompt: "Finalize: {{ step.review_gate.modified }}"

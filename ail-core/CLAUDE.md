@@ -70,7 +70,8 @@ pub enum StepBody  { Prompt(String), Skill(PathBuf), SubPipeline { path: String,
 // SubPipeline.path may contain {{ variable }} syntax — resolved at execution time (SPEC §11)
 // SubPipeline.prompt: when Some, overrides child session's invocation_prompt instead of using parent's last_response (SPEC §9.3)
 pub enum ContextSource { Shell(String) }
-pub enum ActionKind { PauseForHuman }
+pub enum ActionKind { PauseForHuman, ModifyOutput { headless_behavior: HitlHeadlessBehavior, default_value: Option<String> } }
+pub enum HitlHeadlessBehavior { Skip, Abort, UseDefault }
 pub struct ResultBranch { pub matcher: ResultMatcher, pub action: ResultAction }
 pub enum ResultMatcher { Contains(String), ExitCode(ExitCodeMatch), Always }
 pub enum ExitCodeMatch { Exact(i32), Any }

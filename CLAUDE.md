@@ -139,6 +139,7 @@ If nothing found → passthrough mode (safe zero-config default).
 | `{{ step.<id>.stdout }}` | stdout of a `shell:` context step |
 | `{{ step.<id>.stderr }}` | stderr of a `shell:` context step |
 | `{{ step.<id>.exit_code }}` | Exit code of a `shell:` context step (string) |
+| `{{ step.<id>.modified }}` | Human-modified output from a `modify_output` HITL gate (SPEC §13.2) |
 | `{{ last_response }}` | Most recent step response |
 | `{{ pipeline.run_id }}` | UUID for this run |
 | `{{ session.tool }}` | Runner name (e.g. `claude`) |
@@ -168,7 +169,7 @@ Unresolved variables **abort with a typed error** — never silently empty.
 
 - `--output-format stream-json` requires `--verbose` with `-p` — documented in `spec/runner/r02-claude-cli.md`
 - Must call `.env_remove("CLAUDECODE")` on the `Command` builder to avoid nested session guard
-- `pause_for_human` is a no-op in `--once` / headless mode (v0.2)
+- `pause_for_human` is a no-op in `--once` / headless mode; `modify_output` behavior is configurable via `on_headless` (skip/abort/use_default)
 - `skill:` and `pipeline:` step bodies abort with `PIPELINE_ABORTED` (stubs — v0.3+)
 - Interactive REPL deferred to v0.5
 - TUI removed in v0.2; all output goes to stdout/stderr

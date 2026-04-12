@@ -16,6 +16,7 @@ Prompt strings, file-based prompts, and `pipeline:` paths may reference runtime 
 | `{{ step.<id>.stderr }}` | Standard error of a `shell:` context step. |
 | `{{ step.<id>.exit_code }}` | Exit code of a `shell:` context step, as a string. |
 | `{{ step.<id>.tool_calls }}` | Tool call and result events from a specific named `prompt:` step, serialised as a JSON array. Empty array for context/action/sub-pipeline steps. |
+| `{{ step.<id>.modified }}` | Human-modified output from a `modify_output` HITL gate step (§13.2). Only available for steps with `action: modify_output` that produced a turn entry (i.e., the gate was not skipped). |
 | `{{ session.tool }}` | The runner name resolved for the currently executing step (e.g. `claude`, `ollama`). Reflects per-step `runner:` overrides — updated at the start of each Prompt step. |
 | `{{ session.cwd }}` | The current working directory of the session. |
 | `{{ pipeline.run_id }}` | Unique ID for this pipeline execution. |

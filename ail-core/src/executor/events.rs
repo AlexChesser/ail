@@ -96,6 +96,17 @@ pub enum ExecutorEvent {
         #[serde(skip_serializing_if = "Option::is_none")]
         message: Option<String>,
     },
+    /// A `modify_output` HITL gate was reached (SPEC §13.2).
+    /// The executor blocks until `hitl_rx` receives the modified text.
+    HitlModifyReached {
+        step_id: String,
+        /// Optional operator-facing message from the step's `message:` YAML field.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        message: Option<String>,
+        /// The last step response presented to the human for modification.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        last_response: Option<String>,
+    },
     /// A streaming event from the runner, nested under `event` so the inner `type` field is
     /// preserved in the NDJSON output. Using a named field avoids the internally-tagged
     /// newtype-of-tagged-enum serialization conflict that would overwrite the inner `type`.
