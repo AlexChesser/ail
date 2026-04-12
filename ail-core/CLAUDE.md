@@ -101,6 +101,8 @@ pub enum ExecuteOutcome { Completed, Break { step_id: String } }
 // Session
 pub struct Session { pub run_id: String, pub pipeline: Pipeline, pub invocation_prompt: String, pub turn_log: TurnLog, pub cli_provider: ProviderConfig, pub cwd: String, pub runner_name: String, pub headless: bool }
 // cwd: captured at Session::new() time via std::env::current_dir(); used by {{ session.cwd }} template variable.
+// Note: the "Allow for session" tool allowlist (SPEC §13.2, §13.4) lives in the `ail` binary crate
+// (control_bridge::AllowlistArc), not on Session — session allowlisting is a binary-layer concern.
 // TurnEntry carries prompt-step fields (response, runner_session_id, thinking, tool_events) and context-step fields (stdout, stderr, exit_code)
 // tool_events: Vec<ToolEvent> — populated from RunResult.tool_events for prompt steps; empty for context/action/sub-pipeline steps
 
