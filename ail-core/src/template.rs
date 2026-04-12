@@ -56,7 +56,7 @@ fn resolve_variable(variable: &str, session: &Session) -> Result<String, AilErro
             .map(|s| s.to_string())
             .ok_or_else(|| unresolved("No responses have been recorded yet")),
 
-        "session.tool" => Ok("claude".to_string()),
+        "session.tool" => Ok(session.runner_name.clone()),
 
         "session.cwd" => Ok(session.cwd.clone()),
 
@@ -100,6 +100,19 @@ fn resolve_variable(variable: &str, session: &Session) -> Result<String, AilErro
                             .ok_or_else(|| {
                                 unresolved(format!("No exit_code recorded for step '{step_id}'"))
                             }),
+                        "tool_calls" => {
+                            let events = session
+                                .turn_log
+                                .tool_events_for_step(step_id)
+                                .ok_or_else(|| {
+                                    unresolved(format!("No entry recorded for step '{step_id}'"))
+                                })?;
+                            serde_json::to_string(events).map_err(|e| {
+                                unresolved(format!(
+                                    "Failed to serialize tool_calls for step '{step_id}': {e}"
+                                ))
+                            })
+                        }
                         _ => Err(unresolved(format!(
                             "'{{ {variable} }}' is not a recognised template variable"
                         ))),

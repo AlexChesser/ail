@@ -69,7 +69,7 @@ impl Pipeline {
         Pipeline {
             steps: vec![Step {
                 id: StepId("invocation".to_string()),
-                body: StepBody::Prompt("{{ session.invocation_prompt }}".to_string()),
+                body: StepBody::Prompt("{{ step.invocation.prompt }}".to_string()),
                 message: None,
                 tools: None,
                 on_result: None,
