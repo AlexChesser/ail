@@ -1,15 +1,16 @@
+//! DTO → domain validation for pipeline files.
+
 #![allow(clippy::result_large_err)]
+
+mod on_result;
+mod step_body;
+mod system_prompt;
 
 use std::collections::HashSet;
 use std::path::PathBuf;
 
-use super::domain::{
-    ActionKind, Condition, ContextSource, ExitCodeMatch, Pipeline, ProviderConfig, ResultAction,
-    ResultBranch, ResultMatcher, Step, StepBody, StepId, SystemPromptEntry, ToolPolicy,
-};
-use super::dto::{
-    AppendSystemPromptEntryDto, ExitCodeDto, OnResultBranchDto, PipelineFileDto, ToolsDto,
-};
+use super::domain::{Condition, Pipeline, ProviderConfig, Step, StepId, ToolPolicy};
+use super::dto::{PipelineFileDto, ToolsDto};
 use crate::error::AilError;
 
 macro_rules! cfg_err {
@@ -21,119 +22,15 @@ macro_rules! cfg_err {
     };
 }
 
+// Make the macro available to sub-modules.
+pub(in crate::config) use cfg_err;
+
 fn tools_to_policy(t: ToolsDto) -> ToolPolicy {
     ToolPolicy {
         disabled: t.disabled,
         allow: t.allow,
         deny: t.deny,
     }
-}
-
-fn parse_result_branches(
-    step_id: &str,
-    branches: Vec<OnResultBranchDto>,
-) -> Result<Vec<ResultBranch>, AilError> {
-    branches
-        .into_iter()
-        .enumerate()
-        .map(|(i, branch)| {
-            let matcher_count = [
-                branch.contains.is_some(),
-                branch.exit_code.is_some(),
-                branch.always.is_some(),
-            ]
-            .iter()
-            .filter(|&&b| b)
-            .count();
-
-            if matcher_count != 1 {
-                return Err(cfg_err!(
-                    "Step '{step_id}' on_result branch {i} must have exactly one matcher \
-                     (contains, exit_code, always); found {matcher_count}"
-                ));
-            }
-
-            let action_str = branch.action.ok_or_else(|| {
-                cfg_err!("Step '{step_id}' on_result branch {i} must declare an 'action'")
-            })?;
-
-            let action = if let Some(path) = action_str.strip_prefix("pipeline:").map(str::trim) {
-                if path.is_empty() {
-                    return Err(cfg_err!(
-                        "Step '{step_id}' on_result branch {i} action 'pipeline:' requires a path"
-                    ));
-                }
-                ResultAction::Pipeline {
-                    path: path.to_string(),
-                    prompt: branch.prompt,
-                }
-            } else {
-                match action_str.as_str() {
-                    "continue" => ResultAction::Continue,
-                    "break" => ResultAction::Break,
-                    "abort_pipeline" => ResultAction::AbortPipeline,
-                    "pause_for_human" => ResultAction::PauseForHuman,
-                    other => {
-                        return Err(cfg_err!(
-                        "Step '{step_id}' on_result branch {i} specifies unknown action '{other}'"
-                    ))
-                    }
-                }
-            };
-
-            let matcher = if let Some(text) = branch.contains {
-                ResultMatcher::Contains(text)
-            } else if let Some(exit_code_dto) = branch.exit_code {
-                let exit_code_match = match exit_code_dto {
-                    ExitCodeDto::Integer(n) => ExitCodeMatch::Exact(n),
-                    ExitCodeDto::Keyword(k) if k == "any" => ExitCodeMatch::Any,
-                    ExitCodeDto::Keyword(k) => {
-                        return Err(cfg_err!(
-                            "Step '{step_id}' on_result branch {i} exit_code must be an integer \
-                             or 'any', got '{k}'"
-                        ))
-                    }
-                };
-                ResultMatcher::ExitCode(exit_code_match)
-            } else {
-                ResultMatcher::Always
-            };
-
-            Ok(ResultBranch { matcher, action })
-        })
-        .collect()
-}
-
-fn parse_append_system_prompt(
-    step_id: &str,
-    entries: Vec<AppendSystemPromptEntryDto>,
-) -> Result<Vec<SystemPromptEntry>, AilError> {
-    entries
-        .into_iter()
-        .enumerate()
-        .map(|(i, entry)| match entry {
-            AppendSystemPromptEntryDto::Text(s) => Ok(SystemPromptEntry::Text(s)),
-            AppendSystemPromptEntryDto::Structured(s) => {
-                let set_count = [s.text.is_some(), s.file.is_some(), s.shell.is_some()]
-                    .iter()
-                    .filter(|&&b| b)
-                    .count();
-                if set_count != 1 {
-                    return Err(cfg_err!(
-                        "Step '{step_id}' append_system_prompt entry {i} must have exactly one \
-                         key (text, file, or shell); found {set_count}"
-                    ));
-                }
-                if let Some(text) = s.text {
-                    Ok(SystemPromptEntry::Text(text))
-                } else if let Some(file) = s.file {
-                    Ok(SystemPromptEntry::File(std::path::PathBuf::from(file)))
-                } else {
-                    Ok(SystemPromptEntry::Shell(s.shell.expect("set_count == 1")))
-                }
-            }
-        })
-        .collect()
 }
 
 pub fn validate(dto: PipelineFileDto, source: PathBuf) -> Result<Pipeline, AilError> {
@@ -203,71 +100,18 @@ pub fn validate(dto: PipelineFileDto, source: PathBuf) -> Result<Pipeline, AilEr
     for step_dto in step_dtos {
         let id_str = step_dto
             .id
+            .clone()
             .ok_or_else(|| cfg_err!("Every step must declare an 'id' field"))?;
 
         if !seen_ids.insert(id_str.clone()) {
             return Err(cfg_err!("Step id '{id_str}' appears more than once"));
         }
 
-        // When pipeline: is set, prompt: is treated as the child invocation override,
-        // not a primary field — so don't count it in the primary field selector.
-        let primary_count = [
-            step_dto.prompt.is_some() && step_dto.pipeline.is_none(),
-            step_dto.skill.is_some(),
-            step_dto.pipeline.is_some(),
-            step_dto.action.is_some(),
-            step_dto.context.is_some(),
-        ]
-        .iter()
-        .filter(|&&b| b)
-        .count();
-
-        if primary_count != 1 {
-            return Err(cfg_err!(
-                "Step '{id_str}' must have exactly one primary field \
-                 (prompt, skill, pipeline, action, or context); found {primary_count}"
-            ));
-        }
-
-        // pipeline: is checked before prompt: so that pipeline+prompt correctly creates a
-        // SubPipeline step with prompt as the child invocation override (SPEC §9.3).
-        let body = if let Some(pipeline_path) = step_dto.pipeline {
-            StepBody::SubPipeline {
-                path: pipeline_path,
-                prompt: step_dto.prompt,
-            }
-        } else if let Some(prompt) = step_dto.prompt {
-            StepBody::Prompt(prompt)
-        } else if let Some(_skill) = step_dto.skill {
-            return Err(cfg_err!(
-                "Step '{id_str}' uses 'skill:' which is not yet implemented (planned for v0.2+). \
-                 Use a 'pipeline:' step to compose pipelines instead."
-            ));
-        } else if let Some(action) = step_dto.action {
-            match action.as_str() {
-                "pause_for_human" => StepBody::Action(ActionKind::PauseForHuman),
-                other => {
-                    return Err(cfg_err!(
-                        "Step '{id_str}' specifies unknown action '{other}'"
-                    ))
-                }
-            }
-        } else if let Some(context_dto) = step_dto.context {
-            match context_dto.shell {
-                Some(cmd) => StepBody::Context(ContextSource::Shell(cmd)),
-                None => {
-                    return Err(cfg_err!(
-                        "Step '{id_str}' declares context: but no source (shell:, mcp:) is present"
-                    ))
-                }
-            }
-        } else {
-            unreachable!("primary_count == 1 enforced above")
-        };
+        let body = step_body::parse_step_body(&step_dto, &id_str)?;
 
         let on_result = step_dto
             .on_result
-            .map(|branches| parse_result_branches(&id_str, branches))
+            .map(|branches| on_result::parse_result_branches(&id_str, branches))
             .transpose()?;
 
         let condition = match step_dto.condition.as_deref() {
@@ -283,7 +127,7 @@ pub fn validate(dto: PipelineFileDto, source: PathBuf) -> Result<Pipeline, AilEr
 
         let append_system_prompt = step_dto
             .append_system_prompt
-            .map(|entries| parse_append_system_prompt(&id_str, entries))
+            .map(|entries| system_prompt::parse_append_system_prompt(&id_str, entries))
             .transpose()?;
 
         steps.push(Step {
@@ -315,6 +159,10 @@ mod tests {
     use std::path::PathBuf;
 
     use super::*;
+    use crate::config::domain::{
+        ActionKind, Condition, ContextSource, ExitCodeMatch, ResultAction, ResultMatcher, StepBody,
+        SystemPromptEntry,
+    };
     use crate::config::dto::{
         AppendSystemPromptEntryDto, AppendSystemPromptStructuredDto, ContextDto, DefaultsDto,
         ExitCodeDto, OnResultBranchDto, PipelineFileDto, ProviderDto, StepDto, ToolsDto,
