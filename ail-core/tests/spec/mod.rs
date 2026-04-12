@@ -4,6 +4,7 @@ mod s04_execution_model;
 mod s04_log_provider;
 mod s05_3_on_result;
 mod s05_5_context_steps;
+mod s05_7_then_chains;
 mod s05_append_system_prompt;
 mod s05_step_specification;
 mod s06_skills;

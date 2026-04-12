@@ -8,6 +8,27 @@ fn yaml_quote(s: &str) -> String {
     s.replace('\\', "\\\\").replace('"', "\\\"")
 }
 
+/// One-line summary of a chain step body for materialize comments.
+fn chain_step_summary(body: &StepBody) -> String {
+    match body {
+        StepBody::Prompt(text) => {
+            let truncated = if text.len() > 60 {
+                format!("{}...", &text[..57])
+            } else {
+                text.clone()
+            };
+            format!("prompt: \"{}\"", yaml_quote(&truncated))
+        }
+        StepBody::Skill { ref name } => format!("skill: {name}"),
+        StepBody::SubPipeline { path, .. } => format!("pipeline: {path}"),
+        StepBody::Action(ActionKind::PauseForHuman) => "action: pause_for_human".to_string(),
+        StepBody::Action(ActionKind::ModifyOutput { .. }) => "action: modify_output".to_string(),
+        StepBody::Context(ContextSource::Shell(cmd)) => {
+            format!("context: shell: \"{}\"", yaml_quote(cmd))
+        }
+    }
+}
+
 /// Serialize a pipeline back to annotated YAML with origin comments per step.
 ///
 /// Output round-trips through `config::load()` (YAML parsers ignore comments).
@@ -39,6 +60,19 @@ pub fn materialize(pipeline: &Pipeline) -> String {
                     out.push_str(&format!("    max_retries: {max_retries}\n"));
                 }
                 OnError::AbortPipeline => out.push_str("    on_error: abort_pipeline\n"),
+            }
+        }
+
+        // before: chain (private — not hookable) — appears before the body (SPEC §5.10).
+        if !step.before.is_empty() {
+            out.push_str("    # before: (private — not hookable)\n");
+            for chain_step in &step.before {
+                let body_desc = chain_step_summary(&chain_step.body);
+                out.push_str(&format!(
+                    "    #   - id: {}  {}\n",
+                    chain_step.id.as_str(),
+                    body_desc
+                ));
             }
         }
 
@@ -81,6 +115,19 @@ pub fn materialize(pipeline: &Pipeline) -> String {
                 out.push_str(&format!(
                     "    context:\n      shell: \"{}\"\n",
                     yaml_quote(cmd)
+                ));
+            }
+        }
+
+        // then: chain (private — not hookable) — appears after the body (SPEC §5.7).
+        if !step.then.is_empty() {
+            out.push_str("    # then: (private — not hookable)\n");
+            for chain_step in &step.then {
+                let body_desc = chain_step_summary(&chain_step.body);
+                out.push_str(&format!(
+                    "    #   - id: {}  {}\n",
+                    chain_step.id.as_str(),
+                    body_desc
                 ));
             }
         }
@@ -145,6 +192,8 @@ mod tests {
             system_prompt: None,
             resume: false,
             on_error: None,
+            before: vec![],
+            then: vec![],
         }
     }
 

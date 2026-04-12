@@ -365,6 +365,8 @@ mod tests {
             system_prompt: None,
             resume: false,
             on_error: None,
+            before: vec![],
+            then: vec![],
         };
         let mut session = make_session(vec![step]);
         let runner = StubRunner::new("stub");
@@ -469,6 +471,8 @@ mod tests {
             system_prompt: None,
             resume: false,
             on_error: None,
+            before: vec![],
+            then: vec![],
         };
         let mut session = make_session(vec![step]);
         let runner = StubRunner::new("stub");
@@ -524,6 +528,8 @@ mod tests {
             system_prompt: None,
             resume: false,
             on_error: None,
+            before: vec![],
+            then: vec![],
         };
         let mut session = make_session(vec![step]);
         let runner = StubRunner::new("stub");
@@ -577,6 +583,8 @@ mod tests {
             system_prompt: None,
             resume: false,
             on_error: None,
+            before: vec![],
+            then: vec![],
         };
         let mut session = make_session(vec![step]);
         let runner = StubRunner::new("any response");
@@ -735,6 +743,8 @@ mod tests {
             system_prompt: None,
             resume: false,
             on_error: None,
+            before: vec![],
+            then: vec![],
         };
         let mut session = make_session(vec![step]);
         let runner = StubRunner::new("any response");
@@ -813,6 +823,8 @@ mod tests {
             system_prompt: None,
             resume: false,
             on_error: None,
+            before: vec![],
+            then: vec![],
         };
 
         let mut session = make_session(vec![generate, gate]);
@@ -870,6 +882,8 @@ mod tests {
             system_prompt: None,
             resume: false,
             on_error: None,
+            before: vec![],
+            then: vec![],
         };
 
         let mut session = make_session(vec![generate, gate]);

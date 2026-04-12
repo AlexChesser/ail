@@ -181,6 +181,8 @@ mod tests {
             system_prompt: None,
             resume: false,
             on_error: None,
+            before: vec![],
+            then: vec![],
         };
         let session = helpers_make_session(vec![step]);
         assert!(session.has_invocation_step());

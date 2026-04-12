@@ -143,6 +143,8 @@ mod tests {
             system_prompt: None,
             resume: false,
             on_error: None,
+            before: vec![],
+            then: vec![],
         }
     }
 
