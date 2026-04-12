@@ -11,6 +11,7 @@ It is the control plane for agent behaviour after the human stops typing.
 ail/                        # binary crate — CLI entry point only
   src/main.rs               # --once, materialize, validate handlers
   src/cli.rs                # Cli, Commands (clap derive)
+  src/command.rs            # CommandOutcome — command lifecycle types
 ail-core/                   # library crate — all logic, no UI
   src/
     config/                 # discovery, dto, domain, validation, mod (load())
@@ -18,6 +19,7 @@ ail-core/                   # library crate — all logic, no UI
     executor.rs             # execute() — SPEC §4.2 core invariant
     materialize.rs          # materialize() — annotated YAML with # origin comments
     runner/                 # Runner trait, StubRunner, ClaudeCliRunner
+      plugin/               # runtime plugin system — JSON-RPC protocol, discovery, ProtocolRunner
     session/                # Session, TurnLog, TurnEntry
     template.rs             # resolve() — {{ variable }} syntax
   tests/spec/               # spec-coverage integration tests, one file per SPEC section
@@ -88,7 +90,7 @@ When in doubt, update the spec. A spec that accurately describes what is built i
 - **Why Rust**: steady-state RSS of 2–5MB vs 80–120MB for Node. At 10k concurrent sessions the delta is ~$100k/year in infrastructure cost. This is the primary rationale — not preference.
 - **Two-crate rule**: `ail-core` (library, no UI) and `ail` (binary). `ail` depends on `ail-core`. The inverse is a compile error. All correctness lives in `ail-core`.
 - **DTO→Domain boundary**: `dto.rs` (serde, `Deserialize`) → `validation.rs` (typed errors) → `domain.rs` (no serde). Serde structs never become domain objects.
-- **Runner trait is the seam**: `ClaudeCliRunner` is an implementation detail. The executor sees only `&dyn Runner`. New runners don't touch the executor.
+- **Runner trait is the seam**: `ClaudeCliRunner` is an implementation detail. The executor sees only `&dyn Runner`. New runners don't touch the executor. Third-party runners can be added at runtime via the plugin system (JSON-RPC over stdin/stdout).
 - **Stream parsing isolation**: all NDJSON parsing from Claude CLI lives in `runner/claude.rs`. Nothing else touches raw JSON. When Anthropic changes the wire format, the blast radius is one file.
 - **RFC 9457-inspired errors**: `AilError { error_type (stable const), title, detail, context }`. No `unwrap()`/`panic` in production paths.
 - **Observability from day one**: `tracing` spans and structured fields, never `println!`. The turn log is the durable audit trail; tracing is the live signal.
@@ -149,7 +151,7 @@ Unresolved variables **abort with a typed error** — never silently empty.
 - No `unwrap()`/`expect()` outside tests
 - No `println!`/`eprintln!` in `ail-core` — use `tracing::{info, warn, error}`
 - `dto.rs` derives `Deserialize`; `domain.rs` does not — conversion in `validation.rs`
-- `#[allow(clippy::result_large_err)]` required in every module that returns `Result<_, AilError>`. Apply at file scope (`#![allow(...)]`). Current files: `config/{mod,validation}.rs`, `template.rs`, `executor/{core,headless,controlled,helpers}.rs`, `runner/{mod,factory,http,subprocess,claude/mod,claude/permission}.rs`, `delete.rs`, `fs_util.rs`, `logs.rs`, `formatter.rs`
+- `#[allow(clippy::result_large_err)]` required in every module that returns `Result<_, AilError>`. Apply at file scope (`#![allow(...)]`). Current files: `config/{mod,validation}.rs`, `template.rs`, `executor/{core,headless,controlled,helpers}.rs`, `runner/{mod,factory,http,subprocess,claude/mod,claude/permission}.rs`, `runner/plugin/{mod,validation,discovery,protocol_runner}.rs`, `delete.rs`, `fs_util.rs`, `logs.rs`, `formatter.rs`
 - All errors use `AilError` with a stable `error_type` string constant from `error::error_types`
 - No co-authorship lines in git commits
 

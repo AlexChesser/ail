@@ -3,6 +3,7 @@ mod ask_user_types;
 mod chat;
 mod check_permission_hook;
 mod cli;
+mod command;
 mod control_bridge;
 mod delete;
 mod log;
@@ -15,6 +16,7 @@ mod validate;
 use ail_core::runner::factory::RunnerFactory;
 use clap::Parser;
 use cli::{Cli, Commands, OutputFormat};
+use command::CommandOutcome;
 
 /// Discover and load a pipeline from an optional explicit path, falling back to
 /// automatic discovery and then passthrough mode. Exits with code 1 on load error.
@@ -37,6 +39,10 @@ fn init_tracing() {
         .json()
         .with_writer(std::io::stderr)
         .init();
+}
+
+fn exit_with(outcome: CommandOutcome) -> ! {
+    std::process::exit(outcome.exit_code())
 }
 
 #[tokio::main]
@@ -96,10 +102,8 @@ async fn main() {
                 force,
                 json,
             } => {
-                if let Err(e) = delete::handle_delete(run_id, force, json) {
-                    eprintln!("{e}");
-                    std::process::exit(1);
-                }
+                let cmd = delete::DeleteCommand::new(run_id, force, json);
+                exit_with(cmd.execute());
             }
             Commands::Logs {
                 session,
@@ -125,13 +129,15 @@ async fn main() {
             }
             Commands::Materialize { pipeline, out } => {
                 let p = load_pipeline(pipeline);
-                materialize::handle_materialize(p, out);
+                let cmd = materialize::MaterializeCommand::new(p, out);
+                exit_with(cmd.execute());
             }
             Commands::Validate {
                 pipeline,
                 output_format,
             } => {
-                validate::handle_validate(pipeline, output_format);
+                let cmd = validate::ValidateCommand::new(pipeline, output_format);
+                exit_with(cmd.execute());
             }
             Commands::Chat {
                 message,

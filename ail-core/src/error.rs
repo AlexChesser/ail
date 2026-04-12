@@ -106,6 +106,30 @@ pub enum AilError {
         detail: String,
         context: Option<ErrorContext>,
     },
+
+    #[error("[ail:plugin/manifest-invalid] {detail}")]
+    PluginManifestInvalid {
+        detail: String,
+        context: Option<ErrorContext>,
+    },
+
+    #[error("[ail:plugin/spawn-failed] {detail}")]
+    PluginSpawnFailed {
+        detail: String,
+        context: Option<ErrorContext>,
+    },
+
+    #[error("[ail:plugin/protocol-error] {detail}")]
+    PluginProtocolError {
+        detail: String,
+        context: Option<ErrorContext>,
+    },
+
+    #[error("[ail:plugin/timeout] {detail}")]
+    PluginTimeout {
+        detail: String,
+        context: Option<ErrorContext>,
+    },
 }
 
 impl AilError {
@@ -128,6 +152,10 @@ impl AilError {
             Self::StorageQueryFailed { .. } => error_types::STORAGE_QUERY_FAILED,
             Self::RunNotFound { .. } => error_types::RUN_NOT_FOUND,
             Self::StorageDeleteFailed { .. } => error_types::STORAGE_DELETE_FAILED,
+            Self::PluginManifestInvalid { .. } => error_types::PLUGIN_MANIFEST_INVALID,
+            Self::PluginSpawnFailed { .. } => error_types::PLUGIN_SPAWN_FAILED,
+            Self::PluginProtocolError { .. } => error_types::PLUGIN_PROTOCOL_ERROR,
+            Self::PluginTimeout { .. } => error_types::PLUGIN_TIMEOUT,
         }
     }
 
@@ -146,7 +174,11 @@ impl AilError {
             | Self::PipelineAborted { detail, .. }
             | Self::StorageQueryFailed { detail, .. }
             | Self::RunNotFound { detail, .. }
-            | Self::StorageDeleteFailed { detail, .. } => detail,
+            | Self::StorageDeleteFailed { detail, .. }
+            | Self::PluginManifestInvalid { detail, .. }
+            | Self::PluginSpawnFailed { detail, .. }
+            | Self::PluginProtocolError { detail, .. }
+            | Self::PluginTimeout { detail, .. } => detail,
         }
     }
 
@@ -163,7 +195,11 @@ impl AilError {
             | Self::PipelineAborted { detail, .. }
             | Self::StorageQueryFailed { detail, .. }
             | Self::RunNotFound { detail, .. }
-            | Self::StorageDeleteFailed { detail, .. } => detail,
+            | Self::StorageDeleteFailed { detail, .. }
+            | Self::PluginManifestInvalid { detail, .. }
+            | Self::PluginSpawnFailed { detail, .. }
+            | Self::PluginProtocolError { detail, .. }
+            | Self::PluginTimeout { detail, .. } => detail,
         }
     }
 
@@ -182,7 +218,11 @@ impl AilError {
             | Self::PipelineAborted { context, .. }
             | Self::StorageQueryFailed { context, .. }
             | Self::RunNotFound { context, .. }
-            | Self::StorageDeleteFailed { context, .. } => context.as_ref(),
+            | Self::StorageDeleteFailed { context, .. }
+            | Self::PluginManifestInvalid { context, .. }
+            | Self::PluginSpawnFailed { context, .. }
+            | Self::PluginProtocolError { context, .. }
+            | Self::PluginTimeout { context, .. } => context.as_ref(),
         }
     }
 
@@ -236,6 +276,22 @@ impl AilError {
                 detail,
                 context: ctx,
             },
+            Self::PluginManifestInvalid { detail, .. } => Self::PluginManifestInvalid {
+                detail,
+                context: ctx,
+            },
+            Self::PluginSpawnFailed { detail, .. } => Self::PluginSpawnFailed {
+                detail,
+                context: ctx,
+            },
+            Self::PluginProtocolError { detail, .. } => Self::PluginProtocolError {
+                detail,
+                context: ctx,
+            },
+            Self::PluginTimeout { detail, .. } => Self::PluginTimeout {
+                detail,
+                context: ctx,
+            },
         }
     }
 
@@ -249,6 +305,8 @@ impl AilError {
     pub fn recovery_strategy(&self) -> RecoveryStrategy {
         match self {
             Self::RunnerInvocationFailed { .. } => RecoveryStrategy::Retry { max_attempts: 2 },
+            Self::PluginSpawnFailed { .. } => RecoveryStrategy::Retry { max_attempts: 2 },
+            Self::PluginTimeout { .. } => RecoveryStrategy::Retry { max_attempts: 2 },
             _ => RecoveryStrategy::Abort,
         }
     }
@@ -331,6 +389,34 @@ impl AilError {
             context: None,
         }
     }
+
+    pub fn plugin_manifest_invalid(detail: impl Into<String>) -> Self {
+        Self::PluginManifestInvalid {
+            detail: detail.into(),
+            context: None,
+        }
+    }
+
+    pub fn plugin_spawn_failed(detail: impl Into<String>) -> Self {
+        Self::PluginSpawnFailed {
+            detail: detail.into(),
+            context: None,
+        }
+    }
+
+    pub fn plugin_protocol_error(detail: impl Into<String>) -> Self {
+        Self::PluginProtocolError {
+            detail: detail.into(),
+            context: None,
+        }
+    }
+
+    pub fn plugin_timeout(detail: impl Into<String>) -> Self {
+        Self::PluginTimeout {
+            detail: detail.into(),
+            context: None,
+        }
+    }
 }
 
 pub mod error_types {
@@ -345,6 +431,10 @@ pub mod error_types {
     pub const STORAGE_QUERY_FAILED: &str = "ail:storage/query-failed";
     pub const RUN_NOT_FOUND: &str = "ail:storage/run-not-found";
     pub const STORAGE_DELETE_FAILED: &str = "ail:storage/delete-failed";
+    pub const PLUGIN_MANIFEST_INVALID: &str = "ail:plugin/manifest-invalid";
+    pub const PLUGIN_SPAWN_FAILED: &str = "ail:plugin/spawn-failed";
+    pub const PLUGIN_PROTOCOL_ERROR: &str = "ail:plugin/protocol-error";
+    pub const PLUGIN_TIMEOUT: &str = "ail:plugin/timeout";
 }
 
 #[cfg(test)]

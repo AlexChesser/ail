@@ -20,7 +20,14 @@ Consumed by `ail` (the binary) and future language-server / SDK targets.
 | `runner/claude/mod.rs` | `ClaudeCliRunner` — orchestrates subprocess + decoder + permission listener |
 | `runner/claude/decoder.rs` | `ClaudeNdjsonDecoder` — stateful NDJSON stream decoder, no process coupling; unit-testable with raw byte strings |
 | `runner/claude/permission.rs` | `ClaudePermissionListener` — RAII guard for the tool-permission socket (hook settings file, accept loop, `__close__` sentinel, cleanup on drop) |
-| `runner/factory.rs` | `RunnerFactory` — builds runners by name; honours `AIL_DEFAULT_RUNNER` env |
+| `runner/factory.rs` | `RunnerFactory` — builds runners by name; honours `AIL_DEFAULT_RUNNER` env; checks plugin registry for unknown names |
+| `runner/plugin/mod.rs` | Plugin system entry point — re-exports `PluginRegistry`, `PluginManifest`, `ProtocolRunner` |
+| `runner/plugin/discovery.rs` | `discover_plugins()` — scans `~/.ail/runners/` for manifest files; returns `PluginRegistry` |
+| `runner/plugin/jsonrpc.rs` | JSON-RPC 2.0 wire types (request, response, notification, method/notification constants) |
+| `runner/plugin/manifest_dto.rs` | Serde DTO for runner manifest YAML/JSON |
+| `runner/plugin/manifest.rs` | Validated domain type for plugin manifests — no serde |
+| `runner/plugin/validation.rs` | DTO → domain validation for manifests |
+| `runner/plugin/protocol_runner.rs` | `ProtocolRunner` — generic `Runner` impl that speaks JSON-RPC to any compliant executable |
 | `runner/http.rs` | `HttpRunner` — direct OpenAI-compatible HTTP runner (Ollama, direct API); full system-prompt control, think flag, in-memory session continuity |
 | `runner/stub.rs` | `StubRunner`, `CountingStubRunner`, `EchoStubRunner`, `RecordingStubRunner` — deterministic test doubles |
 | `session/log_provider.rs` | `LogProvider` trait + `JsonlProvider` (NDJSON) + `NullProvider` (tests) |
@@ -131,6 +138,10 @@ pub struct AilError { pub error_type: &'static str, pub title: &'static str, pub
 | `STORAGE_QUERY_FAILED` | `ail:storage/query-failed` |
 | `RUN_NOT_FOUND` | `ail:storage/run-not-found` |
 | `STORAGE_DELETE_FAILED` | `ail:storage/delete-failed` |
+| `PLUGIN_MANIFEST_INVALID` | `ail:plugin/manifest-invalid` |
+| `PLUGIN_SPAWN_FAILED` | `ail:plugin/spawn-failed` |
+| `PLUGIN_PROTOCOL_ERROR` | `ail:plugin/protocol-error` |
+| `PLUGIN_TIMEOUT` | `ail:plugin/timeout` |
 
 ## Invariants (do not break)
 
