@@ -29,11 +29,70 @@ pub mod stub;
 pub mod subprocess;
 
 use serde::{Deserialize, Serialize};
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use crate::config::domain::ProviderConfig;
 use crate::error::AilError;
+
+/// Cooperative cancellation token with event-driven notification.
+///
+/// Runners block on `listen().wait()` — no polling. Callers signal via `cancel()`.
+/// Internally wraps `Arc<AtomicBool>` (cheap `is_cancelled()` check) +
+/// `Arc<event_listener::Event>` (broadcast wakeup for all blocked waiters).
+#[derive(Clone)]
+pub struct CancelToken {
+    flag: Arc<AtomicBool>,
+    event: Arc<event_listener::Event>,
+}
+
+impl Default for CancelToken {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl CancelToken {
+    pub fn new() -> Self {
+        Self {
+            flag: Arc::new(AtomicBool::new(false)),
+            event: Arc::new(event_listener::Event::new()),
+        }
+    }
+
+    /// Signal cancellation. Wakes all threads blocking on `listen().wait()`.
+    pub fn cancel(&self) {
+        self.flag.store(true, Ordering::SeqCst);
+        self.event.notify(usize::MAX);
+    }
+
+    /// Check whether cancellation has been signalled (non-blocking).
+    pub fn is_cancelled(&self) -> bool {
+        self.flag.load(Ordering::SeqCst)
+    }
+
+    /// Obtain a listener that blocks on `.wait()` until `cancel()` or `wake()` is called.
+    /// Each caller should obtain their own listener.
+    pub fn listen(&self) -> event_listener::EventListener {
+        self.event.listen()
+    }
+
+    /// Reset the token to its initial non-cancelled state.
+    ///
+    /// Only safe when no listeners are currently blocked on this token.
+    /// Use between turns in interactive modes where the same token is reused.
+    pub fn reset(&self) {
+        self.flag.store(false, Ordering::SeqCst);
+    }
+
+    /// Wake all listeners without setting the cancelled flag.
+    ///
+    /// Used internally for cleanup — e.g. to stop a watchdog thread on normal subprocess
+    /// completion without falsely marking the invocation as cancelled.
+    pub(crate) fn wake(&self) {
+        self.event.notify(usize::MAX);
+    }
+}
 
 /// A single tool call or tool result event captured during a runner invocation.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -193,11 +252,10 @@ pub struct InvokeOptions {
     /// intercept permission requests and call this to obtain a decision before proceeding.
     /// Runners that do not support tool permissions ignore this field.
     pub permission_responder: Option<PermissionResponder>,
-    /// When set, the runner should abort the in-flight subprocess if this flag becomes `true`.
-    /// Callers share the same `Arc<AtomicBool>` used for the kill signal so that CTRL-C and
-    /// Ctrl+K both cancel mid-invocation requests. Runners that do not support cancellation
-    /// ignore this field.
-    pub cancel_token: Option<Arc<AtomicBool>>,
+    /// When set, the runner should abort the in-flight request when cancelled.
+    /// Callers create a `CancelToken` and call `cancel()` when CTRL-C / Ctrl+K fires.
+    /// Runners block on `token.listen().wait()` for event-driven cancellation — no polling.
+    pub cancel_token: Option<CancelToken>,
     /// System prompt override for this invocation (SPEC §5.9).
     /// When set, replaces the runner's default system prompt entirely.
     /// Runners that do not support system prompt overrides ignore this field.

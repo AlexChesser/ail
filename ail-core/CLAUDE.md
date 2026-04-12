@@ -52,9 +52,10 @@ pub enum ResultAction { Continue, Break, AbortPipeline, PauseForHuman, Pipeline 
 // const MAX_SUB_PIPELINE_DEPTH: usize = 16 — enforced by execute_inner depth counter
 
 // Provider/model config (SPEC §15) — resolved chain: defaults → per-step → cli_provider
-pub struct ProviderConfig { pub model: Option<String>, pub base_url: Option<String>, pub auth_token: Option<String> }
+pub struct ProviderConfig { pub model: Option<String>, pub base_url: Option<String>, pub auth_token: Option<String>, pub connect_timeout_seconds: Option<u64>, pub read_timeout_seconds: Option<u64>, pub max_history_messages: Option<usize> }
 // merge(self, other): other wins on conflict; absent fields fall through from self
-// Note: input_cost_per_1k / output_cost_per_1k removed (dead code — cost is in RunResult.cost_usd)
+// connect_timeout_seconds / read_timeout_seconds: HTTP runner timeouts (defaults 10s / 300s)
+// max_history_messages: sliding window cap for HTTP runner session history (None = unlimited)
 
 // Runner contract
 pub trait Runner { fn invoke(&self, prompt: &str, options: InvokeOptions) -> Result<RunResult, AilError>; }
@@ -72,11 +73,12 @@ pub struct PermissionRequest { pub display_name: String, pub display_detail: Str
 // tool_input: raw JSON tool input from the runner; used by AskUserQuestion intercept. ClaudeCliRunner populates; others may leave None.
 pub enum ToolPermissionPolicy { RunnerDefault, NoTools, Allowlist(Vec<String>), Denylist(Vec<String>), Mixed { allow: Vec<String>, deny: Vec<String> } }
 // NoTools → --tools "" on ClaudeCliRunner; disables all tool calls. ToolPolicy.disabled=true maps to this.
-pub struct InvokeOptions { pub resume_session_id: Option<String>, pub tool_policy: ToolPermissionPolicy, pub model: Option<String>, pub extensions: Option<Box<dyn Any + Send>>, pub permission_responder: Option<PermissionResponder> }
+pub struct InvokeOptions { pub resume_session_id: Option<String>, pub tool_policy: ToolPermissionPolicy, pub model: Option<String>, pub extensions: Option<Box<dyn Any + Send>>, pub permission_responder: Option<PermissionResponder>, pub cancel_token: Option<CancelToken>, pub system_prompt: Option<String>, pub append_system_prompt: Vec<String> }
 // extensions: runners downcast to their own type (e.g. ClaudeInvokeExtensions { base_url, auth_token, permission_socket }).
-// Executor packs ClaudeInvokeExtensions pragmatically; to be injected via runner config in task 04.
+// cancel_token: event-driven cancellation — CancelToken wraps Arc<AtomicBool> + Arc<event_listener::Event>.
+// Runners block on token.listen().wait() (no polling). Callers signal via token.cancel().
 // permission_responder: when set, the runner intercepts tool permission requests and calls this callback.
-// ClaudeCliRunner encapsulates the Unix socket lifecycle internally; the TUI never manages socket paths.
+// system_prompt / append_system_prompt: per-step system prompt override and extensions (SPEC §5.9).
 
 // Claude CLI runner config (runner/claude.rs) — builder for ClaudeCliRunner
 pub struct ClaudeCliRunnerConfig { pub claude_bin: String, pub headless: bool }
@@ -88,18 +90,22 @@ pub struct ClaudeCliRunnerConfig { pub claude_bin: String, pub headless: bool }
 pub struct ClaudeInvokeExtensions { pub base_url: Option<String>, pub auth_token: Option<String>, pub permission_socket: Option<PathBuf> }
 
 // HTTP runner config (runner/http.rs) — calls any OpenAI-compatible /v1/chat/completions endpoint
-pub struct HttpRunnerConfig { pub base_url: String, pub auth_token: Option<String>, pub default_model: Option<String>, pub think: Option<bool> }
+pub struct HttpRunnerConfig { pub base_url: String, pub auth_token: Option<String>, pub default_model: Option<String>, pub think: Option<bool>, pub connect_timeout_seconds: Option<u64>, pub read_timeout_seconds: Option<u64>, pub max_history_messages: Option<usize> }
 // Default base_url: "http://localhost:11434/v1" (local Ollama)
 // think: Some(false) disables extended thinking for qwen3 and similar models
-// HttpRunner::ollama(model) convenience ctor: base_url=localhost:11434, think=Some(false)
+// HttpRunner::new(config, store) — takes explicit HttpSessionStore for shared session state
+// HttpRunner::ollama(model, store) convenience ctor: base_url=localhost:11434, think=Some(false)
 // Factory names: "http" or "ollama" — reads AIL_HTTP_BASE_URL, AIL_HTTP_TOKEN, AIL_HTTP_MODEL, AIL_HTTP_THINK
-// Session continuity: maintained in-memory; session_id is a UUID returned by invoke() and passed as resume_session_id by the executor
+// Session continuity: shared in-memory store scoped to pipeline run via Session.http_session_store
+// Session IDs are NOT resumable across process restarts — correlation tokens only
+pub type HttpSessionStore = Arc<Mutex<HashMap<String, Vec<ChatMessage>>>>;
+// All HttpRunner instances sharing the same store see each other's sessions
 
 // Executor outcome
 pub enum ExecuteOutcome { Completed, Break { step_id: String } }
 
 // Session
-pub struct Session { pub run_id: String, pub pipeline: Pipeline, pub invocation_prompt: String, pub turn_log: TurnLog, pub cli_provider: ProviderConfig, pub cwd: String, pub runner_name: String, pub headless: bool }
+pub struct Session { pub run_id: String, pub pipeline: Pipeline, pub invocation_prompt: String, pub turn_log: TurnLog, pub cli_provider: ProviderConfig, pub cwd: String, pub runner_name: String, pub headless: bool, pub http_session_store: HttpSessionStore }
 // cwd: captured at Session::new() time via std::env::current_dir(); used by {{ session.cwd }} template variable.
 // TurnEntry carries prompt-step fields (response, runner_session_id, thinking, tool_events) and context-step fields (stdout, stderr, exit_code)
 // tool_events: Vec<ToolEvent> — populated from RunResult.tool_events for prompt steps; empty for context/action/sub-pipeline steps
@@ -117,6 +123,7 @@ pub struct AilError { pub error_type: &'static str, pub title: &'static str, pub
 | `CONFIG_VALIDATION_FAILED` | `ail:config/validation-failed` |
 | `TEMPLATE_UNRESOLVED` | `ail:template/unresolved-variable` |
 | `RUNNER_INVOCATION_FAILED` | `ail:runner/invocation-failed` |
+| `RUNNER_CANCELLED` | `ail:runner/cancelled` |
 | `RUNNER_NOT_FOUND` | `ail:runner/not-found` |
 | `PIPELINE_ABORTED` | `ail:pipeline/aborted` |
 | `STORAGE_QUERY_FAILED` | `ail:storage/query-failed` |

@@ -1,6 +1,10 @@
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
+
 use uuid::Uuid;
 
 use crate::config::domain::{Pipeline, ProviderConfig};
+use crate::runner::http::HttpSessionStore;
 
 use super::log_provider::{CompositeProvider, JsonlProvider, LogProvider};
 use super::sqlite_provider::SqliteProvider;
@@ -24,6 +28,9 @@ pub struct Session {
     /// Whether this session runs in headless mode (`--dangerously-skip-permissions`).
     /// Propagated to per-step runner overrides via `build_step_runner_box`.
     pub headless: bool,
+    /// Shared HTTP runner session store — all HttpRunner instances in this pipeline run
+    /// share the same in-memory conversation map.
+    pub http_session_store: HttpSessionStore,
 }
 
 impl Session {
@@ -66,6 +73,7 @@ impl Session {
             cwd,
             runner_name,
             headless: false,
+            http_session_store: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 

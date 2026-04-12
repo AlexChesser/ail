@@ -10,11 +10,12 @@
 
 use std::io::{BufReader, Read};
 use std::process::{Child, ChildStdout, Command, ExitStatus, Stdio};
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
-use std::time::Duration;
 
+use event_listener::Listener;
+
+use super::CancelToken;
 use crate::error::AilError;
 
 /// Specification for spawning a subprocess.
@@ -46,8 +47,10 @@ pub struct SubprocessOutcome {
 ///
 /// # Cancellation
 ///
-/// If `cancel_token` is `Some`, a watchdog thread polls it every 50 ms. When the flag
-/// becomes `true`, the child is killed. The caller should check
+/// If `cancel_token` is `Some`, a watchdog thread blocks on the token's event listener
+/// (no polling). When `cancel()` is called, the watchdog wakes and kills the child.
+/// On normal completion, [`SubprocessSession::finish`] calls `wake()` on the token to
+/// cleanly shut down the watchdog. The caller should check
 /// [`SubprocessOutcome::was_cancelled`] before interpreting a non-zero exit status, since a
 /// killed child exits non-zero.
 pub struct SubprocessSession {
@@ -55,8 +58,7 @@ pub struct SubprocessSession {
     stdout: Option<BufReader<ChildStdout>>,
     stderr_handle: Option<JoinHandle<String>>,
     watchdog: Option<JoinHandle<()>>,
-    watchdog_done: Arc<AtomicBool>,
-    cancel_token: Option<Arc<AtomicBool>>,
+    cancel_token: Option<CancelToken>,
 }
 
 impl SubprocessSession {
@@ -66,10 +68,10 @@ impl SubprocessSession {
     /// (a child that fills its stderr pipe before the parent reads it will block forever).
     ///
     /// If `cancel_token` is `Some`, a watchdog thread is started that kills the child when
-    /// the flag becomes `true`.
+    /// the token is cancelled.
     pub fn spawn(
         spec: SubprocessSpec,
-        cancel_token: Option<Arc<AtomicBool>>,
+        cancel_token: Option<CancelToken>,
     ) -> Result<Self, AilError> {
         let mut cmd = Command::new(&spec.program);
         cmd.args(&spec.args);
@@ -99,26 +101,31 @@ impl SubprocessSession {
         });
 
         let child = Arc::new(Mutex::new(child));
-        let watchdog_done = Arc::new(AtomicBool::new(false));
 
-        // Watchdog: polls cancel_token at 50 ms intervals and kills the child if set.
-        // The `watchdog_done` flag signals the watchdog to exit cleanly after normal completion.
+        // Watchdog: blocks on the cancel token's event listener (no polling).
+        // On cancel: kills the child. On normal completion: finish() calls wake()
+        // to unblock the listener for clean shutdown.
         let watchdog = cancel_token.as_ref().map(|token| {
-            let token = Arc::clone(token);
-            let done = Arc::clone(&watchdog_done);
+            let token = token.clone();
             let child_w = Arc::clone(&child);
-            thread::spawn(move || loop {
-                if done.load(Ordering::SeqCst) {
-                    return;
-                }
-                if token.load(Ordering::SeqCst) {
+            thread::spawn(move || {
+                let listener = token.listen();
+                // Double-check after registering to avoid race with already-cancelled token.
+                if token.is_cancelled() {
                     tracing::info!("cancel_token set — killing runner subprocess");
                     if let Ok(mut c) = child_w.lock() {
                         let _ = c.kill();
                     }
                     return;
                 }
-                thread::sleep(Duration::from_millis(50));
+                listener.wait();
+                if token.is_cancelled() {
+                    tracing::info!("cancel_token set — killing runner subprocess");
+                    if let Ok(mut c) = child_w.lock() {
+                        let _ = c.kill();
+                    }
+                }
+                // else: wake() was called for normal completion — exit cleanly
             })
         });
 
@@ -127,7 +134,6 @@ impl SubprocessSession {
             stdout: Some(BufReader::new(stdout)),
             stderr_handle: Some(stderr_handle),
             watchdog,
-            watchdog_done,
             cancel_token,
         })
     }
@@ -144,7 +150,7 @@ impl SubprocessSession {
     pub fn was_cancelled(&self) -> bool {
         self.cancel_token
             .as_ref()
-            .map(|t| t.load(Ordering::SeqCst))
+            .map(|t| t.is_cancelled())
             .unwrap_or(false)
     }
 
@@ -153,13 +159,15 @@ impl SubprocessSession {
     /// Returns the exit status, collected stderr output, and whether cancellation was
     /// requested. After this call the session is consumed.
     pub fn finish(self) -> Result<SubprocessOutcome, AilError> {
-        // Signal the watchdog to stop. Max 50 ms of extra latency on normal completion.
-        self.watchdog_done.store(true, Ordering::SeqCst);
+        // Wake the watchdog for clean shutdown (wake without cancel).
+        if let Some(ref token) = self.cancel_token {
+            token.wake();
+        }
 
         let was_cancelled = self
             .cancel_token
             .as_ref()
-            .map(|t| t.load(Ordering::SeqCst))
+            .map(|t| t.is_cancelled())
             .unwrap_or(false);
 
         if let Some(h) = self.watchdog {

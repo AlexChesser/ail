@@ -8,7 +8,6 @@ use crate::session::Session;
 use std::collections::HashSet;
 use std::sync::atomic::Ordering;
 use std::sync::mpsc;
-use std::sync::Arc;
 
 use super::core::{execute_core, BeforeStepAction, StepObserver};
 use super::events::{ExecuteOutcome, ExecutionControl, ExecutorEvent};
@@ -32,19 +31,19 @@ impl<'a> StepObserver for ChannelObserver<'a> {
         condition_never: bool,
     ) -> BeforeStepAction {
         // Kill check.
-        if self.control.kill_requested.load(Ordering::SeqCst) {
+        if self.control.kill_requested.is_cancelled() {
             tracing::info!(step_id = %step_id, "kill requested — stopping pipeline");
             return BeforeStepAction::Stop;
         }
 
         // Pause spin-wait — exit if kill is set while paused.
         while self.control.pause_requested.load(Ordering::SeqCst) {
-            if self.control.kill_requested.load(Ordering::SeqCst) {
+            if self.control.kill_requested.is_cancelled() {
                 return BeforeStepAction::Stop;
             }
             std::thread::sleep(std::time::Duration::from_millis(50));
         }
-        if self.control.kill_requested.load(Ordering::SeqCst) {
+        if self.control.kill_requested.is_cancelled() {
             return BeforeStepAction::Stop;
         }
 
@@ -100,7 +99,7 @@ impl<'a> StepObserver for ChannelObserver<'a> {
     }
 
     fn augment_options(&self, opts: &mut InvokeOptions) {
-        opts.cancel_token = Some(Arc::clone(&self.control.kill_requested));
+        opts.cancel_token = Some(self.control.kill_requested.clone());
         opts.permission_responder = self.control.permission_responder.clone();
     }
 
@@ -230,11 +229,12 @@ mod tests {
     };
     use crate::executor::events::{ExecuteOutcome, ExecutionControl, ExecutorEvent};
     use crate::runner::stub::StubRunner;
+    use crate::runner::CancelToken;
     use crate::test_helpers::{make_session, prompt_step};
 
     fn make_control() -> ExecutionControl {
         ExecutionControl {
-            kill_requested: Arc::new(AtomicBool::new(false)),
+            kill_requested: CancelToken::new(),
             pause_requested: Arc::new(AtomicBool::new(false)),
             permission_responder: None,
         }
@@ -282,7 +282,7 @@ mod tests {
         let mut session = make_session(vec![prompt_step("step1", "do something")]);
         let runner = StubRunner::new("stub");
         let control = make_control();
-        control.kill_requested.store(true, Ordering::SeqCst);
+        control.kill_requested.cancel();
         let disabled = HashSet::new();
         let (tx, rx) = mpsc::channel::<ExecutorEvent>();
         let (_hitl_tx, hitl_rx) = mpsc::channel::<String>();
@@ -604,14 +604,14 @@ mod tests {
 
         // Set pause immediately — the executor will spin-wait between steps.
         let pause_flag = Arc::clone(&control.pause_requested);
-        let kill_flag = Arc::clone(&control.kill_requested);
+        let kill_flag = control.kill_requested.clone();
 
         // Spawn a thread that clears the pause after a short delay.
         std::thread::spawn(move || {
             std::thread::sleep(std::time::Duration::from_millis(100));
             pause_flag.store(false, Ordering::SeqCst);
             // Ensure kill is not set.
-            let _ = kill_flag.load(Ordering::SeqCst);
+            let _ = kill_flag.is_cancelled();
         });
 
         control.pause_requested.store(true, Ordering::SeqCst);

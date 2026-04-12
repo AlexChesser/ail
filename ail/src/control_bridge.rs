@@ -7,7 +7,9 @@
 //! the infrastructure.
 
 use ail_core::executor::ExecutorEvent;
-use ail_core::runner::{PermissionRequest, PermissionResponder, PermissionResponse, RunnerEvent};
+use ail_core::runner::{
+    CancelToken, PermissionRequest, PermissionResponder, PermissionResponse, RunnerEvent,
+};
 use std::collections::HashSet;
 use std::io::Write;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -130,7 +132,7 @@ pub fn spawn_stdin_reader_once(
     pending_permission: PendingPermSlot,
     session_allowlist: AllowlistArc,
     pause_requested: Arc<AtomicBool>,
-    kill_requested: Arc<AtomicBool>,
+    kill_requested: CancelToken,
 ) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
         use ail_core::protocol::{parse_control_message, ControlMessage};
@@ -162,7 +164,7 @@ pub fn spawn_stdin_reader_once(
                     pause_requested.store(false, Ordering::SeqCst);
                 }
                 Some(ControlMessage::Kill) => {
-                    kill_requested.store(true, Ordering::SeqCst);
+                    kill_requested.cancel();
                 }
                 _ => {}
             }
@@ -185,7 +187,7 @@ pub fn spawn_stdin_reader_chat(
     hitl_slot: Arc<Mutex<Option<mpsc::SyncSender<String>>>>,
     perm_slot: Arc<Mutex<Option<mpsc::SyncSender<PermissionResponse>>>>,
     pause_requested: Arc<AtomicBool>,
-    kill_requested: Arc<AtomicBool>,
+    kill_requested: CancelToken,
 ) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
         use ail_core::protocol::{parse_control_message, ControlMessage};
@@ -221,7 +223,7 @@ pub fn spawn_stdin_reader_chat(
                     pause_requested.store(false, Ordering::SeqCst);
                 }
                 Some(ControlMessage::Kill) => {
-                    kill_requested.store(true, Ordering::SeqCst);
+                    kill_requested.cancel();
                 }
                 None => {}
             }

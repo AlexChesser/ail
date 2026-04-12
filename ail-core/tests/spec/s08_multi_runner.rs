@@ -1,12 +1,28 @@
 /// SPEC §19 — RunnerFactory: build by name, AIL_DEFAULT_RUNNER env var, RUNNER_NOT_FOUND error.
+use ail_core::config::domain::ProviderConfig;
 use ail_core::error::error_types;
 use ail_core::runner::factory::RunnerFactory;
+use ail_core::runner::http::HttpSessionStore;
 use ail_core::runner::{InvokeOptions, Runner};
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
+
+fn test_store() -> HttpSessionStore {
+    Arc::new(Mutex::new(HashMap::new()))
+}
+
+fn test_provider() -> ProviderConfig {
+    ProviderConfig::default()
+}
+
+fn build(name: &str) -> Result<Box<dyn Runner + Send>, ail_core::error::AilError> {
+    RunnerFactory::build(name, false, &test_store(), &test_provider())
+}
 
 /// Factory builds a stub runner by name.
 #[test]
 fn factory_builds_stub_runner_by_name() {
-    let runner = RunnerFactory::build("stub", false).expect("stub runner should build");
+    let runner = build("stub").expect("stub runner should build");
     let result = runner
         .invoke("hello", InvokeOptions::default())
         .expect("stub runner should succeed");
@@ -16,8 +32,7 @@ fn factory_builds_stub_runner_by_name() {
 /// Factory builds a stub runner with trailing whitespace and mixed case.
 #[test]
 fn factory_builds_stub_runner_case_insensitive_and_trimmed() {
-    let runner =
-        RunnerFactory::build("  Stub  ", false).expect("should build with whitespace/case");
+    let runner = build("  Stub  ").expect("should build with whitespace/case");
     let result = runner
         .invoke("hello", InvokeOptions::default())
         .expect("stub runner should succeed");
@@ -27,7 +42,7 @@ fn factory_builds_stub_runner_case_insensitive_and_trimmed() {
 /// Factory returns RUNNER_NOT_FOUND for an unknown runner name.
 #[test]
 fn factory_returns_runner_not_found_for_unknown_name() {
-    let result = RunnerFactory::build("nonexistent", false);
+    let result = build("nonexistent");
     assert!(result.is_err());
     let err = result.err().unwrap();
     assert_eq!(
@@ -46,7 +61,7 @@ fn factory_returns_runner_not_found_for_unknown_name() {
 /// Factory builds a stub runner object that satisfies the Runner trait.
 #[test]
 fn factory_stub_runner_satisfies_runner_trait() {
-    let runner: Box<dyn Runner> = RunnerFactory::build("stub", false).unwrap();
+    let runner: Box<dyn Runner> = build("stub").unwrap();
     let result = runner
         .invoke("test prompt", InvokeOptions::default())
         .unwrap();
@@ -59,7 +74,7 @@ fn factory_stub_runner_satisfies_runner_trait() {
 #[test]
 fn factory_builds_claude_runner_by_name() {
     // Only tests that construction succeeds. Invoking the runner requires the claude binary.
-    let result = RunnerFactory::build("claude", false);
+    let result = build("claude");
     assert!(
         result.is_ok(),
         "claude runner construction should succeed: {:?}",
@@ -73,7 +88,7 @@ fn factory_builds_claude_runner_by_name() {
 fn build_default_claude_fallback_constructs_successfully() {
     // We verify that the "claude" fallback path builds without error.
     // Actual env-var reading is tested in factory unit tests.
-    let result = RunnerFactory::build("claude", false);
+    let result = build("claude");
     assert!(result.is_ok());
 }
 
@@ -103,7 +118,7 @@ pipeline:
 /// Factory builds an HTTP runner by name (object construction only — no live server needed).
 #[test]
 fn factory_builds_http_runner_by_name() {
-    let result = RunnerFactory::build("http", false);
+    let result = build("http");
     assert!(
         result.is_ok(),
         "http runner construction should succeed: {:?}",
@@ -114,7 +129,7 @@ fn factory_builds_http_runner_by_name() {
 /// "ollama" is an alias for "http" — both resolve to the same HttpRunner.
 #[test]
 fn factory_builds_ollama_runner_as_http_alias() {
-    let result = RunnerFactory::build("ollama", false);
+    let result = build("ollama");
     assert!(
         result.is_ok(),
         "ollama alias should construct successfully: {:?}",

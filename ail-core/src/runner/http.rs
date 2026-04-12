@@ -20,10 +20,16 @@ use uuid::Uuid;
 use crate::error::AilError;
 use crate::runner::{InvokeOptions, RunResult, Runner, ToolPermissionPolicy};
 
+/// Shared in-memory conversation store for the HTTP runner.
+///
+/// All `HttpRunner` instances sharing the same store see each other's sessions.
+/// Typically scoped to a single pipeline run via `Session.http_session_store`.
+pub type HttpSessionStore = Arc<Mutex<HashMap<String, Vec<ChatMessage>>>>;
+
 // ── Wire DTOs ──────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-struct ChatMessage {
+pub struct ChatMessage {
     role: String,
     content: String,
 }
@@ -72,6 +78,15 @@ pub struct HttpRunnerConfig {
     /// Ollama's extended thinking mode for models like qwen3 that default to it.
     /// Leave as `None` to omit the field and let the server decide.
     pub think: Option<bool>,
+    /// Connect timeout in seconds. `None` uses the default (10 seconds).
+    pub connect_timeout_seconds: Option<u64>,
+    /// Read timeout in seconds. `None` uses the default (300 seconds).
+    pub read_timeout_seconds: Option<u64>,
+    /// Maximum number of non-system messages to retain in session history.
+    /// When set, older messages are dropped (sliding window) before each API call.
+    /// The system prompt (if present) is always preserved.
+    /// `None` means no limit (all history is retained).
+    pub max_history_messages: Option<usize>,
 }
 
 impl Default for HttpRunnerConfig {
@@ -81,6 +96,9 @@ impl Default for HttpRunnerConfig {
             auth_token: None,
             default_model: None,
             think: None,
+            connect_timeout_seconds: None,
+            read_timeout_seconds: None,
+            max_history_messages: None,
         }
     }
 }
@@ -95,41 +113,53 @@ const HTTP_READ_TIMEOUT: Duration = Duration::from_secs(300);
 
 /// Direct HTTP runner for OpenAI-compatible endpoints.
 ///
-/// Use [`HttpRunner::new`] with a custom config or [`HttpRunner::ollama`] for a
-/// local Ollama instance with thinking disabled.
+/// Use [`HttpRunner::new`] with a custom config and a shared session store.
+/// The store is typically created once per pipeline run and shared across all
+/// `HttpRunner` instances in the same run via `Session.http_session_store`.
 pub struct HttpRunner {
     config: HttpRunnerConfig,
     /// Pre-built ureq agent with configured timeouts. Reused across invocations.
     agent: ureq::Agent,
-    /// In-memory conversation store: session_id → full message history.
+    /// Shared in-memory conversation store: session_id → full message history.
     ///
     /// Stored messages: [system?, user, assistant, user, assistant, …]
     /// — always the complete context needed to resume the conversation.
-    conversations: Arc<Mutex<HashMap<String, Vec<ChatMessage>>>>,
+    conversations: HttpSessionStore,
 }
 
 impl HttpRunner {
-    pub fn new(config: HttpRunnerConfig) -> Self {
+    pub fn new(config: HttpRunnerConfig, store: HttpSessionStore) -> Self {
+        let connect_timeout = config
+            .connect_timeout_seconds
+            .map(Duration::from_secs)
+            .unwrap_or(HTTP_CONNECT_TIMEOUT);
+        let read_timeout = config
+            .read_timeout_seconds
+            .map(Duration::from_secs)
+            .unwrap_or(HTTP_READ_TIMEOUT);
         let agent = ureq::AgentBuilder::new()
-            .timeout_connect(HTTP_CONNECT_TIMEOUT)
-            .timeout_read(HTTP_READ_TIMEOUT)
+            .timeout_connect(connect_timeout)
+            .timeout_read(read_timeout)
             .build();
         HttpRunner {
             config,
             agent,
-            conversations: Arc::new(Mutex::new(HashMap::new())),
+            conversations: store,
         }
     }
 
     /// Convenience constructor for a local Ollama instance with thinking disabled.
     ///
     /// Sets `base_url = "http://localhost:11434/v1"` and `think = Some(false)`.
-    pub fn ollama(model: impl Into<String>) -> Self {
-        Self::new(HttpRunnerConfig {
-            default_model: Some(model.into()),
-            think: Some(false),
-            ..HttpRunnerConfig::default()
-        })
+    pub fn ollama(model: impl Into<String>, store: HttpSessionStore) -> Self {
+        Self::new(
+            HttpRunnerConfig {
+                default_model: Some(model.into()),
+                think: Some(false),
+                ..HttpRunnerConfig::default()
+            },
+            store,
+        )
     }
 
     /// Build the system prompt string from `InvokeOptions`.
@@ -189,6 +219,7 @@ impl Runner for HttpRunner {
         let resume_id = options.resume_session_id.as_deref();
         let mut api_messages: Vec<ChatMessage> = Vec::new();
 
+        let mut found_resume = false;
         if let Some(id) = resume_id {
             // Resume: load stored history (which ends with the last assistant turn).
             let store =
@@ -200,9 +231,17 @@ impl Runner for HttpRunner {
                     })?;
             if let Some(history) = store.get(id) {
                 api_messages.extend_from_slice(history);
+                found_resume = true;
+            } else {
+                tracing::warn!(
+                    session_id = %id,
+                    "HttpRunner: resume session not found in store; starting fresh conversation"
+                );
             }
-        } else {
-            // Fresh conversation: prepend system prompt when present.
+        }
+
+        if !found_resume {
+            // Fresh conversation (or resume-miss fallthrough): prepend system prompt.
             let system = Self::build_system_prompt(&options);
             if !system.is_empty() {
                 api_messages.push(ChatMessage {
@@ -217,6 +256,21 @@ impl Runner for HttpRunner {
             role: "user".to_string(),
             content: prompt.to_string(),
         });
+
+        // ── Sliding window: cap history length ──────────────────────────────
+        if let Some(max) = self.config.max_history_messages {
+            let has_system = api_messages
+                .first()
+                .map(|m| m.role == "system")
+                .unwrap_or(false);
+            let keep_from = if has_system { 1 } else { 0 };
+            let tail_len = api_messages.len() - keep_from;
+            if tail_len > max {
+                let mut truncated: Vec<ChatMessage> = api_messages[..keep_from].to_vec();
+                truncated.extend_from_slice(&api_messages[api_messages.len() - max..]);
+                api_messages = truncated;
+            }
+        }
 
         // ── HTTP call ────────────────────────────────────────────────────────
 
@@ -239,29 +293,87 @@ impl Runner for HttpRunner {
             think: self.config.think,
         };
 
+        // Serialize request body on the caller thread (avoids serde in the worker).
+        let body_json =
+            serde_json::to_string(&body).map_err(|e| AilError::RunnerInvocationFailed {
+                detail: format!("HttpRunner: failed to serialize request body: {e}"),
+                context: None,
+            })?;
+
         let auth_header = self
             .config
             .auth_token
             .as_deref()
             .map(|t| format!("Bearer {t}"));
 
-        let req = self
-            .agent
-            .post(&url)
-            .set("Content-Type", "application/json");
-        let req = match &auth_header {
-            Some(auth) => req.set("Authorization", auth),
-            None => req,
-        };
+        // ── Event-driven cancellation via worker thread ─────────────────────
+        //
+        // The blocking ureq call runs in a spawned thread. The caller waits on
+        // an mpsc channel. If a cancel_token is present, a second thread blocks
+        // on the token's event listener and sends a Cancelled signal on the same
+        // channel. Whichever arrives first wins.
 
-        let response: ChatResponse = req
-            .send_json(ureq::serde_json::json!(body))
-            .map_err(Self::map_ureq_error)?
-            .into_json()
-            .map_err(|e| AilError::RunnerInvocationFailed {
-                detail: format!("HttpRunner: failed to parse response JSON: {e}"),
-                context: None,
-            })?;
+        enum Signal {
+            Result(Result<ChatResponse, AilError>),
+            Cancelled,
+        }
+
+        let (tx, rx) = std::sync::mpsc::channel::<Signal>();
+        let tx_result = tx.clone();
+        let agent = self.agent.clone();
+        let url_owned = url.clone();
+        let auth_owned = auth_header.clone();
+
+        std::thread::spawn(move || {
+            let mut req = agent
+                .post(&url_owned)
+                .set("Content-Type", "application/json");
+            if let Some(ref auth) = auth_owned {
+                req = req.set("Authorization", auth);
+            }
+            let result = req
+                .send_string(&body_json)
+                .map_err(Self::map_ureq_error)
+                .and_then(|resp| {
+                    resp.into_json::<ChatResponse>()
+                        .map_err(|e| AilError::RunnerInvocationFailed {
+                            detail: format!("HttpRunner: failed to parse response JSON: {e}"),
+                            context: None,
+                        })
+                });
+            let _ = tx_result.send(Signal::Result(result));
+        });
+
+        if let Some(ref token) = options.cancel_token {
+            let listener = token.listen();
+            let tx_cancel = tx.clone();
+            // Double-check: if already cancelled before listener registered, send immediately.
+            if token.is_cancelled() {
+                return Err(AilError::runner_cancelled(
+                    "HTTP request cancelled by cancel_token",
+                ));
+            }
+            std::thread::spawn(move || {
+                use event_listener::Listener;
+                listener.wait();
+                let _ = tx_cancel.send(Signal::Cancelled);
+            });
+        }
+        drop(tx); // drop our copy so channel disconnects if both threads exit
+
+        let response = match rx.recv() {
+            Ok(Signal::Result(r)) => r?,
+            Ok(Signal::Cancelled) => {
+                return Err(AilError::runner_cancelled(
+                    "HTTP request cancelled by cancel_token",
+                ));
+            }
+            Err(_) => {
+                return Err(AilError::runner_cancelled(
+                    "HTTP worker thread terminated unexpectedly",
+                ));
+            }
+        };
 
         // ── Extract result ───────────────────────────────────────────────────
 
@@ -326,9 +438,13 @@ impl Runner for HttpRunner {
 mod tests {
     use super::*;
 
+    fn fresh_store() -> HttpSessionStore {
+        Arc::new(Mutex::new(HashMap::new()))
+    }
+
     #[test]
     fn ollama_constructor_sets_defaults() {
-        let r = HttpRunner::ollama("qwen3:0.6b");
+        let r = HttpRunner::ollama("qwen3:0.6b", fresh_store());
         assert_eq!(r.config.default_model.as_deref(), Some("qwen3:0.6b"));
         assert_eq!(r.config.think, Some(false));
         assert_eq!(r.config.base_url, "http://localhost:11434/v1");
@@ -336,12 +452,16 @@ mod tests {
 
     #[test]
     fn new_with_config_stores_fields() {
-        let r = HttpRunner::new(HttpRunnerConfig {
-            base_url: "http://api.example.com/v1".to_string(),
-            auth_token: Some("tok".to_string()),
-            default_model: Some("gpt-4o".to_string()),
-            think: None,
-        });
+        let r = HttpRunner::new(
+            HttpRunnerConfig {
+                base_url: "http://api.example.com/v1".to_string(),
+                auth_token: Some("tok".to_string()),
+                default_model: Some("gpt-4o".to_string()),
+                think: None,
+                ..HttpRunnerConfig::default()
+            },
+            fresh_store(),
+        );
         assert_eq!(r.config.base_url, "http://api.example.com/v1");
         assert_eq!(r.config.auth_token.as_deref(), Some("tok"));
         assert_eq!(r.config.default_model.as_deref(), Some("gpt-4o"));
@@ -381,12 +501,13 @@ mod tests {
     fn invoke_without_model_returns_runner_invocation_failed() {
         use crate::error::error_types;
         // Port 1 is reserved and connection-refused on all platforms — never contacted.
-        let runner = HttpRunner::new(HttpRunnerConfig {
-            base_url: "http://127.0.0.1:1".to_string(),
-            auth_token: None,
-            default_model: None,
-            think: None,
-        });
+        let runner = HttpRunner::new(
+            HttpRunnerConfig {
+                base_url: "http://127.0.0.1:1".to_string(),
+                ..HttpRunnerConfig::default()
+            },
+            fresh_store(),
+        );
         let err = runner
             .invoke("prompt", InvokeOptions::default())
             .unwrap_err();
@@ -405,7 +526,7 @@ mod tests {
 
     #[test]
     fn conversation_store_starts_empty() {
-        let r = HttpRunner::new(HttpRunnerConfig::default());
+        let r = HttpRunner::new(HttpRunnerConfig::default(), fresh_store());
         let store = r.conversations.lock().unwrap();
         assert!(store.is_empty());
     }
@@ -414,7 +535,7 @@ mod tests {
     #[test]
     #[ignore]
     fn live_ollama_invoke_returns_nonempty_response() {
-        let runner = HttpRunner::ollama("qwen3:0.6b");
+        let runner = HttpRunner::ollama("qwen3:0.6b", fresh_store());
         let options = InvokeOptions {
             model: Some("qwen3:0.6b".to_string()),
             system_prompt: Some("Reply with exactly one word: TRIVIAL.".to_string()),
@@ -430,7 +551,7 @@ mod tests {
     #[test]
     #[ignore]
     fn live_ollama_multi_turn_session_continuity() {
-        let runner = HttpRunner::ollama("qwen3:0.6b");
+        let runner = HttpRunner::ollama("qwen3:0.6b", fresh_store());
 
         let first = runner
             .invoke(

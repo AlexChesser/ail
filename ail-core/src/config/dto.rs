@@ -20,6 +20,9 @@ pub struct ProviderDto {
     pub model: Option<String>,
     pub base_url: Option<String>,
     pub auth_token: Option<String>,
+    pub connect_timeout_seconds: Option<u64>,
+    pub read_timeout_seconds: Option<u64>,
+    pub max_history_messages: Option<usize>,
 }
 
 #[derive(Deserialize)]

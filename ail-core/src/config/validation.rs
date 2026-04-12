@@ -150,6 +150,12 @@ pub fn validate(dto: PipelineFileDto, source: PathBuf) -> Result<Pipeline, AilEr
                     .or(d.model),
                 base_url: d.provider.as_ref().and_then(|p| p.base_url.clone()),
                 auth_token: d.provider.as_ref().and_then(|p| p.auth_token.clone()),
+                connect_timeout_seconds: d
+                    .provider
+                    .as_ref()
+                    .and_then(|p| p.connect_timeout_seconds),
+                read_timeout_seconds: d.provider.as_ref().and_then(|p| p.read_timeout_seconds),
+                max_history_messages: d.provider.as_ref().and_then(|p| p.max_history_messages),
             };
             (provider_config, d.tools.map(tools_to_policy))
         })
@@ -912,6 +918,9 @@ mod tests {
                     model: Some("provider-wins".to_string()),
                     base_url: None,
                     auth_token: None,
+                    connect_timeout_seconds: None,
+                    read_timeout_seconds: None,
+                    max_history_messages: None,
                 }),
                 timeout_seconds: None,
                 tools: None,

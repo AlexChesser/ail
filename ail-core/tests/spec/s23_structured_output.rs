@@ -35,7 +35,7 @@ fn events_serialize_to_valid_ndjson() {
     let (_hitl_tx, hitl_rx) = mpsc::channel::<String>();
     let control = ExecutionControl {
         pause_requested: Arc::new(AtomicBool::new(false)),
-        kill_requested: Arc::new(AtomicBool::new(false)),
+        kill_requested: ail_core::runner::CancelToken::new(),
         permission_responder: None,
     };
 
@@ -108,7 +108,7 @@ fn step_started_event_has_correct_fields() {
     let (_hitl_tx, hitl_rx) = mpsc::channel::<String>();
     let control = ExecutionControl {
         pause_requested: Arc::new(AtomicBool::new(false)),
-        kill_requested: Arc::new(AtomicBool::new(false)),
+        kill_requested: ail_core::runner::CancelToken::new(),
         permission_responder: None,
     };
 

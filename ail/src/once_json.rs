@@ -1,4 +1,4 @@
-use ail_core::runner::{InvokeOptions, Runner};
+use ail_core::runner::{CancelToken, InvokeOptions, Runner};
 use std::io::Write;
 use std::sync::atomic::AtomicBool;
 use std::sync::mpsc;
@@ -40,7 +40,7 @@ pub async fn run_once_json(
     // via the stdin control protocol.
     let (hitl_tx, hitl_rx) = mpsc::channel::<String>();
     let pause_requested = Arc::new(AtomicBool::new(false));
-    let kill_requested = Arc::new(AtomicBool::new(false));
+    let kill_requested = CancelToken::new();
 
     let pending_permission = control_bridge::make_pending_perm();
     let session_allowlist = control_bridge::make_allowlist();
@@ -55,7 +55,7 @@ pub async fn run_once_json(
         Arc::clone(&pending_permission),
         Arc::clone(&session_allowlist),
         Arc::clone(&pause_requested),
-        Arc::clone(&kill_requested),
+        kill_requested.clone(),
     );
 
     let has_invocation_step = session.has_invocation_step();
@@ -142,7 +142,7 @@ pub async fn run_once_json(
 
     let control = ExecutionControl {
         pause_requested: Arc::clone(&pause_requested),
-        kill_requested: Arc::clone(&kill_requested),
+        kill_requested: kill_requested.clone(),
         permission_responder: Some(responder),
     };
     let disabled_steps = std::collections::HashSet::new();

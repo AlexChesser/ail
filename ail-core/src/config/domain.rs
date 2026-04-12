@@ -25,6 +25,13 @@ pub struct ProviderConfig {
     pub base_url: Option<String>,
     /// Provider auth token, set as `ANTHROPIC_AUTH_TOKEN` in the runner subprocess environment.
     pub auth_token: Option<String>,
+    /// Connect timeout in seconds for HTTP runner. `None` uses runner default (10s).
+    pub connect_timeout_seconds: Option<u64>,
+    /// Read timeout in seconds for HTTP runner. `None` uses runner default (300s).
+    pub read_timeout_seconds: Option<u64>,
+    /// Maximum number of non-system messages in HTTP runner session history.
+    /// Older messages are dropped (sliding window). `None` means unlimited.
+    pub max_history_messages: Option<usize>,
 }
 
 impl ProviderConfig {
@@ -35,6 +42,11 @@ impl ProviderConfig {
             model: other.model.or(self.model),
             base_url: other.base_url.or(self.base_url),
             auth_token: other.auth_token.or(self.auth_token),
+            connect_timeout_seconds: other
+                .connect_timeout_seconds
+                .or(self.connect_timeout_seconds),
+            read_timeout_seconds: other.read_timeout_seconds.or(self.read_timeout_seconds),
+            max_history_messages: other.max_history_messages.or(self.max_history_messages),
         }
     }
 }
