@@ -27,6 +27,7 @@ fn append_response(session: &mut Session, step_id: &str, response: &str) {
         exit_code: None,
         thinking: None,
         tool_events: vec![],
+        modified: None,
     });
 }
 
@@ -45,6 +46,7 @@ fn append_context(session: &mut Session, step_id: &str, stdout: &str, stderr: &s
         exit_code: Some(code),
         thinking: None,
         tool_events: vec![],
+        modified: None,
     });
 }
 
@@ -488,6 +490,7 @@ fn step_tool_calls_serialises_events_as_json() {
         exit_code: None,
         thinking: None,
         tool_events: vec![event],
+        modified: None,
     });
 
     let result = resolve("{{ step.run_check.tool_calls }}", &session).unwrap();
@@ -497,6 +500,43 @@ fn step_tool_calls_serialises_events_as_json() {
     assert_eq!(arr.len(), 1);
     assert_eq!(arr[0]["tool_name"], "Bash");
     assert_eq!(arr[0]["event_type"], "tool_call");
+}
+
+// ── 13. {{ step.<id>.modified }} (SPEC §13.2) ──────────────────────────
+
+#[test]
+fn step_modified_resolves_to_modified_output() {
+    let mut session = make_session();
+    let entry = TurnEntry::from_modify(
+        "review_gate",
+        "Please review".to_string(),
+        "edited text".to_string(),
+    );
+    session.turn_log.append(entry);
+
+    let result = resolve("{{ step.review_gate.modified }}", &session).unwrap();
+    assert_eq!(result, "edited text");
+}
+
+#[test]
+fn step_modified_missing_returns_error() {
+    let session = make_session();
+    let result = resolve("{{ step.no_gate.modified }}", &session);
+    assert!(result.is_err());
+    let err = result.unwrap_err();
+    assert_eq!(
+        err.error_type(),
+        ail_core::error::error_types::TEMPLATE_UNRESOLVED
+    );
+}
+
+#[test]
+fn step_modified_none_when_not_a_modify_step_returns_error() {
+    let mut session = make_session();
+    // Append a regular prompt entry (modified is None).
+    append_response(&mut session, "regular", "some response");
+    let result = resolve("{{ step.regular.modified }}", &session);
+    assert!(result.is_err());
 }
 
 #[test]

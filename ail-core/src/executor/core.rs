@@ -10,6 +10,7 @@
 use crate::config::domain::{ActionKind, Condition, ContextSource, ResultAction, StepBody};
 use crate::error::AilError;
 use crate::runner::{InvokeOptions, RunResult, Runner};
+use crate::session::turn_log::TurnEntry;
 use crate::session::Session;
 
 use super::dispatch;
@@ -82,6 +83,18 @@ pub(super) trait StepObserver {
     /// the HITL channel, then emit `StepCompleted`. Headless: no-op (step is skipped, no entry).
     fn handle_pause_for_human(&mut self, step_id: &str, message: Option<&str>);
 
+    /// Handle a `modify_output` HITL gate (SPEC §13.2). Controlled: emit `HitlModifyReached`,
+    /// block on the HITL channel, return the human's modified text. Headless: behavior depends
+    /// on `headless_behavior` (skip/abort/use_default).
+    fn handle_modify_output(
+        &mut self,
+        step_id: &str,
+        message: Option<&str>,
+        last_response: Option<&str>,
+        headless_behavior: &crate::config::domain::HitlHeadlessBehavior,
+        default_value: Option<&str>,
+    ) -> Result<Option<String>, AilError>;
+
     /// Pipeline completed (normal or via `break`). Controlled: emit `PipelineCompleted`.
     /// Headless: no-op.
     fn on_pipeline_done(&mut self, outcome: &ExecuteOutcome);
@@ -136,6 +149,46 @@ impl StepObserver for NullObserver {
 
     fn handle_pause_for_human(&mut self, step_id: &str, _: Option<&str>) {
         tracing::info!(step_id = %step_id, "pause_for_human — no-op in headless mode");
+    }
+
+    fn handle_modify_output(
+        &mut self,
+        step_id: &str,
+        _message: Option<&str>,
+        _last_response: Option<&str>,
+        headless_behavior: &crate::config::domain::HitlHeadlessBehavior,
+        default_value: Option<&str>,
+    ) -> Result<Option<String>, AilError> {
+        use crate::config::domain::HitlHeadlessBehavior;
+        match headless_behavior {
+            HitlHeadlessBehavior::Skip => {
+                tracing::warn!(
+                    step_id = %step_id,
+                    "modify_output gate skipped in headless mode — pipeline continues; \
+                     use controlled mode (--output-format json) for interactive HITL gates"
+                );
+                Ok(None)
+            }
+            HitlHeadlessBehavior::Abort => {
+                tracing::warn!(step_id = %step_id, "modify_output gate fired abort in headless mode");
+                Err(AilError::PipelineAborted {
+                    detail: format!(
+                        "Step '{step_id}' is a modify_output gate with on_headless: abort — \
+                         pipeline cannot continue without human input"
+                    ),
+                    context: None,
+                })
+            }
+            HitlHeadlessBehavior::UseDefault => {
+                let value = default_value.unwrap_or("").to_string();
+                tracing::info!(
+                    step_id = %step_id,
+                    default_len = value.len(),
+                    "modify_output gate using default_value in headless mode"
+                );
+                Ok(Some(value))
+            }
+        }
     }
 
     fn on_pipeline_done(&mut self, _: &ExecuteOutcome) {}
@@ -208,6 +261,31 @@ pub(super) fn execute_core<O: StepObserver>(
             continue;
         }
 
+        // modify_output HITL gate — may produce a TurnEntry with modified text, or skip.
+        if let StepBody::Action(ActionKind::ModifyOutput {
+            ref headless_behavior,
+            ref default_value,
+        }) = &step.body
+        {
+            let last_resp = session.turn_log.last_response().map(|s| s.to_string());
+            let modified = observer.handle_modify_output(
+                &step_id,
+                step.message.as_deref(),
+                last_resp.as_deref(),
+                headless_behavior,
+                default_value.as_deref(),
+            )?;
+            if let Some(modified_text) = modified {
+                let msg = step
+                    .message
+                    .clone()
+                    .unwrap_or_else(|| "modify_output".to_string());
+                let entry = TurnEntry::from_modify(&step_id, msg, modified_text);
+                session.turn_log.append(entry);
+            }
+            continue;
+        }
+
         // Non-Prompt steps emit StepStarted before dispatch; Prompt steps emit after resolution.
         if !matches!(step.body, StepBody::Prompt(_)) {
             observer.on_non_prompt_started(&step_id, step_index, total_steps);
@@ -232,6 +310,10 @@ pub(super) fn execute_core<O: StepObserver>(
 
             StepBody::Action(ActionKind::PauseForHuman) => {
                 unreachable!("PauseForHuman handled above before the match")
+            }
+
+            StepBody::Action(ActionKind::ModifyOutput { .. }) => {
+                unreachable!("ModifyOutput handled above before the match")
             }
 
             StepBody::SubPipeline {

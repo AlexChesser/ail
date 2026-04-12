@@ -31,6 +31,9 @@ pub struct TurnEntry {
     /// Ordered list of tool call and tool result events captured during this step.
     /// Empty for context:shell steps, sub-pipeline steps, and action steps.
     pub tool_events: Vec<ToolEvent>,
+    /// Human-modified output from a HITL `modify_output` gate (SPEC §13.2).
+    /// `None` for steps that are not modify gates or when no modification was made.
+    pub modified: Option<String>,
 }
 
 /// Written as the first entry for a run. Carries pipeline_source and project_hash so the SQLite provider
@@ -70,6 +73,7 @@ impl TurnEntry {
             exit_code: None,
             thinking: result.thinking,
             tool_events: result.tool_events,
+            modified: None,
         }
     }
 
@@ -95,6 +99,31 @@ impl TurnEntry {
             exit_code: Some(exit_code),
             thinking: None,
             tool_events: vec![],
+            modified: None,
+        }
+    }
+
+    /// Construct a TurnEntry for a `modify_output` HITL gate (SPEC §13.2).
+    pub fn from_modify(
+        step_id: impl Into<String>,
+        message: String,
+        modified_output: String,
+    ) -> Self {
+        TurnEntry {
+            step_id: step_id.into(),
+            prompt: message,
+            response: None,
+            timestamp: SystemTime::now(),
+            cost_usd: None,
+            input_tokens: 0,
+            output_tokens: 0,
+            runner_session_id: None,
+            stdout: None,
+            stderr: None,
+            exit_code: None,
+            thinking: None,
+            tool_events: vec![],
+            modified: Some(modified_output),
         }
     }
 }
@@ -290,6 +319,14 @@ impl TurnLog {
             .map(|e| e.tool_events.as_slice())
     }
 
+    /// Human-modified output for a `modify_output` HITL gate step (SPEC §13.2).
+    pub fn modified_for_step(&self, id: &str) -> Option<&str> {
+        self.entries
+            .iter()
+            .find(|e| e.step_id == id)
+            .and_then(|e| e.modified.as_deref())
+    }
+
     pub fn entries(&self) -> &[TurnEntry] {
         &self.entries
     }
@@ -317,6 +354,7 @@ mod tests {
             exit_code: None,
             thinking: None,
             tool_events: Vec::<ToolEvent>::new(),
+            modified: None,
         }
     }
 

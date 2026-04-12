@@ -32,8 +32,13 @@ pub struct StepDto {
     pub skill: Option<String>,
     pub pipeline: Option<String>,
     pub action: Option<String>,
-    /// Optional human-readable message shown in the HITL gate banner when `action: pause_for_human`.
+    /// Optional human-readable message shown in the HITL gate banner when `action: pause_for_human`
+    /// or `action: modify_output`.
     pub message: Option<String>,
+    /// Headless-mode behavior for HITL gates (`skip`, `abort`, `use_default`). Defaults to `skip`.
+    pub on_headless: Option<String>,
+    /// Default value used when `on_headless: use_default` and no human is available.
+    pub default_value: Option<String>,
     pub context: Option<ContextDto>,
     pub tools: Option<ToolsDto>,
     pub on_result: Option<Vec<OnResultBranchDto>>,

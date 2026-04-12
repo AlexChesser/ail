@@ -141,5 +141,6 @@ pub(in crate::executor) fn execute_sub_pipeline(
         exit_code: None,
         thinking: None,
         tool_events: vec![],
+        modified: None,
     })
 }

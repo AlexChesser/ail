@@ -47,6 +47,24 @@ pub fn materialize(pipeline: &Pipeline) -> String {
             StepBody::Action(ActionKind::PauseForHuman) => {
                 out.push_str("    action: pause_for_human\n");
             }
+            StepBody::Action(ActionKind::ModifyOutput {
+                ref headless_behavior,
+                ref default_value,
+            }) => {
+                out.push_str("    action: modify_output\n");
+                match headless_behavior {
+                    crate::config::domain::HitlHeadlessBehavior::Skip => {}
+                    crate::config::domain::HitlHeadlessBehavior::Abort => {
+                        out.push_str("    on_headless: abort\n");
+                    }
+                    crate::config::domain::HitlHeadlessBehavior::UseDefault => {
+                        out.push_str("    on_headless: use_default\n");
+                        if let Some(dv) = default_value {
+                            out.push_str(&format!("    default_value: \"{}\"\n", yaml_quote(dv)));
+                        }
+                    }
+                }
+            }
             StepBody::Context(ContextSource::Shell(cmd)) => {
                 out.push_str(&format!(
                     "    context:\n      shell: \"{}\"\n",

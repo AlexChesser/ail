@@ -76,6 +76,7 @@ mod session {
             exit_code: None,
             thinking: None,
             tool_events: vec![],
+            modified: None,
         }
     }
 

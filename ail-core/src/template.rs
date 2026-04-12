@@ -100,6 +100,15 @@ fn resolve_variable(variable: &str, session: &Session) -> Result<String, AilErro
                             .ok_or_else(|| {
                                 unresolved(format!("No exit_code recorded for step '{step_id}'"))
                             }),
+                        "modified" => session
+                            .turn_log
+                            .modified_for_step(step_id)
+                            .map(|s| s.to_string())
+                            .ok_or_else(|| {
+                                unresolved(format!(
+                                    "No modified output recorded for step '{step_id}'"
+                                ))
+                            }),
                         "tool_calls" => {
                             let events = session
                                 .turn_log

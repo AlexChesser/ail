@@ -2,6 +2,7 @@
 
 #![allow(clippy::result_large_err)]
 
+use crate::config::domain::HitlHeadlessBehavior;
 use crate::error::AilError;
 use crate::runner::{InvokeOptions, RunResult, Runner, RunnerEvent};
 use crate::session::Session;
@@ -159,6 +160,33 @@ impl<'a> StepObserver for ChannelObserver<'a> {
             response: None,
             model: None,
         });
+    }
+
+    fn handle_modify_output(
+        &mut self,
+        step_id: &str,
+        message: Option<&str>,
+        last_response: Option<&str>,
+        _headless_behavior: &HitlHeadlessBehavior,
+        _default_value: Option<&str>,
+    ) -> Result<Option<String>, AilError> {
+        tracing::info!(step_id = %step_id, "modify_output gate — waiting for HITL response");
+        let _ = self.event_tx.send(ExecutorEvent::HitlModifyReached {
+            step_id: step_id.to_string(),
+            message: message.map(str::to_string),
+            last_response: last_response.map(str::to_string),
+        });
+        let modified = self.hitl_rx.recv().unwrap_or_default();
+        tracing::info!(step_id = %step_id, "modify_output HITL gate unblocked — resuming");
+        let _ = self.event_tx.send(ExecutorEvent::StepCompleted {
+            step_id: step_id.to_string(),
+            cost_usd: None,
+            input_tokens: 0,
+            output_tokens: 0,
+            response: None,
+            model: None,
+        });
+        Ok(Some(modified))
     }
 
     fn on_pipeline_done(&mut self, outcome: &ExecuteOutcome) {
@@ -737,6 +765,124 @@ mod tests {
                 prompt.contains(&run_id),
                 "Expected run_id in resolved_prompt, got: {prompt}"
             );
+        }
+    }
+
+    // ── Test 14: modify_output gate in controlled mode ──────────────────────
+
+    #[test]
+    fn modify_output_sends_hitl_modify_reached_and_stores_modified_text() {
+        use crate::config::domain::{ActionKind, HitlHeadlessBehavior};
+
+        let generate = prompt_step("generate", "Generate content");
+        let gate = Step {
+            id: StepId("review_gate".to_string()),
+            body: StepBody::Action(ActionKind::ModifyOutput {
+                headless_behavior: HitlHeadlessBehavior::Skip,
+                default_value: None,
+            }),
+            message: Some("Review and edit the output".to_string()),
+            tools: None,
+            on_result: None,
+            model: None,
+            runner: None,
+            condition: None,
+            append_system_prompt: None,
+            system_prompt: None,
+            resume: false,
+        };
+
+        let mut session = make_session(vec![generate, gate]);
+        let runner = StubRunner::new("generated content");
+        let control = make_control();
+        let disabled = HashSet::new();
+        let (tx, rx) = mpsc::channel::<ExecutorEvent>();
+        let (hitl_tx, hitl_rx) = mpsc::channel::<String>();
+
+        // Simulate human editing the output.
+        hitl_tx.send("human-edited content".to_string()).unwrap();
+
+        let result =
+            super::execute_with_control(&mut session, &runner, &control, &disabled, tx, hitl_rx);
+
+        assert!(result.is_ok());
+
+        let events = collect_events(rx);
+        // Should have HitlModifyReached event
+        assert!(
+            events.iter().any(|e| matches!(
+                e,
+                ExecutorEvent::HitlModifyReached { step_id, .. } if step_id == "review_gate"
+            )),
+            "Expected HitlModifyReached event, got: {events:?}"
+        );
+
+        // The modified text should be stored in the turn log.
+        let entries = session.turn_log.entries();
+        assert_eq!(entries.len(), 2); // generate + review_gate
+        assert_eq!(entries[1].step_id, "review_gate");
+        assert_eq!(entries[1].modified.as_deref(), Some("human-edited content"));
+    }
+
+    // ── Test 15: HitlModifyReached event includes last_response ─────────────
+
+    #[test]
+    fn modify_output_event_includes_last_response() {
+        use crate::config::domain::{ActionKind, HitlHeadlessBehavior};
+
+        let generate = prompt_step("gen", "Generate");
+        let gate = Step {
+            id: StepId("gate".to_string()),
+            body: StepBody::Action(ActionKind::ModifyOutput {
+                headless_behavior: HitlHeadlessBehavior::Skip,
+                default_value: None,
+            }),
+            message: Some("Edit this".to_string()),
+            tools: None,
+            on_result: None,
+            model: None,
+            runner: None,
+            condition: None,
+            append_system_prompt: None,
+            system_prompt: None,
+            resume: false,
+        };
+
+        let mut session = make_session(vec![generate, gate]);
+        let runner = StubRunner::new("original output");
+        let control = make_control();
+        let disabled = HashSet::new();
+        let (tx, rx) = mpsc::channel::<ExecutorEvent>();
+        let (hitl_tx, hitl_rx) = mpsc::channel::<String>();
+
+        hitl_tx.send("edited".to_string()).unwrap();
+
+        let result =
+            super::execute_with_control(&mut session, &runner, &control, &disabled, tx, hitl_rx);
+
+        assert!(result.is_ok());
+
+        let events = collect_events(rx);
+        let modify_event = events.iter().find(|e| {
+            matches!(
+                e,
+                ExecutorEvent::HitlModifyReached { step_id, .. } if step_id == "gate"
+            )
+        });
+        assert!(modify_event.is_some(), "Expected HitlModifyReached");
+
+        if let Some(ExecutorEvent::HitlModifyReached {
+            last_response,
+            message,
+            ..
+        }) = modify_event
+        {
+            assert_eq!(
+                last_response.as_deref(),
+                Some("original output"),
+                "last_response should be the previous step's output"
+            );
+            assert_eq!(message.as_deref(), Some("Edit this"));
         }
     }
 }
