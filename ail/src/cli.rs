@@ -61,6 +61,12 @@ pub struct Cli {
     #[arg(long)]
     pub show_work: bool,
 
+    /// Dry-run mode: resolve the full pipeline (templates, conditions, step ordering)
+    /// without making any LLM API calls. Shell context steps execute normally.
+    /// Output clearly indicates this is a dry run.
+    #[arg(long)]
+    pub dry_run: bool,
+
     /// Stream per-step progress, thinking blocks, and responses as they arrive.
     #[arg(long, alias = "show-responses", hide_short_help = false)]
     pub watch: bool,
@@ -287,6 +293,7 @@ mod tests {
         assert!(cli.provider_token.is_none());
         assert!(cli.command.is_none());
         assert!(matches!(cli.output_format, OutputFormat::Text));
+        assert!(!cli.dry_run);
     }
 
     #[test]
@@ -349,5 +356,17 @@ mod tests {
         .unwrap();
         assert_eq!(cli.provider_url.as_deref(), Some("http://localhost:11434"));
         assert_eq!(cli.provider_token.as_deref(), Some("ollama"));
+    }
+
+    #[test]
+    fn dry_run_flag_parses() {
+        let cli = Cli::try_parse_from(["ail", "--once", "hi", "--dry-run"]).unwrap();
+        assert!(cli.dry_run);
+    }
+
+    #[test]
+    fn dry_run_flag_defaults_to_false() {
+        let cli = Cli::try_parse_from(["ail", "--once", "hi"]).unwrap();
+        assert!(!cli.dry_run);
     }
 }

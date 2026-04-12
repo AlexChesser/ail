@@ -23,6 +23,7 @@
 #![allow(clippy::result_large_err)]
 
 pub mod claude;
+pub mod dry_run;
 pub mod factory;
 pub mod http;
 pub mod plugin;

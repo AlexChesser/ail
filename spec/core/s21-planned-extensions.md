@@ -259,13 +259,31 @@ Per-step control over what the TUI displays: full streaming, final response only
 
 ### Dry Run Mode
 
-> **Status: Planned**
+> **Status: Implemented — v0.2**
 
-Renders all prompts with live template variable values without making LLM calls.
+The `--dry-run` flag executes the full pipeline resolution — template variable substitution, condition evaluation, step ordering — but replaces actual runner invocations with no-ops that return a synthetic `[DRY RUN] No LLM call made` response. No LLM API calls are made. Shell context steps (`context: shell:`) execute normally since they are local and free.
+
+#### Usage
 
 ```bash
-ail --dry-run
+ail --dry-run "add a fizzbuzz function" --pipeline .ail.yaml
+ail --dry-run --once "review code" --pipeline .ail.yaml
 ```
+
+#### Behaviour
+
+1. All template variables are resolved and displayed (using synthetic responses from earlier steps where needed).
+2. Step execution order is shown with step IDs, types, and any condition/runner/model overrides.
+3. `context: shell:` steps execute normally — their stdout, stderr, and exit codes are captured.
+4. `prompt:` steps receive the resolved prompt but the runner returns a synthetic response instead of calling an LLM.
+5. `on_result` branches are evaluated against the synthetic/shell responses.
+6. Output is clearly labelled with `[DRY RUN]` prefix on every diagnostic line.
+
+#### Implementation
+
+- `DryRunRunner` (`ail-core/src/runner/dry_run.rs`) — a `Runner` implementation that returns a fixed synthetic response without spawning any subprocess or making any API call. Follows the same pattern as `StubRunner` but is intended for production use.
+- The `--dry-run` CLI flag (`ail/src/cli.rs`) selects the `DryRunRunner` instead of the normal runner factory. All other pipeline infrastructure — config loading, session creation, template resolution, executor dispatch — runs identically to a normal invocation.
+- Output formatting lives in `ail/src/dry_run.rs` in the binary crate.
 
 ---
 
