@@ -1,0 +1,11 @@
+version: "1"
+pipeline:
+  - id: check_code
+    context:
+      shell: "echo ok && exit 0"
+  - id: on_ok
+    condition: "{{ step.check_code.stdout }} contains 'ok'"
+    prompt: "Stdout contained ok"
+  - id: on_fail
+    condition: "{{ step.check_code.stdout }} contains 'MISSING'"
+    prompt: "This should be skipped"

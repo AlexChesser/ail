@@ -99,6 +99,39 @@ pub enum Condition {
     Always,
     /// Step is unconditionally skipped.
     Never,
+    /// Expression condition evaluated at runtime against session state (SPEC §12.2).
+    /// The string may contain `{{ variable }}` template syntax which is resolved
+    /// before evaluating the expression operator.
+    Expression(ConditionExpr),
+}
+
+/// A parsed condition expression (SPEC §12.2).
+///
+/// The `lhs` is a template string (e.g. `"{{ step.test.exit_code }}"`) that is
+/// resolved at runtime. The `rhs` is a literal value to compare against.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ConditionExpr {
+    /// Left-hand side — a template string resolved at evaluation time.
+    pub lhs: String,
+    /// Comparison operator.
+    pub op: ConditionOp,
+    /// Right-hand side — a literal value.
+    pub rhs: String,
+}
+
+/// Comparison operators for condition expressions (SPEC §12.2).
+#[derive(Debug, Clone, PartialEq)]
+pub enum ConditionOp {
+    /// `==` — string equality after trimming.
+    Eq,
+    /// `!=` — string inequality after trimming.
+    Ne,
+    /// `contains` — left-hand side contains the right-hand side (case-insensitive).
+    Contains,
+    /// `starts_with` — left-hand side starts with the right-hand side (case-insensitive).
+    StartsWith,
+    /// `ends_with` — left-hand side ends with the right-hand side (case-insensitive).
+    EndsWith,
 }
 
 #[derive(Debug, Clone)]

@@ -9,7 +9,9 @@ mod system_prompt;
 use std::collections::HashSet;
 use std::path::PathBuf;
 
-use super::domain::{Condition, Pipeline, ProviderConfig, Step, StepId, ToolPolicy};
+use super::domain::{
+    Condition, ConditionExpr, ConditionOp, Pipeline, ProviderConfig, Step, StepId, ToolPolicy,
+};
 use super::dto::{PipelineFileDto, ToolsDto};
 use crate::error::AilError;
 
@@ -31,6 +33,133 @@ fn tools_to_policy(t: ToolsDto) -> ToolPolicy {
         allow: t.allow,
         deny: t.deny,
     }
+}
+
+/// Parse a condition expression string into a `Condition::Expression`.
+///
+/// Supported operators: `==`, `!=`, `contains`, `starts_with`, `ends_with`.
+/// The LHS is typically a template variable (e.g. `{{ step.test.exit_code }}`),
+/// and the RHS is a literal or quoted string.
+///
+/// Examples:
+///   `"{{ step.test.exit_code }} == 0"`
+///   `"{{ step.review.response }} contains 'LGTM'"`
+///   `"{{ step.build.exit_code }} != 0"`
+fn parse_condition_expression(raw: &str, step_id: &str) -> Result<Condition, AilError> {
+    // Operator tokens in order of specificity (multi-word first to avoid partial matches).
+    let operators: &[(&str, ConditionOp)] = &[
+        ("starts_with", ConditionOp::StartsWith),
+        ("ends_with", ConditionOp::EndsWith),
+        ("contains", ConditionOp::Contains),
+        ("!=", ConditionOp::Ne),
+        ("==", ConditionOp::Eq),
+    ];
+
+    for &(token, ref op) in operators {
+        if let Some(pos) = find_operator_position(raw, token) {
+            let lhs = raw[..pos].trim().to_string();
+            let rhs_raw = raw[pos + token.len()..].trim();
+            let rhs = strip_quotes(rhs_raw).to_string();
+
+            if lhs.is_empty() {
+                return Err(cfg_err!(
+                    "Step '{step_id}' condition expression has an empty left-hand side"
+                ));
+            }
+            if rhs.is_empty() {
+                return Err(cfg_err!(
+                    "Step '{step_id}' condition expression has an empty right-hand side"
+                ));
+            }
+
+            return Ok(Condition::Expression(ConditionExpr {
+                lhs,
+                op: op.clone(),
+                rhs,
+            }));
+        }
+    }
+
+    Err(cfg_err!(
+        "Step '{step_id}' specifies condition '{raw}' which is not a recognised \
+         named condition ('always', 'never') and does not contain a supported operator \
+         (==, !=, contains, starts_with, ends_with)"
+    ))
+}
+
+/// Find the position of an operator token in a condition string.
+///
+/// For word-based operators (`contains`, `starts_with`, `ends_with`), require word
+/// boundaries so that template variables like `{{ step.contains_test.response }}`
+/// are not treated as operators. `==` and `!=` never appear inside template variables,
+/// so they use simple substring search.
+fn find_operator_position(raw: &str, token: &str) -> Option<usize> {
+    if token == "==" || token == "!=" {
+        // For symbolic operators, find the first occurrence outside `{{ }}` blocks.
+        return find_outside_templates(raw, token);
+    }
+
+    // Word-based operator — scan for occurrences with word boundaries.
+    let mut search_from = 0;
+    while let Some(rel) = raw[search_from..].find(token) {
+        let abs = search_from + rel;
+
+        // Check the char is not inside `{{ ... }}`.
+        if is_inside_template(raw, abs) {
+            search_from = abs + token.len();
+            continue;
+        }
+
+        // Check left boundary: must be start-of-string or whitespace.
+        let left_ok = abs == 0 || raw.as_bytes()[abs - 1].is_ascii_whitespace();
+        // Check right boundary: must be end-of-string or whitespace.
+        let right = abs + token.len();
+        let right_ok = right >= raw.len() || raw.as_bytes()[right].is_ascii_whitespace();
+
+        if left_ok && right_ok {
+            return Some(abs);
+        }
+
+        search_from = abs + token.len();
+    }
+    None
+}
+
+/// Find the first occurrence of `needle` that is not inside a `{{ ... }}` block.
+fn find_outside_templates(raw: &str, needle: &str) -> Option<usize> {
+    let mut search_from = 0;
+    while let Some(rel) = raw[search_from..].find(needle) {
+        let abs = search_from + rel;
+        if !is_inside_template(raw, abs) {
+            return Some(abs);
+        }
+        search_from = abs + needle.len();
+    }
+    None
+}
+
+/// Returns `true` if position `pos` falls inside a `{{ ... }}` block.
+fn is_inside_template(raw: &str, pos: usize) -> bool {
+    // Find the last `{{` before `pos` and check whether there is a matching `}}` after it
+    // but before `pos`.
+    let before = &raw[..pos];
+    if let Some(open) = before.rfind("{{") {
+        // Check if there's a `}}` between that `{{` and `pos`.
+        let between = &raw[open + 2..pos];
+        !between.contains("}}")
+    } else {
+        false
+    }
+}
+
+/// Strip surrounding single or double quotes from a string, if present.
+fn strip_quotes(s: &str) -> &str {
+    if s.len() >= 2
+        && ((s.starts_with('\'') && s.ends_with('\'')) || (s.starts_with('"') && s.ends_with('"')))
+    {
+        return &s[1..s.len() - 1];
+    }
+    s
 }
 
 pub fn validate(dto: PipelineFileDto, source: PathBuf) -> Result<Pipeline, AilError> {
@@ -117,12 +246,7 @@ pub fn validate(dto: PipelineFileDto, source: PathBuf) -> Result<Pipeline, AilEr
         let condition = match step_dto.condition.as_deref() {
             None | Some("always") => None,
             Some("never") => Some(Condition::Never),
-            Some(other) => {
-                return Err(cfg_err!(
-                    "Step '{id_str}' specifies unknown condition '{other}'; \
-                     supported values are 'always' and 'never'"
-                ))
-            }
+            Some(other) => Some(parse_condition_expression(other, &id_str)?),
         };
 
         let append_system_prompt = step_dto
@@ -550,6 +674,146 @@ mod tests {
         let err = validate(dto, source()).expect_err("should fail");
         assert_eq!(err.error_type(), error_types::CONFIG_VALIDATION_FAILED);
         assert!(err.detail().contains("maybe"));
+    }
+
+    // ── condition expression parsing ────────────────────────────────────────
+
+    #[test]
+    fn condition_eq_expression_round_trips() {
+        let mut step = minimal_step("s", "hello");
+        step.condition = Some("{{ step.test.exit_code }} == 0".to_string());
+        let dto = minimal_dto(vec![step]);
+        let pipeline = validate(dto, source()).expect("should succeed");
+        let cond = pipeline.steps[0]
+            .condition
+            .as_ref()
+            .expect("should have condition");
+        assert!(
+            matches!(cond, Condition::Expression(expr) if expr.op == crate::config::domain::ConditionOp::Eq),
+            "Expected Expression(Eq), got: {cond:?}"
+        );
+    }
+
+    #[test]
+    fn condition_ne_expression_round_trips() {
+        let mut step = minimal_step("s", "hello");
+        step.condition = Some("{{ step.test.exit_code }} != 0".to_string());
+        let dto = minimal_dto(vec![step]);
+        let pipeline = validate(dto, source()).expect("should succeed");
+        let cond = pipeline.steps[0]
+            .condition
+            .as_ref()
+            .expect("should have condition");
+        assert!(
+            matches!(cond, Condition::Expression(expr) if expr.op == crate::config::domain::ConditionOp::Ne),
+        );
+    }
+
+    #[test]
+    fn condition_contains_expression_round_trips() {
+        let mut step = minimal_step("s", "hello");
+        step.condition = Some("{{ step.review.response }} contains 'LGTM'".to_string());
+        let dto = minimal_dto(vec![step]);
+        let pipeline = validate(dto, source()).expect("should succeed");
+        let cond = pipeline.steps[0]
+            .condition
+            .as_ref()
+            .expect("should have condition");
+        match cond {
+            Condition::Expression(expr) => {
+                assert_eq!(expr.op, crate::config::domain::ConditionOp::Contains);
+                assert_eq!(expr.rhs, "LGTM");
+            }
+            other => panic!("Expected Expression(Contains), got: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn condition_starts_with_expression_round_trips() {
+        let mut step = minimal_step("s", "hello");
+        step.condition = Some("{{ step.check.response }} starts_with 'PASS'".to_string());
+        let dto = minimal_dto(vec![step]);
+        let pipeline = validate(dto, source()).expect("should succeed");
+        let cond = pipeline.steps[0]
+            .condition
+            .as_ref()
+            .expect("should have condition");
+        assert!(matches!(
+            cond,
+            Condition::Expression(expr) if expr.op == crate::config::domain::ConditionOp::StartsWith
+        ));
+    }
+
+    #[test]
+    fn condition_ends_with_expression_round_trips() {
+        let mut step = minimal_step("s", "hello");
+        step.condition = Some("{{ step.check.response }} ends_with 'done'".to_string());
+        let dto = minimal_dto(vec![step]);
+        let pipeline = validate(dto, source()).expect("should succeed");
+        let cond = pipeline.steps[0]
+            .condition
+            .as_ref()
+            .expect("should have condition");
+        assert!(matches!(
+            cond,
+            Condition::Expression(expr) if expr.op == crate::config::domain::ConditionOp::EndsWith
+        ));
+    }
+
+    #[test]
+    fn condition_expression_empty_lhs_returns_error() {
+        let mut step = minimal_step("s", "hello");
+        step.condition = Some(" == 0".to_string());
+        let dto = minimal_dto(vec![step]);
+        let err = validate(dto, source()).expect_err("should fail");
+        assert_eq!(err.error_type(), error_types::CONFIG_VALIDATION_FAILED);
+        assert!(err.detail().contains("empty left-hand side"));
+    }
+
+    #[test]
+    fn condition_expression_empty_rhs_returns_error() {
+        let mut step = minimal_step("s", "hello");
+        step.condition = Some("{{ step.test.exit_code }} == ".to_string());
+        let dto = minimal_dto(vec![step]);
+        let err = validate(dto, source()).expect_err("should fail");
+        assert_eq!(err.error_type(), error_types::CONFIG_VALIDATION_FAILED);
+        assert!(err.detail().contains("empty right-hand side"));
+    }
+
+    #[test]
+    fn condition_expression_strips_quotes_from_rhs() {
+        let mut step = minimal_step("s", "hello");
+        step.condition = Some("{{ step.review.response }} contains 'text value'".to_string());
+        let dto = minimal_dto(vec![step]);
+        let pipeline = validate(dto, source()).expect("should succeed");
+        let cond = pipeline.steps[0]
+            .condition
+            .as_ref()
+            .expect("should have condition");
+        match cond {
+            Condition::Expression(expr) => {
+                assert_eq!(expr.rhs, "text value");
+            }
+            other => panic!("Expected Expression, got: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn condition_expression_double_quotes_on_rhs() {
+        let mut step = minimal_step("s", "hello");
+        step.condition = Some("{{ step.review.response }} contains \"LGTM\"".to_string());
+        let dto = minimal_dto(vec![step]);
+        let pipeline = validate(dto, source()).expect("should succeed");
+        let cond = pipeline.steps[0]
+            .condition
+            .as_ref()
+            .expect("should have condition");
+        match cond {
+            Condition::Expression(expr) => {
+                assert_eq!(expr.rhs, "LGTM");
+            }
+            other => panic!("Expected Expression, got: {other:?}"),
+        }
     }
 
     // ── on_result branches ───────────────────────────────────────────────────

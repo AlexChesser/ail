@@ -28,7 +28,7 @@ impl<'a> StepObserver for ChannelObserver<'a> {
         &mut self,
         step_id: &str,
         _step_index: usize,
-        condition_never: bool,
+        condition_skip: bool,
     ) -> BeforeStepAction {
         // Kill check.
         if self.control.kill_requested.is_cancelled() {
@@ -55,9 +55,9 @@ impl<'a> StepObserver for ChannelObserver<'a> {
             return BeforeStepAction::Skip;
         }
 
-        // Condition check.
-        if condition_never {
-            tracing::info!(step_id = %step_id, "step skipped by condition: never");
+        // Condition check (evaluated in execute_core before calling this hook).
+        if condition_skip {
+            tracing::info!(step_id = %step_id, "step skipped by condition");
             let _ = self.event_tx.send(ExecutorEvent::StepSkipped {
                 step_id: step_id.to_string(),
             });

@@ -25,6 +25,7 @@ Consumed by `ail` (the binary) and future language-server / SDK targets.
 | `executor/helpers/invocation.rs` | `run_invocation_step()` — host-managed invocation step lifecycle |
 | `executor/helpers/runner_resolution.rs` | `resolve_step_provider()`, `build_step_runner_box()`, `resolve_effective_runner_name()` |
 | `executor/helpers/shell.rs` | `run_shell_command()` — `/bin/sh -c` subprocess execution |
+| `executor/helpers/condition.rs` | `evaluate_condition()` — runtime condition expression evaluation against session state (SPEC §12) |
 | `executor/helpers/on_result.rs` | `evaluate_on_result()`, `build_tool_policy()` — on_result branch evaluation + tool policy |
 | `executor/helpers/system_prompt.rs` | `resolve_step_system_prompts()`, `resolve_prompt_file()` — system prompt resolution and file loading |
 | `executor/dispatch/mod.rs` | Re-exports step-type dispatch modules |
@@ -59,7 +60,9 @@ Consumed by `ail` (the binary) and future language-server / SDK targets.
 // Pipeline and its steps
 pub struct Pipeline { pub steps: Vec<Step>, pub source: Option<PathBuf> }
 pub struct Step    { pub id: StepId, pub body: StepBody, pub tools: Option<ToolPolicy>, pub on_result: Option<Vec<ResultBranch>>, pub model: Option<String>, pub runner: Option<String>, pub condition: Option<Condition> }
-pub enum Condition { Always, Never }  // SPEC §12 — None means Always; Never skips the step
+pub enum Condition { Always, Never, Expression(ConditionExpr) }  // SPEC §12 — None means Always; Never skips; Expression evaluates at runtime
+pub struct ConditionExpr { pub lhs: String, pub op: ConditionOp, pub rhs: String }
+pub enum ConditionOp { Eq, Ne, Contains, StartsWith, EndsWith }
 pub struct Pipeline { pub steps: Vec<Step>, pub source: Option<PathBuf>, pub defaults: ProviderConfig, pub default_tools: Option<ToolPolicy> }
 // default_tools: pipeline-wide fallback; per-step tools override entirely (SPEC §3.2)
 pub struct Step    { pub id: StepId, pub body: StepBody, pub tools: Option<ToolPolicy>, pub on_result: Option<Vec<ResultBranch>>, pub model: Option<String>, pub runner: Option<String> }
@@ -160,6 +163,7 @@ pub struct AilError { pub error_type: &'static str, pub title: &'static str, pub
 | `PLUGIN_SPAWN_FAILED` | `ail:plugin/spawn-failed` |
 | `PLUGIN_PROTOCOL_ERROR` | `ail:plugin/protocol-error` |
 | `PLUGIN_TIMEOUT` | `ail:plugin/timeout` |
+| `CONDITION_INVALID` | `ail:condition/invalid` |
 
 ## Invariants (do not break)
 

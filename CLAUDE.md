@@ -154,7 +154,7 @@ Unresolved variables **abort with a typed error** — never silently empty.
 - No `unwrap()`/`expect()` outside tests
 - No `println!`/`eprintln!` in `ail-core` — use `tracing::{info, warn, error}`
 - `dto.rs` derives `Deserialize`; `domain.rs` does not — conversion in `validation.rs`
-- `#[allow(clippy::result_large_err)]` required in every module that returns `Result<_, AilError>`. Apply at file scope (`#![allow(...)]`). Current files: `config/{mod,validation/mod,validation/step_body,validation/on_result,validation/system_prompt}.rs`, `template.rs`, `executor/{core,headless,controlled}.rs`, `executor/helpers/{invocation,runner_resolution,shell,system_prompt}.rs`, `executor/dispatch/{prompt,context,sub_pipeline}.rs`, `runner/{mod,factory,http,subprocess,claude/mod,claude/permission}.rs`, `runner/plugin/{mod,validation,discovery,protocol_runner}.rs`, `delete.rs`, `fs_util.rs`, `logs.rs`, `formatter.rs`
+- `#[allow(clippy::result_large_err)]` required in every module that returns `Result<_, AilError>`. Apply at file scope (`#![allow(...)]`). Current files: `config/{mod,validation/mod,validation/step_body,validation/on_result,validation/system_prompt}.rs`, `template.rs`, `executor/{core,headless,controlled}.rs`, `executor/helpers/{invocation,runner_resolution,shell,system_prompt,condition}.rs`, `executor/dispatch/{prompt,context,sub_pipeline}.rs`, `runner/{mod,factory,http,subprocess,claude/mod,claude/permission}.rs`, `runner/plugin/{mod,validation,discovery,protocol_runner}.rs`, `delete.rs`, `fs_util.rs`, `logs.rs`, `formatter.rs`
 - All errors use `AilError` with a stable `error_type` string constant from `error::error_types`
 - No co-authorship lines in git commits
 

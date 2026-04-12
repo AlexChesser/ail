@@ -130,6 +130,12 @@ pub enum AilError {
         detail: String,
         context: Option<ErrorContext>,
     },
+
+    #[error("[ail:condition/invalid] {detail}")]
+    ConditionInvalid {
+        detail: String,
+        context: Option<ErrorContext>,
+    },
 }
 
 impl AilError {
@@ -156,6 +162,7 @@ impl AilError {
             Self::PluginSpawnFailed { .. } => error_types::PLUGIN_SPAWN_FAILED,
             Self::PluginProtocolError { .. } => error_types::PLUGIN_PROTOCOL_ERROR,
             Self::PluginTimeout { .. } => error_types::PLUGIN_TIMEOUT,
+            Self::ConditionInvalid { .. } => error_types::CONDITION_INVALID,
         }
     }
 
@@ -178,7 +185,8 @@ impl AilError {
             | Self::PluginManifestInvalid { detail, .. }
             | Self::PluginSpawnFailed { detail, .. }
             | Self::PluginProtocolError { detail, .. }
-            | Self::PluginTimeout { detail, .. } => detail,
+            | Self::PluginTimeout { detail, .. }
+            | Self::ConditionInvalid { detail, .. } => detail,
         }
     }
 
@@ -199,7 +207,8 @@ impl AilError {
             | Self::PluginManifestInvalid { detail, .. }
             | Self::PluginSpawnFailed { detail, .. }
             | Self::PluginProtocolError { detail, .. }
-            | Self::PluginTimeout { detail, .. } => detail,
+            | Self::PluginTimeout { detail, .. }
+            | Self::ConditionInvalid { detail, .. } => detail,
         }
     }
 
@@ -222,7 +231,8 @@ impl AilError {
             | Self::PluginManifestInvalid { context, .. }
             | Self::PluginSpawnFailed { context, .. }
             | Self::PluginProtocolError { context, .. }
-            | Self::PluginTimeout { context, .. } => context.as_ref(),
+            | Self::PluginTimeout { context, .. }
+            | Self::ConditionInvalid { context, .. } => context.as_ref(),
         }
     }
 
@@ -289,6 +299,10 @@ impl AilError {
                 context: ctx,
             },
             Self::PluginTimeout { detail, .. } => Self::PluginTimeout {
+                detail,
+                context: ctx,
+            },
+            Self::ConditionInvalid { detail, .. } => Self::ConditionInvalid {
                 detail,
                 context: ctx,
             },
@@ -417,6 +431,13 @@ impl AilError {
             context: None,
         }
     }
+
+    pub fn condition_invalid(detail: impl Into<String>) -> Self {
+        Self::ConditionInvalid {
+            detail: detail.into(),
+            context: None,
+        }
+    }
 }
 
 pub mod error_types {
@@ -435,6 +456,7 @@ pub mod error_types {
     pub const PLUGIN_SPAWN_FAILED: &str = "ail:plugin/spawn-failed";
     pub const PLUGIN_PROTOCOL_ERROR: &str = "ail:plugin/protocol-error";
     pub const PLUGIN_TIMEOUT: &str = "ail:plugin/timeout";
+    pub const CONDITION_INVALID: &str = "ail:condition/invalid";
 }
 
 #[cfg(test)]

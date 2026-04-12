@@ -1,0 +1,11 @@
+version: "1"
+pipeline:
+  - id: check_code
+    context:
+      shell: "echo ok && exit 0"
+  - id: on_success
+    condition: "{{ step.check_code.exit_code }} == 0"
+    prompt: "Code check passed"
+  - id: on_failure
+    condition: "{{ step.check_code.exit_code }} != 0"
+    prompt: "Code check failed"
