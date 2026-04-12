@@ -49,15 +49,6 @@ pub fn validate(dto: ManifestDto, manifest_path: &Path) -> Result<PluginManifest
         ))
     })?;
 
-    let executable_str = dto.executable.filter(|s| !s.is_empty()).ok_or_else(|| {
-        AilError::plugin_manifest_invalid(format!(
-            "{}: 'executable' field is required",
-            manifest_path.display()
-        ))
-    })?;
-
-    let executable = resolve_executable(&executable_str, manifest_path)?;
-
     let protocol_version = dto
         .protocol_version
         .filter(|s| !s.is_empty())
@@ -70,6 +61,15 @@ pub fn validate(dto: ManifestDto, manifest_path: &Path) -> Result<PluginManifest
             protocol_version
         )));
     }
+
+    let executable_str = dto.executable.filter(|s| !s.is_empty()).ok_or_else(|| {
+        AilError::plugin_manifest_invalid(format!(
+            "{}: 'executable' field is required",
+            manifest_path.display()
+        ))
+    })?;
+
+    let executable = resolve_executable(&executable_str, manifest_path)?;
 
     Ok(PluginManifest {
         name,
