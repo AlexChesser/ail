@@ -57,6 +57,13 @@ pub struct StepDto {
     /// Whether this step should resume the previous runner session (SPEC §15.4).
     /// Defaults to `false` — each step starts a fresh session.
     pub resume: Option<bool>,
+    /// Error handling strategy for this step (SPEC §16).
+    /// Supported values: `"continue"`, `"retry"`, `"abort_pipeline"`.
+    /// Defaults to `abort_pipeline` when not specified.
+    pub on_error: Option<String>,
+    /// Maximum number of retries when `on_error: retry` is set.
+    /// Required when `on_error` is `"retry"`, ignored otherwise.
+    pub max_retries: Option<u32>,
 }
 
 #[derive(Deserialize)]

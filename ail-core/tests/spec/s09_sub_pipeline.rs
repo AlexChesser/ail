@@ -29,6 +29,7 @@ fn sub_pipeline_step(id: &str, path: &str) -> Step {
         append_system_prompt: None,
         system_prompt: None,
         resume: false,
+        on_error: None,
     }
 }
 
@@ -194,6 +195,7 @@ fn on_result_pipeline_action_executes_sub_pipeline_on_match() {
         append_system_prompt: None,
         system_prompt: None,
         resume: false,
+        on_error: None,
     };
     let mut session = make_session(vec![trigger]);
 
@@ -443,6 +445,7 @@ fn sub_pipeline_step_prompt_override_is_passed_to_child() {
         append_system_prompt: None,
         system_prompt: None,
         resume: false,
+        on_error: None,
     };
     let mut session = make_session(vec![step]);
     // Add a prior turn entry so we can confirm it is NOT used as the child prompt.
@@ -507,6 +510,7 @@ fn sub_pipeline_step_prompt_override_resolves_template_variables() {
         append_system_prompt: None,
         system_prompt: None,
         resume: false,
+        on_error: None,
     };
     // make_session sets invocation_prompt to "invocation prompt"
     let mut session = make_session(vec![step]);
@@ -557,6 +561,7 @@ fn on_result_pipeline_prompt_override_is_passed_to_child() {
         append_system_prompt: None,
         system_prompt: None,
         resume: false,
+        on_error: None,
     };
     let mut session = make_session(vec![trigger]);
 
@@ -740,6 +745,7 @@ fn on_result_pipeline_uses_derived_step_id_in_turn_log() {
         append_system_prompt: None,
         system_prompt: None,
         resume: false,
+        on_error: None,
     };
     let mut session = make_session(vec![trigger]);
     let runner = StubRunner::new("parent response");

@@ -10,7 +10,8 @@ use std::collections::HashSet;
 use std::path::PathBuf;
 
 use super::domain::{
-    Condition, ConditionExpr, ConditionOp, Pipeline, ProviderConfig, Step, StepId, ToolPolicy,
+    Condition, ConditionExpr, ConditionOp, OnError, Pipeline, ProviderConfig, Step, StepId,
+    ToolPolicy,
 };
 use super::dto::{PipelineFileDto, ToolsDto};
 use crate::error::AilError;
@@ -254,6 +255,57 @@ pub fn validate(dto: PipelineFileDto, source: PathBuf) -> Result<Pipeline, AilEr
             .map(|entries| system_prompt::parse_append_system_prompt(&id_str, entries))
             .transpose()?;
 
+        let on_error = match step_dto.on_error.as_deref() {
+            None => None,
+            Some("continue") => {
+                if step_dto.max_retries.is_some() {
+                    return Err(cfg_err!(
+                        "Step '{id_str}' specifies 'max_retries' but 'on_error' is 'continue'; \
+                         'max_retries' is only valid with 'on_error: retry'"
+                    ));
+                }
+                Some(OnError::Continue)
+            }
+            Some("retry") => {
+                let max_retries = step_dto.max_retries.ok_or_else(|| {
+                    cfg_err!(
+                        "Step '{id_str}' specifies 'on_error: retry' but 'max_retries' is missing; \
+                         'max_retries' is required when 'on_error' is 'retry'"
+                    )
+                })?;
+                if max_retries == 0 {
+                    return Err(cfg_err!(
+                        "Step '{id_str}' specifies 'max_retries: 0'; \
+                         'max_retries' must be at least 1"
+                    ));
+                }
+                Some(OnError::Retry { max_retries })
+            }
+            Some("abort_pipeline") => {
+                if step_dto.max_retries.is_some() {
+                    return Err(cfg_err!(
+                        "Step '{id_str}' specifies 'max_retries' but 'on_error' is 'abort_pipeline'; \
+                         'max_retries' is only valid with 'on_error: retry'"
+                    ));
+                }
+                Some(OnError::AbortPipeline)
+            }
+            Some(other) => {
+                return Err(cfg_err!(
+                    "Step '{id_str}' specifies unknown on_error value '{other}'; \
+                     supported values are 'continue', 'retry', and 'abort_pipeline'"
+                ))
+            }
+        };
+
+        // max_retries without on_error is an error
+        if step_dto.on_error.is_none() && step_dto.max_retries.is_some() {
+            return Err(cfg_err!(
+                "Step '{id_str}' specifies 'max_retries' without 'on_error'; \
+                 'max_retries' is only valid with 'on_error: retry'"
+            ));
+        }
+
         steps.push(Step {
             id: StepId(id_str),
             body,
@@ -266,6 +318,7 @@ pub fn validate(dto: PipelineFileDto, source: PathBuf) -> Result<Pipeline, AilEr
             append_system_prompt,
             system_prompt: step_dto.system_prompt,
             resume: step_dto.resume.unwrap_or(false),
+            on_error,
         });
     }
 
@@ -316,6 +369,8 @@ mod tests {
             append_system_prompt: None,
             system_prompt: None,
             resume: None,
+            on_error: None,
+            max_retries: None,
         }
     }
 
@@ -457,6 +512,8 @@ mod tests {
             append_system_prompt: None,
             system_prompt: None,
             resume: None,
+            on_error: None,
+            max_retries: None,
         }]);
         let err = validate(dto, source()).expect_err("should fail");
         assert_eq!(err.error_type(), error_types::CONFIG_VALIDATION_FAILED);
@@ -483,6 +540,8 @@ mod tests {
             append_system_prompt: None,
             system_prompt: None,
             resume: None,
+            on_error: None,
+            max_retries: None,
         }]);
         let err = validate(dto, source()).expect_err("should fail");
         assert_eq!(err.error_type(), error_types::CONFIG_VALIDATION_FAILED);
@@ -511,6 +570,8 @@ mod tests {
             append_system_prompt: None,
             system_prompt: None,
             resume: None,
+            on_error: None,
+            max_retries: None,
         }]);
         let pipeline = validate(dto, source()).expect("skill: step should be accepted");
         assert!(matches!(pipeline.steps[0].body, StepBody::Skill { .. }));
@@ -539,6 +600,8 @@ mod tests {
             resume: None,
             on_headless: None,
             default_value: None,
+            on_error: None,
+            max_retries: None,
         }]);
         let err = validate(dto, source()).expect_err("empty skill name should fail");
         assert_eq!(
@@ -573,6 +636,8 @@ mod tests {
             append_system_prompt: None,
             system_prompt: None,
             resume: None,
+            on_error: None,
+            max_retries: None,
         }]);
         let pipeline = validate(dto, source()).expect("should succeed");
         assert!(matches!(
@@ -601,6 +666,8 @@ mod tests {
             append_system_prompt: None,
             system_prompt: None,
             resume: None,
+            on_error: None,
+            max_retries: None,
         }]);
         let pipeline = validate(dto, source()).expect("should succeed");
         assert!(matches!(
@@ -629,6 +696,8 @@ mod tests {
             append_system_prompt: None,
             system_prompt: None,
             resume: None,
+            on_error: None,
+            max_retries: None,
         }]);
         let err = validate(dto, source()).expect_err("should fail");
         assert_eq!(err.error_type(), error_types::CONFIG_VALIDATION_FAILED);
@@ -657,6 +726,8 @@ mod tests {
             append_system_prompt: None,
             system_prompt: None,
             resume: None,
+            on_error: None,
+            max_retries: None,
         }]);
         let pipeline = validate(dto, source()).expect("should succeed");
         assert!(matches!(
@@ -685,6 +756,8 @@ mod tests {
             append_system_prompt: None,
             system_prompt: None,
             resume: None,
+            on_error: None,
+            max_retries: None,
         }]);
         let err = validate(dto, source()).expect_err("should fail");
         assert_eq!(err.error_type(), error_types::CONFIG_VALIDATION_FAILED);
@@ -1358,5 +1431,102 @@ mod tests {
         let err = validate(dto, source()).expect_err("should fail");
         assert_eq!(err.error_type(), error_types::CONFIG_VALIDATION_FAILED);
         assert!(err.detail().contains("magic"));
+    }
+
+    // ── on_error field ──────────────────────────────────────────────────────
+
+    #[test]
+    fn on_error_defaults_to_none() {
+        let dto = minimal_dto(vec![minimal_step("s", "hello")]);
+        let pipeline = validate(dto, source()).expect("should succeed");
+        assert!(pipeline.steps[0].on_error.is_none());
+    }
+
+    #[test]
+    fn on_error_continue_round_trips() {
+        let mut step = minimal_step("s", "hello");
+        step.on_error = Some("continue".to_string());
+        let dto = minimal_dto(vec![step]);
+        let pipeline = validate(dto, source()).expect("should succeed");
+        assert_eq!(
+            pipeline.steps[0].on_error,
+            Some(crate::config::domain::OnError::Continue)
+        );
+    }
+
+    #[test]
+    fn on_error_abort_pipeline_round_trips() {
+        let mut step = minimal_step("s", "hello");
+        step.on_error = Some("abort_pipeline".to_string());
+        let dto = minimal_dto(vec![step]);
+        let pipeline = validate(dto, source()).expect("should succeed");
+        assert_eq!(
+            pipeline.steps[0].on_error,
+            Some(crate::config::domain::OnError::AbortPipeline)
+        );
+    }
+
+    #[test]
+    fn on_error_retry_with_max_retries_round_trips() {
+        let mut step = minimal_step("s", "hello");
+        step.on_error = Some("retry".to_string());
+        step.max_retries = Some(3);
+        let dto = minimal_dto(vec![step]);
+        let pipeline = validate(dto, source()).expect("should succeed");
+        assert_eq!(
+            pipeline.steps[0].on_error,
+            Some(crate::config::domain::OnError::Retry { max_retries: 3 })
+        );
+    }
+
+    #[test]
+    fn on_error_retry_without_max_retries_returns_error() {
+        let mut step = minimal_step("s", "hello");
+        step.on_error = Some("retry".to_string());
+        let dto = minimal_dto(vec![step]);
+        let err = validate(dto, source()).expect_err("should fail");
+        assert_eq!(err.error_type(), error_types::CONFIG_VALIDATION_FAILED);
+        assert!(err.detail().contains("max_retries"));
+    }
+
+    #[test]
+    fn on_error_retry_with_zero_max_retries_returns_error() {
+        let mut step = minimal_step("s", "hello");
+        step.on_error = Some("retry".to_string());
+        step.max_retries = Some(0);
+        let dto = minimal_dto(vec![step]);
+        let err = validate(dto, source()).expect_err("should fail");
+        assert_eq!(err.error_type(), error_types::CONFIG_VALIDATION_FAILED);
+        assert!(err.detail().contains("max_retries"));
+    }
+
+    #[test]
+    fn max_retries_without_on_error_returns_error() {
+        let mut step = minimal_step("s", "hello");
+        step.max_retries = Some(3);
+        let dto = minimal_dto(vec![step]);
+        let err = validate(dto, source()).expect_err("should fail");
+        assert_eq!(err.error_type(), error_types::CONFIG_VALIDATION_FAILED);
+        assert!(err.detail().contains("max_retries"));
+    }
+
+    #[test]
+    fn max_retries_with_continue_returns_error() {
+        let mut step = minimal_step("s", "hello");
+        step.on_error = Some("continue".to_string());
+        step.max_retries = Some(3);
+        let dto = minimal_dto(vec![step]);
+        let err = validate(dto, source()).expect_err("should fail");
+        assert_eq!(err.error_type(), error_types::CONFIG_VALIDATION_FAILED);
+    }
+
+    #[test]
+    fn unknown_on_error_value_returns_error() {
+        let mut step = minimal_step("s", "hello");
+        step.on_error = Some("panic".to_string());
+        let dto = minimal_dto(vec![step]);
+        let err = validate(dto, source()).expect_err("should fail");
+        assert_eq!(err.error_type(), error_types::CONFIG_VALIDATION_FAILED);
+        assert!(err.detail().contains("panic"));
     }
 }

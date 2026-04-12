@@ -18,6 +18,7 @@ mod s10_model_config;
 mod s11_template_variables;
 mod s12_step_conditions;
 mod s13_sqlite_provider;
+mod s16_on_error;
 mod s17_error_handling;
 mod s18_materialize;
 mod s19_plugin_discovery;

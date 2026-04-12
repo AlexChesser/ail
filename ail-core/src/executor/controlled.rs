@@ -99,6 +99,23 @@ impl<'a> StepObserver for ChannelObserver<'a> {
         });
     }
 
+    fn on_step_error_continued(&mut self, step_id: &str, error: &str, error_type: &str) {
+        let _ = self.event_tx.send(ExecutorEvent::StepErrorContinued {
+            step_id: step_id.to_string(),
+            error: error.to_string(),
+            error_type: error_type.to_string(),
+        });
+    }
+
+    fn on_step_retrying(&mut self, step_id: &str, error: &str, attempt: u32, max_retries: u32) {
+        let _ = self.event_tx.send(ExecutorEvent::StepRetrying {
+            step_id: step_id.to_string(),
+            error: error.to_string(),
+            attempt,
+            max_retries,
+        });
+    }
+
     fn augment_options(&self, opts: &mut InvokeOptions) {
         opts.cancel_token = Some(self.control.kill_requested.clone());
         opts.permission_responder = self.control.permission_responder.clone();
@@ -347,6 +364,7 @@ mod tests {
             append_system_prompt: None,
             system_prompt: None,
             resume: false,
+            on_error: None,
         };
         let mut session = make_session(vec![step]);
         let runner = StubRunner::new("stub");
@@ -450,6 +468,7 @@ mod tests {
             append_system_prompt: None,
             system_prompt: None,
             resume: false,
+            on_error: None,
         };
         let mut session = make_session(vec![step]);
         let runner = StubRunner::new("stub");
@@ -504,6 +523,7 @@ mod tests {
             append_system_prompt: None,
             system_prompt: None,
             resume: false,
+            on_error: None,
         };
         let mut session = make_session(vec![step]);
         let runner = StubRunner::new("stub");
@@ -556,6 +576,7 @@ mod tests {
             append_system_prompt: None,
             system_prompt: None,
             resume: false,
+            on_error: None,
         };
         let mut session = make_session(vec![step]);
         let runner = StubRunner::new("any response");
@@ -713,6 +734,7 @@ mod tests {
             append_system_prompt: None,
             system_prompt: None,
             resume: false,
+            on_error: None,
         };
         let mut session = make_session(vec![step]);
         let runner = StubRunner::new("any response");
@@ -790,6 +812,7 @@ mod tests {
             append_system_prompt: None,
             system_prompt: None,
             resume: false,
+            on_error: None,
         };
 
         let mut session = make_session(vec![generate, gate]);
@@ -846,6 +869,7 @@ mod tests {
             append_system_prompt: None,
             system_prompt: None,
             resume: false,
+            on_error: None,
         };
 
         let mut session = make_session(vec![generate, gate]);

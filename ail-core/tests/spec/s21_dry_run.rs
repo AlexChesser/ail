@@ -105,6 +105,7 @@ fn dry_run_shell_context_steps_execute() {
         append_system_prompt: None,
         system_prompt: None,
         resume: false,
+        on_error: None,
     };
     let mut session = make_session(vec![shell_step]);
     let runner = DryRunRunner::new();
@@ -160,6 +161,7 @@ fn dry_run_mixed_prompt_and_context_pipeline() {
         append_system_prompt: None,
         system_prompt: None,
         resume: false,
+        on_error: None,
     };
     let mut session = make_session(vec![prompt_step("ask", "question"), ctx]);
     let runner = DryRunRunner::new();

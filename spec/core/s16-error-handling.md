@@ -29,25 +29,60 @@ These two mechanisms are mutually exclusive within a single step execution:
 
 | Value | Effect |
 |---|---|
-| `continue` | Log error, proceed. Only for explicitly non-critical steps. |
-| `pause_for_human` | Suspend pipeline, surface error in HITL panel. **Default.** |
-| `abort_pipeline` | Stop immediately. Log full error context to pipeline run log. |
-| `retry` | Retry up to `max_retries` times, then escalate to `pause_for_human`. |
+| `abort_pipeline` | Stop immediately. Log full error context to pipeline run log. **Default.** |
+| `continue` | Log error, proceed to next step. No turn entry is recorded for the failed step. Only for explicitly non-critical steps. |
+| `retry` | Retry up to `max_retries` times (required field), then abort pipeline. |
+
+When `on_error` is not specified, the default behaviour is `abort_pipeline`.
 
 ```yaml
-defaults:
-  on_error: pause_for_human
-
 pipeline:
   - id: optional_style_check
     on_error: continue
     prompt: "Check for style guide violations."
 
   - id: critical_security_scan
-    on_error: abort_pipeline
+    on_error: retry
     max_retries: 3
     prompt: "Scan for security vulnerabilities."
+
+  - id: deploy
+    on_error: abort_pipeline
+    prompt: "Deploy the application."
 ```
+
+### Validation Rules
+
+- `on_error: retry` **requires** `max_retries` (integer >= 1). Missing or zero `max_retries` is a `CONFIG_VALIDATION_FAILED` error.
+- `max_retries` without `on_error: retry` is a `CONFIG_VALIDATION_FAILED` error.
+- Unknown `on_error` values are a `CONFIG_VALIDATION_FAILED` error.
+
+### Retry Semantics
+
+When `on_error: retry` is set and a step fails:
+
+1. The executor records a `step_error` event to the turn log with `on_error_action: "retry"`, `retry_attempt`, and `max_retries`.
+2. The step is re-executed from scratch (template resolution, runner invocation, etc.).
+3. If the step succeeds on any attempt, execution continues normally — the turn entry from the successful attempt is recorded and `on_result` evaluation proceeds.
+4. If all `max_retries` attempts are exhausted (total attempts = `max_retries + 1`), the last error is propagated and the pipeline aborts.
+
+### Turn Log Events
+
+Error handling actions produce `step_error` events in the NDJSON turn log:
+
+```json
+{"type": "step_error", "step_id": "s1", "error_type": "ail:runner/invocation-failed", "error_detail": "...", "on_error_action": "continue"}
+{"type": "step_error", "step_id": "s1", "error_type": "ail:runner/invocation-failed", "error_detail": "...", "on_error_action": "retry", "retry_attempt": 1, "max_retries": 3}
+```
+
+### Executor Events
+
+For controlled mode (`--output-format json`), two additional event types are emitted:
+
+| Event | When |
+|---|---|
+| `step_error_continued` | `on_error: continue` swallowed the error |
+| `step_retrying` | `on_error: retry` is retrying the step |
 
 ### Stable `error_type` Values
 
