@@ -42,7 +42,7 @@ The AIL Pipeline Language Specification — for pipeline authors and implementer
 | [s16-error-handling.md](core/s16-error-handling.md) | §16 Error Handling | on_error: continue / pause_for_human / abort_pipeline / retry | deferred |
 | [s17-materialize.md](core/s17-materialize.md) | §17 materialize | CLI command; output format with origin comments | partial — single-file flatten + origin comments ✓; `FROM` chain traversal/`--expand-pipelines` not impl |
 | [s18-complete-examples.md](core/s18-complete-examples.md) | §18 Complete Examples | Full worked YAML — simplest, solo dev, org base, multi-speed | needs update for new step types |
-| [s19-runners-adapters.md](core/s19-runners-adapters.md) | §19 Runners & Adapters | Three-tier runner model; runner config; RunnerFactory; per-step `runner:` dispatch | reference — RunnerFactory (selection hierarchy, known names, `AIL_DEFAULT_RUNNER` env) and per-step dispatch ✓ |
+| [s19-runners-adapters.md](core/s19-runners-adapters.md) | §19 Runners & Adapters | Three-tier runner model; RunnerFactory; per-step dispatch; plugin runner system | **v0.2** — RunnerFactory, per-step dispatch, plugin discovery + JSON-RPC protocol ✓ |
 | [s20-mvp.md](core/s20-mvp.md) | §20 MVP v0.0.1 Scope | What is and isn't in scope for v0.0.1 | reference — v0.0.1 complete; alpha scope is next |
 | [s21-planned-extensions.md](core/s21-planned-extensions.md) | §21 Planned Extensions | Structured I/O, parallel steps, multi-provider quality comparison (D-020), self-modifying pipelines (D-019), MCP, plugins, observability | planned |
 | [s22-open-questions.md](core/s22-open-questions.md) | §22 Open Questions | Unresolved design questions (completion detection, hot reload, self-modifying pipeline approval/validation, etc.) | reference |
@@ -62,3 +62,5 @@ The AIL Runner Contract — for CLI tool authors and adapter writers.
 | [r03-targets.md](runner/r03-targets.md) | Known Runners, Custom Adapters, Open Questions | Roadmap runners; Runner trait for adapters; remaining open questions | partial — `http`/`ollama` implemented |
 | [r04-ail-log-format.md](runner/r04-ail-log-format.md) | r04. AIL Log Format Specification | Terminal-safe markdown+directives format; version header, thinking/tool-call/tool-result/stdio directives, turns, costs, errors | **alpha** |
 | [r05-http-runner.md](runner/r05-http-runner.md) | r05. HTTP Runner — Direct OpenAI-Compatible API | Direct API runner for Ollama and any OpenAI-compatible endpoint; session continuity, config, tool policy, error mapping | **v0.1** ✓ |
+| [r10-plugin-protocol.md](runner/r10-plugin-protocol.md) | r10. AIL Runner Plugin Protocol | JSON-RPC 2.0 over stdin/stdout; initialize/invoke/shutdown lifecycle; streaming notifications; permission flow | **alpha** |
+| [r11-plugin-discovery.md](runner/r11-plugin-discovery.md) | r11. Runner Plugin Discovery | Manifest format; `~/.ail/runners/` directory; executable resolution; runner name rules; factory integration | **alpha** |

@@ -17,6 +17,7 @@
 use super::{
     claude::{ClaudeCliRunner, ClaudeCliRunnerConfig},
     http::{HttpRunner, HttpRunnerConfig, HttpSessionStore},
+    plugin::{PluginRegistry, ProtocolRunner},
     stub::StubRunner,
     Runner,
 };
@@ -42,16 +43,40 @@ impl RunnerFactory {
     ///   `http://localhost:11434/v1`), `AIL_HTTP_TOKEN`, `AIL_HTTP_MODEL`, `AIL_HTTP_THINK`
     ///   from the environment.
     /// - `"stub"` — `StubRunner` with a fixed response (test/dev use)
+    /// - Any other name — looks up the plugin registry for a matching runner extension
     ///
-    /// Returns `RUNNER_NOT_FOUND` if the name is not recognised.
+    /// Returns `RUNNER_NOT_FOUND` if the name is not recognised and no matching plugin exists.
     pub fn build(
         runner_name: &str,
         headless: bool,
         http_store: &HttpSessionStore,
         provider: &ProviderConfig,
     ) -> Result<Box<dyn Runner + Send>, AilError> {
+        Self::build_with_registry(
+            runner_name,
+            headless,
+            http_store,
+            provider,
+            &PluginRegistry::empty(),
+        )
+    }
+
+    /// Build a runner by explicit name, consulting the plugin registry for unknown names.
+    ///
+    /// Resolution order:
+    /// 1. Built-in runners (claude, http/ollama, stub)
+    /// 2. Plugin registry (discovered from `~/.ail/runners/`)
+    /// 3. Error: RUNNER_NOT_FOUND
+    pub fn build_with_registry(
+        runner_name: &str,
+        headless: bool,
+        http_store: &HttpSessionStore,
+        provider: &ProviderConfig,
+        registry: &PluginRegistry,
+    ) -> Result<Box<dyn Runner + Send>, AilError> {
         let _ = headless; // consumed by claude only
-        match runner_name.trim().to_lowercase().as_str() {
+        let normalized = runner_name.trim().to_lowercase();
+        match normalized.as_str() {
             "claude" => {
                 let runner: ClaudeCliRunner =
                     ClaudeCliRunnerConfig::default().headless(headless).build();
@@ -86,12 +111,25 @@ impl RunnerFactory {
                 )))
             }
             "stub" => Ok(Box::new(StubRunner::new("stub response"))),
-            other => Err(AilError::RunnerNotFound {
-                detail: format!(
-                    "Runner '{other}' is not recognized. Known runners: claude, http, ollama, stub"
-                ),
-                context: None,
-            }),
+            other => {
+                // Check the plugin registry
+                if let Some(manifest) = registry.get(other) {
+                    tracing::info!(runner = other, plugin = %manifest.manifest_path.display(), "using plugin runner");
+                    return Ok(Box::new(ProtocolRunner::new(manifest.clone())));
+                }
+
+                let mut known: Vec<&str> = vec!["claude", "http", "ollama", "stub"];
+                let plugin_names = registry.runner_names();
+                known.extend(plugin_names.iter().copied());
+
+                Err(AilError::RunnerNotFound {
+                    detail: format!(
+                        "Runner '{other}' is not recognized. Known runners: {}",
+                        known.join(", ")
+                    ),
+                    context: None,
+                })
+            }
         }
     }
 
@@ -107,6 +145,17 @@ impl RunnerFactory {
     ) -> Result<Box<dyn Runner + Send>, AilError> {
         let name = std::env::var("AIL_DEFAULT_RUNNER").unwrap_or_else(|_| "claude".to_string());
         Self::build(&name, headless, http_store, provider)
+    }
+
+    /// Build the default runner with plugin registry support.
+    pub fn build_default_with_registry(
+        headless: bool,
+        http_store: &HttpSessionStore,
+        provider: &ProviderConfig,
+        registry: &PluginRegistry,
+    ) -> Result<Box<dyn Runner + Send>, AilError> {
+        let name = std::env::var("AIL_DEFAULT_RUNNER").unwrap_or_else(|_| "claude".to_string());
+        Self::build_with_registry(&name, headless, http_store, provider, registry)
     }
 }
 

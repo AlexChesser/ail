@@ -25,6 +25,7 @@
 pub mod claude;
 pub mod factory;
 pub mod http;
+pub mod plugin;
 pub mod stub;
 pub mod subprocess;
 

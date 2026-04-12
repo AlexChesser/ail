@@ -20,6 +20,8 @@ mod s12_step_conditions;
 mod s13_sqlite_provider;
 mod s17_error_handling;
 mod s18_materialize;
+mod s19_plugin_discovery;
+mod s19_plugin_protocol;
 mod s21_mvp;
 mod s23_structured_output;
 mod s35_ail_log_formatter;

@@ -1,28 +1,53 @@
 //! Handler for the `ail delete` subcommand.
 #![allow(clippy::result_large_err)]
 
-use ail_core::delete::delete_run;
-use ail_core::error::AilError;
+use crate::command::CommandOutcome;
 
-/// Execute the delete command.
-///
-/// Parameters are passed via the run_id and force/json flags.
-#[allow(clippy::result_large_err)]
-pub fn handle_delete(run_id: String, force: bool, json: bool) -> Result<(), AilError> {
-    delete_run(&run_id, force)?;
+pub struct DeleteCommand {
+    run_id: String,
+    force: bool,
+    json: bool,
+}
 
-    if json {
-        println!(
-            "{}",
-            serde_json::json!({
-                "deleted": true,
-                "run_id": run_id,
-                "message": format!("Deleted run {}", run_id)
-            })
-        );
-    } else {
-        println!("Deleted run {}", run_id);
+impl DeleteCommand {
+    pub fn new(run_id: String, force: bool, json: bool) -> Self {
+        Self {
+            run_id,
+            force,
+            json,
+        }
     }
 
-    Ok(())
+    pub fn execute(&self) -> CommandOutcome {
+        if let Err(e) = ail_core::delete::delete_run(&self.run_id, self.force) {
+            if self.json {
+                println!(
+                    "{}",
+                    serde_json::json!({
+                        "deleted": false,
+                        "run_id": self.run_id,
+                        "error": e.detail(),
+                    })
+                );
+            } else {
+                eprintln!("{e}");
+            }
+            return CommandOutcome::ExitCode(1);
+        }
+
+        if self.json {
+            println!(
+                "{}",
+                serde_json::json!({
+                    "deleted": true,
+                    "run_id": self.run_id,
+                    "message": format!("Deleted run {}", self.run_id)
+                })
+            );
+        } else {
+            println!("Deleted run {}", self.run_id);
+        }
+
+        CommandOutcome::Success
+    }
 }

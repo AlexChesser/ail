@@ -9,7 +9,7 @@
 #![allow(clippy::result_large_err)]
 
 use std::io::{BufReader, Read};
-use std::process::{Child, ChildStdout, Command, ExitStatus, Stdio};
+use std::process::{Child, ChildStdin, ChildStdout, Command, ExitStatus, Stdio};
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 
@@ -55,6 +55,7 @@ pub struct SubprocessOutcome {
 /// killed child exits non-zero.
 pub struct SubprocessSession {
     child: Arc<Mutex<Child>>,
+    stdin: Option<ChildStdin>,
     stdout: Option<BufReader<ChildStdout>>,
     stderr_handle: Option<JoinHandle<String>>,
     watchdog: Option<JoinHandle<()>>,
@@ -82,6 +83,7 @@ impl SubprocessSession {
             cmd.env(k, v);
         }
         let mut child = cmd
+            .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()
@@ -90,6 +92,7 @@ impl SubprocessSession {
                 context: None,
             })?;
 
+        let stdin = child.stdin.take().expect("stdin was piped");
         let stdout = child.stdout.take().expect("stdout was piped");
         let stderr = child.stderr.take().expect("stderr was piped");
 
@@ -131,11 +134,21 @@ impl SubprocessSession {
 
         Ok(Self {
             child,
+            stdin: Some(stdin),
             stdout: Some(BufReader::new(stdout)),
             stderr_handle: Some(stderr_handle),
             watchdog,
             cancel_token,
         })
+    }
+
+    /// Take the child's stdin handle. May only be called once — subsequent calls return `None`.
+    ///
+    /// Used by runners that need to write to the child process (e.g. ProtocolRunner sends
+    /// JSON-RPC requests on stdin). Runners that only read stdout (e.g. ClaudeCliRunner) do
+    /// not need this — dropping the handle is fine.
+    pub fn take_stdin(&mut self) -> Option<ChildStdin> {
+        self.stdin.take()
     }
 
     /// Take the buffered stdout reader. May only be called once — subsequent calls return `None`.
