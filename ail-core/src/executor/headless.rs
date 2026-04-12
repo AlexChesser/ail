@@ -1,4 +1,12 @@
 //! Headless (non-interactive) pipeline execution.
+//!
+//! # Why the tests live here
+//!
+//! `executor/core.rs` is the shared execution kernel; it is tested indirectly
+//! through the public `execute` function in this file. Keeping the integration
+//! tests here (rather than in `core.rs`) keeps the kernel file focused on
+//! the dispatch logic and avoids a 1000-line file. All tests that exercise
+//! the step-dispatch loop and `on_result` branching live in this file.
 
 #![allow(clippy::result_large_err)]
 

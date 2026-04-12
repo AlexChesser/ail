@@ -20,7 +20,7 @@
 
 use serde_json::Value;
 
-use super::{NormalizedOption, NormalizedQuestion};
+use super::NormalizedQuestion;
 
 /// Returns `Some` when `input["question"]` is a non-empty string and `input["questions"]`
 /// is absent (avoiding overlap with the canonical / preview types).
@@ -44,7 +44,7 @@ pub fn try_parse(input: &Value) -> Option<Vec<NormalizedQuestion>> {
         Some(Value::String(s)) => s.to_lowercase() == "true",
         _ => false,
     };
-    let options = parse_options(input.get("options").unwrap_or(&Value::Null));
+    let options = super::parse_options(input.get("options").unwrap_or(&Value::Null));
 
     Some(vec![NormalizedQuestion {
         header,
@@ -52,33 +52,6 @@ pub fn try_parse(input: &Value) -> Option<Vec<NormalizedQuestion>> {
         multi_select,
         options,
     }])
-}
-
-fn parse_options(raw: &Value) -> Vec<NormalizedOption> {
-    let arr = match raw.as_array() {
-        Some(a) => a,
-        None => return vec![],
-    };
-    arr.iter().filter_map(parse_option).collect()
-}
-
-fn parse_option(opt: &Value) -> Option<NormalizedOption> {
-    match opt {
-        Value::String(s) => Some(NormalizedOption {
-            label: s.clone(),
-            description: None,
-        }),
-        Value::Object(m) => {
-            let label = m.get("label")?.as_str()?.to_string();
-            let description = m
-                .get("description")
-                .or_else(|| m.get("preview"))
-                .and_then(|v| v.as_str())
-                .map(|s| s.to_string());
-            Some(NormalizedOption { label, description })
-        }
-        _ => None,
-    }
 }
 
 #[cfg(test)]
