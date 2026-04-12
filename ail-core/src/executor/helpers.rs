@@ -50,18 +50,20 @@ pub(super) fn resolve_step_provider(session: &Session, step: &Step) -> ProviderC
             model: step.model.clone(),
             base_url: None,
             auth_token: None,
-            input_cost_per_1k: None,
-            output_cost_per_1k: None,
         })
         .merge(session.cli_provider.clone())
 }
 
 /// Build a per-step runner override box if `step.runner` is set (SPEC §19).
+///
+/// `headless` is propagated from `Session.headless` so per-step `runner: claude` overrides
+/// honour the same `--dangerously-skip-permissions` flag as the default runner.
 pub(super) fn build_step_runner_box(
     step: &Step,
+    headless: bool,
 ) -> Result<Option<Box<dyn Runner + Send>>, AilError> {
     match step.runner {
-        Some(ref name) => Ok(Some(RunnerFactory::build(name, true)?)),
+        Some(ref name) => Ok(Some(RunnerFactory::build(name, headless)?)),
         None => Ok(None),
     }
 }

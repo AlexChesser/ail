@@ -12,6 +12,7 @@
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -86,12 +87,20 @@ impl Default for HttpRunnerConfig {
 
 // ── Runner ─────────────────────────────────────────────────────────────────────
 
+/// Connect timeout for HTTP requests: how long to wait for TCP connection.
+const HTTP_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+/// Read timeout for HTTP requests: how long to wait for the response body.
+/// Set generously to allow slow local models (Ollama) to finish generating.
+const HTTP_READ_TIMEOUT: Duration = Duration::from_secs(300);
+
 /// Direct HTTP runner for OpenAI-compatible endpoints.
 ///
 /// Use [`HttpRunner::new`] with a custom config or [`HttpRunner::ollama`] for a
 /// local Ollama instance with thinking disabled.
 pub struct HttpRunner {
     config: HttpRunnerConfig,
+    /// Pre-built ureq agent with configured timeouts. Reused across invocations.
+    agent: ureq::Agent,
     /// In-memory conversation store: session_id → full message history.
     ///
     /// Stored messages: [system?, user, assistant, user, assistant, …]
@@ -101,8 +110,13 @@ pub struct HttpRunner {
 
 impl HttpRunner {
     pub fn new(config: HttpRunnerConfig) -> Self {
+        let agent = ureq::AgentBuilder::new()
+            .timeout_connect(HTTP_CONNECT_TIMEOUT)
+            .timeout_read(HTTP_READ_TIMEOUT)
+            .build();
         HttpRunner {
             config,
+            agent,
             conversations: Arc::new(Mutex::new(HashMap::new())),
         }
     }
@@ -231,7 +245,10 @@ impl Runner for HttpRunner {
             .as_deref()
             .map(|t| format!("Bearer {t}"));
 
-        let req = ureq::post(&url).set("Content-Type", "application/json");
+        let req = self
+            .agent
+            .post(&url)
+            .set("Content-Type", "application/json");
         let req = match &auth_header {
             Some(auth) => req.set("Authorization", auth),
             None => req,

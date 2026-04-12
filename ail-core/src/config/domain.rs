@@ -25,12 +25,6 @@ pub struct ProviderConfig {
     pub base_url: Option<String>,
     /// Provider auth token, set as `ANTHROPIC_AUTH_TOKEN` in the runner subprocess environment.
     pub auth_token: Option<String>,
-    /// Cost per 1000 input tokens in USD. Used for accurate cost attribution.
-    /// For local/free providers (e.g., Ollama), set to 0.0.
-    pub input_cost_per_1k: Option<f64>,
-    /// Cost per 1000 output tokens in USD. Used for accurate cost attribution.
-    /// For local/free providers (e.g., Ollama), set to 0.0.
-    pub output_cost_per_1k: Option<f64>,
 }
 
 impl ProviderConfig {
@@ -41,8 +35,6 @@ impl ProviderConfig {
             model: other.model.or(self.model),
             base_url: other.base_url.or(self.base_url),
             auth_token: other.auth_token.or(self.auth_token),
-            input_cost_per_1k: other.input_cost_per_1k.or(self.input_cost_per_1k),
-            output_cost_per_1k: other.output_cost_per_1k.or(self.output_cost_per_1k),
         }
     }
 }
