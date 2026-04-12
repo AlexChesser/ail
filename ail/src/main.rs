@@ -6,6 +6,7 @@ mod cli;
 mod command;
 mod control_bridge;
 mod delete;
+mod dry_run;
 mod log;
 mod logs;
 mod materialize;
@@ -58,7 +59,11 @@ async fn main() {
 
     match (effective_prompt, cli.command) {
         (Some(prompt), None) => {
-            tracing::info!(event = "once", headless = cli.headless);
+            tracing::info!(
+                event = "once",
+                headless = cli.headless,
+                dry_run = cli.dry_run
+            );
 
             let pipeline = load_pipeline(cli.pipeline);
 
@@ -70,29 +75,35 @@ async fn main() {
                 auth_token: cli.provider_token.clone(),
                 ..Default::default()
             };
-            let runner = match RunnerFactory::build_default(
-                cli.headless,
-                &session.http_session_store,
-                &session.pipeline.defaults,
-            ) {
-                Ok(r) => r,
-                Err(e) => {
-                    eprintln!("{e}");
-                    std::process::exit(1);
-                }
-            };
 
-            match cli.output_format {
-                OutputFormat::Text => once_text::run_once_text(
-                    &mut session,
-                    runner.as_ref(),
-                    &prompt,
-                    cli.show_thinking,
-                    cli.watch,
-                    cli.show_work,
-                ),
-                OutputFormat::Json => {
-                    once_json::run_once_json(&mut session, runner.as_ref(), &prompt).await
+            if cli.dry_run {
+                let runner = ail_core::runner::dry_run::DryRunRunner::new();
+                dry_run::run_dry_run(&mut session, &runner, &prompt);
+            } else {
+                let runner = match RunnerFactory::build_default(
+                    cli.headless,
+                    &session.http_session_store,
+                    &session.pipeline.defaults,
+                ) {
+                    Ok(r) => r,
+                    Err(e) => {
+                        eprintln!("{e}");
+                        std::process::exit(1);
+                    }
+                };
+
+                match cli.output_format {
+                    OutputFormat::Text => once_text::run_once_text(
+                        &mut session,
+                        runner.as_ref(),
+                        &prompt,
+                        cli.show_thinking,
+                        cli.watch,
+                        cli.show_work,
+                    ),
+                    OutputFormat::Json => {
+                        once_json::run_once_json(&mut session, runner.as_ref(), &prompt).await
+                    }
                 }
             }
         }

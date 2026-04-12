@@ -46,6 +46,7 @@ Consumed by `ail` (the binary) and future language-server / SDK targets.
 | `runner/plugin/validation.rs` | DTO → domain validation for manifests |
 | `runner/plugin/protocol_runner.rs` | `ProtocolRunner` — generic `Runner` impl that speaks JSON-RPC to any compliant executable |
 | `runner/http.rs` | `HttpRunner` — direct OpenAI-compatible HTTP runner (Ollama, direct API); full system-prompt control, think flag, in-memory session continuity |
+| `runner/dry_run.rs` | `DryRunRunner` — production no-op runner for `--dry-run` mode; returns synthetic response, zero tokens, zero cost |
 | `runner/stub.rs` | `StubRunner`, `CountingStubRunner`, `EchoStubRunner`, `RecordingStubRunner` — deterministic test doubles |
 | `session/log_provider.rs` | `LogProvider` trait + `JsonlProvider` (NDJSON) + `NullProvider` (tests) |
 | `session/state.rs` | `Session` — `run_id`, `pipeline`, `invocation_prompt`, `turn_log` |
