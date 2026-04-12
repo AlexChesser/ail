@@ -11,7 +11,6 @@ pub struct Session {
     pub pipeline: Pipeline,
     pub invocation_prompt: String,
     pub turn_log: TurnLog,
-    pub tool_allowlist: Vec<String>,
     /// CLI-supplied provider/model overrides. Highest priority in the resolution chain:
     /// pipeline defaults → per-step model → cli_provider.
     pub cli_provider: ProviderConfig,
@@ -61,7 +60,6 @@ impl Session {
             pipeline,
             invocation_prompt,
             turn_log,
-            tool_allowlist: Vec::new(),
             cli_provider: ProviderConfig::default(),
             cwd,
             runner_name,

@@ -28,7 +28,7 @@
 
 use ail_core::config::domain::{Pipeline, ProviderConfig};
 use ail_core::executor::{ExecutionControl, ExecutorEvent};
-use ail_core::runner::{InvokeOptions, PermissionResponse, Runner, RunnerEvent};
+use ail_core::runner::{InvokeOptions, Runner, RunnerEvent};
 use ail_core::session::{Session, TurnEntry};
 use std::collections::HashSet;
 use std::io::Write;
@@ -63,10 +63,8 @@ async fn run_turn_stream(
     turn_id: &str,
     pause_requested: Arc<AtomicBool>,
     kill_requested: Arc<AtomicBool>,
-    pending_permission: Arc<
-        std::sync::Mutex<Option<mpsc::SyncSender<ail_core::runner::PermissionResponse>>>,
-    >,
-    perm_notify: Arc<tokio::sync::Notify>,
+    pending_permission: control_bridge::PendingPermSlot,
+    session_allowlist: control_bridge::AllowlistArc,
     hitl_rx: mpsc::Receiver<String>,
 ) -> Result<(Option<String>, f64), String> {
     let mut session = Session::new(pipeline, prompt.to_string());
@@ -82,20 +80,16 @@ async fn run_turn_stream(
 
     let has_invocation_step = session.has_invocation_step();
 
-    // Build per-turn permission responder. Signals perm_notify after parking the
-    // sender so the bridge task (in run_chat_stream) can route stdin responses.
-    let pending_perm = Arc::clone(&pending_permission);
-    let perm_notify_responder = Arc::clone(&perm_notify);
-    let responder: ail_core::runner::PermissionResponder =
-        Arc::new(move |_req: ail_core::runner::PermissionRequest| {
-            let (tx, rx) = mpsc::sync_channel(1);
-            if let Ok(mut guard) = pending_perm.lock() {
-                *guard = Some(tx);
-            }
-            perm_notify_responder.notify_one();
-            rx.recv_timeout(std::time::Duration::from_secs(300))
-                .unwrap_or(PermissionResponse::Deny("timeout".to_string()))
-        });
+    // Build the permission responder from the shared helper. It auto-approves
+    // tools already in `session_allowlist`; for unknown tools it parks a
+    // SyncSender (tagged with the request's `display_name`) in
+    // `pending_permission` where the stdin reader finds it via
+    // `apply_permission_response`. Same one-slot design used by
+    // `--once --output-format json` mode.
+    let responder = control_bridge::make_allowlist_responder(
+        Arc::clone(&pending_permission),
+        Arc::clone(&session_allowlist),
+    );
 
     // Host-managed invocation step.
     if !has_invocation_step {
@@ -114,16 +108,13 @@ async fn run_turn_stream(
             ..InvokeOptions::default()
         };
 
-        // Spawn blocking task to forward runner events as NDJSON.
+        // Spawn blocking task to forward runner events as NDJSON. Allowlisted
+        // tools have their `PermissionRequested` events suppressed so the
+        // consumer never sees a request for a pre-approved tool (SPEC §13.2
+        // "auto-approved silently").
         let (runner_tx, runner_rx) = mpsc::channel::<RunnerEvent>();
-        let fwd_handle = tokio::task::spawn_blocking(move || {
-            for ev in runner_rx {
-                emit(&serde_json::json!({
-                    "type": "runner_event",
-                    "event": ev,
-                }));
-            }
-        });
+        let fwd_handle =
+            control_bridge::spawn_runner_event_writer(runner_rx, Arc::clone(&session_allowlist));
 
         let invoke_result = tokio::task::block_in_place(|| {
             runner.invoke_streaming(prompt, invocation_options, runner_tx)
@@ -164,8 +155,10 @@ async fn run_turn_stream(
     let disabled_steps = HashSet::new();
     let (event_tx, event_rx) = mpsc::channel::<ExecutorEvent>();
 
-    // Drain executor events to stdout (no per-turn allowlist in chat mode).
-    let writer_handle = control_bridge::spawn_executor_event_writer(event_rx, None);
+    // Drain executor events to stdout; suppress PermissionRequested events
+    // for tools already in the session allowlist.
+    let writer_handle =
+        control_bridge::spawn_executor_event_writer(event_rx, Some(Arc::clone(&session_allowlist)));
 
     let exec_result = tokio::task::block_in_place(|| {
         ail_core::executor::execute_with_control(
@@ -228,17 +221,19 @@ pub async fn run_chat_stream(
     // Shared control flags reused across turns.
     let pause_requested = Arc::new(AtomicBool::new(false));
     let kill_requested = Arc::new(AtomicBool::new(false));
-    let pending_permission: Arc<
-        std::sync::Mutex<Option<mpsc::SyncSender<ail_core::runner::PermissionResponse>>>,
-    > = Arc::new(std::sync::Mutex::new(None));
+
+    // Shared permission/allowlist state. Scoped to the whole chat session —
+    // the allowlist persists across turns so "Allow for session" survives
+    // past the turn in which it was granted. Same shape used by `--once
+    // --output-format json` mode.
+    let pending_permission = control_bridge::make_pending_perm();
+    let session_allowlist = control_bridge::make_allowlist();
 
     // Async channel for user prompts (None = shutdown sentinel).
     let (prompt_tx, mut prompt_rx) = tokio::sync::mpsc::channel::<Option<String>>(32);
 
-    // Slots so the stdin reader can target control messages to the current turn.
+    // Slot so the stdin reader can target HITL responses to the current turn.
     let hitl_slot: Arc<std::sync::Mutex<Option<mpsc::SyncSender<String>>>> =
-        Arc::new(std::sync::Mutex::new(None));
-    let perm_slot: Arc<std::sync::Mutex<Option<mpsc::SyncSender<PermissionResponse>>>> =
         Arc::new(std::sync::Mutex::new(None));
 
     // Enqueue the initial message if provided (one-shot mode).
@@ -249,9 +244,11 @@ pub async fn run_chat_stream(
     }
 
     control_bridge::spawn_stdin_reader_chat(
+        tokio::io::BufReader::new(tokio::io::stdin()),
         prompt_tx,
         Arc::clone(&hitl_slot),
-        Arc::clone(&perm_slot),
+        Arc::clone(&pending_permission),
+        Arc::clone(&session_allowlist),
         Arc::clone(&pause_requested),
         Arc::clone(&kill_requested),
     );
@@ -292,28 +289,6 @@ pub async fn run_chat_stream(
                 }
             });
 
-            // Permission bridge: replaces the former polling sleep loop.
-            // The per-turn responder (in run_turn_stream) signals perm_notify after
-            // parking the sender in pending_permission. This task wakes immediately,
-            // moves the sender to perm_slot so the stdin reader can deliver a response.
-            let perm_notify = Arc::new(tokio::sync::Notify::new());
-            {
-                let pending_perm_bridge = Arc::clone(&pending_permission);
-                let perm_slot_bridge = Arc::clone(&perm_slot);
-                let perm_notify_bridge = Arc::clone(&perm_notify);
-                tokio::spawn(async move {
-                    perm_notify_bridge.notified().await;
-                    let tx_opt = pending_perm_bridge
-                        .lock()
-                        .unwrap_or_else(|e| e.into_inner())
-                        .take();
-                    if let Some(tx) = tx_opt {
-                        let mut guard = perm_slot_bridge.lock().unwrap_or_else(|e| e.into_inner());
-                        *guard = Some(tx);
-                    }
-                });
-            }
-
             let start = Instant::now();
             let result = run_turn_stream(
                 pipeline.clone(),
@@ -325,18 +300,19 @@ pub async fn run_chat_stream(
                 Arc::clone(&pause_requested),
                 Arc::clone(&kill_requested),
                 Arc::clone(&pending_permission),
-                perm_notify,
+                Arc::clone(&session_allowlist),
                 hitl_rx,
             )
             .await;
 
-            // Clear slots after turn completes.
+            // Clear the HITL slot after the turn completes. The permission
+            // slot is not cleared here — stale senders are dropped
+            // automatically when `run_turn_stream` returns (the
+            // `SyncSender` is held on the blocking thread stack and drops
+            // on unwind), and `apply_permission_response` silently skips
+            // delivery when the slot is empty.
             {
                 let mut guard = hitl_slot.lock().unwrap_or_else(|e| e.into_inner());
-                *guard = None;
-            }
-            {
-                let mut guard = perm_slot.lock().unwrap_or_else(|e| e.into_inner());
                 *guard = None;
             }
 
