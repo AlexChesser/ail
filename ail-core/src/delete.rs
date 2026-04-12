@@ -103,10 +103,12 @@ pub fn delete_run_from_conn(conn: &mut Connection, run_id: &str) -> Result<(), A
     // Start transaction for atomic cascade delete.
     // Note: no explicit foreign key constraints in the schema, but we follow
     // the logical dependency order.
-    let tx = conn.transaction().map_err(|e| AilError::StorageDeleteFailed {
-        detail: e.to_string(),
-        context: None,
-    })?;
+    let tx = conn
+        .transaction()
+        .map_err(|e| AilError::StorageDeleteFailed {
+            detail: e.to_string(),
+            context: None,
+        })?;
 
     tx.execute("DELETE FROM run_events WHERE run_id = ?1", [run_id])
         .map_err(|e| AilError::StorageDeleteFailed {
@@ -232,10 +234,7 @@ mod tests {
             "should return error when JSONL file is missing and force=false"
         );
         let err = result.unwrap_err();
-        assert_eq!(
-            err.error_type(),
-            crate::error::error_types::RUN_NOT_FOUND
-        );
+        assert_eq!(err.error_type(), crate::error::error_types::RUN_NOT_FOUND);
         assert!(
             err.detail().contains(run_id),
             "error detail should mention the run_id"
