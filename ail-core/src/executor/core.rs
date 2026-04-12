@@ -357,8 +357,13 @@ pub(super) fn execute_core<O: StepObserver>(
                     .or(session.pipeline.default_tools.as_ref());
                 // Update session.runner_name so {{ session.tool }} reflects the active runner.
                 session.runner_name = resolve_effective_runner_name(step);
-                let step_runner_box = build_step_runner_box(step, session.headless)
-                    .inspect_err(|e| observer.on_step_failed(&step_id, e.detail()))?;
+                let step_runner_box = build_step_runner_box(
+                    step,
+                    session.headless,
+                    &session.http_session_store,
+                    &resolved_provider,
+                )
+                .inspect_err(|e| observer.on_step_failed(&step_id, e.detail()))?;
                 let effective_runner: &dyn Runner = step_runner_box
                     .as_deref()
                     .map(|b| b as &dyn Runner)

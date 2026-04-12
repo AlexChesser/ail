@@ -62,8 +62,13 @@ async fn main() {
                 model: cli.model.clone(),
                 base_url: cli.provider_url.clone(),
                 auth_token: cli.provider_token.clone(),
+                ..Default::default()
             };
-            let runner = match RunnerFactory::build_default(cli.headless) {
+            let runner = match RunnerFactory::build_default(
+                cli.headless,
+                &session.http_session_store,
+                &session.pipeline.defaults,
+            ) {
                 Ok(r) => r,
                 Err(e) => {
                     eprintln!("{e}");
@@ -146,8 +151,16 @@ async fn main() {
                     model,
                     base_url: provider_url,
                     auth_token: provider_token,
+                    ..Default::default()
                 };
-                let runner = match RunnerFactory::build_default(true) {
+                // Create a shared HTTP session store for the chat session.
+                let http_store: ail_core::runner::http::HttpSessionStore =
+                    std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashMap::new()));
+                let runner = match RunnerFactory::build_default(
+                    true,
+                    &http_store,
+                    &discovered_pipeline.defaults,
+                ) {
                     Ok(r) => r,
                     Err(e) => {
                         eprintln!("{e}");

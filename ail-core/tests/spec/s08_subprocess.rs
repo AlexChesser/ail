@@ -9,9 +9,8 @@
 #![cfg(unix)]
 
 use ail_core::runner::subprocess::{SubprocessOutcome, SubprocessSession, SubprocessSpec};
+use ail_core::runner::CancelToken;
 use std::io::BufRead;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 fn simple_spec(program: &str) -> SubprocessSpec {
@@ -143,7 +142,7 @@ fn subprocess_env_set_and_env_remove_applied() {
 
 #[test]
 fn subprocess_cancel_token_kills_child() {
-    let token = Arc::new(AtomicBool::new(false));
+    let token = CancelToken::new();
     // Use /bin/sleep directly (not via sh -c) so kill() targets the exact process.
     let spec = SubprocessSpec {
         program: "/bin/sleep".to_string(),
@@ -152,16 +151,16 @@ fn subprocess_cancel_token_kills_child() {
         env_set: vec![],
     };
     let mut session =
-        SubprocessSession::spawn(spec, Some(Arc::clone(&token))).expect("spawn should succeed");
+        SubprocessSession::spawn(spec, Some(token.clone())).expect("spawn should succeed");
 
     let reader = session.take_stdout().expect("stdout should be available");
     let start = Instant::now();
 
-    // Set the cancel flag after a short delay — the watchdog polls every 50ms
-    let token_clone = Arc::clone(&token);
+    // Cancel after a short delay — the watchdog blocks on the token's event listener
+    let token_clone = token.clone();
     std::thread::spawn(move || {
         std::thread::sleep(Duration::from_millis(100));
-        token_clone.store(true, Ordering::SeqCst);
+        token_clone.cancel();
     });
 
     // Drain stdout — blocks until child is killed by the watchdog, closing the pipe

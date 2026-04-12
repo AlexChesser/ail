@@ -7,7 +7,9 @@
 //! the infrastructure.
 
 use ail_core::executor::ExecutorEvent;
-use ail_core::runner::{PermissionRequest, PermissionResponder, PermissionResponse, RunnerEvent};
+use ail_core::runner::{
+    CancelToken, PermissionRequest, PermissionResponder, PermissionResponse, RunnerEvent,
+};
 use std::collections::HashSet;
 use std::io::Write;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -166,7 +168,7 @@ pub fn spawn_stdin_reader_once<R>(
     pending_permission: PendingPermSlot,
     session_allowlist: AllowlistArc,
     pause_requested: Arc<AtomicBool>,
-    kill_requested: Arc<AtomicBool>,
+    kill_requested: CancelToken,
 ) -> tokio::task::JoinHandle<()>
 where
     R: AsyncBufRead + Send + Unpin + 'static,
@@ -198,7 +200,7 @@ where
                     pause_requested.store(false, Ordering::SeqCst);
                 }
                 Some(ControlMessage::Kill) => {
-                    kill_requested.store(true, Ordering::SeqCst);
+                    kill_requested.cancel();
                 }
                 _ => {}
             }
@@ -229,7 +231,7 @@ pub fn spawn_stdin_reader_chat<R>(
     perm_slot: PendingPermSlot,
     session_allowlist: AllowlistArc,
     pause_requested: Arc<AtomicBool>,
-    kill_requested: Arc<AtomicBool>,
+    kill_requested: CancelToken,
 ) -> tokio::task::JoinHandle<()>
 where
     R: AsyncBufRead + Send + Unpin + 'static,
@@ -273,7 +275,7 @@ where
                     pause_requested.store(false, Ordering::SeqCst);
                 }
                 Some(ControlMessage::Kill) => {
-                    kill_requested.store(true, Ordering::SeqCst);
+                    kill_requested.cancel();
                 }
                 None => {}
             }
@@ -399,7 +401,7 @@ mod tests {
         let hitl_slot: Arc<Mutex<Option<mpsc::SyncSender<String>>>> = Arc::new(Mutex::new(None));
         let (prompt_tx, _prompt_rx) = tokio::sync::mpsc::channel::<Option<String>>(8);
         let pause = Arc::new(AtomicBool::new(false));
-        let kill = Arc::new(AtomicBool::new(false));
+        let kill = CancelToken::new();
 
         // Pre-park a (display_name, SyncSender) as `make_allowlist_responder`
         // would when a runner requests permission for "Bash".
@@ -444,7 +446,7 @@ mod tests {
         let allowlist = make_allowlist();
         let (hitl_tx, _hitl_rx) = mpsc::channel::<String>();
         let pause = Arc::new(AtomicBool::new(false));
-        let kill = Arc::new(AtomicBool::new(false));
+        let kill = CancelToken::new();
 
         let (tx, rx) = mpsc::sync_channel(1);
         *pending.lock().unwrap() = Some(("Bash".to_string(), tx));

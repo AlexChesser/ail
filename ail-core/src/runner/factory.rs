@@ -16,10 +16,11 @@
 
 use super::{
     claude::{ClaudeCliRunner, ClaudeCliRunnerConfig},
-    http::{HttpRunner, HttpRunnerConfig},
+    http::{HttpRunner, HttpRunnerConfig, HttpSessionStore},
     stub::StubRunner,
     Runner,
 };
+use crate::config::domain::ProviderConfig;
 use crate::error::AilError;
 
 /// Factory that constructs `Runner` boxed trait objects by name.
@@ -43,7 +44,12 @@ impl RunnerFactory {
     /// - `"stub"` — `StubRunner` with a fixed response (test/dev use)
     ///
     /// Returns `RUNNER_NOT_FOUND` if the name is not recognised.
-    pub fn build(runner_name: &str, headless: bool) -> Result<Box<dyn Runner + Send>, AilError> {
+    pub fn build(
+        runner_name: &str,
+        headless: bool,
+        http_store: &HttpSessionStore,
+        provider: &ProviderConfig,
+    ) -> Result<Box<dyn Runner + Send>, AilError> {
         let _ = headless; // consumed by claude only
         match runner_name.trim().to_lowercase().as_str() {
             "claude" => {
@@ -52,19 +58,32 @@ impl RunnerFactory {
                 Ok(Box::new(runner))
             }
             "http" | "ollama" => {
-                let base_url = std::env::var("AIL_HTTP_BASE_URL")
-                    .unwrap_or_else(|_| "http://localhost:11434/v1".to_string());
-                let auth_token = std::env::var("AIL_HTTP_TOKEN").ok();
+                // ProviderConfig values take precedence over env vars.
+                let base_url = provider
+                    .base_url
+                    .clone()
+                    .or_else(|| std::env::var("AIL_HTTP_BASE_URL").ok())
+                    .unwrap_or_else(|| "http://localhost:11434/v1".to_string());
+                let auth_token = provider
+                    .auth_token
+                    .clone()
+                    .or_else(|| std::env::var("AIL_HTTP_TOKEN").ok());
                 let default_model = std::env::var("AIL_HTTP_MODEL").ok();
                 let think = std::env::var("AIL_HTTP_THINK")
                     .ok()
                     .map(|v| v.trim().to_lowercase() != "false");
-                Ok(Box::new(HttpRunner::new(HttpRunnerConfig {
-                    base_url,
-                    auth_token,
-                    default_model,
-                    think,
-                })))
+                Ok(Box::new(HttpRunner::new(
+                    HttpRunnerConfig {
+                        base_url,
+                        auth_token,
+                        default_model,
+                        think,
+                        connect_timeout_seconds: provider.connect_timeout_seconds,
+                        read_timeout_seconds: provider.read_timeout_seconds,
+                        max_history_messages: provider.max_history_messages,
+                    },
+                    http_store.clone(),
+                )))
             }
             "stub" => Ok(Box::new(StubRunner::new("stub response"))),
             other => Err(AilError::RunnerNotFound {
@@ -81,41 +100,54 @@ impl RunnerFactory {
     /// Resolution order:
     /// 1. `AIL_DEFAULT_RUNNER` env var (if set and non-empty)
     /// 2. `"claude"` (hardcoded fallback)
-    pub fn build_default(headless: bool) -> Result<Box<dyn Runner + Send>, AilError> {
+    pub fn build_default(
+        headless: bool,
+        http_store: &HttpSessionStore,
+        provider: &ProviderConfig,
+    ) -> Result<Box<dyn Runner + Send>, AilError> {
         let name = std::env::var("AIL_DEFAULT_RUNNER").unwrap_or_else(|_| "claude".to_string());
-        Self::build(&name, headless)
+        Self::build(&name, headless, http_store, provider)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashMap;
+    use std::sync::{Arc, Mutex};
+
+    fn test_store() -> HttpSessionStore {
+        Arc::new(Mutex::new(HashMap::new()))
+    }
+
+    fn test_provider() -> ProviderConfig {
+        ProviderConfig::default()
+    }
 
     #[test]
     fn build_claude_runner_succeeds() {
-        // Just check it constructs without error; actual invocation requires the claude binary.
-        let result = RunnerFactory::build("claude", false);
+        let result = RunnerFactory::build("claude", false, &test_store(), &test_provider());
         assert!(result.is_ok());
     }
 
     #[test]
     fn build_claude_runner_case_insensitive() {
-        let result = RunnerFactory::build("Claude", false);
+        let result = RunnerFactory::build("Claude", false, &test_store(), &test_provider());
         assert!(result.is_ok());
-        let result = RunnerFactory::build("CLAUDE", false);
+        let result = RunnerFactory::build("CLAUDE", false, &test_store(), &test_provider());
         assert!(result.is_ok());
     }
 
     #[test]
     fn build_stub_runner_succeeds() {
-        let result = RunnerFactory::build("stub", false);
+        let result = RunnerFactory::build("stub", false, &test_store(), &test_provider());
         assert!(result.is_ok());
     }
 
     #[test]
     fn build_stub_runner_returns_fixed_response() {
         use crate::runner::InvokeOptions;
-        let runner = RunnerFactory::build("stub", false).unwrap();
+        let runner = RunnerFactory::build("stub", false, &test_store(), &test_provider()).unwrap();
         let result = runner
             .invoke("any prompt", InvokeOptions::default())
             .unwrap();
@@ -125,7 +157,7 @@ mod tests {
     #[test]
     fn build_unknown_runner_returns_runner_not_found_error() {
         use crate::error::error_types;
-        let result = RunnerFactory::build("nonexistent", false);
+        let result = RunnerFactory::build("nonexistent", false, &test_store(), &test_provider());
         assert!(result.is_err());
         let err = result.err().unwrap();
         assert_eq!(err.error_type(), error_types::RUNNER_NOT_FOUND);
@@ -135,21 +167,14 @@ mod tests {
     #[test]
     fn build_default_respects_env_var() {
         use crate::runner::InvokeOptions;
-        // Set AIL_DEFAULT_RUNNER=stub and verify stub runner is used.
-        // We cannot safely set env vars in parallel tests without serialisation,
-        // so we test the build() path directly instead.
-        let runner = RunnerFactory::build("stub", false).unwrap();
+        let runner = RunnerFactory::build("stub", false, &test_store(), &test_provider()).unwrap();
         let result = runner.invoke("hello", InvokeOptions::default()).unwrap();
         assert_eq!(result.response, "stub response");
     }
 
     #[test]
     fn build_default_falls_back_to_claude_when_env_absent() {
-        // When AIL_DEFAULT_RUNNER is not set, build_default should succeed
-        // by constructing the claude runner (object construction is side-effect-free).
-        // We cannot guarantee the env var is unset in all CI environments, so we
-        // verify that build("claude", false) succeeds as the fallback path.
-        let result = RunnerFactory::build("claude", false);
+        let result = RunnerFactory::build("claude", false, &test_store(), &test_provider());
         assert!(result.is_ok());
     }
 }

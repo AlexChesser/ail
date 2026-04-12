@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use serde::Serialize;
 
-use crate::runner::{PermissionResponder, RunnerEvent};
+use crate::runner::{CancelToken, PermissionResponder, RunnerEvent};
 
 /// Returned by `execute()` to distinguish successful completion variants.
 #[derive(Debug, Serialize)]
@@ -21,8 +21,9 @@ pub enum ExecuteOutcome {
 pub struct ExecutionControl {
     /// Set to `true` to request a pause between steps. The executor spin-waits until cleared.
     pub pause_requested: Arc<AtomicBool>,
-    /// Set to `true` to request that the executor stop immediately after the current step.
-    pub kill_requested: Arc<AtomicBool>,
+    /// Cancellation token — call `cancel()` to request that the executor stop immediately
+    /// after the current step and kill any in-flight runner subprocess.
+    pub kill_requested: CancelToken,
     /// Callback for tool permission HITL via the MCP bridge (SPEC §13.3).
     /// Propagated into `InvokeOptions::permission_responder` for each runner invocation.
     pub permission_responder: Option<PermissionResponder>,
@@ -32,7 +33,7 @@ impl ExecutionControl {
     pub fn new() -> Self {
         ExecutionControl {
             pause_requested: Arc::new(AtomicBool::new(false)),
-            kill_requested: Arc::new(AtomicBool::new(false)),
+            kill_requested: CancelToken::new(),
             permission_responder: None,
         }
     }
@@ -47,13 +48,12 @@ impl Default for ExecutionControl {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::atomic::Ordering;
 
     #[test]
     fn execution_control_default_matches_new() {
         let c = ExecutionControl::default();
-        assert!(!c.pause_requested.load(Ordering::SeqCst));
-        assert!(!c.kill_requested.load(Ordering::SeqCst));
+        assert!(!c.pause_requested.load(std::sync::atomic::Ordering::SeqCst));
+        assert!(!c.kill_requested.is_cancelled());
         assert!(c.permission_responder.is_none());
     }
 }

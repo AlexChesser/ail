@@ -9,6 +9,7 @@ use crate::config::domain::{
 };
 use crate::error::AilError;
 use crate::runner::factory::RunnerFactory;
+use crate::runner::http::HttpSessionStore;
 use crate::runner::{InvokeOptions, RunResult, Runner, ToolPermissionPolicy};
 use crate::session::{Session, TurnEntry};
 use crate::template;
@@ -48,8 +49,7 @@ pub(super) fn resolve_step_provider(session: &Session, step: &Step) -> ProviderC
         .clone()
         .merge(ProviderConfig {
             model: step.model.clone(),
-            base_url: None,
-            auth_token: None,
+            ..Default::default()
         })
         .merge(session.cli_provider.clone())
 }
@@ -61,9 +61,13 @@ pub(super) fn resolve_step_provider(session: &Session, step: &Step) -> ProviderC
 pub(super) fn build_step_runner_box(
     step: &Step,
     headless: bool,
+    http_store: &HttpSessionStore,
+    provider: &ProviderConfig,
 ) -> Result<Option<Box<dyn Runner + Send>>, AilError> {
     match step.runner {
-        Some(ref name) => Ok(Some(RunnerFactory::build(name, headless)?)),
+        Some(ref name) => Ok(Some(RunnerFactory::build(
+            name, headless, http_store, provider,
+        )?)),
         None => Ok(None),
     }
 }

@@ -188,7 +188,7 @@ fn on_result_pause_for_human_blocks_in_controlled_executor() {
     let (hitl_tx, hitl_rx) = mpsc::channel::<String>();
     let control = ExecutionControl {
         pause_requested: Arc::new(std::sync::atomic::AtomicBool::new(false)),
-        kill_requested: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        kill_requested: ail_core::runner::CancelToken::new(),
         permission_responder: None,
     };
     let disabled_steps = HashSet::new();

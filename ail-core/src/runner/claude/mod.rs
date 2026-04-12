@@ -325,9 +325,9 @@ impl Runner for ClaudeCliRunner {
     /// Sends `StreamDelta` for each text content block, `ToolUse`/`ToolResult` for tool turns,
     /// `CostUpdate` from the final `result` event, then `Completed`.
     ///
-    /// If `options.cancel_token` is set, a watchdog thread polls it at 50 ms intervals. When
-    /// the flag becomes `true`, the child subprocess is killed and the invocation returns
-    /// `RUNNER_CANCELLED`. This is used by CTRL-C and Ctrl+K in the TUI.
+    /// If `options.cancel_token` is set, a watchdog thread blocks on the token's event listener
+    /// (no polling). When `cancel()` is called, the child subprocess is killed and the
+    /// invocation returns `RUNNER_CANCELLED`. This is used by CTRL-C and Ctrl+K in the TUI.
     fn invoke_streaming(
         &self,
         prompt: &str,

@@ -181,7 +181,7 @@ fn run_once_text_verbose(
     let (_hitl_tx, hitl_rx) = mpsc::channel::<String>();
     let control = ExecutionControl {
         pause_requested: Arc::new(AtomicBool::new(false)),
-        kill_requested: Arc::new(AtomicBool::new(false)),
+        kill_requested: ail_core::runner::CancelToken::new(),
         permission_responder: None,
     };
     let disabled_steps = HashSet::new();

@@ -16,3 +16,4 @@ interprocess = "2.2"
 rusqlite = { version = "0.31", features = ["bundled"] }
 tempfile = "3"
 ureq = { version = "2", features = ["json"] }
+event-listener = "5"

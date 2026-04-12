@@ -28,11 +28,11 @@
 
 use ail_core::config::domain::{Pipeline, ProviderConfig};
 use ail_core::executor::{ExecutionControl, ExecutorEvent};
-use ail_core::runner::{InvokeOptions, Runner, RunnerEvent};
+use ail_core::runner::{CancelToken, InvokeOptions, Runner, RunnerEvent};
 use ail_core::session::{Session, TurnEntry};
 use std::collections::HashSet;
 use std::io::Write;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::AtomicBool;
 use std::sync::mpsc;
 use std::sync::Arc;
 use std::time::Instant;
@@ -62,7 +62,7 @@ async fn run_turn_stream(
     resume_session_id: Option<&str>,
     turn_id: &str,
     pause_requested: Arc<AtomicBool>,
-    kill_requested: Arc<AtomicBool>,
+    kill_requested: CancelToken,
     pending_permission: control_bridge::PendingPermSlot,
     session_allowlist: control_bridge::AllowlistArc,
     hitl_rx: mpsc::Receiver<String>,
@@ -149,7 +149,7 @@ async fn run_turn_stream(
 
     let control = ExecutionControl {
         pause_requested: Arc::clone(&pause_requested),
-        kill_requested: Arc::clone(&kill_requested),
+        kill_requested: kill_requested.clone(),
         permission_responder: Some(responder),
     };
     let disabled_steps = HashSet::new();
@@ -220,7 +220,7 @@ pub async fn run_chat_stream(
 
     // Shared control flags reused across turns.
     let pause_requested = Arc::new(AtomicBool::new(false));
-    let kill_requested = Arc::new(AtomicBool::new(false));
+    let kill_requested = CancelToken::new();
 
     // Shared permission/allowlist state. Scoped to the whole chat session —
     // the allowlist persists across turns so "Allow for session" survives
@@ -250,7 +250,7 @@ pub async fn run_chat_stream(
         Arc::clone(&pending_permission),
         Arc::clone(&session_allowlist),
         Arc::clone(&pause_requested),
-        Arc::clone(&kill_requested),
+        kill_requested.clone(),
     );
 
     let mut last_runner_session_id: Option<String> = None;
@@ -270,8 +270,8 @@ pub async fn run_chat_stream(
                 "prompt": prompt,
             }));
 
-            // Reset kill flag between turns.
-            kill_requested.store(false, Ordering::SeqCst);
+            // Reset cancel token between turns.
+            kill_requested.reset();
 
             // Install per-turn HITL channel.
             let (hitl_sync_tx, hitl_sync_rx) = mpsc::sync_channel::<String>(32);
@@ -298,7 +298,7 @@ pub async fn run_chat_stream(
                 last_runner_session_id.as_deref(),
                 &turn_id,
                 Arc::clone(&pause_requested),
-                Arc::clone(&kill_requested),
+                kill_requested.clone(),
                 Arc::clone(&pending_permission),
                 Arc::clone(&session_allowlist),
                 hitl_rx,
@@ -388,7 +388,7 @@ pub fn run_chat_text(
         }
 
         let pause_requested = Arc::new(AtomicBool::new(false));
-        let kill_requested = Arc::new(AtomicBool::new(false));
+        let kill_requested = CancelToken::new();
         let control = ExecutionControl {
             pause_requested,
             kill_requested,

@@ -42,11 +42,11 @@ fn provider_config_merge_higher_wins() {
         model: Some("base-model".to_string()),
         base_url: Some("http://base".to_string()),
         auth_token: Some("base-token".to_string()),
+        ..Default::default()
     };
     let override_ = ProviderConfig {
         model: Some("override-model".to_string()),
-        base_url: None,
-        auth_token: None,
+        ..Default::default()
     };
     let merged = base.merge(override_);
     assert_eq!(merged.model.as_deref(), Some("override-model"));
@@ -62,6 +62,7 @@ fn provider_config_merge_all_none_returns_base() {
         model: Some("model".to_string()),
         base_url: Some("http://url".to_string()),
         auth_token: Some("token".to_string()),
+        ..Default::default()
     };
     let merged = base.clone().merge(ProviderConfig::default());
     assert_eq!(merged.model, base.model);
@@ -117,8 +118,7 @@ fn invoke_options_carries_resolved_model() {
         source: None,
         defaults: ProviderConfig {
             model: Some("default-model".to_string()),
-            base_url: None,
-            auth_token: None,
+            ..Default::default()
         },
         timeout_seconds: None,
         default_tools: None,
