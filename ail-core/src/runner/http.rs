@@ -245,7 +245,10 @@ impl Runner for HttpRunner {
             .as_deref()
             .map(|t| format!("Bearer {t}"));
 
-        let req = self.agent.post(&url).set("Content-Type", "application/json");
+        let req = self
+            .agent
+            .post(&url)
+            .set("Content-Type", "application/json");
         let req = match &auth_header {
             Some(auth) => req.set("Authorization", auth),
             None => req,
