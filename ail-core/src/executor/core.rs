@@ -149,10 +149,12 @@ impl StepObserver for NullObserver {
 
     fn on_pipeline_error(&mut self, _: &AilError) {}
 
-    fn on_result_pause(&mut self, step_id: &str, _: Option<&str>) {
-        tracing::info!(
+    fn on_result_pause(&mut self, step_id: &str, message: Option<&str>) {
+        tracing::warn!(
             step_id = %step_id,
-            "on_result pause_for_human (no-op in headless execution)"
+            message = ?message,
+            "on_result: pause_for_human fired in headless mode — pipeline continues; \
+             use controlled mode (--output-format json) for interactive HITL gates"
         );
     }
 }
@@ -480,10 +482,14 @@ pub(super) fn execute_core<O: StepObserver>(
                         ref path,
                         ref prompt,
                     } => {
+                        // Use a derived step ID so the sub-pipeline's response is
+                        // addressable as `{{ step.<id>__on_result.response }}` without
+                        // shadowing the parent step's own turn log entry (SPEC §11).
+                        let on_result_step_id = format!("{step_id}__on_result");
                         let sub_entry = execute_sub_pipeline(
                             path,
                             prompt.as_deref(),
-                            &step_id,
+                            &on_result_step_id,
                             session,
                             runner,
                             depth,

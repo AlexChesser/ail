@@ -709,6 +709,64 @@ fn sub_pipeline_relative_path_resolves_when_pipeline_loaded_as_bare_filename() {
     assert_eq!(session.turn_log.entries()[0].step_id, "call_child");
 }
 
+/// SPEC §11 — `on_result: pipeline:` appends the sub-pipeline result under the derived
+/// step ID `<parent_id>__on_result`, not under the parent step's ID. This ensures
+/// `{{ step.<id>.response }}` resolves to the parent's own response and
+/// `{{ step.<id>__on_result.response }}` resolves to the sub-pipeline's response.
+#[test]
+fn on_result_pipeline_uses_derived_step_id_in_turn_log() {
+    let _cwd_guard = crate::spec::CWD_LOCK.lock().unwrap();
+    let tmp = tempfile::tempdir().unwrap();
+    let orig = std::env::current_dir().unwrap();
+    std::env::set_current_dir(tmp.path()).unwrap();
+
+    let child_path = fixtures_dir().join("sub_pipeline_child.ail.yaml");
+    let trigger = Step {
+        id: StepId("trigger".to_string()),
+        body: StepBody::Prompt("trigger prompt".to_string()),
+        message: None,
+        tools: None,
+        on_result: Some(vec![ResultBranch {
+            matcher: ResultMatcher::Always,
+            action: ResultAction::Pipeline {
+                path: child_path.to_str().unwrap().to_string(),
+                prompt: None,
+            },
+        }]),
+        model: None,
+        runner: None,
+        condition: None,
+        append_system_prompt: None,
+        system_prompt: None,
+        resume: false,
+    };
+    let mut session = make_session(vec![trigger]);
+    let runner = StubRunner::new("parent response");
+    let result = execute(&mut session, &runner);
+    assert!(result.is_ok(), "Expected Ok, got: {result:?}");
+
+    let entries = session.turn_log.entries();
+    assert!(
+        entries.len() >= 2,
+        "Expected at least 2 entries (trigger + on_result sub-pipeline), got {}",
+        entries.len()
+    );
+
+    // First entry: the parent step — ID must match the declared step ID exactly.
+    assert_eq!(
+        entries[0].step_id, "trigger",
+        "parent step should use declared step ID"
+    );
+
+    // Second entry: the on_result sub-pipeline — ID must use the derived form.
+    assert_eq!(
+        entries[1].step_id, "trigger__on_result",
+        "on_result sub-pipeline entry must use '<id>__on_result' derived step ID (SPEC §11)"
+    );
+
+    std::env::set_current_dir(orig).unwrap();
+}
+
 /// `prompt:` field on `on_result: pipeline:` branches parses from YAML correctly.
 #[test]
 fn pipeline_action_with_prompt_override_parses_from_yaml() {
