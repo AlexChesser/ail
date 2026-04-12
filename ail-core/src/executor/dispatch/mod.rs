@@ -2,4 +2,5 @@
 
 pub(super) mod context;
 pub(super) mod prompt;
+pub(super) mod skill;
 pub(super) mod sub_pipeline;

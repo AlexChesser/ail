@@ -293,8 +293,9 @@ pub(super) fn execute_core<O: StepObserver>(
             continue;
         }
 
-        // Non-Prompt steps emit StepStarted before dispatch; Prompt steps emit after resolution.
-        if !matches!(step.body, StepBody::Prompt(_)) {
+        // Non-Prompt/Skill steps emit StepStarted before dispatch; Prompt and Skill steps
+        // emit after template resolution (they call observer.on_prompt_ready internally).
+        if !matches!(step.body, StepBody::Prompt(_) | StepBody::Skill { .. }) {
             observer.on_non_prompt_started(&step_id, step_index, total_steps);
         }
 
@@ -337,19 +338,17 @@ pub(super) fn execute_core<O: StepObserver>(
                 observer,
             )?,
 
-            StepBody::Skill(_) => {
-                let err = AilError::PipelineAborted {
-                    detail: format!(
-                        "Step '{step_id}' uses a step type not yet implemented in v0.1"
-                    ),
-                    context: Some(crate::error::ErrorContext::for_step(
-                        &session.run_id,
-                        &step_id,
-                    )),
-                };
-                observer.on_step_failed(&step_id, err.detail());
-                return Err(err);
-            }
+            StepBody::Skill { ref name } => dispatch::skill::execute(
+                name,
+                step,
+                session,
+                runner,
+                &step_id,
+                step_index,
+                total_steps,
+                pipeline_base_dir,
+                observer,
+            )?,
         };
 
         session.turn_log.append(entry);

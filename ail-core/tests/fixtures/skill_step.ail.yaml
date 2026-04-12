@@ -1,0 +1,6 @@
+version: "1"
+pipeline:
+  - id: invocation
+    prompt: "{{ step.invocation.prompt }}"
+  - id: review
+    skill: ail/code_review

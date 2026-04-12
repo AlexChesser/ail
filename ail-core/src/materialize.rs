@@ -35,8 +35,8 @@ pub fn materialize(pipeline: &Pipeline) -> String {
                 // Inline prompts use double-quote scalar; escape backslashes and quotes.
                 out.push_str(&format!("    prompt: \"{}\"\n", yaml_quote(text)));
             }
-            StepBody::Skill(path) => {
-                out.push_str(&format!("    skill: {}\n", path.display()));
+            StepBody::Skill { ref name } => {
+                out.push_str(&format!("    skill: {name}\n"));
             }
             StepBody::SubPipeline { path, prompt } => {
                 out.push_str(&format!("    pipeline: {path}\n"));
@@ -402,7 +402,9 @@ mod tests {
         let pipeline = Pipeline {
             steps: vec![make_step(
                 "sk",
-                StepBody::Skill(PathBuf::from("skills/my-skill")),
+                StepBody::Skill {
+                    name: "ail/code_review".to_string(),
+                },
             )],
             source: Some(PathBuf::from("skill.ail.yaml")),
             defaults: ProviderConfig::default(),
@@ -411,7 +413,7 @@ mod tests {
         };
         let output = materialize(&pipeline);
         assert!(output.contains("skill:"), "skill: key missing");
-        assert!(output.contains("my-skill"), "skill path missing");
+        assert!(output.contains("ail/code_review"), "skill name missing");
     }
 
     /// Output must always start with the version header line.
