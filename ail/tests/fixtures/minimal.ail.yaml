@@ -1,0 +1,4 @@
+version: "0.0.1"
+pipeline:
+  - id: dont_be_stupid
+    prompt: "Review the above output. Fix anything obviously wrong or unnecessarily complex."

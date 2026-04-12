@@ -5,6 +5,10 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  schedule:
+    # Nightly run at 06:00 UTC — used by the rust-ignored-nightly job
+    - cron: '0 6 * * *'
+  workflow_dispatch:
 
 jobs:
   # ── Rust: build, test, clippy ─────────────────────────────────────────────
@@ -108,3 +112,91 @@ jobs:
           # Must contain run_started or step_started
           echo "$OUTPUT" | grep -q '"type"' || (echo "No type field found" && exit 1)
           echo "✓ NDJSON output is valid"
+
+  # ── Rust coverage: llvm-cov report ─────────────────────────────────────────
+  rust-coverage:
+    name: Rust coverage
+    runs-on: ubuntu-latest
+    # Run on PRs and pushes to main, but not on schedule (nightly)
+    if: github.event_name != 'schedule'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: llvm-tools-preview
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ubuntu-coverage-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@cargo-llvm-cov
+
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@nextest
+
+      - name: Generate coverage report
+        run: cargo llvm-cov nextest --workspace --lcov --output-path lcov.info
+
+      - name: Upload coverage artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: lcov-report
+          path: lcov.info
+          retention-days: 30
+
+  # ── Nightly: run #[ignore]d tests (Ollama, Claude CLI) ─────────────────────
+  rust-ignored-nightly:
+    name: Nightly ignored tests
+    runs-on: ubuntu-latest
+    # Only run on schedule or manual dispatch
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ubuntu-nightly-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@nextest
+
+      - name: Install Ollama
+        run: |
+          curl -fsSL https://ollama.com/install.sh | sh
+          ollama serve &
+          # Wait for Ollama to be ready
+          for i in $(seq 1 30); do
+            curl -s http://localhost:11434/api/tags >/dev/null 2>&1 && break
+            sleep 1
+          done
+          # Pull a small model for the HTTP runner tests
+          ollama pull qwen3:0.6b
+
+      - name: Build
+        run: cargo build
+
+      - name: Run ignored tests
+        run: |
+          # Run only ignored tests. ClaudeCliRunner tests will fail (no claude binary)
+          # but Ollama tests should pass.
+          cargo nextest run --run-ignored=only 2>&1 || true
+          echo "## Nightly ignored tests" >> $GITHUB_STEP_SUMMARY
+          echo "Completed — see logs for individual results." >> $GITHUB_STEP_SUMMARY
+          echo "Note: ClaudeCliRunner tests are expected to fail (no claude binary installed)." >> $GITHUB_STEP_SUMMARY

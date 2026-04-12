@@ -1,0 +1,6 @@
+version: "0.0.1"
+pipeline:
+  - id: dry_refactor
+    prompt: "Refactor the code above to eliminate unnecessary repetition."
+  - id: security_audit
+    prompt: "Review the changes for common security vulnerabilities."

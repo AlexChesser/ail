@@ -51,6 +51,7 @@ pub async fn run_once_json(
     );
 
     control_bridge::spawn_stdin_reader_once(
+        tokio::io::BufReader::new(tokio::io::stdin()),
         hitl_tx,
         Arc::clone(&pending_permission),
         Arc::clone(&session_allowlist),
