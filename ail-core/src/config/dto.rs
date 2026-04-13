@@ -86,6 +86,18 @@ pub struct StepDto {
     pub before: Option<Vec<ChainStepDto>>,
     /// Private post-processing steps chained to this step (SPEC §5.7).
     pub then: Option<Vec<ChainStepDto>>,
+
+    // ── Reserved v0.3 fields ─────────────────────────────────────────────────
+    // Accepted by serde so users get a clear validation error instead of
+    // "unknown field". Rejected at validation time until implemented.
+    /// Reserved: bounded repeat-until loop (SPEC §27). Rejected at validation time.
+    pub do_while: Option<serde_json::Value>,
+    /// Reserved: collection iteration (SPEC §28). Rejected at validation time.
+    pub for_each: Option<serde_json::Value>,
+    /// Reserved: JSON Schema for step output validation (SPEC §26). Rejected at validation time.
+    pub output_schema: Option<serde_json::Value>,
+    /// Reserved: JSON Schema for step input validation (SPEC §26). Rejected at validation time.
+    pub input_schema: Option<serde_json::Value>,
 }
 
 /// A step entry in a `before:` or `then:` chain (SPEC §5.7, §5.10).

@@ -13,6 +13,21 @@ pub(in crate::config) fn parse_step_body(
     step_dto: &StepDto,
     id_str: &str,
 ) -> Result<StepBody, AilError> {
+    // Reject reserved v0.3 fields that are accepted by serde but not yet implemented.
+    for (field_name, is_set) in [
+        ("do_while", step_dto.do_while.is_some()),
+        ("for_each", step_dto.for_each.is_some()),
+        ("output_schema", step_dto.output_schema.is_some()),
+        ("input_schema", step_dto.input_schema.is_some()),
+    ] {
+        if is_set {
+            return Err(cfg_err!(
+                "Step '{id_str}' uses '{field_name}' which is reserved for a future \
+                 version and not yet implemented"
+            ));
+        }
+    }
+
     // When pipeline: is set, prompt: is treated as the child invocation override,
     // not a primary field — so don't count it in the primary field selector.
     let primary_count = [
