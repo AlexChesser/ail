@@ -59,6 +59,7 @@ pub fn run_dry_run(session: &mut ail_core::session::Session, runner: &dyn Runner
             ail_core::config::domain::StepBody::Context(
                 ail_core::config::domain::ContextSource::Shell(_),
             ) => "context:shell",
+            ail_core::config::domain::StepBody::DoWhile { .. } => "do_while",
         };
 
         let condition_note = match &step.condition {
@@ -116,6 +117,17 @@ pub fn run_dry_run(session: &mut ail_core::session::Session, runner: &dyn Runner
                 if let Some(p) = p {
                     println!("  Prompt override: {}", truncate(p, 200));
                 }
+            }
+            ail_core::config::domain::StepBody::DoWhile {
+                max_iterations,
+                steps,
+                ..
+            } => {
+                println!(
+                    "  do_while: max_iterations={max_iterations}, {} inner steps",
+                    steps.len()
+                );
+                println!("  (executor support not yet implemented)");
             }
         }
 

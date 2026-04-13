@@ -358,6 +358,16 @@ fn execute_single_step<O: StepObserver>(
                 pipeline_base_dir,
                 observer,
             ),
+
+            StepBody::DoWhile { .. } => {
+                return Err(AilError::ConfigValidationFailed {
+                    detail: format!(
+                        "Step '{step_id}' uses do_while: which is parsed but executor \
+                         support is not yet implemented"
+                    ),
+                    context: None,
+                });
+            }
         };
 
         match result {

@@ -90,8 +90,8 @@ pub struct StepDto {
     // ── Reserved v0.3 fields ─────────────────────────────────────────────────
     // Accepted by serde so users get a clear validation error instead of
     // "unknown field". Rejected at validation time until implemented.
-    /// Reserved: bounded repeat-until loop (SPEC §27). Rejected at validation time.
-    pub do_while: Option<serde_json::Value>,
+    /// Bounded repeat-until loop (SPEC §27).
+    pub do_while: Option<DoWhileDto>,
     /// Reserved: collection iteration (SPEC §28). Rejected at validation time.
     pub for_each: Option<serde_json::Value>,
     /// Reserved: JSON Schema for step output validation (SPEC §26). Rejected at validation time.
@@ -116,6 +116,17 @@ pub enum ChainStepDto {
 #[derive(Debug, Default, Deserialize)]
 pub struct ContextDto {
     pub shell: Option<String>,
+}
+
+/// DTO for `do_while:` bounded repeat-until loop (SPEC §27).
+#[derive(Debug, Default, Deserialize)]
+pub struct DoWhileDto {
+    /// Maximum number of iterations (required, must be ≥ 1).
+    pub max_iterations: Option<u64>,
+    /// Condition expression evaluated after each iteration; loop exits when true.
+    pub exit_when: Option<String>,
+    /// Inner steps executed each iteration.
+    pub steps: Option<Vec<StepDto>>,
 }
 
 #[derive(Debug, Default, Deserialize)]

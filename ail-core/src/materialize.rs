@@ -1,11 +1,23 @@
 use crate::config::domain::{
-    ActionKind, ContextSource, ExitCodeMatch, OnError, Pipeline, ResultAction, ResultMatcher, Step,
-    StepBody,
+    ActionKind, ConditionExpr, ConditionOp, ContextSource, ExitCodeMatch, OnError, Pipeline,
+    ResultAction, ResultMatcher, Step, StepBody,
 };
 
 /// Escape a string for use inside a YAML double-quoted scalar.
 fn yaml_quote(s: &str) -> String {
     s.replace('\\', "\\\\").replace('"', "\\\"")
+}
+
+/// Format a `ConditionExpr` back to its string representation.
+fn format_condition_expr(expr: &ConditionExpr) -> String {
+    let op_str = match expr.op {
+        ConditionOp::Eq => "==",
+        ConditionOp::Ne => "!=",
+        ConditionOp::Contains => "contains",
+        ConditionOp::StartsWith => "starts_with",
+        ConditionOp::EndsWith => "ends_with",
+    };
+    format!("{} {} {}", expr.lhs, op_str, expr.rhs)
 }
 
 /// One-line summary of a chain step body for materialize comments.
@@ -26,6 +38,16 @@ fn chain_step_summary(body: &StepBody) -> String {
         StepBody::Action(ActionKind::ModifyOutput { .. }) => "action: modify_output".to_string(),
         StepBody::Context(ContextSource::Shell(cmd)) => {
             format!("context: shell: \"{}\"", yaml_quote(cmd))
+        }
+        StepBody::DoWhile {
+            max_iterations,
+            steps,
+            ..
+        } => {
+            format!(
+                "do_while: (max_iterations: {max_iterations}, {} inner steps)",
+                steps.len()
+            )
         }
     }
 }
@@ -123,6 +145,22 @@ pub fn materialize(pipeline: &Pipeline) -> String {
                     "    context:\n      shell: \"{}\"\n",
                     yaml_quote(cmd)
                 ));
+            }
+            StepBody::DoWhile {
+                max_iterations,
+                ref exit_when,
+                ref steps,
+            } => {
+                out.push_str("    do_while:\n");
+                out.push_str(&format!("      max_iterations: {max_iterations}\n"));
+                out.push_str(&format!(
+                    "      exit_when: \"{}\"\n",
+                    yaml_quote(&format_condition_expr(exit_when))
+                ));
+                out.push_str("      steps:\n");
+                for inner in steps {
+                    serialize_step(&mut out, inner, "        ", None);
+                }
             }
         }
 
@@ -243,6 +281,25 @@ fn serialize_step(out: &mut String, step: &Step, indent: &str, origin_comment: O
                 "{field_indent}context:\n{field_indent}  shell: \"{}\"\n",
                 yaml_quote(cmd)
             ));
+        }
+        StepBody::DoWhile {
+            max_iterations,
+            ref exit_when,
+            ref steps,
+        } => {
+            out.push_str(&format!("{field_indent}do_while:\n"));
+            out.push_str(&format!(
+                "{field_indent}  max_iterations: {max_iterations}\n"
+            ));
+            out.push_str(&format!(
+                "{field_indent}  exit_when: \"{}\"\n",
+                yaml_quote(&format_condition_expr(exit_when))
+            ));
+            out.push_str(&format!("{field_indent}  steps:\n"));
+            let inner_indent = format!("{field_indent}    ");
+            for inner in steps {
+                serialize_step(out, inner, &inner_indent, None);
+            }
         }
     }
 
