@@ -41,6 +41,28 @@ pub struct TurnEntry {
     pub index: Option<u64>,
 }
 
+impl Default for TurnEntry {
+    fn default() -> Self {
+        TurnEntry {
+            step_id: String::new(),
+            prompt: String::new(),
+            response: None,
+            timestamp: SystemTime::now(),
+            cost_usd: None,
+            input_tokens: 0,
+            output_tokens: 0,
+            runner_session_id: None,
+            stdout: None,
+            stderr: None,
+            exit_code: None,
+            thinking: None,
+            tool_events: vec![],
+            modified: None,
+            index: None,
+        }
+    }
+}
+
 /// Written as the first entry for a run. Carries pipeline_source and project_hash so the SQLite provider
 /// can populate the sessions table correctly.
 #[derive(Serialize)]
@@ -87,18 +109,13 @@ impl TurnEntry {
             step_id: step_id.into(),
             prompt,
             response: Some(result.response),
-            timestamp: SystemTime::now(),
             cost_usd: result.cost_usd,
             input_tokens: result.input_tokens,
             output_tokens: result.output_tokens,
             runner_session_id: result.session_id,
-            stdout: None,
-            stderr: None,
-            exit_code: None,
             thinking: result.thinking,
             tool_events: result.tool_events,
-            modified: None,
-            index: None,
+            ..Default::default()
         }
     }
 
@@ -113,19 +130,10 @@ impl TurnEntry {
         TurnEntry {
             step_id: step_id.into(),
             prompt: cmd,
-            response: None,
-            timestamp: SystemTime::now(),
-            cost_usd: None,
-            input_tokens: 0,
-            output_tokens: 0,
-            runner_session_id: None,
             stdout: Some(stdout),
             stderr: Some(stderr),
             exit_code: Some(exit_code),
-            thinking: None,
-            tool_events: vec![],
-            modified: None,
-            index: None,
+            ..Default::default()
         }
     }
 
@@ -138,19 +146,8 @@ impl TurnEntry {
         TurnEntry {
             step_id: step_id.into(),
             prompt: message,
-            response: None,
-            timestamp: SystemTime::now(),
-            cost_usd: None,
-            input_tokens: 0,
-            output_tokens: 0,
-            runner_session_id: None,
-            stdout: None,
-            stderr: None,
-            exit_code: None,
-            thinking: None,
-            tool_events: vec![],
             modified: Some(modified_output),
-            index: None,
+            ..Default::default()
         }
     }
 }
@@ -432,18 +429,7 @@ mod tests {
             step_id: step_id.to_string(),
             prompt: "prompt".to_string(),
             response: response.map(|s| s.to_string()),
-            timestamp: SystemTime::now(),
-            cost_usd: None,
-            input_tokens: 0,
-            output_tokens: 0,
-            runner_session_id: None,
-            stdout: None,
-            stderr: None,
-            exit_code: None,
-            thinking: None,
-            tool_events: Vec::<ToolEvent>::new(),
-            modified: None,
-            index: None,
+            ..Default::default()
         }
     }
 

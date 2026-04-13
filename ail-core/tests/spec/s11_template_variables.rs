@@ -5,7 +5,6 @@ use ail_core::error::error_types;
 use ail_core::runner::ToolEvent;
 use ail_core::session::{NullProvider, Session, TurnEntry};
 use ail_core::template::resolve;
-use std::time::SystemTime;
 
 fn make_session() -> Session {
     Session::new(Pipeline::passthrough(), "original prompt".to_string())
@@ -17,18 +16,7 @@ fn append_response(session: &mut Session, step_id: &str, response: &str) {
         step_id: step_id.to_string(),
         prompt: "p".to_string(),
         response: Some(response.to_string()),
-        timestamp: SystemTime::now(),
-        cost_usd: None,
-        input_tokens: 0,
-        output_tokens: 0,
-        runner_session_id: None,
-        stdout: None,
-        stderr: None,
-        exit_code: None,
-        thinking: None,
-        tool_events: vec![],
-        modified: None,
-        index: None,
+        ..Default::default()
     });
 }
 
@@ -36,19 +24,10 @@ fn append_context(session: &mut Session, step_id: &str, stdout: &str, stderr: &s
     session.turn_log.append(TurnEntry {
         step_id: step_id.to_string(),
         prompt: "cmd".to_string(),
-        response: None,
-        timestamp: SystemTime::now(),
-        cost_usd: None,
-        input_tokens: 0,
-        output_tokens: 0,
-        runner_session_id: None,
         stdout: Some(stdout.to_string()),
         stderr: Some(stderr.to_string()),
         exit_code: Some(code),
-        thinking: None,
-        tool_events: vec![],
-        modified: None,
-        index: None,
+        ..Default::default()
     });
 }
 
@@ -482,18 +461,8 @@ fn step_tool_calls_serialises_events_as_json() {
         step_id: "run_check".to_string(),
         prompt: "do it".to_string(),
         response: Some("done".to_string()),
-        timestamp: SystemTime::now(),
-        cost_usd: None,
-        input_tokens: 0,
-        output_tokens: 0,
-        runner_session_id: None,
-        stdout: None,
-        stderr: None,
-        exit_code: None,
-        thinking: None,
         tool_events: vec![event],
-        modified: None,
-        index: None,
+        ..Default::default()
     });
 
     let result = resolve("{{ step.run_check.tool_calls }}", &session).unwrap();

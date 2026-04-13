@@ -293,6 +293,21 @@ pub(in crate::config) fn validate_steps(
         let before = parse_chain_steps(step_dto.before, &id_str, "before")?;
         let then = parse_chain_steps(step_dto.then, &id_str, "then")?;
 
+        // Validate output_schema is a valid JSON Schema if present (SPEC §26).
+        let output_schema = if let Some(ref schema) = step_dto.output_schema {
+            // Attempt to compile the schema — if it's not a valid JSON Schema,
+            // this will fail and we produce a clear parse-time error.
+            if let Err(e) = jsonschema::validator_for(schema) {
+                return Err(cfg_err!(
+                    "Step '{id_str}' declares output_schema but it is not a valid \
+                     JSON Schema: {e}"
+                ));
+            }
+            Some(schema.clone())
+        } else {
+            None
+        };
+
         steps.push(Step {
             id: StepId(id_str),
             body,
@@ -308,6 +323,7 @@ pub(in crate::config) fn validate_steps(
             on_error,
             before,
             then,
+            output_schema,
         });
     }
 
@@ -420,6 +436,7 @@ fn parse_chain_step(
                 on_error: None,
                 before: vec![],
                 then: vec![],
+                output_schema: None,
             })
         }
         ChainStepDto::Full(mut step_dto) => {
@@ -454,6 +471,7 @@ fn parse_chain_step(
                 on_error: None,
                 before,
                 then,
+                output_schema: step_dto.output_schema,
             })
         }
     }

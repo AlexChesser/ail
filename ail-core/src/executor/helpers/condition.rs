@@ -92,19 +92,10 @@ mod tests {
         session.turn_log.append(TurnEntry {
             step_id: step_id.to_string(),
             prompt: "cmd".to_string(),
-            response: None,
-            timestamp: SystemTime::now(),
-            cost_usd: None,
-            input_tokens: 0,
-            output_tokens: 0,
-            runner_session_id: None,
             stdout: Some(stdout.to_string()),
             stderr: Some(String::new()),
             exit_code: Some(exit_code),
-            thinking: None,
-            tool_events: vec![],
-            modified: None,
-            index: None,
+            ..Default::default()
         });
         session
     }
@@ -115,18 +106,7 @@ mod tests {
             step_id: step_id.to_string(),
             prompt: "ask".to_string(),
             response: Some(response.to_string()),
-            timestamp: SystemTime::now(),
-            cost_usd: None,
-            input_tokens: 0,
-            output_tokens: 0,
-            runner_session_id: None,
-            stdout: None,
-            stderr: None,
-            exit_code: None,
-            thinking: None,
-            tool_events: vec![],
-            modified: None,
-            index: None,
+            ..Default::default()
         });
         session
     }
@@ -147,6 +127,7 @@ mod tests {
             on_error: None,
             before: vec![],
             then: vec![],
+            output_schema: None,
         }
     }
 

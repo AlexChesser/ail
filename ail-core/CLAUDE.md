@@ -62,9 +62,10 @@ Consumed by `ail` (the binary) and future language-server / SDK targets.
 ```rust
 // Pipeline and its steps
 pub struct Pipeline { pub steps: Vec<Step>, pub source: Option<PathBuf> }
-pub struct Step    { pub id: StepId, pub body: StepBody, pub tools: Option<ToolPolicy>, pub on_result: Option<Vec<ResultBranch>>, pub model: Option<String>, pub runner: Option<String>, pub condition: Option<Condition>, pub on_error: Option<OnError>, pub before: Vec<Step>, pub then: Vec<Step> }
+pub struct Step    { pub id: StepId, pub body: StepBody, pub tools: Option<ToolPolicy>, pub on_result: Option<Vec<ResultBranch>>, pub model: Option<String>, pub runner: Option<String>, pub condition: Option<Condition>, pub on_error: Option<OnError>, pub before: Vec<Step>, pub then: Vec<Step>, pub output_schema: Option<serde_json::Value> }
 // before: private pre-processing chain (SPEC §5.10) — runs before the step fires
 // then: private post-processing chain (SPEC §5.7) — runs after the step completes
+// output_schema: optional JSON Schema for validating step output (SPEC §26); validated at parse time, response validated at runtime
 pub enum Condition { Always, Never, Expression(ConditionExpr) }  // SPEC §12 — None means Always; Never skips; Expression evaluates at runtime
 pub struct ConditionExpr { pub lhs: String, pub op: ConditionOp, pub rhs: String }
 pub enum ConditionOp { Eq, Ne, Contains, StartsWith, EndsWith }
@@ -200,6 +201,7 @@ pub struct AilError { pub error_type: &'static str, pub title: &'static str, pub
 
 - No `unwrap()`/`expect()` — use `?` and `AilError`
 - No `println!`/`eprintln!` — use `tracing::{info, warn, error}`
+- **Use `..Default::default()` for struct construction** — when building `Step`, `TurnEntry`, or other structs with many optional/defaultable fields, set only the fields that differ from the default and use `..Default::default()` for the rest. Never enumerate every field with `None`/`0`/`vec![]` explicitly. This prevents breakage when new fields are added.
 - `dto.rs` only: `#[derive(Deserialize)]`
 - `domain.rs` only: clean domain types, no serde
 - Modules returning `Result<_, AilError>` need `#[allow(clippy::result_large_err)]`

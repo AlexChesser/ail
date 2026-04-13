@@ -115,6 +115,7 @@ fn invoke_options_carries_resolved_model() {
         on_error: None,
         before: vec![],
         then: vec![],
+        output_schema: None,
     };
     let pipeline = Pipeline {
         steps: vec![step],

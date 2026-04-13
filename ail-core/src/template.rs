@@ -174,6 +174,26 @@ fn resolve_step_field(
                      (only available on do_while: steps)"
                 ))
             }),
+        "items" => {
+            // {{ step.<id>.items }} — array access for steps with output_schema type: array (SPEC §26.5).
+            let response = session
+                .turn_log
+                .response_for_step(step_id)
+                .ok_or_else(|| unresolved(format!("No response recorded for step '{step_id}'")))?;
+            let json_value: serde_json::Value = serde_json::from_str(response).map_err(|e| {
+                unresolved(format!(
+                    "Step '{step_id}' response is not valid JSON \
+                         (required for .items access): {e}"
+                ))
+            })?;
+            if !json_value.is_array() {
+                return Err(unresolved(format!(
+                    "Step '{step_id}' response is not a JSON array \
+                     (required for .items access)"
+                )));
+            }
+            Ok(json_value.to_string())
+        }
         "tool_calls" => {
             let events = session
                 .turn_log

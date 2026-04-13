@@ -20,7 +20,6 @@ pub(in crate::config) fn parse_step_body(
     // Reject reserved v0.3 fields that are accepted by serde but not yet implemented.
     for (field_name, is_set) in [
         ("for_each", step_dto.for_each.is_some()),
-        ("output_schema", step_dto.output_schema.is_some()),
         ("input_schema", step_dto.input_schema.is_some()),
     ] {
         if is_set {
