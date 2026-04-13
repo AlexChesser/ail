@@ -29,7 +29,19 @@ The condition is evaluated **after** each complete iteration — all inner steps
           shell: "cargo test 2>&1"
 ```
 
-In this example: `test` runs first (iteration 1), then `exit_when` is evaluated against `step.test.exit_code`. If the tests pass (exit code 0), the loop exits. Otherwise, `fix` runs with the test output, followed by `test` again.
+In this example: `test` runs first (iteration 0), then `exit_when` is evaluated against `step.test.exit_code`. If the tests pass (exit code 0), the loop exits. Otherwise, `fix` runs with the test output, followed by `test` again.
+
+The loop body can also reference an external pipeline file instead of inline steps:
+
+```yaml
+- id: fix_loop
+  do_while:
+    max_iterations: 5
+    exit_when: "{{ step.test.exit_code }} == 0"
+    pipeline: ./fix-loop-body.ail.yaml
+```
+
+The referenced file's `pipeline:` steps become the loop body. Template variables (`{{ do_while.iteration }}`, `{{ do_while.max_iterations }}`, etc.) are available inside the referenced pipeline.
 
 ---
 
@@ -40,7 +52,10 @@ In this example: `test` runs first (iteration 1), then `exit_when` is evaluated 
 | `max_iterations` | Integer ≥ 1 | **Yes** | None | Hard upper bound on iterations. Author must declare — no unbounded loops. |
 | `exit_when` | Condition expression (§12.2 syntax) | **Yes** | None | Evaluated after each complete iteration. When true, the loop exits cleanly. |
 | `on_max_iterations` | `abort_pipeline` / `continue` / `pause_for_human` | No | `abort_pipeline` | What happens when the iteration budget is exhausted without `exit_when` becoming true. |
-| `steps` | Array of Step | **Yes** | None | Inner steps executed each iteration. Same schema as top-level pipeline steps. |
+| `steps` | Array of Step | Conditional | None | Inner steps executed each iteration. Same schema as top-level pipeline steps. Required if `pipeline` is not set. |
+| `pipeline` | String (file path) | Conditional | None | Path to an external `.ail.yaml` file whose `pipeline:` steps become the loop body. May contain `{{ variable }}` syntax (resolved at execution time). Required if `steps` is not set. |
+
+`steps` and `pipeline` are mutually exclusive — declare one or the other. Declaring both or neither is a `CONFIG_VALIDATION_FAILED` error.
 
 `max_iterations` has no default value — the author must declare a bound. This is intentional: unbounded loops are a system-level failure mode that `ail` does not allow by omission.
 
@@ -66,19 +81,50 @@ In this example: `test` runs first (iteration 1), then `exit_when` is evaluated 
 
 ---
 
-### 27.4 Template Variables Inside `do_while:` Bodies
+### 27.4 Template Variables
 
-These variables are available only within the `steps:` block of a `do_while:` step:
+#### Inside `do_while:` bodies (current iteration)
+
+These variables are available only within the loop body:
 
 | Variable | Value |
 |---|---|
 | `{{ do_while.iteration }}` | Current 0-based iteration index |
 | `{{ do_while.max_iterations }}` | The declared `max_iterations` value |
 | `{{ step.<step_id>.response }}` | Shorthand — resolves the current iteration's result for inner step `<step_id>` |
-| `{{ step.<loop_id>::<step_id>.response }}` | Qualified form — also works from outside the loop |
-| `{{ step.<loop_id>.iterations_completed }}` | Number of iterations the loop completed (available after the loop exits) |
 
 `{{ do_while.iteration }}` and `{{ do_while.max_iterations }}` are not available outside a `do_while:` body. Referencing them at the top level is a `TEMPLATE_UNRESOLVED` error.
+
+#### After the loop (from subsequent pipeline steps)
+
+| Variable | Value |
+|---|---|
+| `{{ step.<loop_id>.response }}` | The loop's summary — last inner step's response from the final iteration |
+| `{{ step.<loop_id>.index }}` | Number of iterations the loop completed |
+| `{{ step.<loop_id>::<step_id>.response }}` | Qualified reference to an inner step's result from the final iteration |
+
+#### Indexed iteration access
+
+All iteration results are persisted to the turn log (NDJSON + SQLite). By default, only the final iteration's results are in template variable scope. To reference a specific iteration's results, use the indexed syntax:
+
+```
+{{ step.<loop_id>::do_while[<N>].<step_id>.<field> }}
+```
+
+Where `<N>` is the 0-based iteration index. Examples:
+
+```yaml
+# Exit code of the "test" step from iteration 0 (first iteration)
+{{ step.fix_loop::do_while[0].test.exit_code }}
+
+# Response from the "fix" step at iteration 2
+{{ step.fix_loop::do_while[2].fix.response }}
+
+# stdout from the "lint" step at the last iteration
+{{ step.fix_loop::do_while[{{ step.fix_loop.index }} - 1].lint.stdout }}
+```
+
+> **Implementation status:** Indexed iteration access is specified but not yet implemented. The turn log persists all iteration data; the template resolver currently only exposes the final iteration. Referencing `do_while[N]` will produce a `TEMPLATE_UNRESOLVED` error until implementation is complete.
 
 ---
 
@@ -117,7 +163,7 @@ Each loop produces the following NDJSON events in the pipeline run log (§4.4):
 {"type": "do_while_exit_when_evaluated", "step_id": "fix_loop", "iteration": 0, "result": false}
 {"type": "do_while_iteration_started", "step_id": "fix_loop", "iteration": 1}
 ...
-{"type": "do_while_completed", "step_id": "fix_loop", "iterations_completed": 3, "exit_reason": "exit_when"}
+{"type": "do_while_completed", "step_id": "fix_loop", "index": 3, "exit_reason": "exit_when"}
 ```
 
 **Exit reasons:**
@@ -138,19 +184,20 @@ For pipelines running in `--output-format json` controlled mode (§4.5), the fol
 |---|---|
 | `DoWhileStarted { step_id, max_iterations }` | Before the first iteration begins |
 | `DoWhileIterationStarted { step_id, iteration }` | Before each iteration |
-| `DoWhileCompleted { step_id, iterations_used, exit_reason }` | After the loop exits |
+| `DoWhileCompleted { step_id, index, exit_reason }` | After the loop exits |
 | `DoWhileMaxIterationsExceeded { step_id, max_iterations }` | When the iteration budget fires (before `on_max_iterations` action) |
 
 ---
 
 ### 27.8 Validation Rules
 
-1. `do_while:` requires `max_iterations`, `exit_when`, and `steps` (non-empty). Any missing → `CONFIG_VALIDATION_FAILED`.
-2. `do_while:` is mutually exclusive with all other primary fields (`prompt:`, `skill:`, `context:`, `pipeline:`, `for_each:`). Combining them → `CONFIG_VALIDATION_FAILED`.
-3. `exit_when` is validated as a valid condition expression (§12.2) at parse time.
-4. `max_iterations` must be an integer ≥ 1.
-5. Step IDs within `steps` must be unique within the loop (they may reuse IDs that appear outside the loop — the `<loop_id>::` prefix disambiguates them).
-6. `on_max_iterations` must be one of `abort_pipeline`, `continue`, `pause_for_human`. Unknown value → `CONFIG_VALIDATION_FAILED`.
+1. `do_while:` requires `max_iterations`, `exit_when`, and either `steps` (non-empty) or `pipeline`. Any missing → `CONFIG_VALIDATION_FAILED`.
+2. `steps` and `pipeline` are mutually exclusive within `do_while:`. Declaring both or neither → `CONFIG_VALIDATION_FAILED`.
+3. `do_while:` is mutually exclusive with all other primary fields (`prompt:`, `skill:`, `context:`, `pipeline:`, `for_each:`). Combining them → `CONFIG_VALIDATION_FAILED`.
+4. `exit_when` is validated as a valid condition expression (§12.2) at parse time.
+5. `max_iterations` must be an integer ≥ 1.
+6. Step IDs within `steps` must be unique within the loop (they may reuse IDs that appear outside the loop — the `<loop_id>::` prefix disambiguates them).
+7. `on_max_iterations` must be one of `abort_pipeline`, `continue`, `pause_for_human`. Unknown value → `CONFIG_VALIDATION_FAILED`.
 
 ---
 

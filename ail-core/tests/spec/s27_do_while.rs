@@ -666,9 +666,9 @@ mod executor {
         );
     }
 
-    /// §27 — summary entry has iterations_completed count.
+    /// §27 — summary entry has index count.
     #[test]
-    fn summary_entry_has_iterations_completed() {
+    fn summary_entry_has_index() {
         let inner = Step {
             id: StepId("inner".to_string()),
             body: StepBody::Prompt("test".to_string()),
@@ -691,15 +691,15 @@ mod executor {
             .find(|e| e.step_id == "loop")
             .expect("loop summary entry should exist");
         assert_eq!(
-            loop_entry.iterations_completed,
+            loop_entry.index,
             Some(1),
-            "Loop that exits after 1 iteration should have iterations_completed=1"
+            "Loop that exits after 1 iteration should have index=1"
         );
     }
 
-    /// §27 — iterations_completed is accessible via template variable.
+    /// §27 — index is accessible via template variable.
     #[test]
-    fn iterations_completed_template_variable() {
+    fn index_template_variable() {
         let inner = Step {
             id: StepId("gen".to_string()),
             body: StepBody::Prompt("generate".to_string()),
@@ -714,9 +714,7 @@ mod executor {
 
         let after = Step {
             id: StepId("report".to_string()),
-            body: StepBody::Prompt(
-                "Loop took {{ step.myloop.iterations_completed }} iterations".to_string(),
-            ),
+            body: StepBody::Prompt("Loop took {{ step.myloop.index }} iterations".to_string()),
             ..Default::default()
         };
 
@@ -732,7 +730,7 @@ mod executor {
             .expect("'report' step should exist");
         assert!(
             report_entry.prompt.contains("Loop took 1 iterations"),
-            "Expected iterations_completed in prompt, got: {}",
+            "Expected index in prompt, got: {}",
             report_entry.prompt
         );
     }
