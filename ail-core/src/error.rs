@@ -154,6 +154,42 @@ pub enum AilError {
         detail: String,
         context: Option<ErrorContext>,
     },
+
+    #[error("[ail:do-while/max-iterations-exceeded] {detail}")]
+    DoWhileMaxIterations {
+        detail: String,
+        context: Option<ErrorContext>,
+    },
+
+    #[error("[ail:loop/depth-exceeded] {detail}")]
+    LoopDepthExceeded {
+        detail: String,
+        context: Option<ErrorContext>,
+    },
+
+    #[error("[ail:schema/output-validation-failed] {detail}")]
+    OutputSchemaValidationFailed {
+        detail: String,
+        context: Option<ErrorContext>,
+    },
+
+    #[error("[ail:schema/input-validation-failed] {detail}")]
+    InputSchemaValidationFailed {
+        detail: String,
+        context: Option<ErrorContext>,
+    },
+
+    #[error("[ail:schema/compatibility-failed] {detail}")]
+    SchemaCompatibilityFailed {
+        detail: String,
+        context: Option<ErrorContext>,
+    },
+
+    #[error("[ail:for-each/source-invalid] {detail}")]
+    ForEachSourceInvalid {
+        detail: String,
+        context: Option<ErrorContext>,
+    },
 }
 
 impl AilError {
@@ -184,6 +220,14 @@ impl AilError {
             Self::PipelineCircularReference { .. } => error_types::PIPELINE_CIRCULAR_REFERENCE,
             Self::CircularInheritance { .. } => error_types::CIRCULAR_INHERITANCE,
             Self::SkillUnknown { .. } => error_types::SKILL_UNKNOWN,
+            Self::DoWhileMaxIterations { .. } => error_types::DO_WHILE_MAX_ITERATIONS,
+            Self::LoopDepthExceeded { .. } => error_types::LOOP_DEPTH_EXCEEDED,
+            Self::OutputSchemaValidationFailed { .. } => {
+                error_types::OUTPUT_SCHEMA_VALIDATION_FAILED
+            }
+            Self::InputSchemaValidationFailed { .. } => error_types::INPUT_SCHEMA_VALIDATION_FAILED,
+            Self::SchemaCompatibilityFailed { .. } => error_types::SCHEMA_COMPATIBILITY_FAILED,
+            Self::ForEachSourceInvalid { .. } => error_types::FOR_EACH_SOURCE_INVALID,
         }
     }
 
@@ -210,7 +254,13 @@ impl AilError {
             | Self::ConditionInvalid { detail, .. }
             | Self::PipelineCircularReference { detail, .. }
             | Self::CircularInheritance { detail, .. }
-            | Self::SkillUnknown { detail, .. } => detail,
+            | Self::SkillUnknown { detail, .. }
+            | Self::DoWhileMaxIterations { detail, .. }
+            | Self::LoopDepthExceeded { detail, .. }
+            | Self::OutputSchemaValidationFailed { detail, .. }
+            | Self::InputSchemaValidationFailed { detail, .. }
+            | Self::SchemaCompatibilityFailed { detail, .. }
+            | Self::ForEachSourceInvalid { detail, .. } => detail,
         }
     }
 
@@ -235,7 +285,13 @@ impl AilError {
             | Self::ConditionInvalid { detail, .. }
             | Self::PipelineCircularReference { detail, .. }
             | Self::CircularInheritance { detail, .. }
-            | Self::SkillUnknown { detail, .. } => detail,
+            | Self::SkillUnknown { detail, .. }
+            | Self::DoWhileMaxIterations { detail, .. }
+            | Self::LoopDepthExceeded { detail, .. }
+            | Self::OutputSchemaValidationFailed { detail, .. }
+            | Self::InputSchemaValidationFailed { detail, .. }
+            | Self::SchemaCompatibilityFailed { detail, .. }
+            | Self::ForEachSourceInvalid { detail, .. } => detail,
         }
     }
 
@@ -262,7 +318,13 @@ impl AilError {
             | Self::ConditionInvalid { context, .. }
             | Self::PipelineCircularReference { context, .. }
             | Self::CircularInheritance { context, .. }
-            | Self::SkillUnknown { context, .. } => context.as_ref(),
+            | Self::SkillUnknown { context, .. }
+            | Self::DoWhileMaxIterations { context, .. }
+            | Self::LoopDepthExceeded { context, .. }
+            | Self::OutputSchemaValidationFailed { context, .. }
+            | Self::InputSchemaValidationFailed { context, .. }
+            | Self::SchemaCompatibilityFailed { context, .. }
+            | Self::ForEachSourceInvalid { context, .. } => context.as_ref(),
         }
     }
 
@@ -345,6 +407,32 @@ impl AilError {
                 context: ctx,
             },
             Self::SkillUnknown { detail, .. } => Self::SkillUnknown {
+                detail,
+                context: ctx,
+            },
+            Self::DoWhileMaxIterations { detail, .. } => Self::DoWhileMaxIterations {
+                detail,
+                context: ctx,
+            },
+            Self::LoopDepthExceeded { detail, .. } => Self::LoopDepthExceeded {
+                detail,
+                context: ctx,
+            },
+            Self::OutputSchemaValidationFailed { detail, .. } => {
+                Self::OutputSchemaValidationFailed {
+                    detail,
+                    context: ctx,
+                }
+            }
+            Self::InputSchemaValidationFailed { detail, .. } => Self::InputSchemaValidationFailed {
+                detail,
+                context: ctx,
+            },
+            Self::SchemaCompatibilityFailed { detail, .. } => Self::SchemaCompatibilityFailed {
+                detail,
+                context: ctx,
+            },
+            Self::ForEachSourceInvalid { detail, .. } => Self::ForEachSourceInvalid {
                 detail,
                 context: ctx,
             },
@@ -501,6 +589,48 @@ impl AilError {
             context: None,
         }
     }
+
+    pub fn do_while_max_iterations(detail: impl Into<String>) -> Self {
+        Self::DoWhileMaxIterations {
+            detail: detail.into(),
+            context: None,
+        }
+    }
+
+    pub fn loop_depth_exceeded(detail: impl Into<String>) -> Self {
+        Self::LoopDepthExceeded {
+            detail: detail.into(),
+            context: None,
+        }
+    }
+
+    pub fn output_schema_validation_failed(detail: impl Into<String>) -> Self {
+        Self::OutputSchemaValidationFailed {
+            detail: detail.into(),
+            context: None,
+        }
+    }
+
+    pub fn input_schema_validation_failed(detail: impl Into<String>) -> Self {
+        Self::InputSchemaValidationFailed {
+            detail: detail.into(),
+            context: None,
+        }
+    }
+
+    pub fn schema_compatibility_failed(detail: impl Into<String>) -> Self {
+        Self::SchemaCompatibilityFailed {
+            detail: detail.into(),
+            context: None,
+        }
+    }
+
+    pub fn for_each_source_invalid(detail: impl Into<String>) -> Self {
+        Self::ForEachSourceInvalid {
+            detail: detail.into(),
+            context: None,
+        }
+    }
 }
 
 pub mod error_types {
@@ -523,6 +653,12 @@ pub mod error_types {
     pub const PIPELINE_CIRCULAR_REFERENCE: &str = "ail:pipeline/circular-reference";
     pub const CIRCULAR_INHERITANCE: &str = "ail:config/circular-inheritance";
     pub const SKILL_UNKNOWN: &str = "ail:skill/unknown";
+    pub const DO_WHILE_MAX_ITERATIONS: &str = "ail:do-while/max-iterations-exceeded";
+    pub const LOOP_DEPTH_EXCEEDED: &str = "ail:loop/depth-exceeded";
+    pub const OUTPUT_SCHEMA_VALIDATION_FAILED: &str = "ail:schema/output-validation-failed";
+    pub const INPUT_SCHEMA_VALIDATION_FAILED: &str = "ail:schema/input-validation-failed";
+    pub const SCHEMA_COMPATIBILITY_FAILED: &str = "ail:schema/compatibility-failed";
+    pub const FOR_EACH_SOURCE_INVALID: &str = "ail:for-each/source-invalid";
 }
 
 #[cfg(test)]
@@ -655,5 +791,53 @@ mod tests {
             context: None,
         };
         assert_eq!(err.into_detail(), "aborted reason");
+    }
+
+    #[test]
+    fn new_v03_constructors_set_correct_error_type() {
+        assert_eq!(
+            AilError::do_while_max_iterations("d").error_type(),
+            error_types::DO_WHILE_MAX_ITERATIONS
+        );
+        assert_eq!(
+            AilError::loop_depth_exceeded("d").error_type(),
+            error_types::LOOP_DEPTH_EXCEEDED
+        );
+        assert_eq!(
+            AilError::output_schema_validation_failed("d").error_type(),
+            error_types::OUTPUT_SCHEMA_VALIDATION_FAILED
+        );
+        assert_eq!(
+            AilError::input_schema_validation_failed("d").error_type(),
+            error_types::INPUT_SCHEMA_VALIDATION_FAILED
+        );
+        assert_eq!(
+            AilError::schema_compatibility_failed("d").error_type(),
+            error_types::SCHEMA_COMPATIBILITY_FAILED
+        );
+        assert_eq!(
+            AilError::for_each_source_invalid("d").error_type(),
+            error_types::FOR_EACH_SOURCE_INVALID
+        );
+    }
+
+    #[test]
+    fn new_v03_recovery_strategies_abort() {
+        assert_eq!(
+            AilError::do_while_max_iterations("d").recovery_strategy(),
+            RecoveryStrategy::Abort
+        );
+        assert_eq!(
+            AilError::loop_depth_exceeded("d").recovery_strategy(),
+            RecoveryStrategy::Abort
+        );
+        assert_eq!(
+            AilError::output_schema_validation_failed("d").recovery_strategy(),
+            RecoveryStrategy::Abort
+        );
+        assert_eq!(
+            AilError::for_each_source_invalid("d").recovery_strategy(),
+            RecoveryStrategy::Abort
+        );
     }
 }
