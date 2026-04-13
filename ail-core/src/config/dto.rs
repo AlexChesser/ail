@@ -1,7 +1,7 @@
 use serde::Deserialize;
 use std::collections::HashMap;
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Default, Deserialize)]
 pub struct PipelineFileDto {
     pub version: Option<String>,
     /// `FROM` field for pipeline inheritance (SPEC §7).
@@ -15,7 +15,7 @@ pub struct PipelineFileDto {
     pub pipelines: Option<HashMap<String, Vec<StepDto>>>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Default, Deserialize)]
 pub struct DefaultsDto {
     pub model: Option<String>,
     pub provider: Option<ProviderDto>,
@@ -23,7 +23,7 @@ pub struct DefaultsDto {
     pub tools: Option<ToolsDto>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Default, Deserialize)]
 pub struct ProviderDto {
     pub model: Option<String>,
     pub base_url: Option<String>,
@@ -33,7 +33,7 @@ pub struct ProviderDto {
     pub max_history_messages: Option<usize>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Default, Deserialize)]
 pub struct StepDto {
     pub id: Option<String>,
     pub prompt: Option<String>,
@@ -101,12 +101,12 @@ pub enum ChainStepDto {
     Full(Box<StepDto>),
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Default, Deserialize)]
 pub struct ContextDto {
     pub shell: Option<String>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Default, Deserialize)]
 pub struct OnResultBranchDto {
     pub contains: Option<String>,
     pub exit_code: Option<ExitCodeDto>,

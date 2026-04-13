@@ -9,16 +9,30 @@ use crate::config::domain::{Pipeline, Step, StepBody, StepId};
 use crate::session::log_provider::NullProvider;
 use crate::session::Session;
 
+impl Default for Step {
+    fn default() -> Self {
+        Step {
+            id: StepId(String::new()),
+            body: StepBody::Prompt(String::new()),
+            message: None,
+            tools: None,
+            on_result: None,
+            model: None,
+            runner: None,
+            condition: None,
+            append_system_prompt: None,
+            system_prompt: None,
+            resume: false,
+            on_error: None,
+            before: vec![],
+            then: vec![],
+        }
+    }
+}
+
 /// Creates a [`Pipeline`] with the given steps and all other fields defaulted.
 pub fn make_pipeline(steps: Vec<Step>) -> Pipeline {
-    Pipeline {
-        steps,
-        source: None,
-        defaults: Default::default(),
-        timeout_seconds: None,
-        default_tools: None,
-        named_pipelines: Default::default(),
-    }
+    Pipeline { steps, ..Default::default() }
 }
 
 /// Creates a [`Session`] backed by a [`NullProvider`] with the given pipeline steps.
@@ -33,17 +47,6 @@ pub fn prompt_step(id: &str, text: &str) -> Step {
     Step {
         id: StepId(id.to_string()),
         body: StepBody::Prompt(text.to_string()),
-        message: None,
-        tools: None,
-        on_result: None,
-        model: None,
-        runner: None,
-        condition: None,
-        append_system_prompt: None,
-        system_prompt: None,
-        resume: false,
-        on_error: None,
-        before: vec![],
-        then: vec![],
+        ..Default::default()
     }
 }

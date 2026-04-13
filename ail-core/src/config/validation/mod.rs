@@ -618,39 +618,15 @@ mod tests {
         StepDto {
             id: Some(id.to_string()),
             prompt: Some(prompt.to_string()),
-            skill: None,
-            pipeline: None,
-            action: None,
-            message: None,
-            on_headless: None,
-            default_value: None,
-            context: None,
-            tools: None,
-            on_result: None,
-            model: None,
-            runner: None,
-            condition: None,
-            append_system_prompt: None,
-            system_prompt: None,
-            resume: None,
-            run_before: None,
-            run_after: None,
-            override_step: None,
-            disable: None,
-            on_error: None,
-            max_retries: None,
-            before: None,
-            then: None,
+            ..Default::default()
         }
     }
 
     fn minimal_dto(steps: Vec<StepDto>) -> PipelineFileDto {
         PipelineFileDto {
             version: Some("1".to_string()),
-            from: None,
-            defaults: None,
             pipeline: Some(steps),
-            pipelines: None,
+            ..Default::default()
         }
     }
 
@@ -669,11 +645,8 @@ mod tests {
     #[test]
     fn missing_version_returns_error() {
         let dto = PipelineFileDto {
-            version: None,
-            from: None,
-            defaults: None,
             pipeline: Some(vec![minimal_step("s1", "hello")]),
-            pipelines: None,
+            ..Default::default()
         };
         let err = validate(dto, source()).expect_err("should fail");
         assert_eq!(err.error_type(), error_types::CONFIG_VALIDATION_FAILED);
@@ -684,10 +657,8 @@ mod tests {
     fn empty_version_returns_error() {
         let dto = PipelineFileDto {
             version: Some("   ".to_string()),
-            from: None,
-            defaults: None,
             pipeline: Some(vec![minimal_step("s1", "hello")]),
-            pipelines: None,
+            ..Default::default()
         };
         let err = validate(dto, source()).expect_err("should fail");
         assert_eq!(err.error_type(), error_types::CONFIG_VALIDATION_FAILED);
@@ -699,10 +670,7 @@ mod tests {
     fn missing_pipeline_field_returns_error() {
         let dto = PipelineFileDto {
             version: Some("1".to_string()),
-            from: None,
-            defaults: None,
-            pipeline: None,
-            pipelines: None,
+            ..Default::default()
         };
         let err = validate(dto, source()).expect_err("should fail");
         assert_eq!(err.error_type(), error_types::CONFIG_VALIDATION_FAILED);
@@ -713,10 +681,8 @@ mod tests {
     fn empty_pipeline_array_returns_error() {
         let dto = PipelineFileDto {
             version: Some("1".to_string()),
-            from: None,
-            defaults: None,
             pipeline: Some(vec![]),
-            pipelines: None,
+            ..Default::default()
         };
         let err = validate(dto, source()).expect_err("should fail");
         assert_eq!(err.error_type(), error_types::CONFIG_VALIDATION_FAILED);
@@ -727,9 +693,8 @@ mod tests {
     #[test]
     fn step_missing_id_returns_error() {
         let dto = minimal_dto(vec![StepDto {
-            id: None,
             prompt: Some("hello".to_string()),
-            ..minimal_step("unused", "unused")
+            ..Default::default()
         }]);
         let err = validate(dto, source()).expect_err("should fail");
         assert_eq!(err.error_type(), error_types::CONFIG_VALIDATION_FAILED);
@@ -776,30 +741,7 @@ mod tests {
     fn step_with_no_primary_field_returns_error() {
         let dto = minimal_dto(vec![StepDto {
             id: Some("empty".to_string()),
-            prompt: None,
-            skill: None,
-            pipeline: None,
-            action: None,
-            message: None,
-            on_headless: None,
-            default_value: None,
-            context: None,
-            tools: None,
-            on_result: None,
-            model: None,
-            runner: None,
-            condition: None,
-            append_system_prompt: None,
-            system_prompt: None,
-            resume: None,
-            run_before: None,
-            run_after: None,
-            override_step: None,
-            disable: None,
-            on_error: None,
-            max_retries: None,
-            before: None,
-            then: None,
+            ..Default::default()
         }]);
         let err = validate(dto, source()).expect_err("should fail");
         assert_eq!(err.error_type(), error_types::CONFIG_VALIDATION_FAILED);
@@ -812,28 +754,7 @@ mod tests {
             id: Some("conflict".to_string()),
             prompt: Some("hello".to_string()),
             skill: Some("my-skill".to_string()),
-            pipeline: None,
-            action: None,
-            message: None,
-            on_headless: None,
-            default_value: None,
-            context: None,
-            tools: None,
-            on_result: None,
-            model: None,
-            runner: None,
-            condition: None,
-            append_system_prompt: None,
-            system_prompt: None,
-            resume: None,
-            run_before: None,
-            run_after: None,
-            override_step: None,
-            disable: None,
-            on_error: None,
-            max_retries: None,
-            before: None,
-            then: None,
+            ..Default::default()
         }]);
         let err = validate(dto, source()).expect_err("should fail");
         assert_eq!(err.error_type(), error_types::CONFIG_VALIDATION_FAILED);
@@ -847,29 +768,7 @@ mod tests {
         let dto = minimal_dto(vec![StepDto {
             id: Some("sk".to_string()),
             skill: Some("ail/code_review".to_string()),
-            prompt: None,
-            pipeline: None,
-            action: None,
-            message: None,
-            on_headless: None,
-            default_value: None,
-            context: None,
-            tools: None,
-            on_result: None,
-            model: None,
-            runner: None,
-            condition: None,
-            append_system_prompt: None,
-            system_prompt: None,
-            resume: None,
-            run_before: None,
-            run_after: None,
-            override_step: None,
-            disable: None,
-            on_error: None,
-            max_retries: None,
-            before: None,
-            then: None,
+            ..Default::default()
         }]);
         let pipeline = validate(dto, source()).expect("skill: step should be accepted");
         assert!(matches!(pipeline.steps[0].body, StepBody::Skill { .. }));
@@ -883,29 +782,7 @@ mod tests {
         let dto = minimal_dto(vec![StepDto {
             id: Some("sk".to_string()),
             skill: Some("  ".to_string()),
-            prompt: None,
-            pipeline: None,
-            action: None,
-            message: None,
-            context: None,
-            tools: None,
-            on_result: None,
-            model: None,
-            runner: None,
-            condition: None,
-            append_system_prompt: None,
-            system_prompt: None,
-            resume: None,
-            on_headless: None,
-            default_value: None,
-            run_before: None,
-            run_after: None,
-            override_step: None,
-            disable: None,
-            on_error: None,
-            max_retries: None,
-            before: None,
-            then: None,
+            ..Default::default()
         }]);
         let err = validate(dto, source()).expect_err("empty skill name should fail");
         assert_eq!(
@@ -925,29 +802,7 @@ mod tests {
         let dto = minimal_dto(vec![StepDto {
             id: Some("sub".to_string()),
             pipeline: Some("child.ail.yaml".to_string()),
-            prompt: None,
-            skill: None,
-            action: None,
-            message: None,
-            on_headless: None,
-            default_value: None,
-            context: None,
-            tools: None,
-            on_result: None,
-            model: None,
-            runner: None,
-            condition: None,
-            append_system_prompt: None,
-            system_prompt: None,
-            resume: None,
-            run_before: None,
-            run_after: None,
-            override_step: None,
-            disable: None,
-            on_error: None,
-            max_retries: None,
-            before: None,
-            then: None,
+            ..Default::default()
         }]);
         let pipeline = validate(dto, source()).expect("should succeed");
         assert!(matches!(
@@ -961,29 +816,8 @@ mod tests {
         let dto = minimal_dto(vec![StepDto {
             id: Some("gate".to_string()),
             action: Some("pause_for_human".to_string()),
-            prompt: None,
-            skill: None,
-            pipeline: None,
             message: Some("Waiting for approval".to_string()),
-            on_headless: None,
-            default_value: None,
-            context: None,
-            tools: None,
-            on_result: None,
-            model: None,
-            runner: None,
-            condition: None,
-            append_system_prompt: None,
-            system_prompt: None,
-            resume: None,
-            run_before: None,
-            run_after: None,
-            override_step: None,
-            disable: None,
-            on_error: None,
-            max_retries: None,
-            before: None,
-            then: None,
+            ..Default::default()
         }]);
         let pipeline = validate(dto, source()).expect("should succeed");
         assert!(matches!(
@@ -997,29 +831,7 @@ mod tests {
         let dto = minimal_dto(vec![StepDto {
             id: Some("bad-action".to_string()),
             action: Some("fly_to_moon".to_string()),
-            prompt: None,
-            skill: None,
-            pipeline: None,
-            message: None,
-            on_headless: None,
-            default_value: None,
-            context: None,
-            tools: None,
-            on_result: None,
-            model: None,
-            runner: None,
-            condition: None,
-            append_system_prompt: None,
-            system_prompt: None,
-            resume: None,
-            run_before: None,
-            run_after: None,
-            override_step: None,
-            disable: None,
-            on_error: None,
-            max_retries: None,
-            before: None,
-            then: None,
+            ..Default::default()
         }]);
         let err = validate(dto, source()).expect_err("should fail");
         assert_eq!(err.error_type(), error_types::CONFIG_VALIDATION_FAILED);
@@ -1030,32 +842,8 @@ mod tests {
     fn context_shell_step_round_trips() {
         let dto = minimal_dto(vec![StepDto {
             id: Some("ctx".to_string()),
-            context: Some(ContextDto {
-                shell: Some("git status".to_string()),
-            }),
-            prompt: None,
-            skill: None,
-            pipeline: None,
-            action: None,
-            message: None,
-            on_headless: None,
-            default_value: None,
-            tools: None,
-            on_result: None,
-            model: None,
-            runner: None,
-            condition: None,
-            append_system_prompt: None,
-            system_prompt: None,
-            resume: None,
-            run_before: None,
-            run_after: None,
-            override_step: None,
-            disable: None,
-            on_error: None,
-            max_retries: None,
-            before: None,
-            then: None,
+            context: Some(ContextDto { shell: Some("git status".to_string()), ..Default::default() }),
+            ..Default::default()
         }]);
         let pipeline = validate(dto, source()).expect("should succeed");
         assert!(matches!(
@@ -1068,30 +856,8 @@ mod tests {
     fn context_step_without_source_returns_error() {
         let dto = minimal_dto(vec![StepDto {
             id: Some("ctx".to_string()),
-            context: Some(ContextDto { shell: None }),
-            prompt: None,
-            skill: None,
-            pipeline: None,
-            action: None,
-            message: None,
-            on_headless: None,
-            default_value: None,
-            tools: None,
-            on_result: None,
-            model: None,
-            runner: None,
-            condition: None,
-            append_system_prompt: None,
-            system_prompt: None,
-            resume: None,
-            run_before: None,
-            run_after: None,
-            override_step: None,
-            disable: None,
-            on_error: None,
-            max_retries: None,
-            before: None,
-            then: None,
+            context: Some(ContextDto::default()),
+            ..Default::default()
         }]);
         let err = validate(dto, source()).expect_err("should fail");
         assert_eq!(err.error_type(), error_types::CONFIG_VALIDATION_FAILED);
@@ -1275,10 +1041,8 @@ mod tests {
         let mut step = minimal_step("s", "hello");
         step.on_result = Some(vec![OnResultBranchDto {
             contains: Some("SUCCESS".to_string()),
-            exit_code: None,
-            always: None,
             action: Some("continue".to_string()),
-            prompt: None,
+            ..Default::default()
         }]);
         let dto = minimal_dto(vec![step]);
         let pipeline = validate(dto, source()).expect("should succeed");
@@ -1291,11 +1055,9 @@ mod tests {
     fn on_result_exit_code_exact_round_trips() {
         let mut step = minimal_step("s", "hello");
         step.on_result = Some(vec![OnResultBranchDto {
-            contains: None,
             exit_code: Some(ExitCodeDto::Integer(1)),
-            always: None,
             action: Some("break".to_string()),
-            prompt: None,
+            ..Default::default()
         }]);
         let dto = minimal_dto(vec![step]);
         let pipeline = validate(dto, source()).expect("should succeed");
@@ -1311,11 +1073,9 @@ mod tests {
     fn on_result_exit_code_any_round_trips() {
         let mut step = minimal_step("s", "hello");
         step.on_result = Some(vec![OnResultBranchDto {
-            contains: None,
             exit_code: Some(ExitCodeDto::Keyword("any".to_string())),
-            always: None,
             action: Some("abort_pipeline".to_string()),
-            prompt: None,
+            ..Default::default()
         }]);
         let dto = minimal_dto(vec![step]);
         let pipeline = validate(dto, source()).expect("should succeed");
@@ -1331,11 +1091,9 @@ mod tests {
     fn on_result_exit_code_invalid_keyword_returns_error() {
         let mut step = minimal_step("s", "hello");
         step.on_result = Some(vec![OnResultBranchDto {
-            contains: None,
             exit_code: Some(ExitCodeDto::Keyword("none".to_string())),
-            always: None,
             action: Some("continue".to_string()),
-            prompt: None,
+            ..Default::default()
         }]);
         let dto = minimal_dto(vec![step]);
         let err = validate(dto, source()).expect_err("should fail");
@@ -1347,11 +1105,9 @@ mod tests {
     fn on_result_always_matcher_round_trips() {
         let mut step = minimal_step("s", "hello");
         step.on_result = Some(vec![OnResultBranchDto {
-            contains: None,
-            exit_code: None,
             always: Some(true),
             action: Some("pause_for_human".to_string()),
-            prompt: None,
+            ..Default::default()
         }]);
         let dto = minimal_dto(vec![step]);
         let pipeline = validate(dto, source()).expect("should succeed");
@@ -1365,10 +1121,8 @@ mod tests {
         let mut step = minimal_step("s", "hello");
         step.on_result = Some(vec![OnResultBranchDto {
             contains: Some("ok".to_string()),
-            exit_code: None,
-            always: None,
             action: Some("pipeline: child.ail.yaml".to_string()),
-            prompt: None,
+            ..Default::default()
         }]);
         let dto = minimal_dto(vec![step]);
         let pipeline = validate(dto, source()).expect("should succeed");
@@ -1381,10 +1135,8 @@ mod tests {
         let mut step = minimal_step("s", "hello");
         step.on_result = Some(vec![OnResultBranchDto {
             contains: Some("ok".to_string()),
-            exit_code: None,
-            always: None,
             action: Some("pipeline:".to_string()),
-            prompt: None,
+            ..Default::default()
         }]);
         let dto = minimal_dto(vec![step]);
         let err = validate(dto, source()).expect_err("should fail");
@@ -1397,10 +1149,8 @@ mod tests {
         let mut step = minimal_step("s", "hello");
         step.on_result = Some(vec![OnResultBranchDto {
             contains: Some("ok".to_string()),
-            exit_code: None,
-            always: None,
             action: Some("teleport".to_string()),
-            prompt: None,
+            ..Default::default()
         }]);
         let dto = minimal_dto(vec![step]);
         let err = validate(dto, source()).expect_err("should fail");
@@ -1413,10 +1163,7 @@ mod tests {
         let mut step = minimal_step("s", "hello");
         step.on_result = Some(vec![OnResultBranchDto {
             contains: Some("ok".to_string()),
-            exit_code: None,
-            always: None,
-            action: None,
-            prompt: None,
+            ..Default::default()
         }]);
         let dto = minimal_dto(vec![step]);
         let err = validate(dto, source()).expect_err("should fail");
@@ -1428,11 +1175,8 @@ mod tests {
     fn on_result_branch_zero_matchers_returns_error() {
         let mut step = minimal_step("s", "hello");
         step.on_result = Some(vec![OnResultBranchDto {
-            contains: None,
-            exit_code: None,
-            always: None,
             action: Some("continue".to_string()),
-            prompt: None,
+            ..Default::default()
         }]);
         let dto = minimal_dto(vec![step]);
         let err = validate(dto, source()).expect_err("should fail");
@@ -1445,9 +1189,8 @@ mod tests {
         step.on_result = Some(vec![OnResultBranchDto {
             contains: Some("ok".to_string()),
             exit_code: Some(ExitCodeDto::Integer(0)),
-            always: None,
             action: Some("continue".to_string()),
-            prompt: None,
+            ..Default::default()
         }]);
         let dto = minimal_dto(vec![step]);
         let err = validate(dto, source()).expect_err("should fail");
@@ -1460,15 +1203,12 @@ mod tests {
     fn defaults_model_field_propagates() {
         let dto = PipelineFileDto {
             version: Some("1".to_string()),
-            from: None,
             defaults: Some(DefaultsDto {
                 model: Some("claude-3-5-haiku".to_string()),
-                provider: None,
-                timeout_seconds: None,
-                tools: None,
+                ..Default::default()
             }),
             pipeline: Some(vec![minimal_step("s", "hello")]),
-            pipelines: None,
+            ..Default::default()
         };
         let pipeline = validate(dto, source()).expect("should succeed");
         assert_eq!(pipeline.defaults.model.as_deref(), Some("claude-3-5-haiku"));
@@ -1478,22 +1218,16 @@ mod tests {
     fn defaults_provider_model_wins_over_top_level_model() {
         let dto = PipelineFileDto {
             version: Some("1".to_string()),
-            from: None,
             defaults: Some(DefaultsDto {
                 model: Some("top-level".to_string()),
                 provider: Some(ProviderDto {
                     model: Some("provider-wins".to_string()),
-                    base_url: None,
-                    auth_token: None,
-                    connect_timeout_seconds: None,
-                    read_timeout_seconds: None,
-                    max_history_messages: None,
+                    ..Default::default()
                 }),
-                timeout_seconds: None,
-                tools: None,
+                ..Default::default()
             }),
             pipeline: Some(vec![minimal_step("s", "hello")]),
-            pipelines: None,
+            ..Default::default()
         };
         let pipeline = validate(dto, source()).expect("should succeed");
         // provider.model takes precedence over defaults.model
@@ -1504,15 +1238,12 @@ mod tests {
     fn defaults_no_provider_falls_through_to_top_level_model() {
         let dto = PipelineFileDto {
             version: Some("1".to_string()),
-            from: None,
             defaults: Some(DefaultsDto {
                 model: Some("fallback-model".to_string()),
-                provider: None,
-                timeout_seconds: None,
-                tools: None,
+                ..Default::default()
             }),
             pipeline: Some(vec![minimal_step("s", "hello")]),
-            pipelines: None,
+            ..Default::default()
         };
         let pipeline = validate(dto, source()).expect("should succeed");
         assert_eq!(pipeline.defaults.model.as_deref(), Some("fallback-model"));
@@ -1522,15 +1253,12 @@ mod tests {
     fn timeout_seconds_propagates() {
         let dto = PipelineFileDto {
             version: Some("1".to_string()),
-            from: None,
             defaults: Some(DefaultsDto {
-                model: None,
-                provider: None,
                 timeout_seconds: Some(120),
-                tools: None,
+                ..Default::default()
             }),
             pipeline: Some(vec![minimal_step("s", "hello")]),
-            pipelines: None,
+            ..Default::default()
         };
         let pipeline = validate(dto, source()).expect("should succeed");
         assert_eq!(pipeline.timeout_seconds, Some(120));
@@ -1540,19 +1268,16 @@ mod tests {
     fn default_tools_propagate() {
         let dto = PipelineFileDto {
             version: Some("1".to_string()),
-            from: None,
             defaults: Some(DefaultsDto {
-                model: None,
-                provider: None,
-                timeout_seconds: None,
                 tools: Some(ToolsDto {
                     disabled: false,
                     allow: vec!["Bash".to_string()],
                     deny: vec![],
                 }),
+                ..Default::default()
             }),
             pipeline: Some(vec![minimal_step("s", "hello")]),
-            pipelines: None,
+            ..Default::default()
         };
         let pipeline = validate(dto, source()).expect("should succeed");
         let default_tools = pipeline.default_tools.expect("should have default_tools");

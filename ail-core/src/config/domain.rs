@@ -52,7 +52,7 @@ impl ProviderConfig {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct Pipeline {
     pub steps: Vec<Step>,
     pub source: Option<PathBuf>,
