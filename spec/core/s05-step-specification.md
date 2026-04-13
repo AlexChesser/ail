@@ -8,6 +8,8 @@ Every item in the `pipeline` array is a step. Each step is of exactly one of fou
 | Skill | `skill:` | `SKILL.md` body | Yes | Yes |
 | Context | `context:` | `shell:` / `mcp:` | No | No |
 | Sub-pipeline | `pipeline:` | Another `.ail.yaml` | Delegated | Delegated |
+| Do-while loop | `do_while:` | Repeating sub-steps | Delegated | Delegated |
+| For-each loop | `for_each:` | Per-item sub-steps | Delegated | Delegated |
 
 Exactly one primary field is required per step. All other fields are optional.
 
@@ -216,15 +218,14 @@ Rules are evaluated in declared order; the first match fires. Used when differen
 | `preview_for_human` | Show transformed prompt alongside original. Human chooses: use transformed, use original, or edit. See §5.10. |
 | `use_original` | Discard `before:` transformation. Pass raw prompt to parent step unchanged. Only valid inside a `before:` chain. |
 | `abort_pipeline` | Stop immediately, treating the pipeline as failed. Logged to audit trail. |
-| `repeat_step` | Re-run this step. Respects `max_retries`. |
-| `break` | Exit the current pipeline cleanly. Remaining steps are skipped. Not an error — the pipeline completed successfully with an intentional early exit. In a sub-pipeline, returns control to the caller. |
+| `break` | Exit the current scope cleanly. At the top level: remaining pipeline steps are skipped (success, not error). **Inside a `do_while:` or `for_each:` body: exits the loop; the pipeline continues with the step after the loop.** In a sub-pipeline: returns control to the caller. |
 | `pipeline: <path>` | Conditionally call another pipeline. Equivalent to a `pipeline:` step but triggered by `on_result` match. Follows the same isolation model as §9. Optional `prompt:` field overrides the child session's invocation prompt (see §9.3). |
 
 **`break` vs `abort_pipeline`:**
 
 | Action | Intent | Exit state | Caller behaviour |
 |---|---|---|---|
-| `break` | Intentional early exit | Success | Sub-pipeline returns cleanly; caller continues |
+| `break` | Intentional early exit | Success | Loop exits cleanly; sub-pipeline returns cleanly; caller/pipeline continues |
 | `abort_pipeline` | Something went wrong | Failure | Caller's `on_error` fires |
 
 > ⚠️ **Reliability warning — prose matching is best-effort.**
