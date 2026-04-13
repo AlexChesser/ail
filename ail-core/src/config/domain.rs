@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::path::PathBuf;
 
 /// One entry in an `append_system_prompt:` array (SPEC §5.9).
@@ -63,6 +64,9 @@ pub struct Pipeline {
     /// Pipeline-wide tool policy applied to steps that declare no per-step `tools:` (SPEC §3.2).
     /// Per-step tools override entirely — if a step declares any tools, the default is ignored.
     pub default_tools: Option<ToolPolicy>,
+    /// Named pipeline definitions (SPEC §10). Maps pipeline name → list of validated steps.
+    /// Referenced by `StepBody::NamedPipeline` steps at execution time.
+    pub named_pipelines: HashMap<String, Vec<Step>>,
 }
 
 impl Pipeline {
@@ -91,6 +95,7 @@ impl Pipeline {
             defaults: ProviderConfig::default(),
             timeout_seconds: None,
             default_tools: None,
+            named_pipelines: HashMap::new(),
         }
     }
 }
@@ -226,7 +231,19 @@ pub enum StepBody {
         path: String,
         prompt: Option<String>,
     },
+    /// Reference to a named pipeline defined in the `pipelines:` section (SPEC §10).
+    /// The `name` is resolved against `Pipeline.named_pipelines` at execution time.
+    /// `prompt` overrides the child session's invocation prompt when set;
+    /// defaults to parent's last response.
+    NamedPipeline {
+        name: String,
+        prompt: Option<String>,
+    },
     Action(ActionKind),
+    // Note: Named pipeline references from `pipeline:` step bodies that match a key
+    // in the `pipelines:` map are resolved to `NamedPipeline` during a second pass
+    // in validation. If the value does not match a named pipeline key, it remains
+    // as `SubPipeline` (file-based sub-pipeline reference).
     Context(ContextSource),
 }
 

@@ -1,0 +1,13 @@
+version: "0.0.1"
+
+pipelines:
+  alpha:
+    - id: call_beta
+      pipeline: beta
+  beta:
+    - id: call_alpha
+      pipeline: alpha
+
+pipeline:
+  - id: start
+    pipeline: alpha

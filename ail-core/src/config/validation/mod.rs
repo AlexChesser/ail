@@ -6,14 +6,14 @@ mod on_result;
 mod step_body;
 mod system_prompt;
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
 use super::domain::{
     Condition, ConditionExpr, ConditionOp, OnError, Pipeline, ProviderConfig, Step, StepBody,
     StepId, ToolPolicy,
 };
-use super::dto::{ChainStepDto, PipelineFileDto, ToolsDto};
+use super::dto::{ChainStepDto, PipelineFileDto, StepDto, ToolsDto};
 use crate::error::AilError;
 
 macro_rules! cfg_err {
@@ -161,6 +161,225 @@ fn strip_quotes(s: &str) -> &str {
         return &s[1..s.len() - 1];
     }
     s
+}
+
+/// Validate a list of step DTOs into domain `Step`s.
+/// `context_label` is used in error messages to indicate where these steps come from
+/// (e.g. "pipeline" or "named pipeline 'security_gates'").
+fn validate_steps(step_dtos: Vec<StepDto>, context_label: &str) -> Result<Vec<Step>, AilError> {
+    let mut seen_ids: HashSet<String> = HashSet::new();
+    let mut steps: Vec<Step> = Vec::with_capacity(step_dtos.len());
+
+    for step_dto in step_dtos {
+        // Reject leftover hook operation fields — these are consumed during FROM
+        // inheritance resolution and should never reach validation. If they do,
+        // the pipeline either lacks FROM or the merge logic has a bug.
+        if step_dto.run_before.is_some()
+            || step_dto.run_after.is_some()
+            || step_dto.override_step.is_some()
+            || step_dto.disable.is_some()
+        {
+            let hook_field = if step_dto.disable.is_some() {
+                format!("disable: {}", step_dto.disable.as_deref().unwrap_or("?"))
+            } else if step_dto.override_step.is_some() {
+                format!(
+                    "override: {}",
+                    step_dto.override_step.as_deref().unwrap_or("?")
+                )
+            } else if step_dto.run_before.is_some() {
+                format!(
+                    "run_before: {}",
+                    step_dto.run_before.as_deref().unwrap_or("?")
+                )
+            } else {
+                format!(
+                    "run_after: {}",
+                    step_dto.run_after.as_deref().unwrap_or("?")
+                )
+            };
+            return Err(cfg_err!(
+                "Step declares hook operation '{hook_field}' but the pipeline has no \
+                 FROM field — hook operations are only valid in pipelines that inherit \
+                 from a base via FROM (SPEC §7.2)"
+            ));
+        }
+
+        let id_str = step_dto
+            .id
+            .clone()
+            .ok_or_else(|| cfg_err!("Every step in {context_label} must declare an 'id' field"))?;
+
+        if !seen_ids.insert(id_str.clone()) {
+            return Err(cfg_err!(
+                "Step id '{id_str}' appears more than once in {context_label}"
+            ));
+        }
+
+        let body = step_body::parse_step_body(&step_dto, &id_str)?;
+
+        let on_result = step_dto
+            .on_result
+            .map(|branches| on_result::parse_result_branches(&id_str, branches))
+            .transpose()?;
+
+        let condition = match step_dto.condition.as_deref() {
+            None | Some("always") => None,
+            Some("never") => Some(Condition::Never),
+            Some(other) => Some(parse_condition_expression(other, &id_str)?),
+        };
+
+        let append_system_prompt = step_dto
+            .append_system_prompt
+            .map(|entries| system_prompt::parse_append_system_prompt(&id_str, entries))
+            .transpose()?;
+
+        let on_error = match step_dto.on_error.as_deref() {
+            None => None,
+            Some("continue") => {
+                if step_dto.max_retries.is_some() {
+                    return Err(cfg_err!(
+                        "Step '{id_str}' specifies 'max_retries' but 'on_error' is 'continue'; \
+                         'max_retries' is only valid with 'on_error: retry'"
+                    ));
+                }
+                Some(OnError::Continue)
+            }
+            Some("retry") => {
+                let max_retries = step_dto.max_retries.ok_or_else(|| {
+                    cfg_err!(
+                        "Step '{id_str}' specifies 'on_error: retry' but 'max_retries' is missing; \
+                         'max_retries' is required when 'on_error' is 'retry'"
+                    )
+                })?;
+                if max_retries == 0 {
+                    return Err(cfg_err!(
+                        "Step '{id_str}' specifies 'max_retries: 0'; \
+                         'max_retries' must be at least 1"
+                    ));
+                }
+                Some(OnError::Retry { max_retries })
+            }
+            Some("abort_pipeline") => {
+                if step_dto.max_retries.is_some() {
+                    return Err(cfg_err!(
+                        "Step '{id_str}' specifies 'max_retries' but 'on_error' is 'abort_pipeline'; \
+                         'max_retries' is only valid with 'on_error: retry'"
+                    ));
+                }
+                Some(OnError::AbortPipeline)
+            }
+            Some(other) => {
+                return Err(cfg_err!(
+                    "Step '{id_str}' specifies unknown on_error value '{other}'; \
+                     supported values are 'continue', 'retry', and 'abort_pipeline'"
+                ))
+            }
+        };
+
+        // max_retries without on_error is an error
+        if step_dto.on_error.is_none() && step_dto.max_retries.is_some() {
+            return Err(cfg_err!(
+                "Step '{id_str}' specifies 'max_retries' without 'on_error'; \
+                 'max_retries' is only valid with 'on_error: retry'"
+            ));
+        }
+
+        let before = parse_chain_steps(step_dto.before, &id_str, "before")?;
+        let then = parse_chain_steps(step_dto.then, &id_str, "then")?;
+
+        steps.push(Step {
+            id: StepId(id_str),
+            body,
+            message: step_dto.message,
+            tools: step_dto.tools.map(tools_to_policy),
+            on_result,
+            model: step_dto.model,
+            runner: step_dto.runner,
+            condition,
+            append_system_prompt,
+            system_prompt: step_dto.system_prompt,
+            resume: step_dto.resume.unwrap_or(false),
+            on_error,
+            before,
+            then,
+        });
+    }
+
+    Ok(steps)
+}
+
+/// Reclassify `StepBody::SubPipeline` references whose path matches a named pipeline
+/// key into `StepBody::NamedPipeline`. This is done as a second pass after both the
+/// main pipeline steps and named pipeline definitions have been validated.
+fn reclassify_named_pipeline_refs(
+    steps: &mut [Step],
+    named_pipelines: &HashMap<String, Vec<Step>>,
+) {
+    for step in steps.iter_mut() {
+        if let StepBody::SubPipeline {
+            ref path,
+            ref prompt,
+        } = step.body
+        {
+            if named_pipelines.contains_key(path) {
+                step.body = StepBody::NamedPipeline {
+                    name: path.clone(),
+                    prompt: prompt.clone(),
+                };
+            }
+        }
+    }
+}
+
+/// Detect circular references among named pipelines via DFS.
+/// Returns an error if any cycle is found.
+fn detect_named_pipeline_cycles(
+    named_pipelines: &HashMap<String, Vec<Step>>,
+) -> Result<(), AilError> {
+    let mut visited: HashSet<String> = HashSet::new();
+    let mut in_stack: HashSet<String> = HashSet::new();
+
+    for name in named_pipelines.keys() {
+        if !visited.contains(name) {
+            dfs_cycle_check(name, named_pipelines, &mut visited, &mut in_stack)?;
+        }
+    }
+    Ok(())
+}
+
+fn dfs_cycle_check(
+    name: &str,
+    named_pipelines: &HashMap<String, Vec<Step>>,
+    visited: &mut HashSet<String>,
+    in_stack: &mut HashSet<String>,
+) -> Result<(), AilError> {
+    visited.insert(name.to_string());
+    in_stack.insert(name.to_string());
+
+    if let Some(steps) = named_pipelines.get(name) {
+        for step in steps {
+            if let StepBody::NamedPipeline {
+                name: ref dep_name, ..
+            } = step.body
+            {
+                if in_stack.contains(dep_name) {
+                    return Err(AilError::PipelineCircularReference {
+                        detail: format!(
+                            "Circular reference detected among named pipelines: \
+                             '{name}' references '{dep_name}' which forms a cycle"
+                        ),
+                        context: None,
+                    });
+                }
+                if !visited.contains(dep_name) {
+                    dfs_cycle_check(dep_name, named_pipelines, visited, in_stack)?;
+                }
+            }
+        }
+    }
+
+    in_stack.remove(name);
+    Ok(())
 }
 
 /// Parse a chain step entry (from `before:` or `then:`) into a domain Step.
@@ -311,140 +530,59 @@ pub fn validate(dto: PipelineFileDto, source: PathBuf) -> Result<Pipeline, AilEr
         }
     }
 
-    let mut seen_ids: HashSet<String> = HashSet::new();
-    let mut steps: Vec<Step> = Vec::with_capacity(step_dtos.len());
+    let mut steps = validate_steps(step_dtos, "pipeline")?;
 
-    for step_dto in step_dtos {
-        // Reject leftover hook operation fields — these are consumed during FROM
-        // inheritance resolution and should never reach validation. If they do,
-        // the pipeline either lacks FROM or the merge logic has a bug.
-        if step_dto.run_before.is_some()
-            || step_dto.run_after.is_some()
-            || step_dto.override_step.is_some()
-            || step_dto.disable.is_some()
-        {
-            let hook_field = if step_dto.disable.is_some() {
-                format!("disable: {}", step_dto.disable.as_deref().unwrap_or("?"))
-            } else if step_dto.override_step.is_some() {
-                format!(
-                    "override: {}",
-                    step_dto.override_step.as_deref().unwrap_or("?")
-                )
-            } else if step_dto.run_before.is_some() {
-                format!(
-                    "run_before: {}",
-                    step_dto.run_before.as_deref().unwrap_or("?")
-                )
-            } else {
-                format!(
-                    "run_after: {}",
-                    step_dto.run_after.as_deref().unwrap_or("?")
-                )
-            };
-            return Err(cfg_err!(
-                "Step declares hook operation '{hook_field}' but the pipeline has no \
-                 FROM field — hook operations are only valid in pipelines that inherit \
-                 from a base via FROM (SPEC §7.2)"
-            ));
-        }
-
-        let id_str = step_dto
-            .id
-            .clone()
-            .ok_or_else(|| cfg_err!("Every step must declare an 'id' field"))?;
-
-        if !seen_ids.insert(id_str.clone()) {
-            return Err(cfg_err!("Step id '{id_str}' appears more than once"));
-        }
-
-        let body = step_body::parse_step_body(&step_dto, &id_str)?;
-
-        let on_result = step_dto
-            .on_result
-            .map(|branches| on_result::parse_result_branches(&id_str, branches))
-            .transpose()?;
-
-        let condition = match step_dto.condition.as_deref() {
-            None | Some("always") => None,
-            Some("never") => Some(Condition::Never),
-            Some(other) => Some(parse_condition_expression(other, &id_str)?),
-        };
-
-        let append_system_prompt = step_dto
-            .append_system_prompt
-            .map(|entries| system_prompt::parse_append_system_prompt(&id_str, entries))
-            .transpose()?;
-
-        let on_error = match step_dto.on_error.as_deref() {
-            None => None,
-            Some("continue") => {
-                if step_dto.max_retries.is_some() {
-                    return Err(cfg_err!(
-                        "Step '{id_str}' specifies 'max_retries' but 'on_error' is 'continue'; \
-                         'max_retries' is only valid with 'on_error: retry'"
-                    ));
-                }
-                Some(OnError::Continue)
+    // ── Validate named pipelines (SPEC §10) ─────────────────────────────────
+    let mut named_pipelines = if let Some(named_dtos) = dto.pipelines {
+        let mut named: HashMap<String, Vec<Step>> = HashMap::with_capacity(named_dtos.len());
+        for (name, np_step_dtos) in named_dtos {
+            if name.is_empty() {
+                return Err(cfg_err!("Named pipeline names must not be empty"));
             }
-            Some("retry") => {
-                let max_retries = step_dto.max_retries.ok_or_else(|| {
-                    cfg_err!(
-                        "Step '{id_str}' specifies 'on_error: retry' but 'max_retries' is missing; \
-                         'max_retries' is required when 'on_error' is 'retry'"
-                    )
-                })?;
-                if max_retries == 0 {
-                    return Err(cfg_err!(
-                        "Step '{id_str}' specifies 'max_retries: 0'; \
-                         'max_retries' must be at least 1"
-                    ));
-                }
-                Some(OnError::Retry { max_retries })
-            }
-            Some("abort_pipeline") => {
-                if step_dto.max_retries.is_some() {
-                    return Err(cfg_err!(
-                        "Step '{id_str}' specifies 'max_retries' but 'on_error' is 'abort_pipeline'; \
-                         'max_retries' is only valid with 'on_error: retry'"
-                    ));
-                }
-                Some(OnError::AbortPipeline)
-            }
-            Some(other) => {
+            if np_step_dtos.is_empty() {
                 return Err(cfg_err!(
-                    "Step '{id_str}' specifies unknown on_error value '{other}'; \
-                     supported values are 'continue', 'retry', and 'abort_pipeline'"
-                ))
+                    "Named pipeline '{name}' must contain at least one step"
+                ));
             }
-        };
-
-        // max_retries without on_error is an error
-        if step_dto.on_error.is_none() && step_dto.max_retries.is_some() {
-            return Err(cfg_err!(
-                "Step '{id_str}' specifies 'max_retries' without 'on_error'; \
-                 'max_retries' is only valid with 'on_error: retry'"
-            ));
+            let label = format!("named pipeline '{name}'");
+            let np_steps = validate_steps(np_step_dtos, &label)?;
+            named.insert(name, np_steps);
         }
+        named
+    } else {
+        HashMap::new()
+    };
 
-        let before = parse_chain_steps(step_dto.before, &id_str, "before")?;
-        let then = parse_chain_steps(step_dto.then, &id_str, "then")?;
-
-        steps.push(Step {
-            id: StepId(id_str),
-            body,
-            message: step_dto.message,
-            tools: step_dto.tools.map(tools_to_policy),
-            on_result,
-            model: step_dto.model,
-            runner: step_dto.runner,
-            condition,
-            append_system_prompt,
-            system_prompt: step_dto.system_prompt,
-            resume: step_dto.resume.unwrap_or(false),
-            on_error,
-            before,
-            then,
-        });
+    // ── Second pass: reclassify SubPipeline → NamedPipeline when the path
+    //    matches a named pipeline key (SPEC §10). ────────────────────────────
+    if !named_pipelines.is_empty() {
+        reclassify_named_pipeline_refs(&mut steps, &named_pipelines);
+        // Also reclassify refs within named pipelines themselves (cross-references).
+        let names: Vec<String> = named_pipelines.keys().cloned().collect();
+        for name in &names {
+            // Clone the keys to avoid borrow conflict; reclassify needs &HashMap but we
+            // also need &mut for the inner steps. Safe because we only mutate the steps,
+            // not the map structure.
+            let np_keys: HashSet<String> = named_pipelines.keys().cloned().collect();
+            if let Some(np_steps) = named_pipelines.get_mut(name) {
+                for step in np_steps.iter_mut() {
+                    if let StepBody::SubPipeline {
+                        ref path,
+                        ref prompt,
+                    } = step.body
+                    {
+                        if np_keys.contains(path) {
+                            step.body = StepBody::NamedPipeline {
+                                name: path.clone(),
+                                prompt: prompt.clone(),
+                            };
+                        }
+                    }
+                }
+            }
+        }
+        // Detect circular references in named pipelines (SPEC §10).
+        detect_named_pipeline_cycles(&named_pipelines)?;
     }
 
     Ok(Pipeline {
@@ -453,6 +591,7 @@ pub fn validate(dto: PipelineFileDto, source: PathBuf) -> Result<Pipeline, AilEr
         defaults,
         timeout_seconds,
         default_tools,
+        named_pipelines,
     })
 }
 
@@ -511,6 +650,7 @@ mod tests {
             from: None,
             defaults: None,
             pipeline: Some(steps),
+            pipelines: None,
         }
     }
 
@@ -533,6 +673,7 @@ mod tests {
             from: None,
             defaults: None,
             pipeline: Some(vec![minimal_step("s1", "hello")]),
+            pipelines: None,
         };
         let err = validate(dto, source()).expect_err("should fail");
         assert_eq!(err.error_type(), error_types::CONFIG_VALIDATION_FAILED);
@@ -546,6 +687,7 @@ mod tests {
             from: None,
             defaults: None,
             pipeline: Some(vec![minimal_step("s1", "hello")]),
+            pipelines: None,
         };
         let err = validate(dto, source()).expect_err("should fail");
         assert_eq!(err.error_type(), error_types::CONFIG_VALIDATION_FAILED);
@@ -560,6 +702,7 @@ mod tests {
             from: None,
             defaults: None,
             pipeline: None,
+            pipelines: None,
         };
         let err = validate(dto, source()).expect_err("should fail");
         assert_eq!(err.error_type(), error_types::CONFIG_VALIDATION_FAILED);
@@ -573,6 +716,7 @@ mod tests {
             from: None,
             defaults: None,
             pipeline: Some(vec![]),
+            pipelines: None,
         };
         let err = validate(dto, source()).expect_err("should fail");
         assert_eq!(err.error_type(), error_types::CONFIG_VALIDATION_FAILED);
@@ -1324,6 +1468,7 @@ mod tests {
                 tools: None,
             }),
             pipeline: Some(vec![minimal_step("s", "hello")]),
+            pipelines: None,
         };
         let pipeline = validate(dto, source()).expect("should succeed");
         assert_eq!(pipeline.defaults.model.as_deref(), Some("claude-3-5-haiku"));
@@ -1348,6 +1493,7 @@ mod tests {
                 tools: None,
             }),
             pipeline: Some(vec![minimal_step("s", "hello")]),
+            pipelines: None,
         };
         let pipeline = validate(dto, source()).expect("should succeed");
         // provider.model takes precedence over defaults.model
@@ -1366,6 +1512,7 @@ mod tests {
                 tools: None,
             }),
             pipeline: Some(vec![minimal_step("s", "hello")]),
+            pipelines: None,
         };
         let pipeline = validate(dto, source()).expect("should succeed");
         assert_eq!(pipeline.defaults.model.as_deref(), Some("fallback-model"));
@@ -1383,6 +1530,7 @@ mod tests {
                 tools: None,
             }),
             pipeline: Some(vec![minimal_step("s", "hello")]),
+            pipelines: None,
         };
         let pipeline = validate(dto, source()).expect("should succeed");
         assert_eq!(pipeline.timeout_seconds, Some(120));
@@ -1404,6 +1552,7 @@ mod tests {
                 }),
             }),
             pipeline: Some(vec![minimal_step("s", "hello")]),
+            pipelines: None,
         };
         let pipeline = validate(dto, source()).expect("should succeed");
         let default_tools = pipeline.default_tools.expect("should have default_tools");

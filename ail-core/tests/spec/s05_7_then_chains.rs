@@ -546,6 +546,7 @@ fn materialize_shows_before_then_chains() {
         defaults: ProviderConfig::default(),
         timeout_seconds: None,
         default_tools: None,
+        named_pipelines: Default::default(),
     };
 
     let output = materialize(&pipeline);

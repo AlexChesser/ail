@@ -17,6 +17,7 @@ pub fn make_pipeline(steps: Vec<Step>) -> Pipeline {
         defaults: Default::default(),
         timeout_seconds: None,
         default_tools: None,
+        named_pipelines: Default::default(),
     }
 }
 

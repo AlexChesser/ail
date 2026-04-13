@@ -1,5 +1,5 @@
 use crate::config::domain::{
-    ActionKind, ContextSource, ExitCodeMatch, OnError, Pipeline, ResultAction, ResultMatcher,
+    ActionKind, ContextSource, ExitCodeMatch, OnError, Pipeline, ResultAction, ResultMatcher, Step,
     StepBody,
 };
 
@@ -21,6 +21,7 @@ fn chain_step_summary(body: &StepBody) -> String {
         }
         StepBody::Skill { ref name } => format!("skill: {name}"),
         StepBody::SubPipeline { path, .. } => format!("pipeline: {path}"),
+        StepBody::NamedPipeline { name, .. } => format!("pipeline: {name}"),
         StepBody::Action(ActionKind::PauseForHuman) => "action: pause_for_human".to_string(),
         StepBody::Action(ActionKind::ModifyOutput { .. }) => "action: modify_output".to_string(),
         StepBody::Context(ContextSource::Shell(cmd)) => {
@@ -86,6 +87,12 @@ pub fn materialize(pipeline: &Pipeline) -> String {
             }
             StepBody::SubPipeline { path, prompt } => {
                 out.push_str(&format!("    pipeline: {path}\n"));
+                if let Some(p) = prompt {
+                    out.push_str(&format!("    prompt: \"{}\"\n", yaml_quote(p)));
+                }
+            }
+            StepBody::NamedPipeline { name, prompt } => {
+                out.push_str(&format!("    pipeline: {name}\n"));
                 if let Some(p) = prompt {
                     out.push_str(&format!("    prompt: \"{}\"\n", yaml_quote(p)));
                 }
@@ -167,7 +174,202 @@ pub fn materialize(pipeline: &Pipeline) -> String {
         }
     }
 
+    // Append named pipeline definitions if present.
+    if !pipeline.named_pipelines.is_empty() {
+        out.push_str("\npipelines:\n");
+        // Sort for deterministic output.
+        let mut names: Vec<&String> = pipeline.named_pipelines.keys().collect();
+        names.sort();
+        for name in names {
+            let steps = &pipeline.named_pipelines[name];
+            out.push_str(&format!("  {name}:\n"));
+            for step in steps {
+                serialize_step(&mut out, step, "    ", None);
+            }
+        }
+    }
+
     out
+}
+
+/// Serialize a single step as YAML lines, appended to `out`.
+/// `indent` is the prefix for the `- id:` line (usually "  " for top-level).
+/// `origin_comment` is an optional origin line prepended before the step.
+fn serialize_step(out: &mut String, step: &Step, indent: &str, origin_comment: Option<&str>) {
+    if let Some(comment) = origin_comment {
+        out.push_str(&format!("{indent}{comment}\n"));
+    }
+    out.push_str(&format!("{indent}- id: {}\n", step.id.as_str()));
+
+    let field_indent = format!("{indent}  ");
+
+    if let Some(ref sp) = step.system_prompt {
+        out.push_str(&format!(
+            "{field_indent}system_prompt: \"{}\"\n",
+            yaml_quote(sp)
+        ));
+    }
+    if step.resume {
+        out.push_str(&format!("{field_indent}resume: true\n"));
+    }
+
+    match &step.body {
+        StepBody::Prompt(text) => {
+            out.push_str(&format!("{field_indent}prompt: \"{}\"\n", yaml_quote(text)));
+        }
+        StepBody::Skill { name } => {
+            out.push_str(&format!("{field_indent}skill: {name}\n"));
+        }
+        StepBody::SubPipeline { path, prompt } => {
+            out.push_str(&format!("{field_indent}pipeline: {path}\n"));
+            if let Some(p) = prompt {
+                out.push_str(&format!("{field_indent}prompt: \"{}\"\n", yaml_quote(p)));
+            }
+        }
+        StepBody::NamedPipeline { name, prompt } => {
+            out.push_str(&format!("{field_indent}pipeline: {name}\n"));
+            if let Some(p) = prompt {
+                out.push_str(&format!("{field_indent}prompt: \"{}\"\n", yaml_quote(p)));
+            }
+        }
+        StepBody::Action(ActionKind::PauseForHuman) => {
+            out.push_str(&format!("{field_indent}action: pause_for_human\n"));
+        }
+        StepBody::Action(ActionKind::ModifyOutput { .. }) => {
+            out.push_str(&format!("{field_indent}action: modify_output\n"));
+        }
+        StepBody::Context(ContextSource::Shell(cmd)) => {
+            out.push_str(&format!(
+                "{field_indent}context:\n{field_indent}  shell: \"{}\"\n",
+                yaml_quote(cmd)
+            ));
+        }
+    }
+
+    if let Some(branches) = &step.on_result {
+        out.push_str(&format!("{field_indent}on_result:\n"));
+        for branch in branches {
+            let matcher = match &branch.matcher {
+                ResultMatcher::Contains(text) => {
+                    format!("contains: \"{}\"", yaml_quote(text))
+                }
+                ResultMatcher::ExitCode(ExitCodeMatch::Exact(n)) => {
+                    format!("exit_code: {n}")
+                }
+                ResultMatcher::ExitCode(ExitCodeMatch::Any) => "exit_code: any".to_string(),
+                ResultMatcher::Always => "always: true".to_string(),
+            };
+            let action = match &branch.action {
+                ResultAction::Continue => "continue".to_string(),
+                ResultAction::Break => "break".to_string(),
+                ResultAction::AbortPipeline => "abort_pipeline".to_string(),
+                ResultAction::PauseForHuman => "pause_for_human".to_string(),
+                ResultAction::Pipeline { path, prompt } => {
+                    let action_str = format!("pipeline: {path}");
+                    if let Some(p) = prompt {
+                        out.push_str(&format!(
+                            "{field_indent}  - {matcher}\n{field_indent}    action: {action_str}\n{field_indent}    prompt: \"{}\"\n",
+                            yaml_quote(p)
+                        ));
+                        continue;
+                    }
+                    action_str
+                }
+            };
+            out.push_str(&format!(
+                "{field_indent}  - {matcher}\n{field_indent}    action: {action}\n"
+            ));
+        }
+    }
+}
+
+/// Serialize a pipeline with `--expand-pipelines` — inlines named pipeline references
+/// as their constituent steps, prefixed with expansion comments (SPEC §17).
+///
+/// Returns an error if a circular named pipeline reference is detected.
+#[allow(clippy::result_large_err)]
+pub fn materialize_expanded(pipeline: &Pipeline) -> Result<String, crate::error::AilError> {
+    use std::collections::HashSet;
+
+    let source_label = pipeline
+        .source
+        .as_deref()
+        .map(|p| p.display().to_string())
+        .unwrap_or_else(|| "<passthrough>".to_string());
+
+    let mut out = String::from("version: \"0.0.1\"\npipeline:\n");
+
+    for (idx, step) in pipeline.steps.iter().enumerate() {
+        let origin = format!("# origin: [{}] {}", idx + 1, source_label);
+
+        match &step.body {
+            StepBody::NamedPipeline { name, .. } => {
+                // Inline the named pipeline's steps.
+                let mut visited = HashSet::new();
+                expand_named_pipeline(&mut out, pipeline, name, &source_label, idx, &mut visited)?;
+            }
+            _ => {
+                serialize_step(&mut out, step, "  ", Some(&origin));
+            }
+        }
+    }
+
+    Ok(out)
+}
+
+/// Recursively expand a named pipeline reference into its constituent steps.
+#[allow(clippy::result_large_err)]
+fn expand_named_pipeline(
+    out: &mut String,
+    pipeline: &Pipeline,
+    name: &str,
+    source_label: &str,
+    parent_idx: usize,
+    visited: &mut std::collections::HashSet<String>,
+) -> Result<(), crate::error::AilError> {
+    if !visited.insert(name.to_string()) {
+        return Err(crate::error::AilError::PipelineCircularReference {
+            detail: format!("Circular reference detected while expanding named pipeline '{name}'"),
+            context: None,
+        });
+    }
+
+    let steps = pipeline.named_pipelines.get(name).ok_or_else(|| {
+        crate::error::AilError::PipelineAborted {
+            detail: format!(
+                "Named pipeline '{name}' referenced but not defined in pipelines: section"
+            ),
+            context: None,
+        }
+    })?;
+
+    out.push_str(&format!(
+        "  # expanded from named pipeline: {name} (origin: [{}] {source_label})\n",
+        parent_idx + 1
+    ));
+
+    for step in steps {
+        match &step.body {
+            StepBody::NamedPipeline {
+                name: inner_name, ..
+            } => {
+                // Recursively expand nested named pipeline references.
+                expand_named_pipeline(
+                    out,
+                    pipeline,
+                    inner_name,
+                    source_label,
+                    parent_idx,
+                    visited,
+                )?;
+            }
+            _ => {
+                serialize_step(out, step, "  ", None);
+            }
+        }
+    }
+
+    Ok(())
 }
 
 #[cfg(test)]
@@ -204,6 +406,7 @@ mod tests {
             defaults: Default::default(),
             timeout_seconds: None,
             default_tools: None,
+            named_pipelines: Default::default(),
         }
     }
 
@@ -266,6 +469,7 @@ mod tests {
             defaults: ProviderConfig::default(),
             timeout_seconds: None,
             default_tools: None,
+            named_pipelines: Default::default(),
         };
         let output = materialize(&pipeline);
         assert!(output.contains("alpha"), "alpha not in output");
@@ -285,6 +489,7 @@ mod tests {
             defaults: ProviderConfig::default(),
             timeout_seconds: None,
             default_tools: None,
+            named_pipelines: Default::default(),
         };
         let output = materialize(&pipeline);
         assert!(output.contains("# origin: [1]"), "missing origin [1]");
@@ -327,6 +532,7 @@ mod tests {
             defaults: ProviderConfig::default(),
             timeout_seconds: None,
             default_tools: None,
+            named_pipelines: Default::default(),
         };
         let output = materialize(&pipeline);
         assert!(output.contains("context:"), "context: key missing");
@@ -346,6 +552,7 @@ mod tests {
             defaults: ProviderConfig::default(),
             timeout_seconds: None,
             default_tools: None,
+            named_pipelines: Default::default(),
         };
         let output = materialize(&pipeline);
         let result: Result<serde_yaml::Value, _> = serde_yaml::from_str(&output);
@@ -363,6 +570,7 @@ mod tests {
             defaults: ProviderConfig::default(),
             timeout_seconds: None,
             default_tools: None,
+            named_pipelines: Default::default(),
         };
         let output = materialize(&pipeline);
         assert!(
@@ -382,6 +590,7 @@ mod tests {
             defaults: ProviderConfig::default(),
             timeout_seconds: None,
             default_tools: None,
+            named_pipelines: Default::default(),
         };
         let output = materialize(&pipeline);
         assert!(
@@ -406,6 +615,7 @@ mod tests {
             defaults: ProviderConfig::default(),
             timeout_seconds: None,
             default_tools: None,
+            named_pipelines: Default::default(),
         };
         let output = materialize(&pipeline);
         assert!(
@@ -428,6 +638,7 @@ mod tests {
             defaults: ProviderConfig::default(),
             timeout_seconds: None,
             default_tools: None,
+            named_pipelines: Default::default(),
         };
         let output = materialize(&pipeline);
         assert!(output.contains("on_result:"), "on_result: key missing");
@@ -450,6 +661,7 @@ mod tests {
             defaults: ProviderConfig::default(),
             timeout_seconds: None,
             default_tools: None,
+            named_pipelines: Default::default(),
         };
         let output = materialize(&pipeline);
         assert!(
@@ -472,6 +684,7 @@ mod tests {
             defaults: ProviderConfig::default(),
             timeout_seconds: None,
             default_tools: None,
+            named_pipelines: Default::default(),
         };
         let output = materialize(&pipeline);
         assert!(output.contains("skill:"), "skill: key missing");
@@ -503,6 +716,7 @@ mod tests {
                 allow: vec!["Bash".to_string()],
                 deny: vec![],
             }),
+            named_pipelines: Default::default(),
         };
         let output = materialize(&pipeline);
         let result: Result<serde_yaml::Value, _> = serde_yaml::from_str(&output);

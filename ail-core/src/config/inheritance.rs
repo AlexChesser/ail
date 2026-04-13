@@ -139,6 +139,7 @@ fn merge_dtos(
         } else {
             Some(merged_steps)
         },
+        pipelines: None, // named pipelines are not inherited (SPEC §10)
     })
 }
 

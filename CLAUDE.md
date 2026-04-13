@@ -171,6 +171,7 @@ Unresolved variables **abort with a typed error** — never silently empty.
 - Must call `.env_remove("CLAUDECODE")` on the `Command` builder to avoid nested session guard
 - `pause_for_human` is a no-op in `--once` / headless mode; `modify_output` behavior is configurable via `on_headless` (skip/abort/use_default)
 - `skill:` steps are implemented with a built-in registry (§6, §14); skill parameterisation is deferred
+- `pipeline:` step bodies support both file-based sub-pipelines and named pipeline references (SPEC §9, §10)
 - Interactive REPL deferred to v0.5
 - TUI removed in v0.2; all output goes to stdout/stderr
 - `ClaudeCliRunner::new(headless: bool)` — pass `true` for `--headless` mode (`--dangerously-skip-permissions`)

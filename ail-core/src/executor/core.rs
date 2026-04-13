@@ -337,6 +337,16 @@ fn execute_single_step<O: StepObserver>(
                 observer,
             ),
 
+            StepBody::NamedPipeline { name, prompt } => dispatch::sub_pipeline::execute_named(
+                name,
+                prompt.as_deref(),
+                &step_id,
+                session,
+                runner,
+                depth,
+                observer,
+            ),
+
             StepBody::Skill { ref name } => dispatch::skill::execute(
                 name,
                 step,

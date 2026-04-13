@@ -37,6 +37,7 @@ mod append_system_prompt {
             defaults: Default::default(),
             timeout_seconds: None,
             default_tools: None,
+            named_pipelines: Default::default(),
         };
         Session::new(pipeline, "test prompt".to_string()).with_log_provider(Box::new(NullProvider))
     }

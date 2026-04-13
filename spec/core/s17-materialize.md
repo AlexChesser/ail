@@ -6,8 +6,38 @@ Resolves the full inheritance chain and writes the complete flattened pipeline t
 ail materialize
 ail materialize --out materialized.yaml
 ail materialize --pipeline ./deploy.yaml --out materialized.yaml
-ail materialize --expand-pipelines   # recurse into pipeline: steps
+ail materialize --expand-pipelines   # inline named pipeline references
 ```
+
+### Default Mode
+
+The default output includes:
+- A `version:` header
+- The `pipeline:` array with origin comments per step
+- A `pipelines:` section listing all named pipeline definitions (if any)
+
+Named pipeline references appear as `pipeline: <name>` in the output, matching
+the source YAML.
+
+### `--expand-pipelines`
+
+When `--expand-pipelines` is passed, named pipeline references (`pipeline: <name>`)
+are replaced inline with the constituent steps from the named pipeline definition.
+Each expansion group is annotated with a comment:
+
+```yaml
+  # expanded from named pipeline: security_gates (origin: [2] deploy.yaml)
+  - id: vuln_scan
+    prompt: "Identify vulnerabilities."
+  - id: license_check
+    prompt: "Check license compliance."
+```
+
+Nested named pipeline references are expanded recursively. Circular references
+produce a `PIPELINE_CIRCULAR_REFERENCE` error.
+
+The expanded output does **not** include a `pipelines:` section (all definitions
+are inlined).
 
 **Example output:**
 

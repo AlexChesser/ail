@@ -1,4 +1,5 @@
 use serde::Deserialize;
+use std::collections::HashMap;
 
 #[derive(Debug, Deserialize)]
 pub struct PipelineFileDto {
@@ -9,6 +10,9 @@ pub struct PipelineFileDto {
     pub from: Option<String>,
     pub defaults: Option<DefaultsDto>,
     pub pipeline: Option<Vec<StepDto>>,
+    /// Named pipeline definitions (SPEC §10). Maps pipeline name → step list.
+    /// Steps within named pipelines use the same DTO schema as the main pipeline.
+    pub pipelines: Option<HashMap<String, Vec<StepDto>>>,
 }
 
 #[derive(Debug, Deserialize)]

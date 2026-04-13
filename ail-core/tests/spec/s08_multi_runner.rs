@@ -216,6 +216,7 @@ fn executor_dispatches_per_step_runner() {
         defaults: Default::default(),
         timeout_seconds: None,
         default_tools: None,
+        named_pipelines: Default::default(),
     };
 
     // The default runner returns a distinct response so we can tell it apart from the stub.

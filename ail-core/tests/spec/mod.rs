@@ -16,6 +16,7 @@ mod s09_permission_listener;
 mod s09_sub_pipeline;
 mod s09_tool_permissions;
 mod s10_model_config;
+mod s10_named_pipelines;
 mod s11_template_variables;
 mod s12_step_conditions;
 mod s13_sqlite_provider;

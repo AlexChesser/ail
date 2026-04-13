@@ -1,0 +1,11 @@
+version: "0.0.1"
+
+pipelines:
+  review:
+    - id: do_review
+      prompt: "{{ session.invocation_prompt }}"
+
+pipeline:
+  - id: invoke_review
+    pipeline: review
+    prompt: "Please review this code carefully."
