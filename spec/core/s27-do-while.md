@@ -19,7 +19,7 @@ The condition is evaluated **after** each complete iteration — all inner steps
     steps:
       - id: fix
         prompt: |
-          Iteration {{ do_while.iteration }} of {{ do_while.max_iterations }}.
+          Iteration {{ do_while.iteration }} (of {{ do_while.max_iterations }} max).
           Fix the failing tests.
           Test output:
           {{ step.test.result }}
@@ -72,10 +72,11 @@ These variables are available only within the `steps:` block of a `do_while:` st
 
 | Variable | Value |
 |---|---|
-| `{{ do_while.iteration }}` | Current 1-based iteration number |
+| `{{ do_while.iteration }}` | Current 0-based iteration index |
 | `{{ do_while.max_iterations }}` | The declared `max_iterations` value |
 | `{{ step.<step_id>.response }}` | Shorthand — resolves the current iteration's result for inner step `<step_id>` |
 | `{{ step.<loop_id>::<step_id>.response }}` | Qualified form — also works from outside the loop |
+| `{{ step.<loop_id>.iterations_completed }}` | Number of iterations the loop completed (available after the loop exits) |
 
 `{{ do_while.iteration }}` and `{{ do_while.max_iterations }}` are not available outside a `do_while:` body. Referencing them at the top level is a `TEMPLATE_UNRESOLVED` error.
 
@@ -108,15 +109,15 @@ Each loop produces the following NDJSON events in the pipeline run log (§4.4):
 
 ```json
 {"type": "do_while_started", "step_id": "fix_loop", "max_iterations": 5}
-{"type": "do_while_iteration_started", "step_id": "fix_loop", "iteration": 1}
+{"type": "do_while_iteration_started", "step_id": "fix_loop", "iteration": 0}
 {"type": "step_started", "step_id": "fix_loop::fix", ...}
 {"type": "step_completed", "step_id": "fix_loop::fix", ...}
 {"type": "step_started", "step_id": "fix_loop::test", ...}
 {"type": "step_completed", "step_id": "fix_loop::test", ...}
-{"type": "do_while_exit_when_evaluated", "step_id": "fix_loop", "iteration": 1, "result": false}
-{"type": "do_while_iteration_started", "step_id": "fix_loop", "iteration": 2}
+{"type": "do_while_exit_when_evaluated", "step_id": "fix_loop", "iteration": 0, "result": false}
+{"type": "do_while_iteration_started", "step_id": "fix_loop", "iteration": 1}
 ...
-{"type": "do_while_completed", "step_id": "fix_loop", "iterations_used": 3, "exit_reason": "exit_when"}
+{"type": "do_while_completed", "step_id": "fix_loop", "iterations_completed": 3, "exit_reason": "exit_when"}
 ```
 
 **Exit reasons:**

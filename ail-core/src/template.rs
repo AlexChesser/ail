@@ -164,6 +164,16 @@ fn resolve_step_field(
             .modified_for_step(step_id)
             .map(|s| s.to_string())
             .ok_or_else(|| unresolved(format!("No modified output recorded for step '{step_id}'"))),
+        "iterations_completed" => session
+            .turn_log
+            .iterations_completed_for_step(step_id)
+            .map(|n| n.to_string())
+            .ok_or_else(|| {
+                unresolved(format!(
+                    "No iterations_completed recorded for step '{step_id}' \
+                     (only available on do_while: steps)"
+                ))
+            }),
         "tool_calls" => {
             let events = session
                 .turn_log

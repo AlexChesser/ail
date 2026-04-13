@@ -34,6 +34,11 @@ pub struct TurnEntry {
     /// Human-modified output from a HITL `modify_output` gate (SPEC §13.2).
     /// `None` for steps that are not modify gates or when no modification was made.
     pub modified: Option<String>,
+    /// Number of iterations completed by a `do_while:` loop step (SPEC §27).
+    /// `None` for non-loop steps. 0-based count: a loop that exits after running
+    /// its body once has `iterations_completed: Some(1)`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub iterations_completed: Option<u64>,
 }
 
 /// Written as the first entry for a run. Carries pipeline_source and project_hash so the SQLite provider
@@ -93,6 +98,7 @@ impl TurnEntry {
             thinking: result.thinking,
             tool_events: result.tool_events,
             modified: None,
+            iterations_completed: None,
         }
     }
 
@@ -119,6 +125,7 @@ impl TurnEntry {
             thinking: None,
             tool_events: vec![],
             modified: None,
+            iterations_completed: None,
         }
     }
 
@@ -143,6 +150,7 @@ impl TurnEntry {
             thinking: None,
             tool_events: vec![],
             modified: Some(modified_output),
+            iterations_completed: None,
         }
     }
 }
@@ -388,6 +396,15 @@ impl TurnLog {
             .and_then(|e| e.modified.as_deref())
     }
 
+    /// Number of iterations completed by a `do_while:` loop step (SPEC §27).
+    /// Returns `None` for non-loop steps or if no entry exists.
+    pub fn iterations_completed_for_step(&self, id: &str) -> Option<u64> {
+        self.entries
+            .iter()
+            .find(|e| e.step_id == id)
+            .and_then(|e| e.iterations_completed)
+    }
+
     /// Remove in-memory entries whose `step_id` starts with `prefix`.
     ///
     /// Used by `do_while:` execution to clear the previous iteration's inner step
@@ -426,6 +443,7 @@ mod tests {
             thinking: None,
             tool_events: Vec::<ToolEvent>::new(),
             modified: None,
+            iterations_completed: None,
         }
     }
 

@@ -104,6 +104,7 @@ mod tests {
             thinking: None,
             tool_events: vec![],
             modified: None,
+            iterations_completed: None,
         });
         session
     }
@@ -125,6 +126,7 @@ mod tests {
             thinking: None,
             tool_events: vec![],
             modified: None,
+            iterations_completed: None,
         });
         session
     }

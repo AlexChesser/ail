@@ -503,8 +503,8 @@ mod executor {
             .find(|e| e.step_id == "loop::inner")
             .expect("Should have 'loop::inner' entry");
         assert!(
-            inner_entry.prompt.contains("Iteration 1 of 3"),
-            "Expected 'Iteration 1 of 3' in prompt, got: {}",
+            inner_entry.prompt.contains("Iteration 0 of 3"),
+            "Expected 'Iteration 0 of 3' in prompt, got: {}",
             inner_entry.prompt
         );
     }
@@ -663,6 +663,77 @@ mod executor {
             loop_entry.response.as_deref(),
             Some("stub response"),
             "Loop summary entry should contain the inner step's response"
+        );
+    }
+
+    /// §27 — summary entry has iterations_completed count.
+    #[test]
+    fn summary_entry_has_iterations_completed() {
+        let inner = Step {
+            id: StepId("inner".to_string()),
+            body: StepBody::Prompt("test".to_string()),
+            ..Default::default()
+        };
+        let exit_when = ConditionExpr {
+            lhs: "{{ step.inner.response }}".to_string(),
+            op: ConditionOp::Contains,
+            rhs: "stub".to_string(),
+        };
+        let step = do_while_step("loop", 5, exit_when, vec![inner]);
+        let mut session = make_session(vec![step]);
+        let runner = StubRunner::new("stub response");
+        execute(&mut session, &runner).unwrap();
+
+        let loop_entry = session
+            .turn_log
+            .entries()
+            .iter()
+            .find(|e| e.step_id == "loop")
+            .expect("loop summary entry should exist");
+        assert_eq!(
+            loop_entry.iterations_completed,
+            Some(1),
+            "Loop that exits after 1 iteration should have iterations_completed=1"
+        );
+    }
+
+    /// §27 — iterations_completed is accessible via template variable.
+    #[test]
+    fn iterations_completed_template_variable() {
+        let inner = Step {
+            id: StepId("gen".to_string()),
+            body: StepBody::Prompt("generate".to_string()),
+            ..Default::default()
+        };
+        let exit_when = ConditionExpr {
+            lhs: "{{ step.gen.response }}".to_string(),
+            op: ConditionOp::Contains,
+            rhs: "stub".to_string(),
+        };
+        let loop_step = do_while_step("myloop", 5, exit_when, vec![inner]);
+
+        let after = Step {
+            id: StepId("report".to_string()),
+            body: StepBody::Prompt(
+                "Loop took {{ step.myloop.iterations_completed }} iterations".to_string(),
+            ),
+            ..Default::default()
+        };
+
+        let mut session = make_session(vec![loop_step, after]);
+        let runner = StubRunner::new("stub response");
+        execute(&mut session, &runner).unwrap();
+
+        let report_entry = session
+            .turn_log
+            .entries()
+            .iter()
+            .find(|e| e.step_id == "report")
+            .expect("'report' step should exist");
+        assert!(
+            report_entry.prompt.contains("Loop took 1 iterations"),
+            "Expected iterations_completed in prompt, got: {}",
+            report_entry.prompt
         );
     }
 

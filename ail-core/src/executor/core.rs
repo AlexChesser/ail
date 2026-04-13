@@ -610,12 +610,10 @@ fn execute_do_while_inner<O: StepObserver>(
 
     let prefix = format!("{loop_step_id}::");
     let total_inner = inner_steps.len();
-    let mut iterations_used: u64 = 0;
+    let mut iterations_completed: u64 = 0;
     let mut exit_reason = DoWhileExitReason::MaxIterations;
 
-    for iteration in 1..=max_iterations {
-        iterations_used = iteration;
-
+    for iteration in 0..max_iterations {
         // Clear previous iteration's inner step entries (SPEC §27.3 — iteration scope).
         session.turn_log.remove_entries_with_prefix(&prefix);
 
@@ -755,6 +753,9 @@ fn execute_do_while_inner<O: StepObserver>(
             }
         }
 
+        // Inner steps completed — count this iteration.
+        iterations_completed += 1;
+
         if loop_broken {
             exit_reason = DoWhileExitReason::Break;
             break;
@@ -785,7 +786,7 @@ fn execute_do_while_inner<O: StepObserver>(
     tracing::info!(
         run_id = %session.run_id,
         step_id = %loop_step_id,
-        iterations_used,
+        iterations_completed,
         exit_reason = match exit_reason {
             DoWhileExitReason::ExitWhen => "exit_when",
             DoWhileExitReason::Break => "break",
@@ -834,6 +835,7 @@ fn execute_do_while_inner<O: StepObserver>(
         thinking: None,
         tool_events: vec![],
         modified: None,
+        iterations_completed: Some(iterations_completed),
     })
 }
 

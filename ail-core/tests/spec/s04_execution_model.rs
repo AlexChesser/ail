@@ -78,6 +78,7 @@ mod session {
             thinking: None,
             tool_events: vec![],
             modified: None,
+            iterations_completed: None,
         }
     }
 

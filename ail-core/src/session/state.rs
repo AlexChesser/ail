@@ -17,7 +17,7 @@ use super::turn_log::TurnLog;
 pub struct DoWhileContext {
     /// The do_while step's ID (used as the `<loop_id>::` namespace prefix).
     pub loop_id: String,
-    /// Current 1-based iteration number.
+    /// Current 0-based iteration index.
     pub iteration: u64,
     /// The declared `max_iterations` value.
     pub max_iterations: u64,

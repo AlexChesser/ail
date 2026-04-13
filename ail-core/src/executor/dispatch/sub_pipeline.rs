@@ -144,6 +144,7 @@ pub(in crate::executor) fn execute_sub_pipeline(
         thinking: None,
         tool_events: vec![],
         modified: None,
+        iterations_completed: None,
     })
 }
 
@@ -303,5 +304,6 @@ pub(in crate::executor) fn execute_named_pipeline(
         thinking: None,
         tool_events: vec![],
         modified: None,
+        iterations_completed: None,
     })
 }
