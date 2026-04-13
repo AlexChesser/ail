@@ -26,6 +26,8 @@ fn prompt_step_with_condition(id: &str, text: &str, condition: Option<Condition>
         system_prompt: None,
         resume: false,
         on_error: None,
+        before: vec![],
+        then: vec![],
     }
 }
 
@@ -43,6 +45,8 @@ fn shell_step(id: &str, cmd: &str) -> Step {
         system_prompt: None,
         resume: false,
         on_error: None,
+        before: vec![],
+        then: vec![],
     }
 }
 

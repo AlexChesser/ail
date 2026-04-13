@@ -84,6 +84,8 @@ impl Pipeline {
                 system_prompt: None,
                 resume: false,
                 on_error: None,
+                before: vec![],
+                then: vec![],
             }],
             source: None,
             defaults: ProviderConfig::default(),
@@ -182,6 +184,12 @@ pub struct Step {
     /// Error handling strategy for this step (SPEC §16).
     /// `None` means abort (default behaviour — same as `Some(OnError::AbortPipeline)`).
     pub on_error: Option<OnError>,
+    /// Private pre-processing steps that run before this step fires (SPEC §5.10).
+    /// Steps in this chain are not visible to the hook system and not independently referenceable.
+    pub before: Vec<Step>,
+    /// Private post-processing steps that run after this step completes (SPEC §5.7).
+    /// Steps in this chain are not visible to the hook system and not independently referenceable.
+    pub then: Vec<Step>,
 }
 
 #[derive(Debug, Default, Clone)]

@@ -10,10 +10,10 @@ use std::collections::HashSet;
 use std::path::PathBuf;
 
 use super::domain::{
-    Condition, ConditionExpr, ConditionOp, OnError, Pipeline, ProviderConfig, Step, StepId,
-    ToolPolicy,
+    Condition, ConditionExpr, ConditionOp, OnError, Pipeline, ProviderConfig, Step, StepBody,
+    StepId, ToolPolicy,
 };
-use super::dto::{PipelineFileDto, ToolsDto};
+use super::dto::{ChainStepDto, PipelineFileDto, ToolsDto};
 use crate::error::AilError;
 
 macro_rules! cfg_err {
@@ -163,6 +163,93 @@ fn strip_quotes(s: &str) -> &str {
     s
 }
 
+/// Parse a chain step entry (from `before:` or `then:`) into a domain Step.
+///
+/// `parent_id` is the parent step's id, `chain_kind` is `"before"` or `"then"`,
+/// and `index` is the 0-based index within the chain.
+fn parse_chain_step(
+    entry: ChainStepDto,
+    parent_id: &str,
+    chain_kind: &str,
+    index: usize,
+) -> Result<Step, AilError> {
+    let auto_id = format!("{parent_id}::{chain_kind}::{index}");
+
+    match entry {
+        ChainStepDto::Short(s) => {
+            // Short-form: bare string — treat as a prompt (file path or inline text).
+            // Per spec, bare strings can be skill references or prompt file paths.
+            // Since skill: is not yet implemented, treat all short-form as prompt.
+            Ok(Step {
+                id: StepId(auto_id),
+                body: StepBody::Prompt(s),
+                message: None,
+                tools: None,
+                on_result: None,
+                model: None,
+                runner: None,
+                condition: None,
+                append_system_prompt: None,
+                system_prompt: None,
+                resume: false,
+                on_error: None,
+                before: vec![],
+                then: vec![],
+            })
+        }
+        ChainStepDto::Full(step_dto) => {
+            let body = step_body::parse_step_body(&step_dto, &auto_id)?;
+
+            let on_result_branches = step_dto
+                .on_result
+                .map(|branches| on_result::parse_result_branches(&auto_id, branches))
+                .transpose()?;
+
+            let append_system_prompt_entries = step_dto
+                .append_system_prompt
+                .map(|entries| system_prompt::parse_append_system_prompt(&auto_id, entries))
+                .transpose()?;
+
+            // Recursively parse nested before/then chains.
+            let before = parse_chain_steps(step_dto.before, &auto_id, "before")?;
+            let then = parse_chain_steps(step_dto.then, &auto_id, "then")?;
+
+            Ok(Step {
+                id: StepId(auto_id),
+                body,
+                message: step_dto.message,
+                tools: step_dto.tools.map(tools_to_policy),
+                on_result: on_result_branches,
+                model: step_dto.model,
+                runner: step_dto.runner,
+                condition: None, // Chain steps inherit condition from parent.
+                append_system_prompt: append_system_prompt_entries,
+                system_prompt: step_dto.system_prompt,
+                resume: step_dto.resume.unwrap_or(false),
+                on_error: None,
+                before,
+                then,
+            })
+        }
+    }
+}
+
+/// Parse a list of chain step entries (from `before:` or `then:`) into domain Steps.
+fn parse_chain_steps(
+    entries: Option<Vec<ChainStepDto>>,
+    parent_id: &str,
+    chain_kind: &str,
+) -> Result<Vec<Step>, AilError> {
+    match entries {
+        None => Ok(vec![]),
+        Some(entries) => entries
+            .into_iter()
+            .enumerate()
+            .map(|(i, entry)| parse_chain_step(entry, parent_id, chain_kind, i))
+            .collect(),
+    }
+}
+
 pub fn validate(dto: PipelineFileDto, source: PathBuf) -> Result<Pipeline, AilError> {
     // Resolve top-level defaults (provider/model config, tool policy, and timeout).
     let timeout_seconds = dto.defaults.as_ref().and_then(|d| d.timeout_seconds);
@@ -306,6 +393,9 @@ pub fn validate(dto: PipelineFileDto, source: PathBuf) -> Result<Pipeline, AilEr
             ));
         }
 
+        let before = parse_chain_steps(step_dto.before, &id_str, "before")?;
+        let then = parse_chain_steps(step_dto.then, &id_str, "then")?;
+
         steps.push(Step {
             id: StepId(id_str),
             body,
@@ -319,6 +409,8 @@ pub fn validate(dto: PipelineFileDto, source: PathBuf) -> Result<Pipeline, AilEr
             system_prompt: step_dto.system_prompt,
             resume: step_dto.resume.unwrap_or(false),
             on_error,
+            before,
+            then,
         });
     }
 
@@ -371,6 +463,8 @@ mod tests {
             resume: None,
             on_error: None,
             max_retries: None,
+            before: None,
+            then: None,
         }
     }
 
@@ -514,6 +608,8 @@ mod tests {
             resume: None,
             on_error: None,
             max_retries: None,
+            before: None,
+            then: None,
         }]);
         let err = validate(dto, source()).expect_err("should fail");
         assert_eq!(err.error_type(), error_types::CONFIG_VALIDATION_FAILED);
@@ -542,6 +638,8 @@ mod tests {
             resume: None,
             on_error: None,
             max_retries: None,
+            before: None,
+            then: None,
         }]);
         let err = validate(dto, source()).expect_err("should fail");
         assert_eq!(err.error_type(), error_types::CONFIG_VALIDATION_FAILED);
@@ -572,6 +670,8 @@ mod tests {
             resume: None,
             on_error: None,
             max_retries: None,
+            before: None,
+            then: None,
         }]);
         let pipeline = validate(dto, source()).expect("skill: step should be accepted");
         assert!(matches!(pipeline.steps[0].body, StepBody::Skill { .. }));
@@ -602,6 +702,8 @@ mod tests {
             default_value: None,
             on_error: None,
             max_retries: None,
+            before: None,
+            then: None,
         }]);
         let err = validate(dto, source()).expect_err("empty skill name should fail");
         assert_eq!(
@@ -638,6 +740,8 @@ mod tests {
             resume: None,
             on_error: None,
             max_retries: None,
+            before: None,
+            then: None,
         }]);
         let pipeline = validate(dto, source()).expect("should succeed");
         assert!(matches!(
@@ -668,6 +772,8 @@ mod tests {
             resume: None,
             on_error: None,
             max_retries: None,
+            before: None,
+            then: None,
         }]);
         let pipeline = validate(dto, source()).expect("should succeed");
         assert!(matches!(
@@ -698,6 +804,8 @@ mod tests {
             resume: None,
             on_error: None,
             max_retries: None,
+            before: None,
+            then: None,
         }]);
         let err = validate(dto, source()).expect_err("should fail");
         assert_eq!(err.error_type(), error_types::CONFIG_VALIDATION_FAILED);
@@ -728,6 +836,8 @@ mod tests {
             resume: None,
             on_error: None,
             max_retries: None,
+            before: None,
+            then: None,
         }]);
         let pipeline = validate(dto, source()).expect("should succeed");
         assert!(matches!(
@@ -758,6 +868,8 @@ mod tests {
             resume: None,
             on_error: None,
             max_retries: None,
+            before: None,
+            then: None,
         }]);
         let err = validate(dto, source()).expect_err("should fail");
         assert_eq!(err.error_type(), error_types::CONFIG_VALIDATION_FAILED);

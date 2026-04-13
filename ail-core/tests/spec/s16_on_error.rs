@@ -69,6 +69,8 @@ fn step_with_on_error(id: &str, prompt: &str, on_error: Option<OnError>) -> Step
         system_prompt: None,
         resume: false,
         on_error,
+        before: vec![],
+        then: vec![],
     }
 }
 

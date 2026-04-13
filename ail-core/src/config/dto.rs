@@ -64,6 +64,23 @@ pub struct StepDto {
     /// Maximum number of retries when `on_error: retry` is set.
     /// Required when `on_error` is `"retry"`, ignored otherwise.
     pub max_retries: Option<u32>,
+    /// Private pre-processing steps that run before this step's prompt fires (SPEC §5.10).
+    pub before: Option<Vec<ChainStepDto>>,
+    /// Private post-processing steps chained to this step (SPEC §5.7).
+    pub then: Option<Vec<ChainStepDto>>,
+}
+
+/// A step entry in a `before:` or `then:` chain (SPEC §5.7, §5.10).
+///
+/// Supports both short-form (bare string: skill reference or prompt file path)
+/// and full-form (a full step block minus `id`, `condition`, `on_result`).
+#[derive(Deserialize)]
+#[serde(untagged)]
+pub enum ChainStepDto {
+    /// Short-form: bare string — skill reference or prompt file path.
+    Short(String),
+    /// Full-form: step block with optional fields.
+    Full(Box<StepDto>),
 }
 
 #[derive(Deserialize)]

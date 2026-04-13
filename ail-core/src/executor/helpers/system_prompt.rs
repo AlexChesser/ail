@@ -200,6 +200,8 @@ mod tests {
             system_prompt: None,
             resume: false,
             on_error: None,
+            before: vec![],
+            then: vec![],
         }
     }
 
@@ -288,6 +290,8 @@ mod tests {
             system_prompt: None,
             resume: false,
             on_error: None,
+            before: vec![],
+            then: vec![],
         };
         let session = make_test_session();
         let (system_prompt, append) =

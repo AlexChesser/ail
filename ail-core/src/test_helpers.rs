@@ -42,5 +42,7 @@ pub fn prompt_step(id: &str, text: &str) -> Step {
         system_prompt: None,
         resume: false,
         on_error: None,
+        before: vec![],
+        then: vec![],
     }
 }
