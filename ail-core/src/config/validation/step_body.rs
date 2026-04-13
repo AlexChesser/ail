@@ -18,16 +18,11 @@ pub(in crate::config) fn parse_step_body(
     id_str: &str,
 ) -> Result<StepBody, AilError> {
     // Reject reserved v0.3 fields that are accepted by serde but not yet implemented.
-    for (field_name, is_set) in [
-        ("for_each", step_dto.for_each.is_some()),
-        ("input_schema", step_dto.input_schema.is_some()),
-    ] {
-        if is_set {
-            return Err(cfg_err!(
-                "Step '{id_str}' uses '{field_name}' which is reserved for a future \
-                 version and not yet implemented"
-            ));
-        }
+    if step_dto.for_each.is_some() {
+        return Err(cfg_err!(
+            "Step '{id_str}' uses 'for_each' which is reserved for a future \
+             version and not yet implemented"
+        ));
     }
 
     // When pipeline: is set, prompt: is treated as the child invocation override,

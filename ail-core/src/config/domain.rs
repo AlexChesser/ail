@@ -95,6 +95,7 @@ impl Pipeline {
                 before: vec![],
                 then: vec![],
                 output_schema: None,
+                input_schema: None,
             }],
             source: None,
             defaults: ProviderConfig::default(),
@@ -200,10 +201,14 @@ pub struct Step {
     /// Private post-processing steps that run after this step completes (SPEC §5.7).
     /// Steps in this chain are not visible to the hook system and not independently referenceable.
     pub then: Vec<Step>,
-    /// Optional JSON Schema for validating this step's output (SPEC §26).
+    /// Optional JSON Schema for validating this step's output (SPEC §26.1).
     /// When set, the runtime validates the step's response as JSON against this schema
     /// after execution. A validation failure escalates via `on_error`.
     pub output_schema: Option<serde_json::Value>,
+    /// Optional JSON Schema for validating the preceding step's output (SPEC §26.2).
+    /// When set, the runtime validates the preceding step's response against this schema
+    /// before this step executes. A validation failure escalates via `on_error`.
+    pub input_schema: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Default, Clone)]
@@ -307,6 +312,12 @@ pub struct ResultBranch {
 pub enum ResultMatcher {
     Contains(String),
     ExitCode(ExitCodeMatch),
+    /// Exact equality match against a named field in validated JSON input (SPEC §26.4).
+    /// Requires the step to declare an `input_schema` containing the referenced field.
+    Field {
+        name: String,
+        equals: serde_json::Value,
+    },
     Always,
 }
 

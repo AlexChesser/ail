@@ -203,6 +203,7 @@ mod tests {
             before: vec![],
             then: vec![],
             output_schema: None,
+            input_schema: None,
         }
     }
 
@@ -295,6 +296,7 @@ mod tests {
             before: vec![],
             then: vec![],
             output_schema: None,
+            input_schema: None,
         };
         let session = make_test_session();
         let (system_prompt, append) =

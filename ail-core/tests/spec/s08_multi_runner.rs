@@ -192,6 +192,7 @@ fn executor_dispatches_per_step_runner() {
         before: vec![],
         then: vec![],
         output_schema: None,
+        input_schema: None,
     };
     // Step B: runner: "stub" — executor builds StubRunner via RunnerFactory.
     let step_b = Step {
@@ -210,6 +211,7 @@ fn executor_dispatches_per_step_runner() {
         before: vec![],
         then: vec![],
         output_schema: None,
+        input_schema: None,
     };
 
     let pipeline = Pipeline {

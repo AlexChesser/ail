@@ -6,9 +6,13 @@ use crate::session::TurnEntry;
 
 /// Evaluate `on_result` branches against the most recent `TurnEntry`.
 /// Returns the action of the first matching branch, or `None` if no branch matches.
+///
+/// `validated_input` is the parsed JSON from `input_schema` validation (SPEC §26.2).
+/// When present, `ResultMatcher::Field` can match against named fields in the input JSON.
 pub(in crate::executor) fn evaluate_on_result(
     branches: &[crate::config::domain::ResultBranch],
     entry: &TurnEntry,
+    validated_input: Option<&serde_json::Value>,
 ) -> Option<ResultAction> {
     for branch in branches {
         let matched = match &branch.matcher {
@@ -25,6 +29,12 @@ pub(in crate::executor) fn evaluate_on_result(
             ResultMatcher::ExitCode(ExitCodeMatch::Any) => {
                 // `any` matches any non-zero exit code — does NOT match 0.
                 matches!(entry.exit_code, Some(c) if c != 0)
+            }
+            ResultMatcher::Field { name, equals } => {
+                // Match against a named field in the validated input JSON (SPEC §26.4).
+                validated_input
+                    .and_then(|json| json.get(name))
+                    .is_some_and(|val| val == equals)
             }
             ResultMatcher::Always => true,
         };

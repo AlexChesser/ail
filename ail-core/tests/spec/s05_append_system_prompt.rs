@@ -28,6 +28,7 @@ mod append_system_prompt {
             before: vec![],
             then: vec![],
             output_schema: None,
+            input_schema: None,
         }
     }
 
@@ -176,6 +177,7 @@ mod append_system_prompt {
             before: vec![],
             then: vec![],
             output_schema: None,
+            input_schema: None,
         };
         let runner = RecordingStubRunner::new("ok");
         let mut session = make_session(vec![step]);

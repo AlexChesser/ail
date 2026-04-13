@@ -368,6 +368,7 @@ mod tests {
             before: vec![],
             then: vec![],
             output_schema: None,
+            input_schema: None,
         };
         let mut session = make_session(vec![step]);
         let runner = StubRunner::new("stub");
@@ -475,6 +476,7 @@ mod tests {
             before: vec![],
             then: vec![],
             output_schema: None,
+            input_schema: None,
         };
         let mut session = make_session(vec![step]);
         let runner = StubRunner::new("stub");
@@ -533,6 +535,7 @@ mod tests {
             before: vec![],
             then: vec![],
             output_schema: None,
+            input_schema: None,
         };
         let mut session = make_session(vec![step]);
         let runner = StubRunner::new("stub");
@@ -589,6 +592,7 @@ mod tests {
             before: vec![],
             then: vec![],
             output_schema: None,
+            input_schema: None,
         };
         let mut session = make_session(vec![step]);
         let runner = StubRunner::new("any response");
@@ -750,6 +754,7 @@ mod tests {
             before: vec![],
             then: vec![],
             output_schema: None,
+            input_schema: None,
         };
         let mut session = make_session(vec![step]);
         let runner = StubRunner::new("any response");
@@ -831,6 +836,7 @@ mod tests {
             before: vec![],
             then: vec![],
             output_schema: None,
+            input_schema: None,
         };
 
         let mut session = make_session(vec![generate, gate]);
@@ -891,6 +897,7 @@ mod tests {
             before: vec![],
             then: vec![],
             output_schema: None,
+            input_schema: None,
         };
 
         let mut session = make_session(vec![generate, gate]);
