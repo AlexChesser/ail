@@ -46,7 +46,10 @@ fn tools_to_policy(t: ToolsDto) -> ToolPolicy {
 ///   `"{{ step.test.exit_code }} == 0"`
 ///   `"{{ step.review.response }} contains 'LGTM'"`
 ///   `"{{ step.build.exit_code }} != 0"`
-fn parse_condition_expression(raw: &str, step_id: &str) -> Result<Condition, AilError> {
+pub(in crate::config) fn parse_condition_expression(
+    raw: &str,
+    step_id: &str,
+) -> Result<Condition, AilError> {
     // Operator tokens in order of specificity (multi-word first to avoid partial matches).
     let operators: &[(&str, ConditionOp)] = &[
         ("starts_with", ConditionOp::StartsWith),
@@ -166,11 +169,14 @@ fn strip_quotes(s: &str) -> &str {
 /// Validate a list of step DTOs into domain `Step`s.
 /// `context_label` is used in error messages to indicate where these steps come from
 /// (e.g. "pipeline" or "named pipeline 'security_gates'").
-fn validate_steps(step_dtos: Vec<StepDto>, context_label: &str) -> Result<Vec<Step>, AilError> {
+pub(in crate::config) fn validate_steps(
+    step_dtos: Vec<StepDto>,
+    context_label: &str,
+) -> Result<Vec<Step>, AilError> {
     let mut seen_ids: HashSet<String> = HashSet::new();
     let mut steps: Vec<Step> = Vec::with_capacity(step_dtos.len());
 
-    for step_dto in step_dtos {
+    for mut step_dto in step_dtos {
         // Reject leftover hook operation fields — these are consumed during FROM
         // inheritance resolution and should never reach validation. If they do,
         // the pipeline either lacks FROM or the merge logic has a bug.
@@ -215,7 +221,7 @@ fn validate_steps(step_dtos: Vec<StepDto>, context_label: &str) -> Result<Vec<St
             ));
         }
 
-        let body = step_body::parse_step_body(&step_dto, &id_str)?;
+        let body = step_body::parse_step_body(&mut step_dto, &id_str)?;
 
         let on_result = step_dto
             .on_result
@@ -416,8 +422,8 @@ fn parse_chain_step(
                 then: vec![],
             })
         }
-        ChainStepDto::Full(step_dto) => {
-            let body = step_body::parse_step_body(&step_dto, &auto_id)?;
+        ChainStepDto::Full(mut step_dto) => {
+            let body = step_body::parse_step_body(&mut step_dto, &auto_id)?;
 
             let on_result_branches = step_dto
                 .on_result

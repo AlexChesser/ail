@@ -6,16 +6,19 @@ use crate::config::domain::{ActionKind, ContextSource, HitlHeadlessBehavior, Ste
 use crate::config::dto::StepDto;
 use crate::error::AilError;
 
-use super::cfg_err;
+use super::{cfg_err, parse_condition_expression, validate_steps};
 
 /// Parse the step body from a DTO, enforcing exactly one primary field.
+///
+/// Takes `&mut StepDto` because composite step bodies (e.g. `do_while:`) need to
+/// take ownership of nested step lists via `.take()` — cloning is not possible
+/// since `StepDto` does not derive `Clone`.
 pub(in crate::config) fn parse_step_body(
-    step_dto: &StepDto,
+    step_dto: &mut StepDto,
     id_str: &str,
 ) -> Result<StepBody, AilError> {
     // Reject reserved v0.3 fields that are accepted by serde but not yet implemented.
     for (field_name, is_set) in [
-        ("do_while", step_dto.do_while.is_some()),
         ("for_each", step_dto.for_each.is_some()),
         ("output_schema", step_dto.output_schema.is_some()),
         ("input_schema", step_dto.input_schema.is_some()),
@@ -36,6 +39,7 @@ pub(in crate::config) fn parse_step_body(
         step_dto.pipeline.is_some(),
         step_dto.action.is_some(),
         step_dto.context.is_some(),
+        step_dto.do_while.is_some(),
     ]
     .iter()
     .filter(|&&b| b)
@@ -44,7 +48,7 @@ pub(in crate::config) fn parse_step_body(
     if primary_count != 1 {
         return Err(cfg_err!(
             "Step '{id_str}' must have exactly one primary field \
-             (prompt, skill, pipeline, action, or context); found {primary_count}"
+             (prompt, skill, pipeline, action, context, or do_while); found {primary_count}"
         ));
     }
 
@@ -104,7 +108,76 @@ pub(in crate::config) fn parse_step_body(
                 "Step '{id_str}' declares context: but no source (shell:, mcp:) is present"
             )),
         }
+    } else if step_dto.do_while.is_some() {
+        parse_do_while_body(step_dto.do_while.take().unwrap(), id_str)
     } else {
         unreachable!("primary_count == 1 enforced above")
     }
+}
+
+/// Parse a `do_while:` step body, validating all required fields (SPEC §27).
+///
+/// Takes ownership of the `DoWhileDto` because the inner `steps` list
+/// is passed by value to `validate_steps`.
+fn parse_do_while_body(
+    dw: crate::config::dto::DoWhileDto,
+    id_str: &str,
+) -> Result<StepBody, AilError> {
+    let max_iterations = dw.max_iterations.ok_or_else(|| {
+        cfg_err!(
+            "Step '{id_str}' declares do_while: but 'max_iterations' is missing; \
+             max_iterations is required to prevent unbounded loops (SPEC §27)"
+        )
+    })?;
+
+    if max_iterations < 1 {
+        return Err(cfg_err!(
+            "Step '{id_str}' specifies do_while.max_iterations: 0; \
+             max_iterations must be at least 1"
+        ));
+    }
+
+    let exit_when_raw = dw.exit_when.as_deref().ok_or_else(|| {
+        cfg_err!(
+            "Step '{id_str}' declares do_while: but 'exit_when' is missing; \
+             exit_when is required (SPEC §27)"
+        )
+    })?;
+
+    // Reuse the condition expression parser from §12.2.
+    let exit_when_condition = parse_condition_expression(exit_when_raw, id_str)?;
+    // parse_condition_expression returns Condition::Expression for valid expressions.
+    // Extract the inner ConditionExpr.
+    let exit_when = match exit_when_condition {
+        crate::config::domain::Condition::Expression(expr) => expr,
+        _ => {
+            return Err(cfg_err!(
+                "Step '{id_str}' do_while.exit_when must be a condition expression \
+                 (e.g. '{{{{ step.<id>.exit_code }}}} == 0'), not 'always' or 'never'"
+            ))
+        }
+    };
+
+    let step_dtos = dw.steps.ok_or_else(|| {
+        cfg_err!(
+            "Step '{id_str}' declares do_while: but 'steps' is missing; \
+             at least one inner step is required (SPEC §27)"
+        )
+    })?;
+
+    if step_dtos.is_empty() {
+        return Err(cfg_err!(
+            "Step '{id_str}' declares do_while: with an empty 'steps' array; \
+             at least one inner step is required (SPEC §27)"
+        ));
+    }
+
+    let context_label = format!("do_while step '{id_str}'");
+    let inner_steps = validate_steps(step_dtos, &context_label)?;
+
+    Ok(StepBody::DoWhile {
+        max_iterations,
+        exit_when,
+        steps: inner_steps,
+    })
 }

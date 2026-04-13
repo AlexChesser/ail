@@ -16,6 +16,10 @@ pub enum SystemPromptEntry {
 /// when pipelines call each other in a cycle.
 pub const MAX_SUB_PIPELINE_DEPTH: usize = 16;
 
+/// Maximum nesting depth for loop constructs (`do_while`, `for_each`).
+/// Prevents runaway resource consumption from deeply nested loops (SPEC §27).
+pub const MAX_LOOP_DEPTH: usize = 8;
+
 /// Provider and model configuration resolved from pipeline defaults, per-step overrides,
 /// or CLI flags. All fields are optional — unset fields fall back to runner/environment defaults.
 #[derive(Debug, Clone, Default)]
@@ -245,6 +249,17 @@ pub enum StepBody {
     // in validation. If the value does not match a named pipeline key, it remains
     // as `SubPipeline` (file-based sub-pipeline reference).
     Context(ContextSource),
+    /// Bounded repeat-until loop (SPEC §27). Inner steps execute repeatedly until
+    /// `exit_when` evaluates to true or `max_iterations` is reached.
+    DoWhile {
+        /// Maximum number of iterations (≥ 1, required, no default).
+        max_iterations: u64,
+        /// Condition expression evaluated after each complete iteration.
+        /// Uses the same expression syntax as `condition:` (SPEC §12.2).
+        exit_when: ConditionExpr,
+        /// Inner steps executed each iteration.
+        steps: Vec<Step>,
+    },
 }
 
 #[derive(Debug, Clone)]
