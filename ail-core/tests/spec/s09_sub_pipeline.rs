@@ -462,18 +462,7 @@ fn sub_pipeline_step_prompt_override_is_passed_to_child() {
         step_id: "prior".to_string(),
         prompt: "prior prompt".to_string(),
         response: Some("prior response — should be ignored".to_string()),
-        timestamp: std::time::SystemTime::now(),
-        cost_usd: None,
-        input_tokens: 0,
-        output_tokens: 0,
-        runner_session_id: None,
-        stdout: None,
-        stderr: None,
-        exit_code: None,
-        thinking: None,
-        tool_events: vec![],
-        modified: None,
-        index: None,
+        ..Default::default()
     });
 
     let runner = EchoStubRunner::new();

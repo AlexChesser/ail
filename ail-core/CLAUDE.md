@@ -201,6 +201,7 @@ pub struct AilError { pub error_type: &'static str, pub title: &'static str, pub
 
 - No `unwrap()`/`expect()` — use `?` and `AilError`
 - No `println!`/`eprintln!` — use `tracing::{info, warn, error}`
+- **Use `..Default::default()` for struct construction** — when building `Step`, `TurnEntry`, or other structs with many optional/defaultable fields, set only the fields that differ from the default and use `..Default::default()` for the rest. Never enumerate every field with `None`/`0`/`vec![]` explicitly. This prevents breakage when new fields are added.
 - `dto.rs` only: `#[derive(Deserialize)]`
 - `domain.rs` only: clean domain types, no serde
 - Modules returning `Result<_, AilError>` need `#[allow(clippy::result_large_err)]`

@@ -885,18 +885,8 @@ fn execute_do_while_inner<O: StepObserver>(
         step_id: loop_step_id.to_string(),
         prompt: format!("do_while(max_iterations={max_iterations})"),
         response,
-        timestamp: std::time::SystemTime::now(),
-        cost_usd: None,
-        input_tokens: 0,
-        output_tokens: 0,
-        runner_session_id: None,
-        stdout: None,
-        stderr: None,
-        exit_code: None,
-        thinking: None,
-        tool_events: vec![],
-        modified: None,
         index: Some(index),
+        ..Default::default()
     })
 }
 
