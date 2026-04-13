@@ -103,6 +103,7 @@ mod tests {
             exit_code: Some(exit_code),
             thinking: None,
             tool_events: vec![],
+            modified: None,
         });
         session
     }
@@ -123,6 +124,7 @@ mod tests {
             exit_code: None,
             thinking: None,
             tool_events: vec![],
+            modified: None,
         });
         session
     }

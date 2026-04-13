@@ -42,11 +42,15 @@ pub(in crate::config) fn parse_step_body(
         })
     } else if let Some(ref prompt) = step_dto.prompt {
         Ok(StepBody::Prompt(prompt.clone()))
-    } else if step_dto.skill.is_some() {
-        Err(cfg_err!(
-            "Step '{id_str}' uses 'skill:' which is not yet implemented (planned for v0.2+). \
-             Use a 'pipeline:' step to compose pipelines instead."
-        ))
+    } else if let Some(ref skill_name) = step_dto.skill {
+        if skill_name.trim().is_empty() {
+            return Err(cfg_err!(
+                "Step '{id_str}' declares skill: but the skill name is empty"
+            ));
+        }
+        Ok(StepBody::Skill {
+            name: skill_name.clone(),
+        })
     } else if let Some(ref action) = step_dto.action {
         match action.as_str() {
             "pause_for_human" => Ok(StepBody::Action(ActionKind::PauseForHuman)),

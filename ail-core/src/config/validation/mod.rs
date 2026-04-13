@@ -491,12 +491,11 @@ mod tests {
     // ── step body types ──────────────────────────────────────────────────────
 
     #[test]
-    fn skill_step_is_rejected_at_validation() {
-        // skill: is not yet implemented; validation must reject it with CONFIG_VALIDATION_FAILED
-        // so users get a clear error at load time rather than a runtime PIPELINE_ABORTED.
+    fn skill_step_round_trips() {
+        // skill: steps are now supported (SPEC §6).
         let dto = minimal_dto(vec![StepDto {
             id: Some("sk".to_string()),
-            skill: Some("my-skill.yaml".to_string()),
+            skill: Some("ail/code_review".to_string()),
             prompt: None,
             pipeline: None,
             action: None,
@@ -513,15 +512,43 @@ mod tests {
             system_prompt: None,
             resume: None,
         }]);
-        let err = validate(dto, source()).expect_err("skill: step must be rejected at validation");
+        let pipeline = validate(dto, source()).expect("skill: step should be accepted");
+        assert!(matches!(pipeline.steps[0].body, StepBody::Skill { .. }));
+        if let StepBody::Skill { ref name } = pipeline.steps[0].body {
+            assert_eq!(name, "ail/code_review");
+        }
+    }
+
+    #[test]
+    fn skill_step_empty_name_returns_error() {
+        let dto = minimal_dto(vec![StepDto {
+            id: Some("sk".to_string()),
+            skill: Some("  ".to_string()),
+            prompt: None,
+            pipeline: None,
+            action: None,
+            message: None,
+            context: None,
+            tools: None,
+            on_result: None,
+            model: None,
+            runner: None,
+            condition: None,
+            append_system_prompt: None,
+            system_prompt: None,
+            resume: None,
+            on_headless: None,
+            default_value: None,
+        }]);
+        let err = validate(dto, source()).expect_err("empty skill name should fail");
         assert_eq!(
             err.error_type(),
             error_types::CONFIG_VALIDATION_FAILED,
-            "skill: step must yield CONFIG_VALIDATION_FAILED"
+            "empty skill name must yield CONFIG_VALIDATION_FAILED"
         );
         assert!(
-            err.detail().contains("skill:"),
-            "error detail should mention 'skill:', got: {}",
+            err.detail().contains("empty"),
+            "error detail should mention 'empty', got: {}",
             err.detail()
         );
     }

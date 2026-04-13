@@ -185,7 +185,12 @@ impl StepId {
 #[derive(Debug, Clone)]
 pub enum StepBody {
     Prompt(String),
-    Skill(PathBuf),
+    /// A named skill invocation (SPEC §6). The skill name may reference a built-in
+    /// module (e.g. `ail/code_review`) or a project-local skill. The skill registry
+    /// resolves the name to a prompt template at execution time.
+    Skill {
+        name: String,
+    },
     /// Path to a sub-pipeline YAML file. May contain `{{ variable }}` syntax;
     /// the path is template-resolved at execution time (SPEC §11).
     /// `prompt` overrides the child session's invocation prompt when set;
