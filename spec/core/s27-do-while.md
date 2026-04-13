@@ -1,6 +1,6 @@
 ## 27. `do_while:` — Bounded Repeat-Until
 
-> **Implementation status:** Planned — v0.3 target. `do_while:` is a reserved primary field. The parser will reject it with `CONFIG_VALIDATION_FAILED` until implementation is complete.
+> **Implementation status:** Core execution implemented. Parse-time validation, executor loop, template variables (`{{ do_while.iteration }}`, `{{ do_while.max_iterations }}`), step ID namespacing (`<loop_id>::<step_id>`), iteration scope management, loop depth guard (`MAX_LOOP_DEPTH = 8`), and `break`/`abort_pipeline` handling are all functional. `on_max_iterations` field is not yet implemented (defaults to `abort_pipeline`). Controlled-mode executor events (§27.7) are deferred.
 
 A `do_while:` step runs a fixed set of inner steps repeatedly until an `exit_when` condition is met or a declared `max_iterations` bound is exceeded. It is the generate→test→fix pattern: each iteration produces a result, then checks whether the result is good enough to stop.
 
@@ -16,17 +16,17 @@ The condition is evaluated **after** each complete iteration — all inner steps
     max_iterations: 5
     exit_when: "{{ step.test.exit_code }} == 0"
     on_max_iterations: abort_pipeline
-  steps:
-    - id: fix
-      prompt: |
-        Iteration {{ do_while.iteration }} of {{ do_while.max_iterations }}.
-        Fix the failing tests.
-        Test output:
-        {{ step.test.result }}
-      resume: true
-    - id: test
-      context:
-        shell: "cargo test 2>&1"
+    steps:
+      - id: fix
+        prompt: |
+          Iteration {{ do_while.iteration }} of {{ do_while.max_iterations }}.
+          Fix the failing tests.
+          Test output:
+          {{ step.test.result }}
+        resume: true
+      - id: test
+        context:
+          shell: "cargo test 2>&1"
 ```
 
 In this example: `test` runs first (iteration 1), then `exit_when` is evaluated against `step.test.exit_code`. If the tests pass (exit code 0), the loop exits. Otherwise, `fix` runs with the test output, followed by `test` again.

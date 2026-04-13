@@ -7,11 +7,14 @@
 
 #![allow(clippy::result_large_err)]
 
-use crate::config::domain::{ActionKind, ContextSource, OnError, ResultAction, Step, StepBody};
+use crate::config::domain::{
+    ActionKind, Condition, ConditionExpr, ContextSource, OnError, ResultAction, Step, StepBody,
+    StepId, MAX_LOOP_DEPTH,
+};
 use crate::error::AilError;
 use crate::runner::{InvokeOptions, RunResult, Runner};
 use crate::session::turn_log::TurnEntry;
-use crate::session::Session;
+use crate::session::{DoWhileContext, Session};
 
 use super::dispatch;
 use super::events::ExecuteOutcome;
@@ -359,15 +362,20 @@ fn execute_single_step<O: StepObserver>(
                 observer,
             ),
 
-            StepBody::DoWhile { .. } => {
-                return Err(AilError::ConfigValidationFailed {
-                    detail: format!(
-                        "Step '{step_id}' uses do_while: which is parsed but executor \
-                         support is not yet implemented"
-                    ),
-                    context: None,
-                });
-            }
+            StepBody::DoWhile {
+                max_iterations,
+                exit_when,
+                steps: inner_steps,
+            } => execute_do_while(
+                &step_id,
+                *max_iterations,
+                exit_when,
+                inner_steps,
+                session,
+                runner,
+                observer,
+                depth,
+            ),
         };
 
         match result {
@@ -508,6 +516,325 @@ fn execute_chain_steps<O: StepObserver>(
         // "Use top-level steps if branching is needed."
     }
     Ok(())
+}
+
+// ── do_while execution (SPEC §27) ────────────────────────────────────────────
+
+/// Exit reason for a do_while loop, used for logging and result reporting.
+enum DoWhileExitReason {
+    /// `exit_when` evaluated to true.
+    ExitWhen,
+    /// A `break` action fired inside the loop body.
+    Break,
+    /// The iteration budget was exhausted.
+    MaxIterations,
+}
+
+/// Execute a `do_while:` loop body (SPEC §27).
+///
+/// Runs `inner_steps` repeatedly until `exit_when` evaluates to true or
+/// `max_iterations` is reached. Each iteration executes all inner steps in
+/// order; the `exit_when` condition is checked after each complete iteration
+/// (post-iteration evaluation, like a do-while loop).
+///
+/// Inner step IDs are namespaced as `<loop_id>::<step_id>` so they don't
+/// collide with outer step IDs. The do_while context is set on the session
+/// so template variables `{{ do_while.iteration }}` and
+/// `{{ do_while.max_iterations }}` resolve correctly.
+///
+/// Returns a summary `TurnEntry` for the do_while step itself. The response
+/// is the last inner step's response from the final iteration.
+#[allow(clippy::too_many_arguments)]
+fn execute_do_while<O: StepObserver>(
+    loop_step_id: &str,
+    max_iterations: u64,
+    exit_when: &ConditionExpr,
+    inner_steps: &[Step],
+    session: &mut Session,
+    runner: &dyn Runner,
+    observer: &mut O,
+    depth: usize,
+) -> Result<TurnEntry, AilError> {
+    // Depth guard (SPEC §27.9).
+    if session.loop_depth >= MAX_LOOP_DEPTH {
+        return Err(AilError::LoopDepthExceeded {
+            detail: format!(
+                "Step '{loop_step_id}' would exceed the maximum loop nesting depth \
+                 of {MAX_LOOP_DEPTH}"
+            ),
+            context: Some(crate::error::ErrorContext::for_step(
+                &session.run_id,
+                loop_step_id,
+            )),
+        });
+    }
+
+    session.turn_log.record_step_started(
+        loop_step_id,
+        &format!("do_while(max_iterations={max_iterations})"),
+    );
+
+    let result = execute_do_while_inner(
+        loop_step_id,
+        max_iterations,
+        exit_when,
+        inner_steps,
+        session,
+        runner,
+        observer,
+        depth,
+    );
+
+    match &result {
+        Ok(_) => observer.on_non_prompt_completed(loop_step_id),
+        Err(e) => observer.on_step_failed(loop_step_id, e.detail()),
+    }
+    result
+}
+
+/// Inner loop logic, separated so the caller can attach observer hooks around it.
+#[allow(clippy::too_many_arguments)]
+fn execute_do_while_inner<O: StepObserver>(
+    loop_step_id: &str,
+    max_iterations: u64,
+    exit_when: &ConditionExpr,
+    inner_steps: &[Step],
+    session: &mut Session,
+    runner: &dyn Runner,
+    observer: &mut O,
+    depth: usize,
+) -> Result<TurnEntry, AilError> {
+    // Save and restore outer do_while context for nested loops.
+    let prev_context = session.do_while_context.take();
+    session.loop_depth += 1;
+
+    let prefix = format!("{loop_step_id}::");
+    let total_inner = inner_steps.len();
+    let mut iterations_used: u64 = 0;
+    let mut exit_reason = DoWhileExitReason::MaxIterations;
+
+    for iteration in 1..=max_iterations {
+        iterations_used = iteration;
+
+        // Clear previous iteration's inner step entries (SPEC §27.3 — iteration scope).
+        session.turn_log.remove_entries_with_prefix(&prefix);
+
+        // Set loop context for template variable resolution.
+        session.do_while_context = Some(DoWhileContext {
+            loop_id: loop_step_id.to_string(),
+            iteration,
+            max_iterations,
+        });
+
+        tracing::info!(
+            run_id = %session.run_id,
+            step_id = %loop_step_id,
+            iteration,
+            max_iterations,
+            "do_while iteration started"
+        );
+
+        // Execute each inner step with a namespaced ID.
+        let mut loop_broken = false;
+        for (inner_idx, inner_step) in inner_steps.iter().enumerate() {
+            let namespaced_id = format!("{}{}", prefix, inner_step.id.as_str());
+            let namespaced_step = Step {
+                id: StepId(namespaced_id.clone()),
+                body: inner_step.body.clone(),
+                message: inner_step.message.clone(),
+                tools: inner_step.tools.clone(),
+                on_result: inner_step.on_result.clone(),
+                model: inner_step.model.clone(),
+                runner: inner_step.runner.clone(),
+                condition: inner_step.condition.clone(),
+                append_system_prompt: inner_step.append_system_prompt.clone(),
+                system_prompt: inner_step.system_prompt.clone(),
+                resume: inner_step.resume,
+                on_error: inner_step.on_error.clone(),
+                before: inner_step.before.clone(),
+                then: inner_step.then.clone(),
+            };
+
+            // Evaluate condition for the inner step.
+            let condition_skip = if let Some(ref cond) = namespaced_step.condition {
+                !evaluate_condition(cond, session, &namespaced_id)?
+            } else {
+                false
+            };
+
+            match observer.before_step(&namespaced_id, inner_idx, condition_skip) {
+                BeforeStepAction::Run => {}
+                BeforeStepAction::Skip => continue,
+                BeforeStepAction::Stop => {
+                    loop_broken = true;
+                    break;
+                }
+            }
+
+            tracing::info!(
+                run_id = %session.run_id,
+                step_id = %namespaced_id,
+                iteration,
+                "executing do_while inner step"
+            );
+
+            let matched_action = execute_single_step(
+                &namespaced_step,
+                session,
+                runner,
+                observer,
+                depth,
+                total_inner,
+                inner_idx,
+            )?;
+
+            // Handle on_result actions within the loop (SPEC §27.3 point 5).
+            // `break` exits the loop, not the pipeline.
+            if let Some(action) = matched_action {
+                match action {
+                    ResultAction::Continue => {}
+                    ResultAction::Break => {
+                        tracing::info!(
+                            run_id = %session.run_id,
+                            step_id = %loop_step_id,
+                            inner_step = %namespaced_id,
+                            iteration,
+                            "on_result break inside do_while — exiting loop"
+                        );
+                        loop_broken = true;
+                        break;
+                    }
+                    ResultAction::AbortPipeline => {
+                        // Restore state before propagating.
+                        session.loop_depth -= 1;
+                        session.do_while_context = prev_context;
+                        let err = AilError::PipelineAborted {
+                            detail: format!(
+                                "Step '{namespaced_id}' on_result fired abort_pipeline \
+                                 inside do_while loop '{loop_step_id}'"
+                            ),
+                            context: Some(crate::error::ErrorContext::for_step(
+                                &session.run_id,
+                                loop_step_id,
+                            )),
+                        };
+                        observer.on_pipeline_error(&err);
+                        return Err(err);
+                    }
+                    ResultAction::PauseForHuman => {
+                        observer.on_result_pause(&namespaced_id, None);
+                    }
+                    ResultAction::Pipeline {
+                        ref path,
+                        ref prompt,
+                    } => {
+                        let pipeline_base_dir_buf: Option<std::path::PathBuf> = session
+                            .pipeline
+                            .source
+                            .as_deref()
+                            .and_then(|p| p.parent())
+                            .map(|p| p.to_path_buf());
+                        let pipeline_base_dir = pipeline_base_dir_buf.as_deref();
+                        let on_result_step_id = format!("{namespaced_id}__on_result");
+                        let sub_entry = dispatch::sub_pipeline::execute_sub_pipeline(
+                            path,
+                            prompt.as_deref(),
+                            &on_result_step_id,
+                            session,
+                            runner,
+                            depth,
+                            pipeline_base_dir,
+                        )
+                        .inspect_err(|e| {
+                            // Restore state before propagating.
+                            observer.on_pipeline_error(e)
+                        })?;
+                        session.turn_log.append(sub_entry);
+                    }
+                }
+            }
+        }
+
+        if loop_broken {
+            exit_reason = DoWhileExitReason::Break;
+            break;
+        }
+
+        // Post-iteration: evaluate exit_when (SPEC §27.3 point 1).
+        let exit_condition = Condition::Expression(exit_when.clone());
+        let should_exit = evaluate_condition(&exit_condition, session, loop_step_id)?;
+
+        tracing::info!(
+            run_id = %session.run_id,
+            step_id = %loop_step_id,
+            iteration,
+            exit_when_result = should_exit,
+            "do_while exit_when evaluated"
+        );
+
+        if should_exit {
+            exit_reason = DoWhileExitReason::ExitWhen;
+            break;
+        }
+    }
+
+    // Restore state.
+    session.loop_depth -= 1;
+    session.do_while_context = prev_context;
+
+    tracing::info!(
+        run_id = %session.run_id,
+        step_id = %loop_step_id,
+        iterations_used,
+        exit_reason = match exit_reason {
+            DoWhileExitReason::ExitWhen => "exit_when",
+            DoWhileExitReason::Break => "break",
+            DoWhileExitReason::MaxIterations => "max_iterations",
+        },
+        "do_while completed"
+    );
+
+    // If max_iterations was exhausted without exit_when becoming true, abort (default).
+    if matches!(exit_reason, DoWhileExitReason::MaxIterations) {
+        return Err(AilError::DoWhileMaxIterations {
+            detail: format!(
+                "Step '{loop_step_id}' exhausted do_while.max_iterations ({max_iterations}) \
+                 without exit_when becoming true"
+            ),
+            context: Some(crate::error::ErrorContext::for_step(
+                &session.run_id,
+                loop_step_id,
+            )),
+        });
+    }
+
+    // Build summary TurnEntry. Response is the last inner step's response from
+    // the final iteration.
+    let response = session
+        .turn_log
+        .entries()
+        .iter()
+        .rev()
+        .filter(|e| e.step_id.starts_with(&prefix))
+        .find_map(|e| e.response.as_deref())
+        .map(|s| s.to_string());
+
+    Ok(TurnEntry {
+        step_id: loop_step_id.to_string(),
+        prompt: format!("do_while(max_iterations={max_iterations})"),
+        response,
+        timestamp: std::time::SystemTime::now(),
+        cost_usd: None,
+        input_tokens: 0,
+        output_tokens: 0,
+        runner_session_id: None,
+        stdout: None,
+        stderr: None,
+        exit_code: None,
+        thinking: None,
+        tool_events: vec![],
+        modified: None,
+    })
 }
 
 // ── Core loop ─────────────────────────────────────────────────────────────────

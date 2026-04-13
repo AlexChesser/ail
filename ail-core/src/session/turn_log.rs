@@ -388,6 +388,16 @@ impl TurnLog {
             .and_then(|e| e.modified.as_deref())
     }
 
+    /// Remove in-memory entries whose `step_id` starts with `prefix`.
+    ///
+    /// Used by `do_while:` execution to clear the previous iteration's inner step
+    /// results before starting a new iteration (SPEC §27.3 — iteration scope).
+    /// Already-persisted entries are unaffected; this only affects template variable
+    /// resolution which reads from the in-memory store.
+    pub fn remove_entries_with_prefix(&mut self, prefix: &str) {
+        self.entries.retain(|e| !e.step_id.starts_with(prefix));
+    }
+
     pub fn entries(&self) -> &[TurnEntry] {
         &self.entries
     }

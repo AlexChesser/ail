@@ -347,6 +347,447 @@ pipeline:
     }
 }
 
+mod executor {
+    use ail_core::config::domain::{
+        ConditionExpr, ConditionOp, ContextSource, ExitCodeMatch, ResultAction, ResultBranch,
+        ResultMatcher, Step, StepBody, StepId,
+    };
+    use ail_core::error::error_types;
+    use ail_core::executor::execute;
+    use ail_core::runner::stub::StubRunner;
+    use ail_core::test_helpers::make_session;
+
+    fn shell_step(id: &str, cmd: &str) -> Step {
+        Step {
+            id: StepId(id.to_string()),
+            body: StepBody::Context(ContextSource::Shell(cmd.to_string())),
+            ..Default::default()
+        }
+    }
+
+    fn do_while_step(
+        id: &str,
+        max_iterations: u64,
+        exit_when: ConditionExpr,
+        inner_steps: Vec<Step>,
+    ) -> Step {
+        Step {
+            id: StepId(id.to_string()),
+            body: StepBody::DoWhile {
+                max_iterations,
+                exit_when,
+                steps: inner_steps,
+            },
+            ..Default::default()
+        }
+    }
+
+    fn exit_code_eq_zero(step_id: &str) -> ConditionExpr {
+        ConditionExpr {
+            lhs: format!("{{{{ step.{step_id}.exit_code }}}}"),
+            op: ConditionOp::Eq,
+            rhs: "0".to_string(),
+        }
+    }
+
+    /// §27 — do_while loop exits on first iteration when exit_when is immediately true.
+    #[test]
+    fn do_while_exits_on_first_iteration() {
+        // `true` exits with code 0, so exit_when is true after the first iteration.
+        let step = do_while_step(
+            "loop",
+            5,
+            exit_code_eq_zero("check"),
+            vec![shell_step("check", "true")],
+        );
+        let mut session = make_session(vec![step]);
+        let runner = StubRunner::new("unused");
+        let result = execute(&mut session, &runner);
+        assert!(result.is_ok(), "Expected Ok, got: {result:?}");
+
+        // The loop step itself should have a TurnEntry, plus the inner step entry.
+        let entries = session.turn_log.entries();
+        assert!(entries.iter().any(|e| e.step_id == "loop"));
+        assert!(entries.iter().any(|e| e.step_id == "loop::check"));
+    }
+
+    /// §27 — do_while loop runs multiple iterations when exit_when is false.
+    #[test]
+    fn do_while_runs_multiple_iterations() {
+        // `false` exits with code 1, so exit_when is never true → hits max_iterations.
+        let step = do_while_step(
+            "retry",
+            3,
+            exit_code_eq_zero("check"),
+            vec![shell_step("check", "false")],
+        );
+        let mut session = make_session(vec![step]);
+        let runner = StubRunner::new("unused");
+        let result = execute(&mut session, &runner);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert_eq!(err.error_type(), error_types::DO_WHILE_MAX_ITERATIONS);
+        assert!(
+            err.detail().contains("retry"),
+            "Error should mention step id, got: {}",
+            err.detail()
+        );
+    }
+
+    /// §27 — inner step entries use namespaced IDs (loop_id::step_id).
+    #[test]
+    fn inner_step_entries_are_namespaced() {
+        let step = do_while_step(
+            "myloop",
+            5,
+            exit_code_eq_zero("check"),
+            vec![shell_step("check", "true")],
+        );
+        let mut session = make_session(vec![step]);
+        let runner = StubRunner::new("unused");
+        execute(&mut session, &runner).unwrap();
+
+        let entries = session.turn_log.entries();
+        let inner_entry = entries
+            .iter()
+            .find(|e| e.step_id == "myloop::check")
+            .expect("Should have namespaced entry 'myloop::check'");
+        assert_eq!(inner_entry.exit_code, Some(0));
+    }
+
+    /// §27 — exit_when with `contains` operator works.
+    #[test]
+    fn exit_when_contains_operator() {
+        let exit_when = ConditionExpr {
+            lhs: "{{ step.check.stdout }}".to_string(),
+            op: ConditionOp::Contains,
+            rhs: "PASS".to_string(),
+        };
+        let step = do_while_step("loop", 5, exit_when, vec![shell_step("check", "echo PASS")]);
+        let mut session = make_session(vec![step]);
+        let runner = StubRunner::new("unused");
+        let result = execute(&mut session, &runner);
+        assert!(
+            result.is_ok(),
+            "Expected loop to exit via contains, got: {result:?}"
+        );
+    }
+
+    /// §27 — template variable `{{ do_while.iteration }}` resolves inside the loop.
+    #[test]
+    fn do_while_iteration_template_variable() {
+        // Use a prompt step inside the loop so we can check the resolved prompt.
+        let inner_prompt = Step {
+            id: StepId("inner".to_string()),
+            body: StepBody::Prompt(
+                "Iteration {{ do_while.iteration }} of {{ do_while.max_iterations }}".to_string(),
+            ),
+            ..Default::default()
+        };
+        // exit_when on a prompt step: check the response contains "done"
+        let exit_when = ConditionExpr {
+            lhs: "{{ step.inner.response }}".to_string(),
+            op: ConditionOp::Contains,
+            rhs: "stub".to_string(),
+        };
+        let step = do_while_step("loop", 3, exit_when, vec![inner_prompt]);
+        let mut session = make_session(vec![step]);
+        let runner = StubRunner::new("stub response");
+        execute(&mut session, &runner).unwrap();
+
+        // Check that the resolved prompt included the iteration variables.
+        let inner_entry = session
+            .turn_log
+            .entries()
+            .iter()
+            .find(|e| e.step_id == "loop::inner")
+            .expect("Should have 'loop::inner' entry");
+        assert!(
+            inner_entry.prompt.contains("Iteration 1 of 3"),
+            "Expected 'Iteration 1 of 3' in prompt, got: {}",
+            inner_entry.prompt
+        );
+    }
+
+    /// §27 — only current iteration's entries are in scope (previous cleared).
+    #[test]
+    fn iteration_scope_clears_previous_entries() {
+        // `false` always fails, so the loop runs 2 iterations and hits max.
+        let step = do_while_step(
+            "loop",
+            2,
+            exit_code_eq_zero("check"),
+            vec![shell_step("check", "false")],
+        );
+        let mut session = make_session(vec![step]);
+        let runner = StubRunner::new("unused");
+        let _ = execute(&mut session, &runner); // max_iterations error expected
+
+        // After the loop, only one set of namespaced entries should remain
+        // (from the last iteration). There should NOT be two 'loop::check' entries.
+        let check_entries: Vec<_> = session
+            .turn_log
+            .entries()
+            .iter()
+            .filter(|e| e.step_id == "loop::check")
+            .collect();
+        assert_eq!(
+            check_entries.len(),
+            1,
+            "Expected 1 'loop::check' entry (last iteration only), got {}",
+            check_entries.len()
+        );
+    }
+
+    /// §27 — multiple inner steps execute in order each iteration.
+    #[test]
+    fn multiple_inner_steps_execute_in_order() {
+        let inner_steps = vec![
+            shell_step("step_a", "echo first"),
+            shell_step("step_b", "true"), // exit code 0
+        ];
+        let step = do_while_step("loop", 3, exit_code_eq_zero("step_b"), inner_steps);
+        let mut session = make_session(vec![step]);
+        let runner = StubRunner::new("unused");
+        execute(&mut session, &runner).unwrap();
+
+        let entries = session.turn_log.entries();
+        let a_entry = entries
+            .iter()
+            .find(|e| e.step_id == "loop::step_a")
+            .expect("step_a should be present");
+        assert!(a_entry.stdout.as_deref().unwrap().contains("first"));
+
+        let b_entry = entries
+            .iter()
+            .find(|e| e.step_id == "loop::step_b")
+            .expect("step_b should be present");
+        assert_eq!(b_entry.exit_code, Some(0));
+    }
+
+    /// §27 — `break` in on_result exits the loop, not the pipeline.
+    #[test]
+    fn break_exits_loop_not_pipeline() {
+        // Shell step always exits 1, on_result triggers break.
+        let inner = Step {
+            id: StepId("check".to_string()),
+            body: StepBody::Context(ContextSource::Shell("false".to_string())),
+            on_result: Some(vec![ResultBranch {
+                matcher: ResultMatcher::ExitCode(ExitCodeMatch::Any),
+                action: ResultAction::Break,
+            }]),
+            ..Default::default()
+        };
+        // exit_when will never be true, but break should exit the loop.
+        let step = do_while_step("loop", 5, exit_code_eq_zero("check"), vec![inner]);
+
+        // Add a step AFTER the loop to verify pipeline continues.
+        let after_step = Step {
+            id: StepId("after".to_string()),
+            body: StepBody::Context(ContextSource::Shell("echo after_loop".to_string())),
+            ..Default::default()
+        };
+
+        let mut session = make_session(vec![step, after_step]);
+        let runner = StubRunner::new("unused");
+        let result = execute(&mut session, &runner);
+        assert!(result.is_ok(), "Pipeline should continue after loop break");
+
+        // Verify the step after the loop ran.
+        let after_entry = session
+            .turn_log
+            .entries()
+            .iter()
+            .find(|e| e.step_id == "after")
+            .expect("'after' step should have run");
+        assert!(after_entry
+            .stdout
+            .as_deref()
+            .unwrap()
+            .contains("after_loop"));
+    }
+
+    /// §27 — loop depth limit is enforced.
+    #[test]
+    fn loop_depth_limit_enforced() {
+        // Create a deeply nested do_while — 9 levels deep, exceeding MAX_LOOP_DEPTH (8).
+        fn nested_do_while(remaining: usize) -> Step {
+            if remaining == 0 {
+                shell_step("leaf", "true")
+            } else {
+                let inner = nested_do_while(remaining - 1);
+                do_while_step(
+                    &format!("level_{remaining}"),
+                    1,
+                    exit_code_eq_zero("leaf"),
+                    vec![inner],
+                )
+            }
+        }
+
+        let step = nested_do_while(9); // 9 levels > MAX_LOOP_DEPTH (8)
+        let mut session = make_session(vec![step]);
+        let runner = StubRunner::new("unused");
+        let result = execute(&mut session, &runner);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert_eq!(err.error_type(), error_types::LOOP_DEPTH_EXCEEDED);
+    }
+
+    /// §27 — do_while summary entry has the loop step's response.
+    #[test]
+    fn summary_entry_has_loop_response() {
+        // Prompt step inside loop: StubRunner returns "stub response".
+        let inner = Step {
+            id: StepId("inner".to_string()),
+            body: StepBody::Prompt("test".to_string()),
+            ..Default::default()
+        };
+        let exit_when = ConditionExpr {
+            lhs: "{{ step.inner.response }}".to_string(),
+            op: ConditionOp::Contains,
+            rhs: "stub".to_string(),
+        };
+        let step = do_while_step("loop", 3, exit_when, vec![inner]);
+        let mut session = make_session(vec![step]);
+        let runner = StubRunner::new("stub response");
+        execute(&mut session, &runner).unwrap();
+
+        let loop_entry = session
+            .turn_log
+            .entries()
+            .iter()
+            .find(|e| e.step_id == "loop")
+            .expect("loop summary entry should exist");
+        assert_eq!(
+            loop_entry.response.as_deref(),
+            Some("stub response"),
+            "Loop summary entry should contain the inner step's response"
+        );
+    }
+
+    /// §27 — do_while with max_iterations: 1 either exits or errors.
+    #[test]
+    fn max_iterations_one_exits_or_errors() {
+        // exit_when is true → exits cleanly.
+        let step = do_while_step(
+            "loop",
+            1,
+            exit_code_eq_zero("check"),
+            vec![shell_step("check", "true")],
+        );
+        let mut session = make_session(vec![step]);
+        let runner = StubRunner::new("unused");
+        assert!(execute(&mut session, &runner).is_ok());
+
+        // exit_when is false → max_iterations exceeded.
+        let step2 = do_while_step(
+            "loop",
+            1,
+            exit_code_eq_zero("check"),
+            vec![shell_step("check", "false")],
+        );
+        let mut session2 = make_session(vec![step2]);
+        let err = execute(&mut session2, &runner).unwrap_err();
+        assert_eq!(err.error_type(), error_types::DO_WHILE_MAX_ITERATIONS);
+    }
+
+    /// §27 — steps after the loop can reference the loop's summary entry.
+    #[test]
+    fn post_loop_step_references_loop_response() {
+        let inner = Step {
+            id: StepId("gen".to_string()),
+            body: StepBody::Prompt("generate".to_string()),
+            ..Default::default()
+        };
+        let exit_when = ConditionExpr {
+            lhs: "{{ step.gen.response }}".to_string(),
+            op: ConditionOp::Contains,
+            rhs: "stub".to_string(),
+        };
+        let loop_step = do_while_step("myloop", 3, exit_when, vec![inner]);
+
+        // Step after the loop references the loop's response.
+        let after = Step {
+            id: StepId("use_result".to_string()),
+            body: StepBody::Prompt("Loop said: {{ step.myloop.response }}".to_string()),
+            ..Default::default()
+        };
+
+        let mut session = make_session(vec![loop_step, after]);
+        let runner = StubRunner::new("stub response");
+        execute(&mut session, &runner).unwrap();
+
+        let after_entry = session
+            .turn_log
+            .entries()
+            .iter()
+            .find(|e| e.step_id == "use_result")
+            .expect("'use_result' step should exist");
+        assert!(
+            after_entry.prompt.contains("Loop said: stub response"),
+            "Expected resolved template, got: {}",
+            after_entry.prompt
+        );
+    }
+
+    /// §27 — qualified step reference (loop_id::step_id) works from outside the loop.
+    #[test]
+    fn qualified_step_reference_from_outside_loop() {
+        let inner = shell_step("check", "echo hello_from_loop");
+        let exit_when = ConditionExpr {
+            lhs: "{{ step.check.exit_code }}".to_string(),
+            op: ConditionOp::Eq,
+            rhs: "0".to_string(),
+        };
+        let loop_step = do_while_step("myloop", 3, exit_when, vec![inner]);
+
+        // After the loop, reference inner step using qualified form.
+        let after = Step {
+            id: StepId("after".to_string()),
+            body: StepBody::Prompt("Inner said: {{ step.myloop::check.stdout }}".to_string()),
+            ..Default::default()
+        };
+
+        let mut session = make_session(vec![loop_step, after]);
+        let runner = StubRunner::new("stub");
+        execute(&mut session, &runner).unwrap();
+
+        let after_entry = session
+            .turn_log
+            .entries()
+            .iter()
+            .find(|e| e.step_id == "after")
+            .expect("'after' step should exist");
+        assert!(
+            after_entry.prompt.contains("Inner said: hello_from_loop"),
+            "Expected qualified reference to resolve, got: {}",
+            after_entry.prompt
+        );
+    }
+
+    /// §27 — abort_pipeline inside loop propagates to pipeline level.
+    #[test]
+    fn abort_pipeline_inside_loop_propagates() {
+        let inner = Step {
+            id: StepId("check".to_string()),
+            body: StepBody::Context(ContextSource::Shell("false".to_string())),
+            on_result: Some(vec![ResultBranch {
+                matcher: ResultMatcher::ExitCode(ExitCodeMatch::Any),
+                action: ResultAction::AbortPipeline,
+            }]),
+            ..Default::default()
+        };
+        let step = do_while_step("loop", 5, exit_code_eq_zero("check"), vec![inner]);
+        let mut session = make_session(vec![step]);
+        let runner = StubRunner::new("unused");
+        let result = execute(&mut session, &runner);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert_eq!(err.error_type(), error_types::PIPELINE_ABORTED);
+    }
+}
+
 mod materialize {
     use ail_core::config;
     use ail_core::materialize::materialize;

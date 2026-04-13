@@ -120,14 +120,23 @@ pub fn run_dry_run(session: &mut ail_core::session::Session, runner: &dyn Runner
             }
             ail_core::config::domain::StepBody::DoWhile {
                 max_iterations,
+                exit_when,
                 steps,
-                ..
             } => {
                 println!(
-                    "  do_while: max_iterations={max_iterations}, {} inner steps",
-                    steps.len()
+                    "  do_while: max_iterations={max_iterations}, {} inner step{}",
+                    steps.len(),
+                    if steps.len() == 1 { "" } else { "s" }
                 );
-                println!("  (executor support not yet implemented)");
+                println!(
+                    "  exit_when: {:?} {} {:?}",
+                    exit_when.lhs,
+                    format_condition_op(&exit_when.op),
+                    exit_when.rhs
+                );
+                for (j, inner) in steps.iter().enumerate() {
+                    println!("    Inner step {}: {}", j + 1, inner.id.as_str());
+                }
             }
         }
 
@@ -203,6 +212,16 @@ fn pipeline_label(session: &ail_core::session::Session) -> String {
         .as_ref()
         .map(|p| p.display().to_string())
         .unwrap_or_else(|| "(passthrough)".to_string())
+}
+
+fn format_condition_op(op: &ail_core::config::domain::ConditionOp) -> &'static str {
+    match op {
+        ail_core::config::domain::ConditionOp::Eq => "==",
+        ail_core::config::domain::ConditionOp::Ne => "!=",
+        ail_core::config::domain::ConditionOp::Contains => "contains",
+        ail_core::config::domain::ConditionOp::StartsWith => "starts_with",
+        ail_core::config::domain::ConditionOp::EndsWith => "ends_with",
+    }
 }
 
 fn truncate(s: &str, max_len: usize) -> String {
