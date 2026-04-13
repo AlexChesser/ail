@@ -87,6 +87,9 @@ impl Pipeline {
                 append_system_prompt: None,
                 system_prompt: None,
                 resume: false,
+                on_error: None,
+                before: vec![],
+                then: vec![],
             }],
             source: None,
             defaults: ProviderConfig::default(),
@@ -139,6 +142,21 @@ pub enum ConditionOp {
     EndsWith,
 }
 
+/// Error handling strategy for a step (SPEC §16).
+///
+/// Determines what happens when a step fails with an execution error
+/// (runner crash, timeout, network failure, etc.). Does NOT fire for
+/// non-zero shell exit codes — those are results, not errors.
+#[derive(Debug, Clone, PartialEq)]
+pub enum OnError {
+    /// Log the error and proceed to the next step.
+    Continue,
+    /// Retry the failed step up to `max_retries` times, then abort.
+    Retry { max_retries: u32 },
+    /// Stop execution immediately (default behaviour).
+    AbortPipeline,
+}
+
 #[derive(Debug, Clone)]
 pub struct Step {
     pub id: StepId,
@@ -168,6 +186,15 @@ pub struct Step {
     /// Whether this step resumes the previous runner session (SPEC §15.4).
     /// `false` (default) starts a fresh session for each step.
     pub resume: bool,
+    /// Error handling strategy for this step (SPEC §16).
+    /// `None` means abort (default behaviour — same as `Some(OnError::AbortPipeline)`).
+    pub on_error: Option<OnError>,
+    /// Private pre-processing steps that run before this step fires (SPEC §5.10).
+    /// Steps in this chain are not visible to the hook system and not independently referenceable.
+    pub before: Vec<Step>,
+    /// Private post-processing steps that run after this step completes (SPEC §5.7).
+    /// Steps in this chain are not visible to the hook system and not independently referenceable.
+    pub then: Vec<Step>,
 }
 
 #[derive(Debug, Default, Clone)]
@@ -190,7 +217,12 @@ impl StepId {
 #[derive(Debug, Clone)]
 pub enum StepBody {
     Prompt(String),
-    Skill(PathBuf),
+    /// A named skill invocation (SPEC §6). The skill name may reference a built-in
+    /// module (e.g. `ail/code_review`) or a project-local skill. The skill registry
+    /// resolves the name to a prompt template at execution time.
+    Skill {
+        name: String,
+    },
     /// Path to a sub-pipeline YAML file. May contain `{{ variable }}` syntax;
     /// the path is template-resolved at execution time (SPEC §11).
     /// `prompt` overrides the child session's invocation prompt when set;

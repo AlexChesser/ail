@@ -1,0 +1,5 @@
+version: "0.0.1"
+FROM: ./from_circular_b.ail.yaml
+pipeline:
+  - id: step_a
+    prompt: "Step A"

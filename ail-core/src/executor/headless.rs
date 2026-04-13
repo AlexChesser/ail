@@ -57,6 +57,9 @@ mod tests {
             append_system_prompt: None,
             system_prompt: None,
             resume: false,
+            on_error: None,
+            before: vec![],
+            then: vec![],
         }
     }
 
@@ -80,13 +83,18 @@ mod tests {
             append_system_prompt: None,
             system_prompt: None,
             resume: false,
+            on_error: None,
+            before: vec![],
+            then: vec![],
         }
     }
 
-    fn skill_step(id: &str) -> Step {
+    fn skill_step(id: &str, name: &str) -> Step {
         Step {
             id: StepId(id.to_string()),
-            body: StepBody::Skill(std::path::PathBuf::from("some-skill")),
+            body: StepBody::Skill {
+                name: name.to_string(),
+            },
             message: None,
             tools: None,
             on_result: None,
@@ -96,6 +104,9 @@ mod tests {
             append_system_prompt: None,
             system_prompt: None,
             resume: false,
+            on_error: None,
+            before: vec![],
+            then: vec![],
         }
     }
 
@@ -368,10 +379,32 @@ mod tests {
         assert_eq!(entries[0].step_id, "after");
     }
 
-    /// SPEC §4.2 — skill: step aborts with PIPELINE_ABORTED (stub in v0.2).
+    /// SPEC §6 — skill: step resolves a built-in skill and invokes the runner.
     #[test]
-    fn skill_step_aborts_with_pipeline_aborted_error() {
-        let step = skill_step("my_skill");
+    fn skill_step_resolves_and_executes_builtin() {
+        // Use a built-in skill name; the StubRunner receives the resolved prompt.
+        let step = skill_step("review", "ail/code_review");
+        let mut session = make_session(vec![prompt_step("invocation", "some code here"), step]);
+        // First run a prompt step so {{ last_response }} resolves.
+        let runner = StubRunner::new("skill response");
+        let result = execute(&mut session, &runner);
+
+        assert!(result.is_ok());
+        let entries = session.turn_log.entries();
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[1].step_id, "review");
+        assert_eq!(entries[1].response.as_deref(), Some("skill response"));
+        // The prompt should be the resolved skill template (not the raw template).
+        assert!(
+            !entries[1].prompt.contains("{{ last_response }}"),
+            "skill prompt should have template variables resolved"
+        );
+    }
+
+    /// SPEC §6 — unknown skill name produces SKILL_UNKNOWN error.
+    #[test]
+    fn unknown_skill_returns_skill_unknown_error() {
+        let step = skill_step("bad_skill", "ail/nonexistent");
         let mut session = make_session(vec![step]);
         let runner = StubRunner::new("unused");
         let result = execute(&mut session, &runner);
@@ -380,8 +413,13 @@ mod tests {
         let err = result.unwrap_err();
         assert_eq!(
             err.error_type(),
-            error_types::PIPELINE_ABORTED,
-            "skill: step must abort with PIPELINE_ABORTED until implemented"
+            error_types::SKILL_UNKNOWN,
+            "unknown skill should return SKILL_UNKNOWN, got: {}",
+            err.error_type()
+        );
+        assert!(
+            err.detail().contains("nonexistent"),
+            "error detail should contain the unknown skill name"
         );
     }
 
@@ -564,6 +602,9 @@ mod tests {
             append_system_prompt: None,
             system_prompt: None,
             resume: false,
+            on_error: None,
+            before: vec![],
+            then: vec![],
         }
     }
 

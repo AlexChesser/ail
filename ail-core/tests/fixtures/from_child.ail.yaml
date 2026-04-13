@@ -1,0 +1,13 @@
+version: "0.0.1"
+FROM: ./from_base.ail.yaml
+defaults:
+  model: child-model
+pipeline:
+  - run_before: security_audit
+    id: license_header_check
+    prompt: "Verify all modified files have the correct license header."
+  - run_after: test_writer
+    id: coverage_reminder
+    prompt: "Does new test coverage meet the 80% threshold?"
+  - override: commit_checkpoint
+    prompt: "Commit using conventional commits format."

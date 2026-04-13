@@ -52,7 +52,7 @@ pub fn run_dry_run(session: &mut ail_core::session::Session, runner: &dyn Runner
     for (i, step) in session.pipeline.steps.iter().enumerate() {
         let step_type = match &step.body {
             ail_core::config::domain::StepBody::Prompt(_) => "prompt",
-            ail_core::config::domain::StepBody::Skill(_) => "skill",
+            ail_core::config::domain::StepBody::Skill { .. } => "skill",
             ail_core::config::domain::StepBody::SubPipeline { .. } => "pipeline",
             ail_core::config::domain::StepBody::NamedPipeline { .. } => "named-pipeline",
             ail_core::config::domain::StepBody::Action(_) => "action",
@@ -108,8 +108,8 @@ pub fn run_dry_run(session: &mut ail_core::session::Session, runner: &dyn Runner
             ail_core::config::domain::StepBody::Action(kind) => {
                 println!("  Action: {kind:?}");
             }
-            ail_core::config::domain::StepBody::Skill(path) => {
-                println!("  Skill: {}", path.display());
+            ail_core::config::domain::StepBody::Skill { ref name } => {
+                println!("  Skill: {name}");
             }
             ail_core::config::domain::StepBody::NamedPipeline { name, prompt: p } => {
                 println!("  Named pipeline: {name}");

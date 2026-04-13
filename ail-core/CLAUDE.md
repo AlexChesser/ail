@@ -14,6 +14,7 @@ Consumed by `ail` (the binary) and future language-server / SDK targets.
 | `config/validation/step_body.rs` | `parse_step_body()` — primary field count check + body construction |
 | `config/validation/on_result.rs` | `parse_result_branches()` — DTO → domain for result matchers and actions |
 | `config/validation/system_prompt.rs` | `parse_append_system_prompt()` — DTO → domain for system prompt entries |
+| `config/inheritance.rs` | FROM inheritance — path resolution, cycle detection, DTO merging, hook operations (SPEC §7, §8) |
 | `config/mod.rs` | `load(path)` public entry point |
 | `error.rs` | `AilError`, `ErrorContext`, `error_types` string constants |
 | `executor/mod.rs` | `execute(&mut Session, &dyn Runner)` — SPEC §4.2 core invariant |
@@ -30,6 +31,7 @@ Consumed by `ail` (the binary) and future language-server / SDK targets.
 | `executor/helpers/system_prompt.rs` | `resolve_step_system_prompts()`, `resolve_prompt_file()` — system prompt resolution and file loading |
 | `executor/dispatch/mod.rs` | Re-exports step-type dispatch modules |
 | `executor/dispatch/prompt.rs` | Prompt step dispatch — template resolution, runner invocation, TurnEntry construction |
+| `executor/dispatch/skill.rs` | Skill step dispatch — registry lookup, template resolution, runner invocation |
 | `executor/dispatch/context.rs` | Context shell step dispatch — shell execution and TurnEntry construction |
 | `executor/dispatch/sub_pipeline.rs` | Sub-pipeline dispatch — recursion, depth guard, child session creation |
 | `materialize.rs` | `materialize(&Pipeline) → String` — annotated YAML round-trip |
@@ -52,6 +54,7 @@ Consumed by `ail` (the binary) and future language-server / SDK targets.
 | `session/log_provider.rs` | `LogProvider` trait + `JsonlProvider` (NDJSON) + `NullProvider` (tests) |
 | `session/state.rs` | `Session` — `run_id`, `pipeline`, `invocation_prompt`, `turn_log` |
 | `session/turn_log.rs` | `TurnLog` — in-memory entry store + delegates persistence to `LogProvider` |
+| `skill.rs` | `SkillRegistry` — built-in skill resolution; `SkillDefinition` data type; maps `ail/<name>` → prompt template |
 | `template.rs` | `resolve(template, &Session) → Result<String, AilError>` |
 
 ## Key Types
@@ -59,17 +62,20 @@ Consumed by `ail` (the binary) and future language-server / SDK targets.
 ```rust
 // Pipeline and its steps
 pub struct Pipeline { pub steps: Vec<Step>, pub source: Option<PathBuf> }
-pub struct Step    { pub id: StepId, pub body: StepBody, pub tools: Option<ToolPolicy>, pub on_result: Option<Vec<ResultBranch>>, pub model: Option<String>, pub runner: Option<String>, pub condition: Option<Condition> }
+pub struct Step    { pub id: StepId, pub body: StepBody, pub tools: Option<ToolPolicy>, pub on_result: Option<Vec<ResultBranch>>, pub model: Option<String>, pub runner: Option<String>, pub condition: Option<Condition>, pub on_error: Option<OnError>, pub before: Vec<Step>, pub then: Vec<Step> }
+// before: private pre-processing chain (SPEC §5.10) — runs before the step fires
+// then: private post-processing chain (SPEC §5.7) — runs after the step completes
 pub enum Condition { Always, Never, Expression(ConditionExpr) }  // SPEC §12 — None means Always; Never skips; Expression evaluates at runtime
 pub struct ConditionExpr { pub lhs: String, pub op: ConditionOp, pub rhs: String }
 pub enum ConditionOp { Eq, Ne, Contains, StartsWith, EndsWith }
+pub enum OnError { Continue, Retry { max_retries: u32 }, AbortPipeline }  // SPEC §16 — None means AbortPipeline (default)
 pub struct Pipeline { pub steps: Vec<Step>, pub source: Option<PathBuf>, pub defaults: ProviderConfig, pub default_tools: Option<ToolPolicy> }
 pub enum Condition { Always, Never }  // SPEC §12 — None means Always; Never skips the step
 pub struct Pipeline { pub steps: Vec<Step>, pub source: Option<PathBuf>, pub defaults: ProviderConfig, pub default_tools: Option<ToolPolicy>, pub named_pipelines: HashMap<String, Vec<Step>> }
 // default_tools: pipeline-wide fallback; per-step tools override entirely (SPEC §3.2)
 // named_pipelines: named pipeline definitions from the `pipelines:` section (SPEC §10)
 pub struct Step    { pub id: StepId, pub body: StepBody, pub tools: Option<ToolPolicy>, pub on_result: Option<Vec<ResultBranch>>, pub model: Option<String>, pub runner: Option<String> }
-pub enum StepBody  { Prompt(String), Skill(PathBuf), SubPipeline { path: String, prompt: Option<String> }, NamedPipeline { name: String, prompt: Option<String> }, Action(ActionKind), Context(ContextSource) }
+pub enum StepBody  { Prompt(String), Skill { name: String }, SubPipeline { path: String, prompt: Option<String> }, NamedPipeline { name: String, prompt: Option<String> }, Action(ActionKind), Context(ContextSource) }
 // NamedPipeline: references a named pipeline defined in pipelines: section (SPEC §10)
 // NamedPipeline.prompt: when Some, overrides child session's invocation_prompt (same as SubPipeline)
 // SubPipeline.path may contain {{ variable }} syntax — resolved at execution time (SPEC §11)
@@ -171,6 +177,8 @@ pub struct AilError { pub error_type: &'static str, pub title: &'static str, pub
 | `PLUGIN_TIMEOUT` | `ail:plugin/timeout` |
 | `CONDITION_INVALID` | `ail:condition/invalid` |
 | `PIPELINE_CIRCULAR_REFERENCE` | `ail:pipeline/circular-reference` |
+| `CIRCULAR_INHERITANCE` | `ail:config/circular-inheritance` |
+| `SKILL_UNKNOWN` | `ail:skill/unknown` |
 
 ## Invariants (do not break)
 
@@ -202,11 +210,13 @@ s04  — execution model
 s05  — step specification (core fields)
 s05_3 — on_result multi-branch evaluation
 s05_5 — context:shell: steps + file path resolution
+s05_7 — before:/then: step chains (§5.7, §5.10)
 s08  — runner adapter
 s09  — sub-pipeline execution + template vars in pipeline: paths
 s09  — tool permissions (separate file: s09_tool_permissions)
 s10  — named pipelines (definition, reference, execution, circular detection, materialize)
 s11  — template variables
+s16  — on_error error handling (continue, retry, abort_pipeline)
 s18  — materialize
 s21  — MVP scope
 ```

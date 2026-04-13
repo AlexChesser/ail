@@ -16,9 +16,10 @@ fn ail_error_display_contains_type_and_detail() {
     assert!(display.contains("process exited with code 1"));
 }
 
-/// SPEC §17, #84 — skill: steps are rejected at validation with CONFIG_VALIDATION_FAILED
+/// SPEC §17, §6 — skill: steps with a valid name parse successfully.
+/// Unknown skill names are detected at execution time, not parse time.
 #[test]
-fn skill_step_rejected_at_validation_time() {
+fn skill_step_parses_successfully() {
     use ail_core::config;
     use std::io::Write;
     use tempfile::NamedTempFile;
@@ -26,20 +27,50 @@ fn skill_step_rejected_at_validation_time() {
     let mut file = NamedTempFile::new().expect("tempfile");
     writeln!(
         file,
-        "version: \"0.0.1\"\npipeline:\n  - id: my_skill\n    skill: ./skills/my-skill.yaml\n"
+        "version: \"0.0.1\"\npipeline:\n  - id: my_skill\n    skill: ail/code_review\n"
     )
     .expect("write");
     let path = file.path().to_path_buf();
 
     let result = config::load(&path);
-    assert!(result.is_err(), "skill: step must be rejected at load time");
+    assert!(result.is_ok(), "skill: step should parse successfully");
+}
+
+/// SPEC §17 — skill: step with empty name is rejected at validation time.
+#[test]
+fn skill_step_empty_name_rejected_at_validation_time() {
+    use ail_core::config;
+    use std::io::Write;
+    use tempfile::NamedTempFile;
+
+    let mut file = NamedTempFile::new().expect("tempfile");
+    writeln!(
+        file,
+        "version: \"0.0.1\"\npipeline:\n  - id: my_skill\n    skill: \"  \"\n"
+    )
+    .expect("write");
+    let path = file.path().to_path_buf();
+
+    let result = config::load(&path);
+    assert!(
+        result.is_err(),
+        "skill: step with empty name must be rejected at load time"
+    );
     let err = result.unwrap_err();
     assert_eq!(
         err.error_type(),
         error_types::CONFIG_VALIDATION_FAILED,
-        "skill: rejection must produce CONFIG_VALIDATION_FAILED, got: {}",
+        "empty skill name must produce CONFIG_VALIDATION_FAILED, got: {}",
         err.error_type()
     );
+}
+
+/// SPEC §17 — unknown skill name produces SKILL_UNKNOWN at execution time.
+#[test]
+fn unknown_skill_produces_skill_unknown_error() {
+    let err = AilError::skill_unknown("Unknown skill 'ail/nonexistent'");
+    assert_eq!(err.error_type(), error_types::SKILL_UNKNOWN);
+    assert!(err.detail().contains("nonexistent"));
 }
 
 /// SPEC §17, #76 — storage query failures produce STORAGE_QUERY_FAILED, not PIPELINE_ABORTED

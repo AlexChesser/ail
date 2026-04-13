@@ -199,6 +199,9 @@ mod tests {
             append_system_prompt: Some(entries),
             system_prompt: None,
             resume: false,
+            on_error: None,
+            before: vec![],
+            then: vec![],
         }
     }
 
@@ -287,6 +290,9 @@ mod tests {
             append_system_prompt: None,
             system_prompt: None,
             resume: false,
+            on_error: None,
+            before: vec![],
+            then: vec![],
         };
         let session = make_test_session();
         let (system_prompt, append) =
