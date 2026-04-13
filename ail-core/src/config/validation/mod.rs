@@ -842,7 +842,10 @@ mod tests {
     fn context_shell_step_round_trips() {
         let dto = minimal_dto(vec![StepDto {
             id: Some("ctx".to_string()),
-            context: Some(ContextDto { shell: Some("git status".to_string()), ..Default::default() }),
+            context: Some(ContextDto {
+                shell: Some("git status".to_string()),
+                ..Default::default()
+            }),
             ..Default::default()
         }]);
         let pipeline = validate(dto, source()).expect("should succeed");

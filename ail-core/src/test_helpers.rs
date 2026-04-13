@@ -32,7 +32,10 @@ impl Default for Step {
 
 /// Creates a [`Pipeline`] with the given steps and all other fields defaulted.
 pub fn make_pipeline(steps: Vec<Step>) -> Pipeline {
-    Pipeline { steps, ..Default::default() }
+    Pipeline {
+        steps,
+        ..Default::default()
+    }
 }
 
 /// Creates a [`Session`] backed by a [`NullProvider`] with the given pipeline steps.
