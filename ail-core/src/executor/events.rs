@@ -89,6 +89,19 @@ pub enum ExecutorEvent {
         step_id: String,
         error: String,
     },
+    /// A step failed but `on_error: continue` is active — error logged, pipeline continues.
+    StepErrorContinued {
+        step_id: String,
+        error: String,
+        error_type: String,
+    },
+    /// A step failed but `on_error: retry` is active — retrying.
+    StepRetrying {
+        step_id: String,
+        error: String,
+        attempt: u32,
+        max_retries: u32,
+    },
     /// A `pause_for_human` step was reached — executor is blocked until `hitl_rx` receives a value.
     HitlGateReached {
         step_id: String,

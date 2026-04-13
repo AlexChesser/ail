@@ -1,30 +1,57 @@
 ## 6. Skills
 
-`ail` implements the [Agent Skills open standard](https://agentskills.io/specification). Refer to that specification for `SKILL.md` format, frontmatter fields, directory structure, argument substitution, and path resolution. Any divergence from the standard is a bug; report it as an issue.
-
-This section documents only what `ail` adds or changes.
+Skills are reusable, named prompt templates invoked via the `skill:` step body. Built-in skills live under the `ail/` namespace and are registered in the skill registry at startup. See §14 for the catalogue of built-in modules.
 
 ### 6.1 The Skill/Pipeline Distinction
 
 | | Skill | Pipeline |
 |---|---|---|
-| **Format** | Markdown | YAML |
-| **Read by** | The LLM | The `ail` runtime |
-| **Purpose** | How to think about a task | When to run it and what to do with the result |
+| **Format** | Named prompt template (built-in or project-defined) | YAML |
+| **Read by** | The `ail` runtime resolves name → prompt → runner | The `ail` runtime |
+| **Purpose** | Reusable task template | Step sequencing and control flow |
 
-### 6.2 Progressive Disclosure — ail's Deliberate Departure
+### 6.2 `skill:` Step Body
 
-The Agent Skills standard specifies that skill metadata (`name` + `description`) is always in context. `ail` deliberately departs from this — and the reason is the core of what `ail` is. Adding more instructions to a context saturation problem makes a larger context. A skill surfaced to the wrong step is subject to the same attention degradation as every other instruction competing for the middle of the window. `ail` operates at the layer that decides what goes into the context at all — selectively surfacing skill metadata only to the steps where it is relevant is that layer's job.
+A `skill:` step declares the skill name as its primary field value:
 
-`ail` conforms to the Agent Skills **format** standard. Context injection timing is `ail`'s to control.
+```yaml
+pipeline:
+  - id: review
+    skill: ail/code_review
+```
 
-### 6.3 ail-Specific Behaviour
+At execution time, the runtime:
 
-**`skill:` pipeline step.** The `SKILL.md` body is sent to the runner as the user-level prompt. See §5.3.
+1. Looks up the skill name in the skill registry.
+2. Retrieves the skill's prompt template.
+3. Resolves template variables (e.g. `{{ last_response }}`) in the prompt template.
+4. Sends the resolved prompt to the runner.
+5. Records a `TurnEntry` with the resolved prompt and runner response.
 
-**REPL invocation.** `/skill-name [args]` in the `ail` REPL executes the skill and pauses for human review before returning control. Discovery order: project `.claude/skills/` → personal `~/.claude/skills/` → `ail/` built-ins.
+**Unknown skill names** produce a `SKILL_UNKNOWN` (`ail:skill/unknown`) error at execution time — not at parse time. This allows pipeline files to reference skills that may be registered at runtime.
 
-**Loading skill instructions as system context.** To use a skill's content as passive context for a `prompt:` step rather than as a task, reference the file directly via `file:` in `append_system_prompt:` — `ail` does not support `skill:` entries in `append_system_prompt:`.
+**Empty skill names** are rejected at validation time with `CONFIG_VALIDATION_FAILED`.
+
+### 6.3 Skill Template Variables
+
+Skill prompt templates support the same template variables as `prompt:` steps (see §11). The most common pattern is `{{ last_response }}`, which injects the output of the preceding step as input to the skill.
+
+### 6.4 Tool and Model Overrides
+
+Skill steps support all the same per-step overrides as prompt steps:
+
+- `tools:` — tool allow/deny lists (§5.8)
+- `model:` — per-step model override (§15)
+- `runner:` — per-step runner override (§19)
+- `on_result:` — declarative branching after completion (§5.4)
+- `append_system_prompt:` — system prompt extensions (§5.9)
+- `system_prompt:` — full system prompt override (§5.9)
+- `resume: true` — resume previous runner session (§15.4)
+- `condition:` — conditional execution (§12)
+
+### 6.5 Loading Skill Instructions as System Context
+
+To use a skill's content as passive context for a `prompt:` step rather than as a task, reference the file directly via `file:` in `append_system_prompt:` — `ail` does not support `skill:` entries in `append_system_prompt:`.
 
 ```yaml
 - id: review

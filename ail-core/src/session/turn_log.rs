@@ -56,6 +56,25 @@ struct StepStartedEvent<'a> {
     prompt: &'a str,
 }
 
+/// Written when a step fails and `on_error` handling applies (continue or retry).
+/// Records the error details and the action taken.
+#[derive(Serialize)]
+struct StepErrorEvent<'a> {
+    #[serde(rename = "type")]
+    event_type: &'static str,
+    step_id: &'a str,
+    error_type: &'a str,
+    error_detail: &'a str,
+    /// The on_error action taken: "continue", "retry", or "abort_pipeline".
+    on_error_action: &'a str,
+    /// Current retry attempt (1-based). Only meaningful when on_error_action is "retry".
+    #[serde(skip_serializing_if = "Option::is_none")]
+    retry_attempt: Option<u32>,
+    /// Maximum retries allowed. Only meaningful when on_error_action is "retry".
+    #[serde(skip_serializing_if = "Option::is_none")]
+    max_retries: Option<u32>,
+}
+
 impl TurnEntry {
     /// Construct a TurnEntry for a completed prompt step.
     pub fn from_prompt(step_id: impl Into<String>, prompt: String, result: RunResult) -> Self {
@@ -223,6 +242,48 @@ impl TurnLog {
                     step_id = %step_id,
                     error = %e,
                     "failed to serialize step_started event"
+                );
+            }
+        }
+    }
+
+    /// Write a `step_error` event when `on_error` handling fires.
+    /// Not added to in-memory entries — persisted for observability only.
+    pub fn record_step_error(
+        &mut self,
+        step_id: &str,
+        error_type: &str,
+        error_detail: &str,
+        on_error_action: &str,
+        retry_attempt: Option<u32>,
+        max_retries: Option<u32>,
+    ) {
+        let event = StepErrorEvent {
+            event_type: "step_error",
+            step_id,
+            error_type,
+            error_detail,
+            on_error_action,
+            retry_attempt,
+            max_retries,
+        };
+        match serde_json::to_value(&event) {
+            Ok(json_value) => {
+                if let Err(e) = self.provider.write_entry(&self.run_id, &json_value) {
+                    tracing::warn!(
+                        run_id = %self.run_id,
+                        step_id = %step_id,
+                        error = %e,
+                        "failed to persist step_error event"
+                    );
+                }
+            }
+            Err(e) => {
+                tracing::warn!(
+                    run_id = %self.run_id,
+                    step_id = %step_id,
+                    error = %e,
+                    "failed to serialize step_error event"
                 );
             }
         }

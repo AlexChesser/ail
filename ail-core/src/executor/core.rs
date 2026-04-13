@@ -7,7 +7,7 @@
 
 #![allow(clippy::result_large_err)]
 
-use crate::config::domain::{ActionKind, ContextSource, ResultAction, StepBody};
+use crate::config::domain::{ActionKind, ContextSource, OnError, ResultAction, Step, StepBody};
 use crate::error::AilError;
 use crate::runner::{InvokeOptions, RunResult, Runner};
 use crate::session::turn_log::TurnEntry;
@@ -58,6 +58,14 @@ pub(super) trait StepObserver {
     /// Called when any step fails (before returning the error).
     /// Controlled: emit `StepFailed`. Headless: no-op.
     fn on_step_failed(&mut self, step_id: &str, detail: &str);
+
+    /// Called when a step fails but `on_error: continue` swallows the error.
+    /// Controlled: emit `StepErrorContinued`. Headless: no-op.
+    fn on_step_error_continued(&mut self, step_id: &str, error: &str, error_type: &str);
+
+    /// Called when a step fails and is about to be retried.
+    /// Controlled: emit `StepRetrying`. Headless: no-op.
+    fn on_step_retrying(&mut self, step_id: &str, error: &str, attempt: u32, max_retries: u32);
 
     /// Fill mode-specific fields into the `InvokeOptions` before invoking the runner.
     /// Controlled: sets `cancel_token` and `permission_responder`. Headless: no-op.
@@ -133,6 +141,10 @@ impl StepObserver for NullObserver {
 
     fn on_step_failed(&mut self, _: &str, _: &str) {}
 
+    fn on_step_error_continued(&mut self, _: &str, _: &str, _: &str) {}
+
+    fn on_step_retrying(&mut self, _: &str, _: &str, _: u32, _: u32) {}
+
     fn augment_options(&self, _: &mut InvokeOptions) {}
 
     fn invoke(
@@ -206,6 +218,278 @@ impl StepObserver for NullObserver {
     }
 }
 
+// ── Chain step execution ─────────────────────────────────────────────────────
+
+/// Execute a single step (dispatching by body type), including its own nested
+/// before/then chains. This is the recursive building block used by
+/// `execute_chain_steps` for both `before:` and `then:` chains, and also by
+/// the main loop for top-level steps.
+///
+/// Returns `Some(ResultAction)` if the step's on_result matched and the caller
+/// should handle that action, or `None` if no on_result matched / no on_result defined.
+fn execute_single_step<O: StepObserver>(
+    step: &Step,
+    session: &mut Session,
+    runner: &dyn Runner,
+    observer: &mut O,
+    depth: usize,
+    total_steps: usize,
+    step_index: usize,
+) -> Result<Option<ResultAction>, AilError> {
+    let step_id = step.id.as_str().to_string();
+
+    let pipeline_base_dir_buf: Option<std::path::PathBuf> = session
+        .pipeline
+        .source
+        .as_deref()
+        .and_then(|p| p.parent())
+        .map(|p| p.to_path_buf());
+    let pipeline_base_dir = pipeline_base_dir_buf.as_deref();
+
+    // Run before: chain steps first (SPEC §5.10).
+    execute_chain_steps(&step.before, session, runner, observer, depth)?;
+
+    // Dispatch the main step body.
+    if let StepBody::Action(ActionKind::PauseForHuman) = &step.body {
+        observer.handle_pause_for_human(&step_id, step.message.as_deref());
+        // pause_for_human produces no TurnEntry; skip on_result and then: chain.
+        return Ok(None);
+    }
+
+    // modify_output HITL gate — may produce a TurnEntry with modified text, or skip.
+    if let StepBody::Action(ActionKind::ModifyOutput {
+        ref headless_behavior,
+        ref default_value,
+    }) = &step.body
+    {
+        let last_resp = session.turn_log.last_response().map(|s| s.to_string());
+        let modified = observer.handle_modify_output(
+            &step_id,
+            step.message.as_deref(),
+            last_resp.as_deref(),
+            headless_behavior,
+            default_value.as_deref(),
+        )?;
+        if let Some(modified_text) = modified {
+            let msg = step
+                .message
+                .clone()
+                .unwrap_or_else(|| "modify_output".to_string());
+            let entry = TurnEntry::from_modify(&step_id, msg, modified_text);
+            session.turn_log.append(entry);
+        }
+        return Ok(None);
+    }
+
+    // Non-Prompt/Skill steps emit StepStarted before dispatch; Prompt and Skill steps
+    // emit after template resolution (they call observer.on_prompt_ready internally).
+    if !matches!(step.body, StepBody::Prompt(_) | StepBody::Skill { .. }) {
+        observer.on_non_prompt_started(&step_id, step_index, total_steps);
+    }
+
+    // Resolve the effective on_error strategy for this step.
+    // None → default behaviour (abort).
+    let on_error = step.on_error.as_ref().unwrap_or(&OnError::AbortPipeline);
+
+    let max_attempts: u32 = match on_error {
+        OnError::Retry { max_retries } => max_retries + 1, // first attempt + retries
+        _ => 1,
+    };
+
+    let mut entry_opt = None;
+    for attempt in 1..=max_attempts {
+        let result = match &step.body {
+            StepBody::Prompt(template_text) => dispatch::prompt::execute(
+                template_text,
+                step,
+                session,
+                runner,
+                &step_id,
+                step_index,
+                total_steps,
+                pipeline_base_dir,
+                observer,
+            ),
+
+            StepBody::Context(ContextSource::Shell(cmd)) => {
+                dispatch::context::execute_shell(cmd, session, &step_id, observer)
+            }
+
+            StepBody::Action(ActionKind::PauseForHuman) => {
+                unreachable!("PauseForHuman handled above")
+            }
+
+            StepBody::Action(ActionKind::ModifyOutput { .. }) => {
+                unreachable!("ModifyOutput handled above")
+            }
+
+            StepBody::SubPipeline {
+                path: path_template,
+                prompt,
+            } => dispatch::sub_pipeline::execute(
+                path_template,
+                prompt.as_deref(),
+                &step_id,
+                session,
+                runner,
+                depth,
+                pipeline_base_dir,
+                observer,
+            ),
+
+            StepBody::Skill { ref name } => dispatch::skill::execute(
+                name,
+                step,
+                session,
+                runner,
+                &step_id,
+                step_index,
+                total_steps,
+                pipeline_base_dir,
+                observer,
+            ),
+        };
+
+        match result {
+            Ok(entry) => {
+                entry_opt = Some(entry);
+                break;
+            }
+            Err(err) => {
+                match on_error {
+                    OnError::Continue => {
+                        tracing::warn!(
+                            run_id = %session.run_id,
+                            step_id = %step_id,
+                            error_type = err.error_type(),
+                            error = %err.detail(),
+                            "step failed — on_error: continue, proceeding to next step"
+                        );
+                        session.turn_log.record_step_error(
+                            &step_id,
+                            err.error_type(),
+                            err.detail(),
+                            "continue",
+                            None,
+                            None,
+                        );
+                        observer.on_step_error_continued(&step_id, err.detail(), err.error_type());
+                        // No entry produced — skip to next step.
+                        break;
+                    }
+                    OnError::Retry { max_retries } => {
+                        if attempt < max_attempts {
+                            tracing::warn!(
+                                run_id = %session.run_id,
+                                step_id = %step_id,
+                                attempt,
+                                max_retries = *max_retries,
+                                error_type = err.error_type(),
+                                error = %err.detail(),
+                                "step failed — retrying"
+                            );
+                            session.turn_log.record_step_error(
+                                &step_id,
+                                err.error_type(),
+                                err.detail(),
+                                "retry",
+                                Some(attempt),
+                                Some(*max_retries),
+                            );
+                            observer.on_step_retrying(
+                                &step_id,
+                                err.detail(),
+                                attempt,
+                                *max_retries,
+                            );
+                            // Continue to next loop iteration (retry).
+                        } else {
+                            // All retries exhausted — abort.
+                            tracing::error!(
+                                run_id = %session.run_id,
+                                step_id = %step_id,
+                                max_retries = *max_retries,
+                                error_type = err.error_type(),
+                                error = %err.detail(),
+                                "step failed after all retries exhausted — aborting"
+                            );
+                            session.turn_log.record_step_error(
+                                &step_id,
+                                err.error_type(),
+                                err.detail(),
+                                "abort_pipeline",
+                                Some(attempt),
+                                Some(*max_retries),
+                            );
+                            observer.on_pipeline_error(&err);
+                            return Err(err);
+                        }
+                    }
+                    OnError::AbortPipeline => {
+                        // Default behaviour — propagate error immediately.
+                        return Err(err);
+                    }
+                }
+            }
+        }
+    }
+
+    // entry_opt is None when on_error: continue swallowed the error — return Ok(None) to skip on_result.
+    let Some(entry) = entry_opt else {
+        return Ok(None);
+    };
+
+    session.turn_log.append(entry);
+
+    // Evaluate on_result branches after step completes.
+    let mut matched_action = None;
+    if let Some(branches) = &step.on_result {
+        let last_entry = session.turn_log.entries().last().expect("just appended");
+        if let Some(action) = evaluate_on_result(branches, last_entry) {
+            matched_action = Some(action.clone());
+        }
+    }
+
+    // Run then: chain steps after the parent step (and on_result evaluation) (SPEC §5.7).
+    execute_chain_steps(&step.then, session, runner, observer, depth)?;
+
+    Ok(matched_action)
+}
+
+/// Execute a list of chain steps (before or then). Each chain step may itself
+/// have nested before/then chains, handled recursively via `execute_single_step`.
+fn execute_chain_steps<O: StepObserver>(
+    chain: &[Step],
+    session: &mut Session,
+    runner: &dyn Runner,
+    observer: &mut O,
+    depth: usize,
+) -> Result<(), AilError> {
+    for (idx, chain_step) in chain.iter().enumerate() {
+        let step_id = chain_step.id.as_str();
+        tracing::info!(
+            run_id = %session.run_id,
+            step_id = %step_id,
+            "executing chain step"
+        );
+        // Chain steps: total_steps and step_index are not meaningful in the
+        // parent pipeline context, so use chain-local values.
+        let _action = execute_single_step(
+            chain_step,
+            session,
+            runner,
+            observer,
+            depth,
+            chain.len(),
+            idx,
+        )?;
+        // Chain step on_result actions are consumed locally — they do not
+        // propagate break/abort to the parent pipeline. Per spec §5.7:
+        // "Use top-level steps if branching is needed."
+    }
+    Ok(())
+}
+
 // ── Core loop ─────────────────────────────────────────────────────────────────
 
 /// Inner execution loop shared by headless and controlled modes.
@@ -252,160 +536,74 @@ pub(super) fn execute_core<O: StepObserver>(
 
         tracing::info!(run_id = %session.run_id, step_id = %step_id, "executing step");
 
-        // Base dir for resolving ./relative file paths — the pipeline file's parent dir (SPEC §5.2).
-        // Owned PathBuf so we can pass it to execute_sub_pipeline without holding a borrow on session.
-        let pipeline_base_dir_buf: Option<std::path::PathBuf> = session
-            .pipeline
-            .source
-            .as_deref()
-            .and_then(|p| p.parent())
-            .map(|p| p.to_path_buf());
-        let pipeline_base_dir = pipeline_base_dir_buf.as_deref();
+        // Execute the step (including before/then chains) and get on_result action.
+        let matched_action = execute_single_step(
+            step,
+            session,
+            runner,
+            observer,
+            depth,
+            total_steps,
+            step_index,
+        )?;
 
-        // pause_for_human is handled before the match — it produces no TurnEntry.
-        if let StepBody::Action(ActionKind::PauseForHuman) = &step.body {
-            observer.handle_pause_for_human(&step_id, step.message.as_deref());
-            continue;
-        }
+        // Handle on_result action at the top-level pipeline level.
+        if let Some(action) = matched_action {
+            let pipeline_base_dir_buf: Option<std::path::PathBuf> = session
+                .pipeline
+                .source
+                .as_deref()
+                .and_then(|p| p.parent())
+                .map(|p| p.to_path_buf());
+            let pipeline_base_dir = pipeline_base_dir_buf.as_deref();
 
-        // modify_output HITL gate — may produce a TurnEntry with modified text, or skip.
-        if let StepBody::Action(ActionKind::ModifyOutput {
-            ref headless_behavior,
-            ref default_value,
-        }) = &step.body
-        {
-            let last_resp = session.turn_log.last_response().map(|s| s.to_string());
-            let modified = observer.handle_modify_output(
-                &step_id,
-                step.message.as_deref(),
-                last_resp.as_deref(),
-                headless_behavior,
-                default_value.as_deref(),
-            )?;
-            if let Some(modified_text) = modified {
-                let msg = step
-                    .message
-                    .clone()
-                    .unwrap_or_else(|| "modify_output".to_string());
-                let entry = TurnEntry::from_modify(&step_id, msg, modified_text);
-                session.turn_log.append(entry);
-            }
-            continue;
-        }
-
-        // Non-Prompt steps emit StepStarted before dispatch; Prompt steps emit after resolution.
-        if !matches!(step.body, StepBody::Prompt(_)) {
-            observer.on_non_prompt_started(&step_id, step_index, total_steps);
-        }
-
-        let entry = match &step.body {
-            StepBody::Prompt(template_text) => dispatch::prompt::execute(
-                template_text,
-                step,
-                session,
-                runner,
-                &step_id,
-                step_index,
-                total_steps,
-                pipeline_base_dir,
-                observer,
-            )?,
-
-            StepBody::Context(ContextSource::Shell(cmd)) => {
-                dispatch::context::execute_shell(cmd, session, &step_id, observer)?
-            }
-
-            StepBody::Action(ActionKind::PauseForHuman) => {
-                unreachable!("PauseForHuman handled above before the match")
-            }
-
-            StepBody::Action(ActionKind::ModifyOutput { .. }) => {
-                unreachable!("ModifyOutput handled above before the match")
-            }
-
-            StepBody::SubPipeline {
-                path: path_template,
-                prompt,
-            } => dispatch::sub_pipeline::execute(
-                path_template,
-                prompt.as_deref(),
-                &step_id,
-                session,
-                runner,
-                depth,
-                pipeline_base_dir,
-                observer,
-            )?,
-
-            StepBody::Skill(_) => {
-                let err = AilError::PipelineAborted {
-                    detail: format!(
-                        "Step '{step_id}' uses a step type not yet implemented in v0.1"
-                    ),
-                    context: Some(crate::error::ErrorContext::for_step(
-                        &session.run_id,
-                        &step_id,
-                    )),
-                };
-                observer.on_step_failed(&step_id, err.detail());
-                return Err(err);
-            }
-        };
-
-        session.turn_log.append(entry);
-
-        // Evaluate on_result branches after every step that produced an entry.
-        if let Some(branches) = &step.on_result {
-            let last_entry = session.turn_log.entries().last().expect("just appended");
-            if let Some(action) = evaluate_on_result(branches, last_entry) {
-                match action {
-                    ResultAction::Continue => {}
-                    ResultAction::Break => {
-                        tracing::info!(
-                            run_id = %session.run_id,
-                            step_id = %step_id,
-                            "on_result break — stopping pipeline early"
-                        );
-                        let outcome = ExecuteOutcome::Break {
-                            step_id: step_id.clone(),
-                        };
-                        observer.on_pipeline_done(&outcome);
-                        return Ok(outcome);
-                    }
-                    ResultAction::AbortPipeline => {
-                        let err = AilError::PipelineAborted {
-                            detail: format!("Step '{step_id}' on_result fired abort_pipeline"),
-                            context: Some(crate::error::ErrorContext::for_step(
-                                &session.run_id,
-                                &step_id,
-                            )),
-                        };
-                        observer.on_pipeline_error(&err);
-                        return Err(err);
-                    }
-                    ResultAction::PauseForHuman => {
-                        observer.on_result_pause(&step_id, step.message.as_deref());
-                    }
-                    ResultAction::Pipeline {
-                        ref path,
-                        ref prompt,
-                    } => {
-                        // Use a derived step ID so the sub-pipeline's response is
-                        // addressable as `{{ step.<id>__on_result.response }}` without
-                        // shadowing the parent step's own turn log entry (SPEC §11).
-                        let on_result_step_id = format!("{step_id}__on_result");
-                        let sub_entry = dispatch::sub_pipeline::execute_sub_pipeline(
-                            path,
-                            prompt.as_deref(),
-                            &on_result_step_id,
-                            session,
-                            runner,
-                            depth,
-                            pipeline_base_dir,
-                        )
-                        .inspect_err(|e| observer.on_pipeline_error(e))?;
-                        session.turn_log.append(sub_entry);
-                    }
+            match action {
+                ResultAction::Continue => {}
+                ResultAction::Break => {
+                    tracing::info!(
+                        run_id = %session.run_id,
+                        step_id = %step_id,
+                        "on_result break — stopping pipeline early"
+                    );
+                    let outcome = ExecuteOutcome::Break {
+                        step_id: step_id.clone(),
+                    };
+                    observer.on_pipeline_done(&outcome);
+                    return Ok(outcome);
+                }
+                ResultAction::AbortPipeline => {
+                    let err = AilError::PipelineAborted {
+                        detail: format!("Step '{step_id}' on_result fired abort_pipeline"),
+                        context: Some(crate::error::ErrorContext::for_step(
+                            &session.run_id,
+                            &step_id,
+                        )),
+                    };
+                    observer.on_pipeline_error(&err);
+                    return Err(err);
+                }
+                ResultAction::PauseForHuman => {
+                    observer.on_result_pause(&step_id, step.message.as_deref());
+                }
+                ResultAction::Pipeline {
+                    ref path,
+                    ref prompt,
+                } => {
+                    // Use a derived step ID so the sub-pipeline's response is
+                    // addressable as `{{ step.<id>__on_result.response }}` without
+                    // shadowing the parent step's own turn log entry (SPEC §11).
+                    let on_result_step_id = format!("{step_id}__on_result");
+                    let sub_entry = dispatch::sub_pipeline::execute_sub_pipeline(
+                        path,
+                        prompt.as_deref(),
+                        &on_result_step_id,
+                        session,
+                        runner,
+                        depth,
+                        pipeline_base_dir,
+                    )
+                    .inspect_err(|e| observer.on_pipeline_error(e))?;
+                    session.turn_log.append(sub_entry);
                 }
             }
         }

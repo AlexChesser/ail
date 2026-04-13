@@ -1,0 +1,8 @@
+version: "0.1"
+pipeline:
+  - id: main_step
+    prompt: "Do the main work."
+    before:
+      - prompt: "Pre-process the input."
+    then:
+      - prompt: "Post-process the output."

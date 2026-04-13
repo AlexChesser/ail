@@ -1,0 +1,12 @@
+version: "0.1"
+pipeline:
+  - id: outer
+    prompt: "Outer step."
+    before:
+      - prompt: "Inner before."
+        then:
+          - prompt: "Nested then inside before."
+    then:
+      - prompt: "Inner then."
+        before:
+          - prompt: "Nested before inside then."

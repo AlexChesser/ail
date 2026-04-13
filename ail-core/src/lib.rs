@@ -10,6 +10,7 @@ pub mod materialize;
 pub mod protocol;
 pub mod runner;
 pub mod session;
+pub mod skill;
 pub mod template;
 
 #[doc(hidden)]

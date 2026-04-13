@@ -25,6 +25,9 @@ fn prompt_step_with_condition(id: &str, text: &str, condition: Option<Condition>
         append_system_prompt: None,
         system_prompt: None,
         resume: false,
+        on_error: None,
+        before: vec![],
+        then: vec![],
     }
 }
 
@@ -41,6 +44,9 @@ fn shell_step(id: &str, cmd: &str) -> Step {
         append_system_prompt: None,
         system_prompt: None,
         resume: false,
+        on_error: None,
+        before: vec![],
+        then: vec![],
     }
 }
 

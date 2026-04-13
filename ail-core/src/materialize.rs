@@ -1,10 +1,32 @@
 use crate::config::domain::{
-    ActionKind, ContextSource, ExitCodeMatch, Pipeline, ResultAction, ResultMatcher, StepBody,
+    ActionKind, ContextSource, ExitCodeMatch, OnError, Pipeline, ResultAction, ResultMatcher,
+    StepBody,
 };
 
 /// Escape a string for use inside a YAML double-quoted scalar.
 fn yaml_quote(s: &str) -> String {
     s.replace('\\', "\\\\").replace('"', "\\\"")
+}
+
+/// One-line summary of a chain step body for materialize comments.
+fn chain_step_summary(body: &StepBody) -> String {
+    match body {
+        StepBody::Prompt(text) => {
+            let truncated = if text.len() > 60 {
+                format!("{}...", &text[..57])
+            } else {
+                text.clone()
+            };
+            format!("prompt: \"{}\"", yaml_quote(&truncated))
+        }
+        StepBody::Skill { ref name } => format!("skill: {name}"),
+        StepBody::SubPipeline { path, .. } => format!("pipeline: {path}"),
+        StepBody::Action(ActionKind::PauseForHuman) => "action: pause_for_human".to_string(),
+        StepBody::Action(ActionKind::ModifyOutput { .. }) => "action: modify_output".to_string(),
+        StepBody::Context(ContextSource::Shell(cmd)) => {
+            format!("context: shell: \"{}\"", yaml_quote(cmd))
+        }
+    }
 }
 
 /// Serialize a pipeline back to annotated YAML with origin comments per step.
@@ -30,13 +52,37 @@ pub fn materialize(pipeline: &Pipeline) -> String {
             out.push_str("    resume: true\n");
         }
 
+        if let Some(ref on_error) = step.on_error {
+            match on_error {
+                OnError::Continue => out.push_str("    on_error: continue\n"),
+                OnError::Retry { max_retries } => {
+                    out.push_str("    on_error: retry\n");
+                    out.push_str(&format!("    max_retries: {max_retries}\n"));
+                }
+                OnError::AbortPipeline => out.push_str("    on_error: abort_pipeline\n"),
+            }
+        }
+
+        // before: chain (private — not hookable) — appears before the body (SPEC §5.10).
+        if !step.before.is_empty() {
+            out.push_str("    # before: (private — not hookable)\n");
+            for chain_step in &step.before {
+                let body_desc = chain_step_summary(&chain_step.body);
+                out.push_str(&format!(
+                    "    #   - id: {}  {}\n",
+                    chain_step.id.as_str(),
+                    body_desc
+                ));
+            }
+        }
+
         match &step.body {
             StepBody::Prompt(text) => {
                 // Inline prompts use double-quote scalar; escape backslashes and quotes.
                 out.push_str(&format!("    prompt: \"{}\"\n", yaml_quote(text)));
             }
-            StepBody::Skill(path) => {
-                out.push_str(&format!("    skill: {}\n", path.display()));
+            StepBody::Skill { ref name } => {
+                out.push_str(&format!("    skill: {name}\n"));
             }
             StepBody::SubPipeline { path, prompt } => {
                 out.push_str(&format!("    pipeline: {path}\n"));
@@ -69,6 +115,19 @@ pub fn materialize(pipeline: &Pipeline) -> String {
                 out.push_str(&format!(
                     "    context:\n      shell: \"{}\"\n",
                     yaml_quote(cmd)
+                ));
+            }
+        }
+
+        // then: chain (private — not hookable) — appears after the body (SPEC §5.7).
+        if !step.then.is_empty() {
+            out.push_str("    # then: (private — not hookable)\n");
+            for chain_step in &step.then {
+                let body_desc = chain_step_summary(&chain_step.body);
+                out.push_str(&format!(
+                    "    #   - id: {}  {}\n",
+                    chain_step.id.as_str(),
+                    body_desc
                 ));
             }
         }
@@ -132,6 +191,9 @@ mod tests {
             append_system_prompt: None,
             system_prompt: None,
             resume: false,
+            on_error: None,
+            before: vec![],
+            then: vec![],
         }
     }
 
@@ -402,7 +464,9 @@ mod tests {
         let pipeline = Pipeline {
             steps: vec![make_step(
                 "sk",
-                StepBody::Skill(PathBuf::from("skills/my-skill")),
+                StepBody::Skill {
+                    name: "ail/code_review".to_string(),
+                },
             )],
             source: Some(PathBuf::from("skill.ail.yaml")),
             defaults: ProviderConfig::default(),
@@ -411,7 +475,7 @@ mod tests {
         };
         let output = materialize(&pipeline);
         assert!(output.contains("skill:"), "skill: key missing");
-        assert!(output.contains("my-skill"), "skill path missing");
+        assert!(output.contains("ail/code_review"), "skill name missing");
     }
 
     /// Output must always start with the version header line.

@@ -142,6 +142,12 @@ pub enum AilError {
         detail: String,
         context: Option<ErrorContext>,
     },
+
+    #[error("[ail:skill/unknown] {detail}")]
+    SkillUnknown {
+        detail: String,
+        context: Option<ErrorContext>,
+    },
 }
 
 impl AilError {
@@ -170,6 +176,7 @@ impl AilError {
             Self::PluginTimeout { .. } => error_types::PLUGIN_TIMEOUT,
             Self::ConditionInvalid { .. } => error_types::CONDITION_INVALID,
             Self::CircularInheritance { .. } => error_types::CIRCULAR_INHERITANCE,
+            Self::SkillUnknown { .. } => error_types::SKILL_UNKNOWN,
         }
     }
 
@@ -194,7 +201,8 @@ impl AilError {
             | Self::PluginProtocolError { detail, .. }
             | Self::PluginTimeout { detail, .. }
             | Self::ConditionInvalid { detail, .. }
-            | Self::CircularInheritance { detail, .. } => detail,
+            | Self::CircularInheritance { detail, .. }
+            | Self::SkillUnknown { detail, .. } => detail,
         }
     }
 
@@ -217,7 +225,8 @@ impl AilError {
             | Self::PluginProtocolError { detail, .. }
             | Self::PluginTimeout { detail, .. }
             | Self::ConditionInvalid { detail, .. }
-            | Self::CircularInheritance { detail, .. } => detail,
+            | Self::CircularInheritance { detail, .. }
+            | Self::SkillUnknown { detail, .. } => detail,
         }
     }
 
@@ -242,7 +251,8 @@ impl AilError {
             | Self::PluginProtocolError { context, .. }
             | Self::PluginTimeout { context, .. }
             | Self::ConditionInvalid { context, .. }
-            | Self::CircularInheritance { context, .. } => context.as_ref(),
+            | Self::CircularInheritance { context, .. }
+            | Self::SkillUnknown { context, .. } => context.as_ref(),
         }
     }
 
@@ -317,6 +327,10 @@ impl AilError {
                 context: ctx,
             },
             Self::CircularInheritance { detail, .. } => Self::CircularInheritance {
+                detail,
+                context: ctx,
+            },
+            Self::SkillUnknown { detail, .. } => Self::SkillUnknown {
                 detail,
                 context: ctx,
             },
@@ -459,6 +473,13 @@ impl AilError {
             context: None,
         }
     }
+
+    pub fn skill_unknown(detail: impl Into<String>) -> Self {
+        Self::SkillUnknown {
+            detail: detail.into(),
+            context: None,
+        }
+    }
 }
 
 pub mod error_types {
@@ -479,6 +500,7 @@ pub mod error_types {
     pub const PLUGIN_TIMEOUT: &str = "ail:plugin/timeout";
     pub const CONDITION_INVALID: &str = "ail:condition/invalid";
     pub const CIRCULAR_INHERITANCE: &str = "ail:config/circular-inheritance";
+    pub const SKILL_UNKNOWN: &str = "ail:skill/unknown";
 }
 
 #[cfg(test)]

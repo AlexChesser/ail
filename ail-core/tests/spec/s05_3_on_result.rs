@@ -27,6 +27,9 @@ fn prompt_step_with_on_result(
         append_system_prompt: None,
         system_prompt: None,
         resume: false,
+        on_error: None,
+        before: vec![],
+        then: vec![],
     };
     (step, StubRunner::new(response))
 }
@@ -50,6 +53,9 @@ fn context_step_with_exit(id: &str, exit_code: i32, branches: Vec<ResultBranch>)
         append_system_prompt: None,
         system_prompt: None,
         resume: false,
+        on_error: None,
+        before: vec![],
+        then: vec![],
     }
 }
 
