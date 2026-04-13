@@ -294,6 +294,46 @@ fn execute_single_step<O: StepObserver>(
     // None → default behaviour (abort).
     let on_error = step.on_error.as_ref().unwrap_or(&OnError::AbortPipeline);
 
+    // Validate input_schema against the preceding step's output, if declared (SPEC §26.2).
+    // Capture the validated input JSON for use by field:equals: in on_result.
+    let validated_input = if let Some(ref schema) = step.input_schema {
+        match validate_input_schema(session, schema, &step_id) {
+            Ok(json) => Some(json),
+            Err(e) => {
+                // Input schema validation failure is a step error — escalate via on_error.
+                match on_error {
+                    OnError::Continue => {
+                        tracing::warn!(
+                            run_id = %session.run_id,
+                            step_id = %step_id,
+                            error_type = e.error_type(),
+                            error = %e.detail(),
+                            "input_schema validation failed — on_error: continue"
+                        );
+                        session.turn_log.record_step_error(
+                            &step_id,
+                            e.error_type(),
+                            e.detail(),
+                            "continue",
+                            None,
+                            None,
+                        );
+                        observer.on_step_error_continued(&step_id, e.detail(), e.error_type());
+                        // Run then: chain even when skipping.
+                        execute_chain_steps(&step.then, session, runner, observer, depth)?;
+                        return Ok(None);
+                    }
+                    _ => {
+                        observer.on_step_failed(&step_id, e.detail());
+                        return Err(e);
+                    }
+                }
+            }
+        }
+    } else {
+        None
+    };
+
     let max_attempts: u32 = match on_error {
         OnError::Retry { max_retries } => max_retries + 1, // first attempt + retries
         _ => 1,
@@ -533,7 +573,7 @@ fn execute_single_step<O: StepObserver>(
     let mut matched_action = None;
     if let Some(branches) = &step.on_result {
         let last_entry = session.turn_log.entries().last().expect("just appended");
-        if let Some(action) = evaluate_on_result(branches, last_entry) {
+        if let Some(action) = evaluate_on_result(branches, last_entry, validated_input.as_ref()) {
             matched_action = Some(action.clone());
         }
     }
@@ -696,23 +736,8 @@ fn execute_do_while_inner<O: StepObserver>(
         let mut loop_broken = false;
         for (inner_idx, inner_step) in inner_steps.iter().enumerate() {
             let namespaced_id = format!("{}{}", prefix, inner_step.id.as_str());
-            let namespaced_step = Step {
-                id: StepId(namespaced_id.clone()),
-                body: inner_step.body.clone(),
-                message: inner_step.message.clone(),
-                tools: inner_step.tools.clone(),
-                on_result: inner_step.on_result.clone(),
-                model: inner_step.model.clone(),
-                runner: inner_step.runner.clone(),
-                condition: inner_step.condition.clone(),
-                append_system_prompt: inner_step.append_system_prompt.clone(),
-                system_prompt: inner_step.system_prompt.clone(),
-                resume: inner_step.resume,
-                on_error: inner_step.on_error.clone(),
-                before: inner_step.before.clone(),
-                then: inner_step.then.clone(),
-                output_schema: inner_step.output_schema.clone(),
-            };
+            let mut namespaced_step = inner_step.clone();
+            namespaced_step.id = StepId(namespaced_id.clone());
 
             // Evaluate condition for the inner step.
             let condition_skip = if let Some(ref cond) = namespaced_step.condition {
@@ -928,6 +953,47 @@ fn validate_output_schema(
     }
 
     Ok(())
+}
+
+// ── Input schema validation (SPEC §26.2) ────────────────────────────────────
+
+/// Validate the preceding step's output against this step's declared `input_schema`.
+///
+/// Parses the session's `last_response` as JSON and validates against the schema.
+/// Returns the parsed JSON value on success (for use by `field:` + `equals:` in `on_result`),
+/// or an `InputSchemaValidationFailed` error with details.
+fn validate_input_schema(
+    session: &Session,
+    schema: &serde_json::Value,
+    step_id: &str,
+) -> Result<serde_json::Value, AilError> {
+    let input = session.turn_log.last_response().unwrap_or("");
+
+    let json_value: serde_json::Value =
+        serde_json::from_str(input).map_err(|e| AilError::InputSchemaValidationFailed {
+            detail: format!(
+                "Step '{step_id}' declares input_schema but the preceding step's output \
+                 is not valid JSON: {e}"
+            ),
+            context: None,
+        })?;
+
+    let validator =
+        jsonschema::validator_for(schema).map_err(|e| AilError::InputSchemaValidationFailed {
+            detail: format!("Step '{step_id}' input_schema failed to compile as JSON Schema: {e}"),
+            context: None,
+        })?;
+
+    if let Err(error) = validator.validate(&json_value) {
+        return Err(AilError::InputSchemaValidationFailed {
+            detail: format!(
+                "Step '{step_id}' preceding step output failed input_schema validation: {error}"
+            ),
+            context: None,
+        });
+    }
+
+    Ok(json_value)
 }
 
 // ── Core loop ─────────────────────────────────────────────────────────────────

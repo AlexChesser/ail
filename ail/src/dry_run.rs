@@ -143,6 +143,9 @@ pub fn run_dry_run(session: &mut ail_core::session::Session, runner: &dyn Runner
         if step.output_schema.is_some() {
             println!("  output_schema: (declared — response will be validated)");
         }
+        if step.input_schema.is_some() {
+            println!("  input_schema: (declared — preceding step output will be validated)");
+        }
 
         if let Some(on_result) = &step.on_result {
             println!("  on_result: {} branch(es)", on_result.len());

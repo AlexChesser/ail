@@ -1,6 +1,6 @@
 ## 26. Structured Step I/O Schemas
 
-> **Implementation status:** `output_schema` is implemented — parse-time JSON Schema validation, runtime response validation against schema, and `{{ step.<id>.items }}` template variable for array schemas. `input_schema`, parse-time compatibility checks (§26.3), and `field:` + `equals:` operator (§26.4) are not yet implemented; `input_schema` is still rejected as reserved.
+> **Implementation status:** Fully implemented. `output_schema` — parse-time JSON Schema validation, runtime response validation, `{{ step.<id>.items }}` template variable. `input_schema` — parse-time validation, runtime preceding-step-output validation, parse-time schema compatibility checks between adjacent steps (§26.3). `field:` + `equals:` operator (§26.4) — binary branching format for `on_result` with `if_true`/`if_false` actions, parse-time field-in-schema validation. Schema-as-file-path (§26.1) is not yet implemented.
 
 The `on_result` prose-matching operators (`contains`, `matches`, `starts_with`) are documented as best-effort in §5.4 — LLMs do not deterministically produce exact tokens. Structured I/O schemas provide a reliable alternative: a step declares what structured output it produces or expects, the runtime validates the JSON, and `on_result` can branch on known fields with exact equality.
 

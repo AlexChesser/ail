@@ -188,6 +188,12 @@ pub fn materialize(pipeline: &Pipeline) -> String {
                         format!("exit_code: {n}")
                     }
                     ResultMatcher::ExitCode(ExitCodeMatch::Any) => "exit_code: any".to_string(),
+                    ResultMatcher::Field {
+                        ref name,
+                        ref equals,
+                    } => {
+                        format!("field: {name}, equals: {equals}")
+                    }
                     ResultMatcher::Always => "always: true".to_string(),
                 };
                 let action = match &branch.action {
@@ -208,6 +214,17 @@ pub fn materialize(pipeline: &Pipeline) -> String {
                     }
                 };
                 out.push_str(&format!("      - {matcher}\n        action: {action}\n"));
+            }
+        }
+
+        if let Some(ref schema) = step.input_schema {
+            let schema_yaml = serde_yaml::to_string(schema).unwrap_or_else(|_| "{}".to_string());
+            out.push_str("    input_schema:\n");
+            for line in schema_yaml.lines() {
+                if line.trim().is_empty() {
+                    continue;
+                }
+                out.push_str(&format!("      {line}\n"));
             }
         }
     }
@@ -314,6 +331,17 @@ fn serialize_step(out: &mut String, step: &Step, indent: &str, origin_comment: O
         }
     }
 
+    if let Some(ref schema) = step.input_schema {
+        let schema_yaml = serde_yaml::to_string(schema).unwrap_or_else(|_| "{}".to_string());
+        out.push_str(&format!("{field_indent}input_schema:\n"));
+        for line in schema_yaml.lines() {
+            if line.trim().is_empty() {
+                continue;
+            }
+            out.push_str(&format!("{field_indent}  {line}\n"));
+        }
+    }
+
     if let Some(branches) = &step.on_result {
         out.push_str(&format!("{field_indent}on_result:\n"));
         for branch in branches {
@@ -325,6 +353,12 @@ fn serialize_step(out: &mut String, step: &Step, indent: &str, origin_comment: O
                     format!("exit_code: {n}")
                 }
                 ResultMatcher::ExitCode(ExitCodeMatch::Any) => "exit_code: any".to_string(),
+                ResultMatcher::Field {
+                    ref name,
+                    ref equals,
+                } => {
+                    format!("field: {name}, equals: {equals}")
+                }
                 ResultMatcher::Always => "always: true".to_string(),
             };
             let action = match &branch.action {
@@ -465,6 +499,7 @@ mod tests {
             before: vec![],
             then: vec![],
             output_schema: None,
+            input_schema: None,
         }
     }
 

@@ -223,9 +223,22 @@ pub(in crate::config) fn validate_steps(
 
         let body = step_body::parse_step_body(&mut step_dto, &id_str)?;
 
+        // Validate input_schema is a valid JSON Schema if present (SPEC §26.2).
+        let input_schema = if let Some(ref schema) = step_dto.input_schema {
+            if let Err(e) = jsonschema::validator_for(schema) {
+                return Err(cfg_err!(
+                    "Step '{id_str}' declares input_schema but it is not a valid \
+                     JSON Schema: {e}"
+                ));
+            }
+            Some(schema.clone())
+        } else {
+            None
+        };
+
         let on_result = step_dto
             .on_result
-            .map(|branches| on_result::parse_result_branches(&id_str, branches))
+            .map(|dto| on_result::parse_on_result(&id_str, dto, input_schema.as_ref()))
             .transpose()?;
 
         let condition = match step_dto.condition.as_deref() {
@@ -324,10 +337,72 @@ pub(in crate::config) fn validate_steps(
             before,
             then,
             output_schema,
+            input_schema,
         });
     }
 
+    // Parse-time schema compatibility: check adjacent steps' output_schema / input_schema (SPEC §26.3).
+    check_adjacent_schema_compatibility(&steps)?;
+
     Ok(steps)
+}
+
+/// Check that adjacent steps with `output_schema` and `input_schema` are compatible (SPEC §26.3).
+///
+/// For each pair of adjacent steps where step[i] declares `output_schema` and step[i+1]
+/// declares `input_schema`, verify:
+/// 1. Top-level `type` fields match (if both declare one).
+/// 2. All `required` fields in `input_schema` appear in `output_schema`'s `properties`.
+fn check_adjacent_schema_compatibility(steps: &[Step]) -> Result<(), AilError> {
+    for pair in steps.windows(2) {
+        let prev = &pair[0];
+        let curr = &pair[1];
+
+        let (Some(output), Some(input)) = (&prev.output_schema, &curr.input_schema) else {
+            continue;
+        };
+
+        let prev_id = prev.id.as_str();
+        let curr_id = curr.id.as_str();
+
+        // Check top-level type compatibility.
+        let out_type = output.get("type").and_then(|v| v.as_str());
+        let in_type = input.get("type").and_then(|v| v.as_str());
+
+        if let (Some(ot), Some(it)) = (out_type, in_type) {
+            if ot != it {
+                return Err(AilError::SchemaCompatibilityFailed {
+                    detail: format!(
+                        "Schema compatibility failed: step '{prev_id}' output_schema has \
+                         type '{ot}' but step '{curr_id}' input_schema expects type '{it}'"
+                    ),
+                    context: None,
+                });
+            }
+        }
+
+        // Check that all required fields in input_schema exist in output_schema properties.
+        if let Some(required) = input.get("required").and_then(|v| v.as_array()) {
+            let out_props = output.get("properties").and_then(|v| v.as_object());
+            for req in required {
+                if let Some(field_name) = req.as_str() {
+                    if let Some(props) = out_props {
+                        if !props.contains_key(field_name) {
+                            return Err(AilError::SchemaCompatibilityFailed {
+                                detail: format!(
+                                    "Schema compatibility failed: step '{curr_id}' input_schema \
+                                     requires field '{field_name}' but step '{prev_id}' \
+                                     output_schema does not declare it in 'properties'"
+                                ),
+                                context: None,
+                            });
+                        }
+                    }
+                }
+            }
+        }
+    }
+    Ok(())
 }
 
 /// Reclassify `StepBody::SubPipeline` references whose path matches a named pipeline
@@ -437,14 +512,16 @@ fn parse_chain_step(
                 before: vec![],
                 then: vec![],
                 output_schema: None,
+                input_schema: None,
             })
         }
         ChainStepDto::Full(mut step_dto) => {
             let body = step_body::parse_step_body(&mut step_dto, &auto_id)?;
 
+            let input_schema = step_dto.input_schema.take();
             let on_result_branches = step_dto
                 .on_result
-                .map(|branches| on_result::parse_result_branches(&auto_id, branches))
+                .map(|dto| on_result::parse_on_result(&auto_id, dto, input_schema.as_ref()))
                 .transpose()?;
 
             let append_system_prompt_entries = step_dto
@@ -472,6 +549,7 @@ fn parse_chain_step(
                 before,
                 then,
                 output_schema: step_dto.output_schema,
+                input_schema,
             })
         }
     }
@@ -630,7 +708,8 @@ mod tests {
     };
     use crate::config::dto::{
         AppendSystemPromptEntryDto, AppendSystemPromptStructuredDto, ContextDto, DefaultsDto,
-        ExitCodeDto, OnResultBranchDto, PipelineFileDto, ProviderDto, StepDto, ToolsDto,
+        ExitCodeDto, OnResultBranchDto, OnResultDto, PipelineFileDto, ProviderDto, StepDto,
+        ToolsDto,
     };
     use crate::error::error_types;
 
@@ -1066,11 +1145,11 @@ mod tests {
     #[test]
     fn on_result_contains_continue_round_trips() {
         let mut step = minimal_step("s", "hello");
-        step.on_result = Some(vec![OnResultBranchDto {
+        step.on_result = Some(OnResultDto::Branches(vec![OnResultBranchDto {
             contains: Some("SUCCESS".to_string()),
             action: Some("continue".to_string()),
             ..Default::default()
-        }]);
+        }]));
         let dto = minimal_dto(vec![step]);
         let pipeline = validate(dto, source()).expect("should succeed");
         let branch = &pipeline.steps[0].on_result.as_ref().unwrap()[0];
@@ -1081,11 +1160,11 @@ mod tests {
     #[test]
     fn on_result_exit_code_exact_round_trips() {
         let mut step = minimal_step("s", "hello");
-        step.on_result = Some(vec![OnResultBranchDto {
+        step.on_result = Some(OnResultDto::Branches(vec![OnResultBranchDto {
             exit_code: Some(ExitCodeDto::Integer(1)),
             action: Some("break".to_string()),
             ..Default::default()
-        }]);
+        }]));
         let dto = minimal_dto(vec![step]);
         let pipeline = validate(dto, source()).expect("should succeed");
         let branch = &pipeline.steps[0].on_result.as_ref().unwrap()[0];
@@ -1099,11 +1178,11 @@ mod tests {
     #[test]
     fn on_result_exit_code_any_round_trips() {
         let mut step = minimal_step("s", "hello");
-        step.on_result = Some(vec![OnResultBranchDto {
+        step.on_result = Some(OnResultDto::Branches(vec![OnResultBranchDto {
             exit_code: Some(ExitCodeDto::Keyword("any".to_string())),
             action: Some("abort_pipeline".to_string()),
             ..Default::default()
-        }]);
+        }]));
         let dto = minimal_dto(vec![step]);
         let pipeline = validate(dto, source()).expect("should succeed");
         let branch = &pipeline.steps[0].on_result.as_ref().unwrap()[0];
@@ -1117,11 +1196,11 @@ mod tests {
     #[test]
     fn on_result_exit_code_invalid_keyword_returns_error() {
         let mut step = minimal_step("s", "hello");
-        step.on_result = Some(vec![OnResultBranchDto {
+        step.on_result = Some(OnResultDto::Branches(vec![OnResultBranchDto {
             exit_code: Some(ExitCodeDto::Keyword("none".to_string())),
             action: Some("continue".to_string()),
             ..Default::default()
-        }]);
+        }]));
         let dto = minimal_dto(vec![step]);
         let err = validate(dto, source()).expect_err("should fail");
         assert_eq!(err.error_type(), error_types::CONFIG_VALIDATION_FAILED);
@@ -1131,11 +1210,11 @@ mod tests {
     #[test]
     fn on_result_always_matcher_round_trips() {
         let mut step = minimal_step("s", "hello");
-        step.on_result = Some(vec![OnResultBranchDto {
+        step.on_result = Some(OnResultDto::Branches(vec![OnResultBranchDto {
             always: Some(true),
             action: Some("pause_for_human".to_string()),
             ..Default::default()
-        }]);
+        }]));
         let dto = minimal_dto(vec![step]);
         let pipeline = validate(dto, source()).expect("should succeed");
         let branch = &pipeline.steps[0].on_result.as_ref().unwrap()[0];
@@ -1146,11 +1225,11 @@ mod tests {
     #[test]
     fn on_result_pipeline_action_round_trips() {
         let mut step = minimal_step("s", "hello");
-        step.on_result = Some(vec![OnResultBranchDto {
+        step.on_result = Some(OnResultDto::Branches(vec![OnResultBranchDto {
             contains: Some("ok".to_string()),
             action: Some("pipeline: child.ail.yaml".to_string()),
             ..Default::default()
-        }]);
+        }]));
         let dto = minimal_dto(vec![step]);
         let pipeline = validate(dto, source()).expect("should succeed");
         let branch = &pipeline.steps[0].on_result.as_ref().unwrap()[0];
@@ -1160,11 +1239,11 @@ mod tests {
     #[test]
     fn on_result_pipeline_action_empty_path_returns_error() {
         let mut step = minimal_step("s", "hello");
-        step.on_result = Some(vec![OnResultBranchDto {
+        step.on_result = Some(OnResultDto::Branches(vec![OnResultBranchDto {
             contains: Some("ok".to_string()),
             action: Some("pipeline:".to_string()),
             ..Default::default()
-        }]);
+        }]));
         let dto = minimal_dto(vec![step]);
         let err = validate(dto, source()).expect_err("should fail");
         assert_eq!(err.error_type(), error_types::CONFIG_VALIDATION_FAILED);
@@ -1174,11 +1253,11 @@ mod tests {
     #[test]
     fn on_result_unknown_action_returns_error() {
         let mut step = minimal_step("s", "hello");
-        step.on_result = Some(vec![OnResultBranchDto {
+        step.on_result = Some(OnResultDto::Branches(vec![OnResultBranchDto {
             contains: Some("ok".to_string()),
             action: Some("teleport".to_string()),
             ..Default::default()
-        }]);
+        }]));
         let dto = minimal_dto(vec![step]);
         let err = validate(dto, source()).expect_err("should fail");
         assert_eq!(err.error_type(), error_types::CONFIG_VALIDATION_FAILED);
@@ -1188,10 +1267,10 @@ mod tests {
     #[test]
     fn on_result_branch_missing_action_returns_error() {
         let mut step = minimal_step("s", "hello");
-        step.on_result = Some(vec![OnResultBranchDto {
+        step.on_result = Some(OnResultDto::Branches(vec![OnResultBranchDto {
             contains: Some("ok".to_string()),
             ..Default::default()
-        }]);
+        }]));
         let dto = minimal_dto(vec![step]);
         let err = validate(dto, source()).expect_err("should fail");
         assert_eq!(err.error_type(), error_types::CONFIG_VALIDATION_FAILED);
@@ -1201,10 +1280,10 @@ mod tests {
     #[test]
     fn on_result_branch_zero_matchers_returns_error() {
         let mut step = minimal_step("s", "hello");
-        step.on_result = Some(vec![OnResultBranchDto {
+        step.on_result = Some(OnResultDto::Branches(vec![OnResultBranchDto {
             action: Some("continue".to_string()),
             ..Default::default()
-        }]);
+        }]));
         let dto = minimal_dto(vec![step]);
         let err = validate(dto, source()).expect_err("should fail");
         assert_eq!(err.error_type(), error_types::CONFIG_VALIDATION_FAILED);
@@ -1213,12 +1292,12 @@ mod tests {
     #[test]
     fn on_result_branch_two_matchers_returns_error() {
         let mut step = minimal_step("s", "hello");
-        step.on_result = Some(vec![OnResultBranchDto {
+        step.on_result = Some(OnResultDto::Branches(vec![OnResultBranchDto {
             contains: Some("ok".to_string()),
             exit_code: Some(ExitCodeDto::Integer(0)),
             action: Some("continue".to_string()),
             ..Default::default()
-        }]);
+        }]));
         let dto = minimal_dto(vec![step]);
         let err = validate(dto, source()).expect_err("should fail");
         assert_eq!(err.error_type(), error_types::CONFIG_VALIDATION_FAILED);

@@ -49,7 +49,7 @@ pub struct StepDto {
     pub default_value: Option<String>,
     pub context: Option<ContextDto>,
     pub tools: Option<ToolsDto>,
-    pub on_result: Option<Vec<OnResultBranchDto>>,
+    pub on_result: Option<OnResultDto>,
     pub model: Option<String>,
     /// Optional runner name override for this step. Overrides `AIL_DEFAULT_RUNNER` and the
     /// pipeline-level default. See §19 and `RunnerFactory`.
@@ -129,6 +129,19 @@ pub struct DoWhileDto {
     pub steps: Option<Vec<StepDto>>,
 }
 
+/// `on_result:` accepts two shapes (SPEC §5.4, §26.4):
+///
+/// 1. Multi-branch array: `on_result: [{ contains: ..., action: ... }, ...]`
+/// 2. Field-equals binary branch: `on_result: { field: ..., equals: ..., if_true: ..., if_false: ... }`
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+pub enum OnResultDto {
+    /// Standard multi-branch array of matchers.
+    Branches(Vec<OnResultBranchDto>),
+    /// Field-equals binary branch with `if_true` / `if_false` (SPEC §26.4).
+    FieldEquals(Box<FieldEqualsDto>),
+}
+
 #[derive(Debug, Default, Deserialize)]
 pub struct OnResultBranchDto {
     pub contains: Option<String>,
@@ -137,6 +150,23 @@ pub struct OnResultBranchDto {
     pub action: Option<String>,
     /// Optional prompt override passed to the child session when action is `pipeline:`.
     /// Template variables are resolved at execution time (SPEC §9).
+    pub prompt: Option<String>,
+}
+
+/// DTO for the `field:` + `equals:` binary branching format of `on_result` (SPEC §26.4).
+#[derive(Debug, Deserialize)]
+pub struct FieldEqualsDto {
+    pub field: String,
+    pub equals: serde_json::Value,
+    pub if_true: FieldEqualsActionDto,
+    pub if_false: Option<FieldEqualsActionDto>,
+}
+
+/// Action declaration inside a `field:` + `equals:` branch.
+#[derive(Debug, Deserialize)]
+pub struct FieldEqualsActionDto {
+    pub action: String,
+    pub message: Option<String>,
     pub prompt: Option<String>,
 }
 
