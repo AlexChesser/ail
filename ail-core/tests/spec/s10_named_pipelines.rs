@@ -30,6 +30,7 @@ fn make_named_pipeline_step(id: &str, name: &str) -> Step {
         on_error: None,
         before: vec![],
         then: vec![],
+        output_schema: None,
     }
 }
 
@@ -49,6 +50,7 @@ fn prompt_step(id: &str, text: &str) -> Step {
         on_error: None,
         before: vec![],
         then: vec![],
+        output_schema: None,
     }
 }
 

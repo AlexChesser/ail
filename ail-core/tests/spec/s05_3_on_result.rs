@@ -30,6 +30,7 @@ fn prompt_step_with_on_result(
         on_error: None,
         before: vec![],
         then: vec![],
+        output_schema: None,
     };
     (step, StubRunner::new(response))
 }
@@ -56,6 +57,7 @@ fn context_step_with_exit(id: &str, exit_code: i32, branches: Vec<ResultBranch>)
         on_error: None,
         before: vec![],
         then: vec![],
+        output_schema: None,
     }
 }
 

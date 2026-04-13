@@ -147,6 +147,7 @@ mod tests {
             on_error: None,
             before: vec![],
             then: vec![],
+            output_schema: None,
         }
     }
 

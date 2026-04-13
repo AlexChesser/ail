@@ -205,6 +205,7 @@ mod tests {
             on_error: None,
             before: vec![],
             then: vec![],
+            output_schema: None,
         };
         let session = helpers_make_session(vec![step]);
         assert!(session.has_invocation_step());

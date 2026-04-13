@@ -303,6 +303,17 @@ fn serialize_step(out: &mut String, step: &Step, indent: &str, origin_comment: O
         }
     }
 
+    if let Some(ref schema) = step.output_schema {
+        let schema_yaml = serde_yaml::to_string(schema).unwrap_or_else(|_| "{}".to_string());
+        out.push_str(&format!("{field_indent}output_schema:\n"));
+        for line in schema_yaml.lines() {
+            if line.trim().is_empty() {
+                continue;
+            }
+            out.push_str(&format!("{field_indent}  {line}\n"));
+        }
+    }
+
     if let Some(branches) = &step.on_result {
         out.push_str(&format!("{field_indent}on_result:\n"));
         for branch in branches {
@@ -453,6 +464,7 @@ mod tests {
             on_error: None,
             before: vec![],
             then: vec![],
+            output_schema: None,
         }
     }
 

@@ -94,6 +94,7 @@ impl Pipeline {
                 on_error: None,
                 before: vec![],
                 then: vec![],
+                output_schema: None,
             }],
             source: None,
             defaults: ProviderConfig::default(),
@@ -199,6 +200,10 @@ pub struct Step {
     /// Private post-processing steps that run after this step completes (SPEC §5.7).
     /// Steps in this chain are not visible to the hook system and not independently referenceable.
     pub then: Vec<Step>,
+    /// Optional JSON Schema for validating this step's output (SPEC §26).
+    /// When set, the runtime validates the step's response as JSON against this schema
+    /// after execution. A validation failure escalates via `on_error`.
+    pub output_schema: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Default, Clone)]

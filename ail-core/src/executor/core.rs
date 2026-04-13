@@ -380,6 +380,66 @@ fn execute_single_step<O: StepObserver>(
 
         match result {
             Ok(entry) => {
+                // Validate output_schema if declared (SPEC §26).
+                if let Some(ref schema) = step.output_schema {
+                    if let Err(e) = validate_output_schema(&entry, schema, &step_id) {
+                        // Treat schema validation failure as a step error —
+                        // it flows through on_error handling (retry/continue/abort).
+                        match on_error {
+                            OnError::Continue => {
+                                tracing::warn!(
+                                    run_id = %session.run_id,
+                                    step_id = %step_id,
+                                    error_type = e.error_type(),
+                                    error = %e.detail(),
+                                    "output_schema validation failed — on_error: continue"
+                                );
+                                session.turn_log.record_step_error(
+                                    &step_id,
+                                    e.error_type(),
+                                    e.detail(),
+                                    "continue",
+                                    None,
+                                    None,
+                                );
+                                observer.on_step_error_continued(
+                                    &step_id,
+                                    e.detail(),
+                                    e.error_type(),
+                                );
+                                break;
+                            }
+                            OnError::Retry { max_retries } if attempt < max_attempts => {
+                                tracing::warn!(
+                                    run_id = %session.run_id,
+                                    step_id = %step_id,
+                                    attempt,
+                                    error = %e.detail(),
+                                    "output_schema validation failed — retrying"
+                                );
+                                session.turn_log.record_step_error(
+                                    &step_id,
+                                    e.error_type(),
+                                    e.detail(),
+                                    "retry",
+                                    Some(attempt),
+                                    Some(*max_retries),
+                                );
+                                observer.on_step_retrying(
+                                    &step_id,
+                                    e.detail(),
+                                    attempt,
+                                    *max_retries,
+                                );
+                                continue;
+                            }
+                            _ => {
+                                observer.on_step_failed(&step_id, e.detail());
+                                return Err(e);
+                            }
+                        }
+                    }
+                }
                 entry_opt = Some(entry);
                 break;
             }
@@ -651,6 +711,7 @@ fn execute_do_while_inner<O: StepObserver>(
                 on_error: inner_step.on_error.clone(),
                 before: inner_step.before.clone(),
                 then: inner_step.then.clone(),
+                output_schema: inner_step.output_schema.clone(),
             };
 
             // Evaluate condition for the inner step.
@@ -837,6 +898,46 @@ fn execute_do_while_inner<O: StepObserver>(
         modified: None,
         index: Some(index),
     })
+}
+
+// ── Output schema validation (SPEC §26) ─────────────────────────────────────
+
+/// Validate a step's response against its declared `output_schema`.
+///
+/// Parses the response as JSON and validates against the JSON Schema.
+/// Returns `Ok(())` if valid, or an `OutputSchemaValidationFailed` error
+/// with details about what failed.
+fn validate_output_schema(
+    entry: &TurnEntry,
+    schema: &serde_json::Value,
+    step_id: &str,
+) -> Result<(), AilError> {
+    let response = entry.response.as_deref().unwrap_or("");
+
+    // Parse response as JSON.
+    let json_value: serde_json::Value =
+        serde_json::from_str(response).map_err(|e| AilError::OutputSchemaValidationFailed {
+            detail: format!(
+                "Step '{step_id}' declares output_schema but the response is not valid JSON: {e}"
+            ),
+            context: None,
+        })?;
+
+    // Validate against the schema.
+    let validator =
+        jsonschema::validator_for(schema).map_err(|e| AilError::OutputSchemaValidationFailed {
+            detail: format!("Step '{step_id}' output_schema failed to compile as JSON Schema: {e}"),
+            context: None,
+        })?;
+
+    if let Err(error) = validator.validate(&json_value) {
+        return Err(AilError::OutputSchemaValidationFailed {
+            detail: format!("Step '{step_id}' output failed output_schema validation: {error}"),
+            context: None,
+        });
+    }
+
+    Ok(())
 }
 
 // ── Core loop ─────────────────────────────────────────────────────────────────
