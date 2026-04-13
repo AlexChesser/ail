@@ -502,7 +502,6 @@ mod tests {
             max_retries: None,
             before: None,
             then: None,
-
         }
     }
 
@@ -657,7 +656,6 @@ mod tests {
             max_retries: None,
             before: None,
             then: None,
-
         }]);
         let err = validate(dto, source()).expect_err("should fail");
         assert_eq!(err.error_type(), error_types::CONFIG_VALIDATION_FAILED);
@@ -692,7 +690,6 @@ mod tests {
             max_retries: None,
             before: None,
             then: None,
-
         }]);
         let err = validate(dto, source()).expect_err("should fail");
         assert_eq!(err.error_type(), error_types::CONFIG_VALIDATION_FAILED);
@@ -807,7 +804,6 @@ mod tests {
             max_retries: None,
             before: None,
             then: None,
-
         }]);
         let pipeline = validate(dto, source()).expect("should succeed");
         assert!(matches!(
@@ -844,7 +840,6 @@ mod tests {
             max_retries: None,
             before: None,
             then: None,
-
         }]);
         let pipeline = validate(dto, source()).expect("should succeed");
         assert!(matches!(
@@ -881,7 +876,6 @@ mod tests {
             max_retries: None,
             before: None,
             then: None,
-
         }]);
         let err = validate(dto, source()).expect_err("should fail");
         assert_eq!(err.error_type(), error_types::CONFIG_VALIDATION_FAILED);
@@ -918,7 +912,6 @@ mod tests {
             max_retries: None,
             before: None,
             then: None,
-
         }]);
         let pipeline = validate(dto, source()).expect("should succeed");
         assert!(matches!(
@@ -955,7 +948,6 @@ mod tests {
             max_retries: None,
             before: None,
             then: None,
-
         }]);
         let err = validate(dto, source()).expect_err("should fail");
         assert_eq!(err.error_type(), error_types::CONFIG_VALIDATION_FAILED);
