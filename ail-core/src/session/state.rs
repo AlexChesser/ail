@@ -180,6 +180,7 @@ mod tests {
             append_system_prompt: None,
             system_prompt: None,
             resume: false,
+            on_error: None,
         };
         let session = helpers_make_session(vec![step]);
         assert!(session.has_invocation_step());

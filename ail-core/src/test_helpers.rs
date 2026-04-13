@@ -41,5 +41,6 @@ pub fn prompt_step(id: &str, text: &str) -> Step {
         append_system_prompt: None,
         system_prompt: None,
         resume: false,
+        on_error: None,
     }
 }

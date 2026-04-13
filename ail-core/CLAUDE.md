@@ -61,10 +61,11 @@ Consumed by `ail` (the binary) and future language-server / SDK targets.
 ```rust
 // Pipeline and its steps
 pub struct Pipeline { pub steps: Vec<Step>, pub source: Option<PathBuf> }
-pub struct Step    { pub id: StepId, pub body: StepBody, pub tools: Option<ToolPolicy>, pub on_result: Option<Vec<ResultBranch>>, pub model: Option<String>, pub runner: Option<String>, pub condition: Option<Condition> }
+pub struct Step    { pub id: StepId, pub body: StepBody, pub tools: Option<ToolPolicy>, pub on_result: Option<Vec<ResultBranch>>, pub model: Option<String>, pub runner: Option<String>, pub condition: Option<Condition>, pub on_error: Option<OnError> }
 pub enum Condition { Always, Never, Expression(ConditionExpr) }  // SPEC §12 — None means Always; Never skips; Expression evaluates at runtime
 pub struct ConditionExpr { pub lhs: String, pub op: ConditionOp, pub rhs: String }
 pub enum ConditionOp { Eq, Ne, Contains, StartsWith, EndsWith }
+pub enum OnError { Continue, Retry { max_retries: u32 }, AbortPipeline }  // SPEC §16 — None means AbortPipeline (default)
 pub struct Pipeline { pub steps: Vec<Step>, pub source: Option<PathBuf>, pub defaults: ProviderConfig, pub default_tools: Option<ToolPolicy> }
 // default_tools: pipeline-wide fallback; per-step tools override entirely (SPEC §3.2)
 pub struct Step    { pub id: StepId, pub body: StepBody, pub tools: Option<ToolPolicy>, pub on_result: Option<Vec<ResultBranch>>, pub model: Option<String>, pub runner: Option<String> }
@@ -203,6 +204,7 @@ s08  — runner adapter
 s09  — sub-pipeline execution + template vars in pipeline: paths
 s09  — tool permissions (separate file: s09_tool_permissions)
 s11  — template variables
+s16  — on_error error handling (continue, retry, abort_pipeline)
 s18  — materialize
 s21  — MVP scope
 ```

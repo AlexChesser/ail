@@ -1,5 +1,6 @@
 use crate::config::domain::{
-    ActionKind, ContextSource, ExitCodeMatch, Pipeline, ResultAction, ResultMatcher, StepBody,
+    ActionKind, ContextSource, ExitCodeMatch, OnError, Pipeline, ResultAction, ResultMatcher,
+    StepBody,
 };
 
 /// Escape a string for use inside a YAML double-quoted scalar.
@@ -28,6 +29,17 @@ pub fn materialize(pipeline: &Pipeline) -> String {
         }
         if step.resume {
             out.push_str("    resume: true\n");
+        }
+
+        if let Some(ref on_error) = step.on_error {
+            match on_error {
+                OnError::Continue => out.push_str("    on_error: continue\n"),
+                OnError::Retry { max_retries } => {
+                    out.push_str("    on_error: retry\n");
+                    out.push_str(&format!("    max_retries: {max_retries}\n"));
+                }
+                OnError::AbortPipeline => out.push_str("    on_error: abort_pipeline\n"),
+            }
         }
 
         match &step.body {
@@ -132,6 +144,7 @@ mod tests {
             append_system_prompt: None,
             system_prompt: None,
             resume: false,
+            on_error: None,
         }
     }
 

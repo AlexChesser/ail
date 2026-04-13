@@ -7,7 +7,7 @@
 
 #![allow(clippy::result_large_err)]
 
-use crate::config::domain::{ActionKind, ContextSource, ResultAction, StepBody};
+use crate::config::domain::{ActionKind, ContextSource, OnError, ResultAction, StepBody};
 use crate::error::AilError;
 use crate::runner::{InvokeOptions, RunResult, Runner};
 use crate::session::turn_log::TurnEntry;
@@ -58,6 +58,14 @@ pub(super) trait StepObserver {
     /// Called when any step fails (before returning the error).
     /// Controlled: emit `StepFailed`. Headless: no-op.
     fn on_step_failed(&mut self, step_id: &str, detail: &str);
+
+    /// Called when a step fails but `on_error: continue` swallows the error.
+    /// Controlled: emit `StepErrorContinued`. Headless: no-op.
+    fn on_step_error_continued(&mut self, step_id: &str, error: &str, error_type: &str);
+
+    /// Called when a step fails and is about to be retried.
+    /// Controlled: emit `StepRetrying`. Headless: no-op.
+    fn on_step_retrying(&mut self, step_id: &str, error: &str, attempt: u32, max_retries: u32);
 
     /// Fill mode-specific fields into the `InvokeOptions` before invoking the runner.
     /// Controlled: sets `cancel_token` and `permission_responder`. Headless: no-op.
@@ -132,6 +140,10 @@ impl StepObserver for NullObserver {
     fn on_prompt_ready(&mut self, _: &str, _: usize, _: usize, _: &str) {}
 
     fn on_step_failed(&mut self, _: &str, _: &str) {}
+
+    fn on_step_error_continued(&mut self, _: &str, _: &str, _: &str) {}
+
+    fn on_step_retrying(&mut self, _: &str, _: &str, _: u32, _: u32) {}
 
     fn augment_options(&self, _: &mut InvokeOptions) {}
 
@@ -299,56 +311,160 @@ pub(super) fn execute_core<O: StepObserver>(
             observer.on_non_prompt_started(&step_id, step_index, total_steps);
         }
 
-        let entry = match &step.body {
-            StepBody::Prompt(template_text) => dispatch::prompt::execute(
-                template_text,
-                step,
-                session,
-                runner,
-                &step_id,
-                step_index,
-                total_steps,
-                pipeline_base_dir,
-                observer,
-            )?,
+        // Resolve the effective on_error strategy for this step.
+        // None → default behaviour (abort).
+        let on_error = step.on_error.as_ref().unwrap_or(&OnError::AbortPipeline);
 
-            StepBody::Context(ContextSource::Shell(cmd)) => {
-                dispatch::context::execute_shell(cmd, session, &step_id, observer)?
+        let max_attempts: u32 = match on_error {
+            OnError::Retry { max_retries } => max_retries + 1, // first attempt + retries
+            _ => 1,
+        };
+
+        let mut entry_opt = None;
+        for attempt in 1..=max_attempts {
+            let result = match &step.body {
+                StepBody::Prompt(template_text) => dispatch::prompt::execute(
+                    template_text,
+                    step,
+                    session,
+                    runner,
+                    &step_id,
+                    step_index,
+                    total_steps,
+                    pipeline_base_dir,
+                    observer,
+                ),
+
+                StepBody::Context(ContextSource::Shell(cmd)) => {
+                    dispatch::context::execute_shell(cmd, session, &step_id, observer)
+                }
+
+                StepBody::Action(ActionKind::PauseForHuman) => {
+                    unreachable!("PauseForHuman handled above before the match")
+                }
+
+                StepBody::Action(ActionKind::ModifyOutput { .. }) => {
+                    unreachable!("ModifyOutput handled above before the match")
+                }
+
+                StepBody::SubPipeline {
+                    path: path_template,
+                    prompt,
+                } => dispatch::sub_pipeline::execute(
+                    path_template,
+                    prompt.as_deref(),
+                    &step_id,
+                    session,
+                    runner,
+                    depth,
+                    pipeline_base_dir,
+                    observer,
+                ),
+
+                StepBody::Skill { ref name } => dispatch::skill::execute(
+                    name,
+                    step,
+                    session,
+                    runner,
+                    &step_id,
+                    step_index,
+                    total_steps,
+                    pipeline_base_dir,
+                    observer,
+                ),
+            };
+
+            match result {
+                Ok(entry) => {
+                    entry_opt = Some(entry);
+                    break;
+                }
+                Err(err) => {
+                    match on_error {
+                        OnError::Continue => {
+                            tracing::warn!(
+                                run_id = %session.run_id,
+                                step_id = %step_id,
+                                error_type = err.error_type(),
+                                error = %err.detail(),
+                                "step failed — on_error: continue, proceeding to next step"
+                            );
+                            session.turn_log.record_step_error(
+                                &step_id,
+                                err.error_type(),
+                                err.detail(),
+                                "continue",
+                                None,
+                                None,
+                            );
+                            observer.on_step_error_continued(
+                                &step_id,
+                                err.detail(),
+                                err.error_type(),
+                            );
+                            // No entry produced — skip to next step.
+                            break;
+                        }
+                        OnError::Retry { max_retries } => {
+                            if attempt < max_attempts {
+                                tracing::warn!(
+                                    run_id = %session.run_id,
+                                    step_id = %step_id,
+                                    attempt,
+                                    max_retries = *max_retries,
+                                    error_type = err.error_type(),
+                                    error = %err.detail(),
+                                    "step failed — retrying"
+                                );
+                                session.turn_log.record_step_error(
+                                    &step_id,
+                                    err.error_type(),
+                                    err.detail(),
+                                    "retry",
+                                    Some(attempt),
+                                    Some(*max_retries),
+                                );
+                                observer.on_step_retrying(
+                                    &step_id,
+                                    err.detail(),
+                                    attempt,
+                                    *max_retries,
+                                );
+                                // Continue to next loop iteration (retry).
+                            } else {
+                                // All retries exhausted — abort.
+                                tracing::error!(
+                                    run_id = %session.run_id,
+                                    step_id = %step_id,
+                                    max_retries = *max_retries,
+                                    error_type = err.error_type(),
+                                    error = %err.detail(),
+                                    "step failed after all retries exhausted — aborting"
+                                );
+                                session.turn_log.record_step_error(
+                                    &step_id,
+                                    err.error_type(),
+                                    err.detail(),
+                                    "abort_pipeline",
+                                    Some(attempt),
+                                    Some(*max_retries),
+                                );
+                                observer.on_pipeline_error(&err);
+                                return Err(err);
+                            }
+                        }
+                        OnError::AbortPipeline => {
+                            // Default behaviour — propagate error immediately.
+                            return Err(err);
+                        }
+                    }
+                }
             }
+        }
 
-            StepBody::Action(ActionKind::PauseForHuman) => {
-                unreachable!("PauseForHuman handled above before the match")
-            }
-
-            StepBody::Action(ActionKind::ModifyOutput { .. }) => {
-                unreachable!("ModifyOutput handled above before the match")
-            }
-
-            StepBody::SubPipeline {
-                path: path_template,
-                prompt,
-            } => dispatch::sub_pipeline::execute(
-                path_template,
-                prompt.as_deref(),
-                &step_id,
-                session,
-                runner,
-                depth,
-                pipeline_base_dir,
-                observer,
-            )?,
-
-            StepBody::Skill { ref name } => dispatch::skill::execute(
-                name,
-                step,
-                session,
-                runner,
-                &step_id,
-                step_index,
-                total_steps,
-                pipeline_base_dir,
-                observer,
-            )?,
+        // entry_opt is None when on_error: continue swallowed the error.
+        let Some(entry) = entry_opt else {
+            continue;
         };
 
         session.turn_log.append(entry);
