@@ -1,0 +1,5 @@
+version: "0.0.1"
+FROM: ./from_base.ail.yaml
+pipeline:
+  - id: extra_step
+    prompt: "Extra step appended after base steps."

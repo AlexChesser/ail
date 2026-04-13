@@ -1,0 +1,4 @@
+version: "0.0.1"
+FROM: ./from_base.ail.yaml
+pipeline:
+  - disable: commit_checkpoint

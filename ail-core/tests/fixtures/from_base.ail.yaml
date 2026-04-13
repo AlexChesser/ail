@@ -1,0 +1,11 @@
+version: "0.0.1"
+defaults:
+  model: base-model
+  timeout_seconds: 60
+pipeline:
+  - id: security_audit
+    prompt: "Review the changes for common security vulnerabilities."
+  - id: test_writer
+    prompt: "Write tests for the changes."
+  - id: commit_checkpoint
+    prompt: "Commit the changes."

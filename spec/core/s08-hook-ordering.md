@@ -30,4 +30,8 @@ When multiple inheritance layers declare hooks targeting the same step ID, one r
 
 An organisation's base pipeline guarantees its hooks fire immediately adjacent to the target step — regardless of what project layers add around the outside. The base pipeline governs what happens closest to the step itself.
 
+### 8.4 Implementation Status
+
+As of v0.2, the `FROM` inheritance chain implements the onion model for hooks within a single inheritance chain (child hooks wrap base hooks). Multi-layer discovery merging (stacking hooks from `--pipeline`, `.ail.yaml`, `.ail/default.yaml`, and `~/.config/ail/default.yaml`) is deferred to a future release.
+
 ---

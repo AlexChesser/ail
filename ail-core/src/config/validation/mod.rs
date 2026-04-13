@@ -315,6 +315,39 @@ pub fn validate(dto: PipelineFileDto, source: PathBuf) -> Result<Pipeline, AilEr
     let mut steps: Vec<Step> = Vec::with_capacity(step_dtos.len());
 
     for step_dto in step_dtos {
+        // Reject leftover hook operation fields — these are consumed during FROM
+        // inheritance resolution and should never reach validation. If they do,
+        // the pipeline either lacks FROM or the merge logic has a bug.
+        if step_dto.run_before.is_some()
+            || step_dto.run_after.is_some()
+            || step_dto.override_step.is_some()
+            || step_dto.disable.is_some()
+        {
+            let hook_field = if step_dto.disable.is_some() {
+                format!("disable: {}", step_dto.disable.as_deref().unwrap_or("?"))
+            } else if step_dto.override_step.is_some() {
+                format!(
+                    "override: {}",
+                    step_dto.override_step.as_deref().unwrap_or("?")
+                )
+            } else if step_dto.run_before.is_some() {
+                format!(
+                    "run_before: {}",
+                    step_dto.run_before.as_deref().unwrap_or("?")
+                )
+            } else {
+                format!(
+                    "run_after: {}",
+                    step_dto.run_after.as_deref().unwrap_or("?")
+                )
+            };
+            return Err(cfg_err!(
+                "Step declares hook operation '{hook_field}' but the pipeline has no \
+                 FROM field — hook operations are only valid in pipelines that inherit \
+                 from a base via FROM (SPEC §7.2)"
+            ));
+        }
+
         let id_str = step_dto
             .id
             .clone()
@@ -461,6 +494,10 @@ mod tests {
             append_system_prompt: None,
             system_prompt: None,
             resume: None,
+            run_before: None,
+            run_after: None,
+            override_step: None,
+            disable: None,
             on_error: None,
             max_retries: None,
             before: None,
@@ -471,6 +508,7 @@ mod tests {
     fn minimal_dto(steps: Vec<StepDto>) -> PipelineFileDto {
         PipelineFileDto {
             version: Some("1".to_string()),
+            from: None,
             defaults: None,
             pipeline: Some(steps),
         }
@@ -492,6 +530,7 @@ mod tests {
     fn missing_version_returns_error() {
         let dto = PipelineFileDto {
             version: None,
+            from: None,
             defaults: None,
             pipeline: Some(vec![minimal_step("s1", "hello")]),
         };
@@ -504,6 +543,7 @@ mod tests {
     fn empty_version_returns_error() {
         let dto = PipelineFileDto {
             version: Some("   ".to_string()),
+            from: None,
             defaults: None,
             pipeline: Some(vec![minimal_step("s1", "hello")]),
         };
@@ -517,6 +557,7 @@ mod tests {
     fn missing_pipeline_field_returns_error() {
         let dto = PipelineFileDto {
             version: Some("1".to_string()),
+            from: None,
             defaults: None,
             pipeline: None,
         };
@@ -529,6 +570,7 @@ mod tests {
     fn empty_pipeline_array_returns_error() {
         let dto = PipelineFileDto {
             version: Some("1".to_string()),
+            from: None,
             defaults: None,
             pipeline: Some(vec![]),
         };
@@ -606,6 +648,10 @@ mod tests {
             append_system_prompt: None,
             system_prompt: None,
             resume: None,
+            run_before: None,
+            run_after: None,
+            override_step: None,
+            disable: None,
             on_error: None,
             max_retries: None,
             before: None,
@@ -636,6 +682,10 @@ mod tests {
             append_system_prompt: None,
             system_prompt: None,
             resume: None,
+            run_before: None,
+            run_after: None,
+            override_step: None,
+            disable: None,
             on_error: None,
             max_retries: None,
             before: None,
@@ -668,6 +718,10 @@ mod tests {
             append_system_prompt: None,
             system_prompt: None,
             resume: None,
+            run_before: None,
+            run_after: None,
+            override_step: None,
+            disable: None,
             on_error: None,
             max_retries: None,
             before: None,
@@ -700,6 +754,10 @@ mod tests {
             resume: None,
             on_headless: None,
             default_value: None,
+            run_before: None,
+            run_after: None,
+            override_step: None,
+            disable: None,
             on_error: None,
             max_retries: None,
             before: None,
@@ -738,6 +796,10 @@ mod tests {
             append_system_prompt: None,
             system_prompt: None,
             resume: None,
+            run_before: None,
+            run_after: None,
+            override_step: None,
+            disable: None,
             on_error: None,
             max_retries: None,
             before: None,
@@ -770,6 +832,10 @@ mod tests {
             append_system_prompt: None,
             system_prompt: None,
             resume: None,
+            run_before: None,
+            run_after: None,
+            override_step: None,
+            disable: None,
             on_error: None,
             max_retries: None,
             before: None,
@@ -802,6 +868,10 @@ mod tests {
             append_system_prompt: None,
             system_prompt: None,
             resume: None,
+            run_before: None,
+            run_after: None,
+            override_step: None,
+            disable: None,
             on_error: None,
             max_retries: None,
             before: None,
@@ -834,6 +904,10 @@ mod tests {
             append_system_prompt: None,
             system_prompt: None,
             resume: None,
+            run_before: None,
+            run_after: None,
+            override_step: None,
+            disable: None,
             on_error: None,
             max_retries: None,
             before: None,
@@ -866,6 +940,10 @@ mod tests {
             append_system_prompt: None,
             system_prompt: None,
             resume: None,
+            run_before: None,
+            run_after: None,
+            override_step: None,
+            disable: None,
             on_error: None,
             max_retries: None,
             before: None,
@@ -1238,6 +1316,7 @@ mod tests {
     fn defaults_model_field_propagates() {
         let dto = PipelineFileDto {
             version: Some("1".to_string()),
+            from: None,
             defaults: Some(DefaultsDto {
                 model: Some("claude-3-5-haiku".to_string()),
                 provider: None,
@@ -1254,6 +1333,7 @@ mod tests {
     fn defaults_provider_model_wins_over_top_level_model() {
         let dto = PipelineFileDto {
             version: Some("1".to_string()),
+            from: None,
             defaults: Some(DefaultsDto {
                 model: Some("top-level".to_string()),
                 provider: Some(ProviderDto {
@@ -1278,6 +1358,7 @@ mod tests {
     fn defaults_no_provider_falls_through_to_top_level_model() {
         let dto = PipelineFileDto {
             version: Some("1".to_string()),
+            from: None,
             defaults: Some(DefaultsDto {
                 model: Some("fallback-model".to_string()),
                 provider: None,
@@ -1294,6 +1375,7 @@ mod tests {
     fn timeout_seconds_propagates() {
         let dto = PipelineFileDto {
             version: Some("1".to_string()),
+            from: None,
             defaults: Some(DefaultsDto {
                 model: None,
                 provider: None,
@@ -1310,6 +1392,7 @@ mod tests {
     fn default_tools_propagate() {
         let dto = PipelineFileDto {
             version: Some("1".to_string()),
+            from: None,
             defaults: Some(DefaultsDto {
                 model: None,
                 provider: None,

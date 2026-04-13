@@ -14,6 +14,7 @@ Consumed by `ail` (the binary) and future language-server / SDK targets.
 | `config/validation/step_body.rs` | `parse_step_body()` — primary field count check + body construction |
 | `config/validation/on_result.rs` | `parse_result_branches()` — DTO → domain for result matchers and actions |
 | `config/validation/system_prompt.rs` | `parse_append_system_prompt()` — DTO → domain for system prompt entries |
+| `config/inheritance.rs` | FROM inheritance — path resolution, cycle detection, DTO merging, hook operations (SPEC §7, §8) |
 | `config/mod.rs` | `load(path)` public entry point |
 | `error.rs` | `AilError`, `ErrorContext`, `error_types` string constants |
 | `executor/mod.rs` | `execute(&mut Session, &dyn Runner)` — SPEC §4.2 core invariant |
@@ -169,6 +170,7 @@ pub struct AilError { pub error_type: &'static str, pub title: &'static str, pub
 | `PLUGIN_PROTOCOL_ERROR` | `ail:plugin/protocol-error` |
 | `PLUGIN_TIMEOUT` | `ail:plugin/timeout` |
 | `CONDITION_INVALID` | `ail:condition/invalid` |
+| `CIRCULAR_INHERITANCE` | `ail:config/circular-inheritance` |
 | `SKILL_UNKNOWN` | `ail:skill/unknown` |
 
 ## Invariants (do not break)
