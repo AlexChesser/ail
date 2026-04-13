@@ -18,7 +18,7 @@ Consumed by `ail` (the binary) and future language-server / SDK targets.
 | `config/mod.rs` | `load(path)` public entry point |
 | `error.rs` | `AilError`, `ErrorContext`, `error_types` string constants |
 | `executor/mod.rs` | `execute(&mut Session, &dyn Runner)` — SPEC §4.2 core invariant |
-| `executor/core.rs` | `StepObserver` trait, `NullObserver`, `execute_core()` — shared step-dispatch loop |
+| `executor/core.rs` | `StepObserver` trait, `NullObserver`, `execute_core()`, `execute_do_while()` — shared step-dispatch loop + do_while loop execution (SPEC §27) |
 | `executor/headless.rs` | `execute()` — headless mode entry point using `NullObserver` |
 | `executor/controlled.rs` | `execute_with_control()` — TUI-controlled mode with `ChannelObserver` |
 | `executor/events.rs` | `ExecuteOutcome`, `ExecutionControl`, `ExecutorEvent` |
@@ -145,12 +145,16 @@ pub type HttpSessionStore = Arc<Mutex<HashMap<String, Vec<ChatMessage>>>>;
 pub enum ExecuteOutcome { Completed, Break { step_id: String } }
 
 // Session
-pub struct Session { pub run_id: String, pub pipeline: Pipeline, pub invocation_prompt: String, pub turn_log: TurnLog, pub cli_provider: ProviderConfig, pub cwd: String, pub runner_name: String, pub headless: bool, pub http_session_store: HttpSessionStore }
+pub struct Session { pub run_id: String, pub pipeline: Pipeline, pub invocation_prompt: String, pub turn_log: TurnLog, pub cli_provider: ProviderConfig, pub cwd: String, pub runner_name: String, pub headless: bool, pub http_session_store: HttpSessionStore, pub do_while_context: Option<DoWhileContext>, pub loop_depth: usize }
 // cwd: captured at Session::new() time via std::env::current_dir(); used by {{ session.cwd }} template variable.
+// do_while_context: set during do_while loop body execution, enables {{ do_while.iteration }} and {{ do_while.max_iterations }} template variables
+// loop_depth: current nesting depth of do_while loops, checked against MAX_LOOP_DEPTH (8)
 // Note: the "Allow for session" tool allowlist (SPEC §13.2, §13.4) lives in the `ail` binary crate
 // (control_bridge::AllowlistArc), not on Session — session allowlisting is a binary-layer concern.
 // TurnEntry carries prompt-step fields (response, runner_session_id, thinking, tool_events) and context-step fields (stdout, stderr, exit_code)
 // tool_events: Vec<ToolEvent> — populated from RunResult.tool_events for prompt steps; empty for context/action/sub-pipeline steps
+pub struct DoWhileContext { pub loop_id: String, pub iteration: u64, pub max_iterations: u64 }
+// DoWhileContext: active loop context — set during do_while body execution, cleared after loop exits (SPEC §27)
 
 // Error
 pub struct AilError { pub error_type: &'static str, pub title: &'static str, pub detail: String, pub context: Option<ErrorContext> }

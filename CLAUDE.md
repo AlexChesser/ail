@@ -145,6 +145,11 @@ If nothing found → passthrough mode (safe zero-config default).
 | `{{ session.tool }}` | Runner name (e.g. `claude`) |
 | `{{ session.cwd }}` | Working directory |
 | `{{ env.<VAR> }}` | Environment variable |
+| `{{ do_while.iteration }}` | Current 0-based iteration index (only inside `do_while:` body) |
+| `{{ do_while.max_iterations }}` | Declared `max_iterations` value (only inside `do_while:` body) |
+| `{{ step.<loop_id>::<step_id>.* }}` | Qualified reference to a do_while inner step from outside the loop |
+| `{{ step.<loop_id>.index }}` | Number of iterations completed by a do_while loop (after loop exits) |
+| `{{ step.<loop_id>::do_while[N].<step_id>.* }}` | Indexed iteration access — specific iteration's inner step (not yet implemented) |
 
 Note: `{{ session.invocation_prompt }}` is a supported alias for `{{ step.invocation.prompt }}` in the implementation but is deprecated — prefer the canonical form.
 

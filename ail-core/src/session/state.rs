@@ -10,6 +10,19 @@ use super::log_provider::{CompositeProvider, JsonlProvider, LogProvider};
 use super::sqlite_provider::SqliteProvider;
 use super::turn_log::TurnLog;
 
+/// Active do_while loop context, set during loop body execution.
+/// Enables `{{ do_while.iteration }}` and `{{ do_while.max_iterations }}` template
+/// variables, and provides the scope prefix for namespaced step ID resolution.
+#[derive(Debug, Clone)]
+pub struct DoWhileContext {
+    /// The do_while step's ID (used as the `<loop_id>::` namespace prefix).
+    pub loop_id: String,
+    /// Current 0-based iteration index.
+    pub iteration: u64,
+    /// The declared `max_iterations` value.
+    pub max_iterations: u64,
+}
+
 pub struct Session {
     pub run_id: String,
     pub pipeline: Pipeline,
@@ -30,6 +43,13 @@ pub struct Session {
     /// Shared HTTP runner session store — all HttpRunner instances in this pipeline run
     /// share the same in-memory conversation map.
     pub http_session_store: HttpSessionStore,
+    /// Active do_while loop context (SPEC §27). Set during loop body execution,
+    /// cleared after the loop exits. Enables `{{ do_while.* }}` template variables
+    /// and namespaced step ID resolution.
+    pub do_while_context: Option<DoWhileContext>,
+    /// Current nesting depth of do_while loops. Checked against `MAX_LOOP_DEPTH`
+    /// to prevent runaway resource consumption from deeply nested loops.
+    pub loop_depth: usize,
 }
 
 impl Session {
@@ -72,6 +92,8 @@ impl Session {
             runner_name,
             headless: false,
             http_session_store: Arc::new(Mutex::new(HashMap::new())),
+            do_while_context: None,
+            loop_depth: 0,
         }
     }
 

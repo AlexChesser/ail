@@ -22,10 +22,12 @@ Prompt strings, file-based prompts, and `pipeline:` paths may reference runtime 
 | `{{ pipeline.run_id }}` | Unique ID for this pipeline execution. |
 | `{{ env.VAR_NAME }}` | An environment variable. Fails loudly if not set — use this form for required variables. Use `{{ env.VAR_NAME \| default("value") }}` to fall back to a string literal. v0.1 supports string literals only. File and inline fallbacks for complex JSON or prompt content are a planned extension — for now, declare required variables explicitly and handle optional configuration via separate steps. |
 | `{{ step.<id>.items }}` | Validated array from a step that declared `output_schema: type: array` (§26). Only available for steps with an array output schema. Referencing `.items` on a step without an array schema is a `TEMPLATE_UNRESOLVED` error. |
-| `{{ do_while.iteration }}` | Inside a `do_while:` step body (§27): the current 1-based iteration number. Not available outside a `do_while:` body. |
+| `{{ do_while.iteration }}` | Inside a `do_while:` step body (§27): the current 0-based iteration index. Not available outside a `do_while:` body. |
 | `{{ do_while.max_iterations }}` | Inside a `do_while:` step body (§27): the declared `max_iterations` value. Not available outside a `do_while:` body. |
+| `{{ step.<id>.index }}` | Number of iterations completed by a `do_while:` loop step (§27). Only available on do_while steps after the loop completes. |
+| `{{ step.<loop_id>::do_while[N].<step_id>.<field> }}` | Indexed iteration access (§27.4): reference a specific iteration's inner step result by 0-based index. Not yet implemented — produces `TEMPLATE_UNRESOLVED` until support is added. |
 | `{{ for_each.item }}` | Inside a `for_each:` step body (§28): the current item value. If `as:` is set, also available as `{{ for_each.<as_name> }}` (e.g. `{{ for_each.task }}` when `as: task`). Not available outside a `for_each:` body. |
-| `{{ for_each.index }}` | Inside a `for_each:` step body (§28): the current 1-based item index. |
+| `{{ for_each.index }}` | Inside a `for_each:` step body (§28): the current 0-based item index. |
 | `{{ for_each.total }}` | Inside a `for_each:` step body (§28): the total number of items in the collection. |
 
 > **Note:** All variable references use the dot-path structure above. `{{ session.invocation_prompt }}` is a supported but **deprecated** alias for `{{ step.invocation.prompt }}`; prefer the canonical form. No other aliases exist.

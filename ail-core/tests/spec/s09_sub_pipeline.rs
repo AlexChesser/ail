@@ -470,6 +470,7 @@ fn sub_pipeline_step_prompt_override_is_passed_to_child() {
         thinking: None,
         tool_events: vec![],
         modified: None,
+        index: None,
     });
 
     let runner = EchoStubRunner::new();

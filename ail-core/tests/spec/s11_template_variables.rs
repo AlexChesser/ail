@@ -28,6 +28,7 @@ fn append_response(session: &mut Session, step_id: &str, response: &str) {
         thinking: None,
         tool_events: vec![],
         modified: None,
+        index: None,
     });
 }
 
@@ -47,6 +48,7 @@ fn append_context(session: &mut Session, step_id: &str, stdout: &str, stderr: &s
         thinking: None,
         tool_events: vec![],
         modified: None,
+        index: None,
     });
 }
 
@@ -491,6 +493,7 @@ fn step_tool_calls_serialises_events_as_json() {
         thinking: None,
         tool_events: vec![event],
         modified: None,
+        index: None,
     });
 
     let result = resolve("{{ step.run_check.tool_calls }}", &session).unwrap();
