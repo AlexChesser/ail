@@ -23,7 +23,7 @@ These two mechanisms are mutually exclusive within a single step execution:
 1. Step runs.
 2. **If the step errors** (see above) → `on_error` fires. `on_result` does **not** fire.
 3. **If the step completes** (runner returns, any content, any exit code) → `on_result` fires. `on_error` does **not** fire.
-4. `repeat_step` (from `on_result`) and `on_error: retry` share the same `max_retries` counter.
+4. `on_error: retry` uses its own `max_retries` counter, independent of other retry mechanisms.
 
 ### `on_error` Values
 
@@ -101,6 +101,12 @@ Every `AilError` carries a stable `error_type` string used in NDJSON output and 
 | `STORAGE_QUERY_FAILED` | `ail:storage/query-failed` | SQLite or JSONL read error in the log/query layer |
 | `RUN_NOT_FOUND` | `ail:storage/run-not-found` | Requested run ID does not exist in the database or JSONL store |
 | `STORAGE_DELETE_FAILED` | `ail:storage/delete-failed` | SQLite delete or JSONL file removal failed |
+| `DO_WHILE_MAX_ITERATIONS` | `ail:do-while/max-iterations-exceeded` | `do_while:` hit `max_iterations` with `on_max_iterations: abort_pipeline` (§27) |
+| `LOOP_DEPTH_EXCEEDED` | `ail:loop/depth-exceeded` | Nested `do_while:` or `for_each:` loops exceeded the runtime depth limit |
+| `OUTPUT_SCHEMA_VALIDATION_FAILED` | `ail:schema/output-validation-failed` | Step output failed `output_schema` validation at runtime (§26) |
+| `INPUT_SCHEMA_VALIDATION_FAILED` | `ail:schema/input-validation-failed` | Prior step output failed `input_schema` validation before step execution (§26) |
+| `SCHEMA_COMPATIBILITY_FAILED` | `ail:schema/compatibility-failed` | Adjacent `output_schema` / `input_schema` are incompatible at parse time (§26) |
+| `FOR_EACH_SOURCE_INVALID` | `ail:for-each/source-invalid` | `for_each.over` references a step that did not declare `output_schema: type: array` (§28) |
 
 ### Unimplemented Step Types
 
