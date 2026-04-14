@@ -1,6 +1,6 @@
 ## 27. `do_while:` — Bounded Repeat-Until
 
-> **Implementation status:** Core execution implemented. Parse-time validation, executor loop, template variables (`{{ do_while.iteration }}`, `{{ do_while.max_iterations }}`), step ID namespacing (`<loop_id>::<step_id>`), iteration scope management, loop depth guard (`MAX_LOOP_DEPTH = 8`), and `break`/`abort_pipeline` handling are all functional. `on_max_iterations` field is not yet implemented (defaults to `abort_pipeline`). Controlled-mode executor events (§27.7) are deferred.
+> **Implementation status:** Core execution implemented. Parse-time validation, executor loop, template variables (`{{ do_while.iteration }}`, `{{ do_while.max_iterations }}`), step ID namespacing (`<loop_id>::<step_id>`), iteration scope management, loop depth guard (`MAX_LOOP_DEPTH = 8`), and `break`/`abort_pipeline` handling are all functional. `pipeline:` as alternative to inline `steps:` implemented. `on_max_iterations` field is not yet implemented (defaults to `abort_pipeline`). Controlled-mode executor events (§27.7) are deferred.
 
 A `do_while:` step runs a fixed set of inner steps repeatedly until an `exit_when` condition is met or a declared `max_iterations` bound is exceeded. It is the generate→test→fix pattern: each iteration produces a result, then checks whether the result is good enough to stop.
 

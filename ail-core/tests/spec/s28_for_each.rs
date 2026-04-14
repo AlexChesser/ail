@@ -760,3 +760,244 @@ mod materialize {
         assert!(result.is_ok(), "Output was not valid YAML: {output}");
     }
 }
+
+// ── Pipeline-as-file tests ──────────────────────────────────────────────────
+
+mod pipeline_as_file {
+    use ail_core::config;
+    use ail_core::config::domain::StepBody;
+    use ail_core::error::error_types;
+
+    /// §28.2 — for_each accepts pipeline: as alternative to inline steps.
+    #[test]
+    fn for_each_pipeline_file_loads_steps() {
+        // Create the sub-pipeline file.
+        let sub_dir = tempfile::tempdir().unwrap();
+        let sub_path = sub_dir.path().join("loop-body.ail.yaml");
+        std::fs::write(
+            &sub_path,
+            r#"
+version: "0.1"
+pipeline:
+  - id: inner_work
+    prompt: "do the work"
+"#,
+        )
+        .unwrap();
+
+        // Create the main pipeline that references it.
+        let main_yaml = format!(
+            r#"
+version: "0.1"
+pipeline:
+  - id: loop
+    for_each:
+      over: "{{{{ step.plan.items }}}}"
+      pipeline: {}
+"#,
+            sub_path.display()
+        );
+        let main_path = sub_dir.path().join("main.ail.yaml");
+        std::fs::write(&main_path, main_yaml).unwrap();
+
+        let pipeline = config::load(&main_path).expect("should parse");
+        let step = &pipeline.steps[0];
+        match &step.body {
+            StepBody::ForEach { steps, .. } => {
+                assert_eq!(steps.len(), 1);
+                assert_eq!(steps[0].id.as_str(), "inner_work");
+            }
+            other => panic!("expected ForEach, got {other:?}"),
+        }
+    }
+
+    /// §28.2 — for_each with relative pipeline path resolves against source dir.
+    #[test]
+    fn for_each_pipeline_relative_path() {
+        let dir = tempfile::tempdir().unwrap();
+        // Create sub-pipeline in a subdirectory.
+        let sub_dir = dir.path().join("subs");
+        std::fs::create_dir(&sub_dir).unwrap();
+        std::fs::write(
+            sub_dir.join("body.ail.yaml"),
+            r#"
+version: "0.1"
+pipeline:
+  - id: task
+    prompt: "handle it"
+"#,
+        )
+        .unwrap();
+
+        // Main pipeline uses relative path.
+        std::fs::write(
+            dir.path().join("main.ail.yaml"),
+            r#"
+version: "0.1"
+pipeline:
+  - id: loop
+    for_each:
+      over: "{{ step.plan.items }}"
+      pipeline: ./subs/body.ail.yaml
+"#,
+        )
+        .unwrap();
+
+        let pipeline =
+            config::load(&dir.path().join("main.ail.yaml")).expect("should resolve relative path");
+        match &pipeline.steps[0].body {
+            StepBody::ForEach { steps, .. } => {
+                assert_eq!(steps[0].id.as_str(), "task");
+            }
+            other => panic!("expected ForEach, got {other:?}"),
+        }
+    }
+
+    /// §28.7 rule 1 — declaring both steps and pipeline is an error.
+    #[test]
+    fn for_each_steps_and_pipeline_mutually_exclusive() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("body.ail.yaml"),
+            "version: \"0.1\"\npipeline:\n  - id: x\n    prompt: hi\n",
+        )
+        .unwrap();
+        let yaml = format!(
+            r#"
+version: "0.1"
+pipeline:
+  - id: loop
+    for_each:
+      over: "{{{{ step.plan.items }}}}"
+      pipeline: {}
+      steps:
+        - id: work
+          prompt: "do it"
+"#,
+            dir.path().join("body.ail.yaml").display()
+        );
+        let main_path = dir.path().join("main.ail.yaml");
+        std::fs::write(&main_path, yaml).unwrap();
+        let err = config::load(&main_path).unwrap_err();
+        assert_eq!(err.error_type(), error_types::CONFIG_VALIDATION_FAILED);
+        assert!(
+            err.detail().contains("mutually exclusive"),
+            "got: {}",
+            err.detail()
+        );
+    }
+
+    /// §28.7 rule 1 — declaring neither steps nor pipeline is an error.
+    #[test]
+    fn for_each_neither_steps_nor_pipeline() {
+        let yaml = r#"
+version: "0.1"
+pipeline:
+  - id: loop
+    for_each:
+      over: "{{ step.plan.items }}"
+"#;
+        let tmp = tempfile::NamedTempFile::with_suffix(".ail.yaml").unwrap();
+        std::fs::write(tmp.path(), yaml).unwrap();
+        let err = config::load(tmp.path()).unwrap_err();
+        assert_eq!(err.error_type(), error_types::CONFIG_VALIDATION_FAILED);
+        assert!(err.detail().contains("neither"), "got: {}", err.detail());
+    }
+
+    /// §28.7 rule 8 — missing pipeline file is a CONFIG_FILE_NOT_FOUND error.
+    #[test]
+    fn for_each_pipeline_file_not_found() {
+        let yaml = r#"
+version: "0.1"
+pipeline:
+  - id: loop
+    for_each:
+      over: "{{ step.plan.items }}"
+      pipeline: ./nonexistent.ail.yaml
+"#;
+        let tmp = tempfile::NamedTempFile::with_suffix(".ail.yaml").unwrap();
+        std::fs::write(tmp.path(), yaml).unwrap();
+        let err = config::load(tmp.path()).unwrap_err();
+        assert_eq!(err.error_type(), error_types::CONFIG_FILE_NOT_FOUND);
+    }
+
+    /// §27.2 — do_while also accepts pipeline: as alternative to inline steps.
+    #[test]
+    fn do_while_pipeline_file_loads_steps() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("loop-body.ail.yaml"),
+            r#"
+version: "0.1"
+pipeline:
+  - id: fix
+    prompt: "fix the code"
+  - id: test
+    context:
+      shell: "echo ok"
+"#,
+        )
+        .unwrap();
+
+        let main_yaml = format!(
+            r#"
+version: "0.1"
+pipeline:
+  - id: fix_loop
+    do_while:
+      max_iterations: 5
+      exit_when: "{{{{ step.test.exit_code }}}} == 0"
+      pipeline: {}
+"#,
+            dir.path().join("loop-body.ail.yaml").display()
+        );
+        let main_path = dir.path().join("main.ail.yaml");
+        std::fs::write(&main_path, main_yaml).unwrap();
+
+        let pipeline = config::load(&main_path).expect("should parse");
+        match &pipeline.steps[0].body {
+            StepBody::DoWhile { steps, .. } => {
+                assert_eq!(steps.len(), 2);
+                assert_eq!(steps[0].id.as_str(), "fix");
+                assert_eq!(steps[1].id.as_str(), "test");
+            }
+            other => panic!("expected DoWhile, got {other:?}"),
+        }
+    }
+
+    /// §27.2 — do_while: declaring both steps and pipeline is an error.
+    #[test]
+    fn do_while_steps_and_pipeline_mutually_exclusive() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("body.ail.yaml"),
+            "version: \"0.1\"\npipeline:\n  - id: x\n    prompt: hi\n",
+        )
+        .unwrap();
+        let yaml = format!(
+            r#"
+version: "0.1"
+pipeline:
+  - id: fix_loop
+    do_while:
+      max_iterations: 3
+      exit_when: "{{{{ step.test.exit_code }}}} == 0"
+      pipeline: {}
+      steps:
+        - id: test
+          context:
+            shell: "echo ok"
+"#,
+            dir.path().join("body.ail.yaml").display()
+        );
+        let main_path = dir.path().join("main.ail.yaml");
+        std::fs::write(&main_path, yaml).unwrap();
+        let err = config::load(&main_path).unwrap_err();
+        assert_eq!(err.error_type(), error_types::CONFIG_VALIDATION_FAILED);
+        assert!(
+            err.detail().contains("mutually exclusive"),
+            "got: {}",
+            err.detail()
+        );
+    }
+}
