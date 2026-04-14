@@ -150,6 +150,10 @@ If nothing found → passthrough mode (safe zero-config default).
 | `{{ step.<loop_id>::<step_id>.* }}` | Qualified reference to a do_while inner step from outside the loop |
 | `{{ step.<loop_id>.index }}` | Number of iterations completed by a do_while loop (after loop exits) |
 | `{{ step.<loop_id>::do_while[N].<step_id>.* }}` | Indexed iteration access — specific iteration's inner step (not yet implemented) |
+| `{{ for_each.item }}` | Current item value (default name — used when `as:` is not set; always available) |
+| `{{ for_each.<as_name> }}` | Current item value under the declared `as:` name (e.g. `{{ for_each.task }}` when `as: task`) |
+| `{{ for_each.index }}` | Current 1-based item index (only inside `for_each:` body) |
+| `{{ for_each.total }}` | Total number of items in the collection, after `max_items` cap (only inside `for_each:` body) |
 
 Note: `{{ session.invocation_prompt }}` is a supported alias for `{{ step.invocation.prompt }}` in the implementation but is deprecated — prefer the canonical form.
 

@@ -8,13 +8,13 @@
 #![allow(clippy::result_large_err)]
 
 use crate::config::domain::{
-    ActionKind, Condition, ConditionExpr, ContextSource, OnError, ResultAction, Step, StepBody,
-    StepId, MAX_LOOP_DEPTH,
+    ActionKind, Condition, ConditionExpr, ContextSource, OnError, OnMaxItems, ResultAction, Step,
+    StepBody, StepId, MAX_LOOP_DEPTH,
 };
 use crate::error::AilError;
 use crate::runner::{InvokeOptions, RunResult, Runner};
 use crate::session::turn_log::TurnEntry;
-use crate::session::{DoWhileContext, Session};
+use crate::session::{DoWhileContext, ForEachContext, Session};
 
 use super::dispatch;
 use super::events::ExecuteOutcome;
@@ -410,6 +410,25 @@ fn execute_single_step<O: StepObserver>(
                 &step_id,
                 *max_iterations,
                 exit_when,
+                inner_steps,
+                session,
+                runner,
+                observer,
+                depth,
+            ),
+
+            StepBody::ForEach {
+                ref over,
+                ref as_name,
+                max_items,
+                ref on_max_items,
+                steps: ref inner_steps,
+            } => execute_for_each(
+                &step_id,
+                over,
+                as_name,
+                *max_items,
+                on_max_items,
                 inner_steps,
                 session,
                 runner,
@@ -911,6 +930,314 @@ fn execute_do_while_inner<O: StepObserver>(
         prompt: format!("do_while(max_iterations={max_iterations})"),
         response,
         index: Some(index),
+        ..Default::default()
+    })
+}
+
+// ── for_each execution (SPEC §28) ───────────────────────────────────────────
+
+/// Exit reason for a for_each loop, used for logging and result reporting.
+enum ForEachExitReason {
+    /// All items processed.
+    Completed,
+    /// A `break` action fired inside the loop body.
+    Break,
+}
+
+/// Execute a `for_each:` loop body (SPEC §28).
+///
+/// Resolves the `over` template to get a JSON array, then runs `inner_steps`
+/// once per item. The current item is available via `{{ for_each.<as_name> }}`
+/// (or `{{ for_each.item }}`), along with `{{ for_each.index }}` and
+/// `{{ for_each.total }}`.
+///
+/// Returns a summary `TurnEntry` for the for_each step itself.
+#[allow(clippy::too_many_arguments)]
+fn execute_for_each<O: StepObserver>(
+    loop_step_id: &str,
+    over: &str,
+    as_name: &str,
+    max_items: Option<u64>,
+    on_max_items: &OnMaxItems,
+    inner_steps: &[Step],
+    session: &mut Session,
+    runner: &dyn Runner,
+    observer: &mut O,
+    depth: usize,
+) -> Result<TurnEntry, AilError> {
+    // Depth guard (shared with do_while — SPEC §27.9, §28).
+    if session.loop_depth >= MAX_LOOP_DEPTH {
+        return Err(AilError::LoopDepthExceeded {
+            detail: format!(
+                "Step '{loop_step_id}' would exceed the maximum loop nesting depth \
+                 of {MAX_LOOP_DEPTH}"
+            ),
+            context: Some(crate::error::ErrorContext::for_step(
+                &session.run_id,
+                loop_step_id,
+            )),
+        });
+    }
+
+    // Resolve the `over` template to get the JSON array string.
+    let resolved_over = crate::template::resolve(over, session)?;
+
+    // Parse the resolved string as a JSON array.
+    let items_value: serde_json::Value = serde_json::from_str(&resolved_over).map_err(|e| {
+        AilError::for_each_source_invalid(format!(
+            "Step '{loop_step_id}' for_each.over resolved to a value that is not valid JSON: {e}"
+        ))
+    })?;
+
+    let items = items_value.as_array().ok_or_else(|| {
+        AilError::for_each_source_invalid(format!(
+            "Step '{loop_step_id}' for_each.over resolved to JSON that is not an array"
+        ))
+    })?;
+
+    let raw_count = items.len() as u64;
+
+    // Apply max_items cap.
+    let effective_count = if let Some(cap) = max_items {
+        if raw_count > cap {
+            match on_max_items {
+                OnMaxItems::AbortPipeline => {
+                    return Err(AilError::PipelineAborted {
+                        detail: format!(
+                            "Step '{loop_step_id}' for_each array has {raw_count} items \
+                             but max_items is {cap} and on_max_items is abort_pipeline"
+                        ),
+                        context: Some(crate::error::ErrorContext::for_step(
+                            &session.run_id,
+                            loop_step_id,
+                        )),
+                    });
+                }
+                OnMaxItems::Continue => cap,
+            }
+        } else {
+            raw_count
+        }
+    } else {
+        raw_count
+    };
+
+    session
+        .turn_log
+        .record_step_started(loop_step_id, &format!("for_each(items={effective_count})"));
+
+    let result = execute_for_each_inner(
+        loop_step_id,
+        as_name,
+        items,
+        effective_count,
+        inner_steps,
+        session,
+        runner,
+        observer,
+        depth,
+    );
+
+    match &result {
+        Ok(_) => observer.on_non_prompt_completed(loop_step_id),
+        Err(e) => observer.on_step_failed(loop_step_id, e.detail()),
+    }
+    result
+}
+
+/// Inner for_each loop logic, separated so the caller can attach observer hooks.
+#[allow(clippy::too_many_arguments)]
+fn execute_for_each_inner<O: StepObserver>(
+    loop_step_id: &str,
+    as_name: &str,
+    items: &[serde_json::Value],
+    effective_count: u64,
+    inner_steps: &[Step],
+    session: &mut Session,
+    runner: &dyn Runner,
+    observer: &mut O,
+    depth: usize,
+) -> Result<TurnEntry, AilError> {
+    // Save and restore outer for_each context for nested loops.
+    let prev_context = session.for_each_context.take();
+    session.loop_depth += 1;
+
+    let prefix = format!("{loop_step_id}::");
+    let total_inner = inner_steps.len();
+    let mut items_processed: u64 = 0;
+    let mut exit_reason = ForEachExitReason::Completed;
+
+    for (item_idx, item) in items.iter().take(effective_count as usize).enumerate() {
+        let one_based_index = (item_idx as u64) + 1;
+
+        // Clear previous item's inner step entries (SPEC §28.3 point 4 — item scope).
+        session.turn_log.remove_entries_with_prefix(&prefix);
+
+        // Format item as a string for template substitution.
+        // String values are unquoted; other JSON types keep their JSON representation.
+        let item_str = match item {
+            serde_json::Value::String(s) => s.clone(),
+            other => other.to_string(),
+        };
+
+        // Set loop context for template variable resolution.
+        session.for_each_context = Some(ForEachContext {
+            loop_id: loop_step_id.to_string(),
+            index: one_based_index,
+            total: effective_count,
+            item: item_str,
+            as_name: as_name.to_string(),
+        });
+
+        tracing::info!(
+            run_id = %session.run_id,
+            step_id = %loop_step_id,
+            index = one_based_index,
+            total = effective_count,
+            "for_each item started"
+        );
+
+        // Execute each inner step with a namespaced ID.
+        let mut loop_broken = false;
+        for (inner_idx, inner_step) in inner_steps.iter().enumerate() {
+            let namespaced_id = format!("{}{}", prefix, inner_step.id.as_str());
+            let mut namespaced_step = inner_step.clone();
+            namespaced_step.id = StepId(namespaced_id.clone());
+
+            // Evaluate condition for the inner step.
+            let condition_skip = if let Some(ref cond) = namespaced_step.condition {
+                !evaluate_condition(cond, session, &namespaced_id)?
+            } else {
+                false
+            };
+
+            match observer.before_step(&namespaced_id, inner_idx, condition_skip) {
+                BeforeStepAction::Run => {}
+                BeforeStepAction::Skip => continue,
+                BeforeStepAction::Stop => {
+                    loop_broken = true;
+                    break;
+                }
+            }
+
+            tracing::info!(
+                run_id = %session.run_id,
+                step_id = %namespaced_id,
+                item_index = one_based_index,
+                "executing for_each inner step"
+            );
+
+            let matched_action = execute_single_step(
+                &namespaced_step,
+                session,
+                runner,
+                observer,
+                depth,
+                total_inner,
+                inner_idx,
+            )?;
+
+            // Handle on_result actions within the loop (SPEC §28.3 point 5).
+            // `break` exits the loop, not the pipeline.
+            if let Some(action) = matched_action {
+                match action {
+                    ResultAction::Continue => {}
+                    ResultAction::Break => {
+                        tracing::info!(
+                            run_id = %session.run_id,
+                            step_id = %loop_step_id,
+                            inner_step = %namespaced_id,
+                            item_index = one_based_index,
+                            "on_result break inside for_each — exiting loop"
+                        );
+                        loop_broken = true;
+                        break;
+                    }
+                    ResultAction::AbortPipeline => {
+                        session.loop_depth -= 1;
+                        session.for_each_context = prev_context;
+                        let err = AilError::PipelineAborted {
+                            detail: format!(
+                                "Step '{namespaced_id}' on_result fired abort_pipeline \
+                                 inside for_each loop '{loop_step_id}'"
+                            ),
+                            context: Some(crate::error::ErrorContext::for_step(
+                                &session.run_id,
+                                loop_step_id,
+                            )),
+                        };
+                        observer.on_pipeline_error(&err);
+                        return Err(err);
+                    }
+                    ResultAction::PauseForHuman => {
+                        observer.on_result_pause(&namespaced_id, None);
+                    }
+                    ResultAction::Pipeline {
+                        ref path,
+                        ref prompt,
+                    } => {
+                        let pipeline_base_dir_buf: Option<std::path::PathBuf> = session
+                            .pipeline
+                            .source
+                            .as_deref()
+                            .and_then(|p| p.parent())
+                            .map(|p| p.to_path_buf());
+                        let pipeline_base_dir = pipeline_base_dir_buf.as_deref();
+                        let on_result_step_id = format!("{namespaced_id}__on_result");
+                        let sub_entry = dispatch::sub_pipeline::execute_sub_pipeline(
+                            path,
+                            prompt.as_deref(),
+                            &on_result_step_id,
+                            session,
+                            runner,
+                            depth,
+                            pipeline_base_dir,
+                        )
+                        .inspect_err(|e| observer.on_pipeline_error(e))?;
+                        session.turn_log.append(sub_entry);
+                    }
+                }
+            }
+        }
+
+        items_processed += 1;
+
+        if loop_broken {
+            exit_reason = ForEachExitReason::Break;
+            break;
+        }
+    }
+
+    // Restore state.
+    session.loop_depth -= 1;
+    session.for_each_context = prev_context;
+
+    tracing::info!(
+        run_id = %session.run_id,
+        step_id = %loop_step_id,
+        items_processed,
+        exit_reason = match exit_reason {
+            ForEachExitReason::Completed => "completed",
+            ForEachExitReason::Break => "break",
+        },
+        "for_each completed"
+    );
+
+    // Build summary TurnEntry. Response is the last inner step's response from
+    // the final item.
+    let response = session
+        .turn_log
+        .entries()
+        .iter()
+        .rev()
+        .filter(|e| e.step_id.starts_with(&prefix))
+        .find_map(|e| e.response.as_deref())
+        .map(|s| s.to_string());
+
+    Ok(TurnEntry {
+        step_id: loop_step_id.to_string(),
+        prompt: format!("for_each(items={effective_count})"),
+        response,
         ..Default::default()
     })
 }

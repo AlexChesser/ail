@@ -50,7 +50,7 @@ The AIL Pipeline Language Specification — for pipeline authors and implementer
 | [s24-log-command.md](core/s24-log-command.md) | §24–25 The `ail log` and `ail logs` Commands | §24: single-run inspection; `--format` and `--follow` flags; exit codes; project scoping. §25: multi-session listing; `--session`, `--query`, `--tail`, `--limit`, `--format`; FTS search; JSON output schema | **alpha** — both commands fully documented |
 | [s26-output-schema.md](core/s26-output-schema.md) | §26 Structured Step I/O Schemas | `output_schema` / `input_schema`; JSON Schema compliance (`$schema` field selects draft, defaults to Draft 7); file-path or inline block; parse-time compatibility check; `field:` + `equals:` in `on_result`; array access via `{{ step.<id>.items }}`; provider compatibility | **draft** |
 | [s27-do-while.md](core/s27-do-while.md) | §27 `do_while:` — Bounded Repeat-Until | Bounded generate→test→fix loop; `max_iterations` (required), `exit_when` (§12.2 syntax), `on_max_iterations`; step namespacing (`<loop_id>::<step_id>`); iteration scope; turn log events; executor events | **draft** |
-| [s28-for-each.md](core/s28-for-each.md) | §28 `for_each:` — Collection Iteration | Map steps over a validated array from a prior `output_schema: type: array` step; `over`, `as`, `max_items`, `on_max_items`; plan-execution pattern; requires §26 | **draft** |
+| [s28-for-each.md](core/s28-for-each.md) | §28 `for_each:` — Collection Iteration | Map steps over a validated array from a prior `output_schema: type: array` step; `over`, `as`, `max_items`, `on_max_items`; plan-execution pattern; requires §26 | **v0.3** |
 
 ---
 

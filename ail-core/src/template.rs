@@ -80,7 +80,44 @@ fn resolve_variable(variable: &str, session: &Session) -> Result<String, AilErro
                 )
             }),
 
+        "for_each.index" => session
+            .for_each_context
+            .as_ref()
+            .map(|ctx| ctx.index.to_string())
+            .ok_or_else(|| {
+                unresolved("'{{ for_each.index }}' is only available inside a for_each: body")
+            }),
+
+        "for_each.total" => session
+            .for_each_context
+            .as_ref()
+            .map(|ctx| ctx.total.to_string())
+            .ok_or_else(|| {
+                unresolved("'{{ for_each.total }}' is only available inside a for_each: body")
+            }),
+
         other => {
+            // `for_each.<as_name>` — dynamic item access by the declared `as:` name (SPEC §28.4).
+            if let Some(name) = other.strip_prefix("for_each.") {
+                return session
+                    .for_each_context
+                    .as_ref()
+                    .and_then(|ctx| {
+                        if name == ctx.as_name || name == "item" {
+                            Some(ctx.item.clone())
+                        } else {
+                            None
+                        }
+                    })
+                    .ok_or_else(|| {
+                        unresolved(format!(
+                            "'{{{{ for_each.{name} }}}}' is not available — \
+                             either not inside a for_each: body or '{name}' does not match \
+                             the declared 'as:' name"
+                        ))
+                    });
+            }
+
             // `step.<id>.<field>` — split on last dot to get step_id and field.
             if let Some(rest) = other.strip_prefix("step.") {
                 if let Some(dot) = rest.rfind('.') {
@@ -95,8 +132,19 @@ fn resolve_variable(variable: &str, session: &Session) -> Result<String, AilErro
                     if result.is_ok() {
                         return result;
                     }
+                    // Try namespaced form for do_while context.
                     if let Some(ref ctx) = session.do_while_context {
-                        // Only try namespacing if step_id doesn't already contain `::`
+                        if !step_id.contains("::") {
+                            let namespaced = format!("{}::{}", ctx.loop_id, step_id);
+                            let ns_result =
+                                resolve_step_field(session, &namespaced, field, variable);
+                            if ns_result.is_ok() {
+                                return ns_result;
+                            }
+                        }
+                    }
+                    // Try namespaced form for for_each context.
+                    if let Some(ref ctx) = session.for_each_context {
                         if !step_id.contains("::") {
                             let namespaced = format!("{}::{}", ctx.loop_id, step_id);
                             let ns_result =

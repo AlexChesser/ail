@@ -60,6 +60,7 @@ pub fn run_dry_run(session: &mut ail_core::session::Session, runner: &dyn Runner
                 ail_core::config::domain::ContextSource::Shell(_),
             ) => "context:shell",
             ail_core::config::domain::StepBody::DoWhile { .. } => "do_while",
+            ail_core::config::domain::StepBody::ForEach { .. } => "for_each",
         };
 
         let condition_note = match &step.condition {
@@ -134,6 +135,25 @@ pub fn run_dry_run(session: &mut ail_core::session::Session, runner: &dyn Runner
                     format_condition_op(&exit_when.op),
                     exit_when.rhs
                 );
+                for (j, inner) in steps.iter().enumerate() {
+                    println!("    Inner step {}: {}", j + 1, inner.id.as_str());
+                }
+            }
+            ail_core::config::domain::StepBody::ForEach {
+                over,
+                as_name,
+                max_items,
+                steps,
+                ..
+            } => {
+                println!(
+                    "  for_each: over={over}, as={as_name}, {} inner step{}",
+                    steps.len(),
+                    if steps.len() == 1 { "" } else { "s" }
+                );
+                if let Some(cap) = max_items {
+                    println!("  max_items: {cap}");
+                }
                 for (j, inner) in steps.iter().enumerate() {
                     println!("    Inner step {}: {}", j + 1, inner.id.as_str());
                 }
