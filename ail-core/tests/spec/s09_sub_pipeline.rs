@@ -32,6 +32,8 @@ fn sub_pipeline_step(id: &str, path: &str) -> Step {
         on_error: None,
         before: vec![],
         then: vec![],
+        output_schema: None,
+        input_schema: None,
     }
 }
 
@@ -200,6 +202,8 @@ fn on_result_pipeline_action_executes_sub_pipeline_on_match() {
         on_error: None,
         before: vec![],
         then: vec![],
+        output_schema: None,
+        input_schema: None,
     };
     let mut session = make_session(vec![trigger]);
 
@@ -452,6 +456,8 @@ fn sub_pipeline_step_prompt_override_is_passed_to_child() {
         on_error: None,
         before: vec![],
         then: vec![],
+        output_schema: None,
+        input_schema: None,
     };
     let mut session = make_session(vec![step]);
     // Add a prior turn entry so we can confirm it is NOT used as the child prompt.
@@ -459,17 +465,7 @@ fn sub_pipeline_step_prompt_override_is_passed_to_child() {
         step_id: "prior".to_string(),
         prompt: "prior prompt".to_string(),
         response: Some("prior response — should be ignored".to_string()),
-        timestamp: std::time::SystemTime::now(),
-        cost_usd: None,
-        input_tokens: 0,
-        output_tokens: 0,
-        runner_session_id: None,
-        stdout: None,
-        stderr: None,
-        exit_code: None,
-        thinking: None,
-        tool_events: vec![],
-        modified: None,
+        ..Default::default()
     });
 
     let runner = EchoStubRunner::new();
@@ -519,6 +515,8 @@ fn sub_pipeline_step_prompt_override_resolves_template_variables() {
         on_error: None,
         before: vec![],
         then: vec![],
+        output_schema: None,
+        input_schema: None,
     };
     // make_session sets invocation_prompt to "invocation prompt"
     let mut session = make_session(vec![step]);
@@ -572,6 +570,8 @@ fn on_result_pipeline_prompt_override_is_passed_to_child() {
         on_error: None,
         before: vec![],
         then: vec![],
+        output_schema: None,
+        input_schema: None,
     };
     let mut session = make_session(vec![trigger]);
 
@@ -758,6 +758,8 @@ fn on_result_pipeline_uses_derived_step_id_in_turn_log() {
         on_error: None,
         before: vec![],
         then: vec![],
+        output_schema: None,
+        input_schema: None,
     };
     let mut session = make_session(vec![trigger]);
     let runner = StubRunner::new("parent response");

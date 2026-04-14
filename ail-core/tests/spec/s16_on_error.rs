@@ -71,6 +71,8 @@ fn step_with_on_error(id: &str, prompt: &str, on_error: Option<OnError>) -> Step
         on_error,
         before: vec![],
         then: vec![],
+        output_schema: None,
+        input_schema: None,
     }
 }
 

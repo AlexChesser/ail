@@ -26,6 +26,8 @@ impl Default for Step {
             on_error: None,
             before: vec![],
             then: vec![],
+            output_schema: None,
+            input_schema: None,
         }
     }
 }

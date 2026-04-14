@@ -34,6 +34,33 @@ pub struct TurnEntry {
     /// Human-modified output from a HITL `modify_output` gate (SPEC §13.2).
     /// `None` for steps that are not modify gates or when no modification was made.
     pub modified: Option<String>,
+    /// Number of iterations completed by a `do_while:` loop step (SPEC §27).
+    /// `None` for non-loop steps. 0-based count: a loop that exits after running
+    /// its body once has `index: Some(1)`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub index: Option<u64>,
+}
+
+impl Default for TurnEntry {
+    fn default() -> Self {
+        TurnEntry {
+            step_id: String::new(),
+            prompt: String::new(),
+            response: None,
+            timestamp: SystemTime::now(),
+            cost_usd: None,
+            input_tokens: 0,
+            output_tokens: 0,
+            runner_session_id: None,
+            stdout: None,
+            stderr: None,
+            exit_code: None,
+            thinking: None,
+            tool_events: vec![],
+            modified: None,
+            index: None,
+        }
+    }
 }
 
 /// Written as the first entry for a run. Carries pipeline_source and project_hash so the SQLite provider
@@ -82,17 +109,13 @@ impl TurnEntry {
             step_id: step_id.into(),
             prompt,
             response: Some(result.response),
-            timestamp: SystemTime::now(),
             cost_usd: result.cost_usd,
             input_tokens: result.input_tokens,
             output_tokens: result.output_tokens,
             runner_session_id: result.session_id,
-            stdout: None,
-            stderr: None,
-            exit_code: None,
             thinking: result.thinking,
             tool_events: result.tool_events,
-            modified: None,
+            ..Default::default()
         }
     }
 
@@ -107,18 +130,10 @@ impl TurnEntry {
         TurnEntry {
             step_id: step_id.into(),
             prompt: cmd,
-            response: None,
-            timestamp: SystemTime::now(),
-            cost_usd: None,
-            input_tokens: 0,
-            output_tokens: 0,
-            runner_session_id: None,
             stdout: Some(stdout),
             stderr: Some(stderr),
             exit_code: Some(exit_code),
-            thinking: None,
-            tool_events: vec![],
-            modified: None,
+            ..Default::default()
         }
     }
 
@@ -131,18 +146,8 @@ impl TurnEntry {
         TurnEntry {
             step_id: step_id.into(),
             prompt: message,
-            response: None,
-            timestamp: SystemTime::now(),
-            cost_usd: None,
-            input_tokens: 0,
-            output_tokens: 0,
-            runner_session_id: None,
-            stdout: None,
-            stderr: None,
-            exit_code: None,
-            thinking: None,
-            tool_events: vec![],
             modified: Some(modified_output),
+            ..Default::default()
         }
     }
 }
@@ -388,6 +393,25 @@ impl TurnLog {
             .and_then(|e| e.modified.as_deref())
     }
 
+    /// Number of iterations completed by a `do_while:` loop step (SPEC §27).
+    /// Returns `None` for non-loop steps or if no entry exists.
+    pub fn index_for_step(&self, id: &str) -> Option<u64> {
+        self.entries
+            .iter()
+            .find(|e| e.step_id == id)
+            .and_then(|e| e.index)
+    }
+
+    /// Remove in-memory entries whose `step_id` starts with `prefix`.
+    ///
+    /// Used by `do_while:` execution to clear the previous iteration's inner step
+    /// results before starting a new iteration (SPEC §27.3 — iteration scope).
+    /// Already-persisted entries are unaffected; this only affects template variable
+    /// resolution which reads from the in-memory store.
+    pub fn remove_entries_with_prefix(&mut self, prefix: &str) {
+        self.entries.retain(|e| !e.step_id.starts_with(prefix));
+    }
+
     pub fn entries(&self) -> &[TurnEntry] {
         &self.entries
     }
@@ -405,17 +429,7 @@ mod tests {
             step_id: step_id.to_string(),
             prompt: "prompt".to_string(),
             response: response.map(|s| s.to_string()),
-            timestamp: SystemTime::now(),
-            cost_usd: None,
-            input_tokens: 0,
-            output_tokens: 0,
-            runner_session_id: None,
-            stdout: None,
-            stderr: None,
-            exit_code: None,
-            thinking: None,
-            tool_events: Vec::<ToolEvent>::new(),
-            modified: None,
+            ..Default::default()
         }
     }
 

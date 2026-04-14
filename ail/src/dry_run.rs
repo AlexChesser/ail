@@ -59,6 +59,8 @@ pub fn run_dry_run(session: &mut ail_core::session::Session, runner: &dyn Runner
             ail_core::config::domain::StepBody::Context(
                 ail_core::config::domain::ContextSource::Shell(_),
             ) => "context:shell",
+            ail_core::config::domain::StepBody::DoWhile { .. } => "do_while",
+            ail_core::config::domain::StepBody::ForEach { .. } => "for_each",
         };
 
         let condition_note = match &step.condition {
@@ -117,6 +119,52 @@ pub fn run_dry_run(session: &mut ail_core::session::Session, runner: &dyn Runner
                     println!("  Prompt override: {}", truncate(p, 200));
                 }
             }
+            ail_core::config::domain::StepBody::DoWhile {
+                max_iterations,
+                exit_when,
+                steps,
+            } => {
+                println!(
+                    "  do_while: max_iterations={max_iterations}, {} inner step{}",
+                    steps.len(),
+                    if steps.len() == 1 { "" } else { "s" }
+                );
+                println!(
+                    "  exit_when: {:?} {} {:?}",
+                    exit_when.lhs,
+                    format_condition_op(&exit_when.op),
+                    exit_when.rhs
+                );
+                for (j, inner) in steps.iter().enumerate() {
+                    println!("    Inner step {}: {}", j + 1, inner.id.as_str());
+                }
+            }
+            ail_core::config::domain::StepBody::ForEach {
+                over,
+                as_name,
+                max_items,
+                steps,
+                ..
+            } => {
+                println!(
+                    "  for_each: over={over}, as={as_name}, {} inner step{}",
+                    steps.len(),
+                    if steps.len() == 1 { "" } else { "s" }
+                );
+                if let Some(cap) = max_items {
+                    println!("  max_items: {cap}");
+                }
+                for (j, inner) in steps.iter().enumerate() {
+                    println!("    Inner step {}: {}", j + 1, inner.id.as_str());
+                }
+            }
+        }
+
+        if step.output_schema.is_some() {
+            println!("  output_schema: (declared — response will be validated)");
+        }
+        if step.input_schema.is_some() {
+            println!("  input_schema: (declared — preceding step output will be validated)");
         }
 
         if let Some(on_result) = &step.on_result {
@@ -191,6 +239,16 @@ fn pipeline_label(session: &ail_core::session::Session) -> String {
         .as_ref()
         .map(|p| p.display().to_string())
         .unwrap_or_else(|| "(passthrough)".to_string())
+}
+
+fn format_condition_op(op: &ail_core::config::domain::ConditionOp) -> &'static str {
+    match op {
+        ail_core::config::domain::ConditionOp::Eq => "==",
+        ail_core::config::domain::ConditionOp::Ne => "!=",
+        ail_core::config::domain::ConditionOp::Contains => "contains",
+        ail_core::config::domain::ConditionOp::StartsWith => "starts_with",
+        ail_core::config::domain::ConditionOp::EndsWith => "ends_with",
+    }
 }
 
 fn truncate(s: &str, max_len: usize) -> String {

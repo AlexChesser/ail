@@ -56,7 +56,6 @@ mod executor {
 mod session {
     use ail_core::config::domain::Pipeline;
     use ail_core::session::{Session, TurnEntry, TurnLog};
-    use std::time::SystemTime;
 
     fn make_session() -> Session {
         Session::new(Pipeline::passthrough(), "test prompt".to_string())
@@ -67,17 +66,7 @@ mod session {
             step_id: step_id.to_string(),
             prompt: "some prompt".to_string(),
             response: response.map(|s| s.to_string()),
-            timestamp: SystemTime::now(),
-            cost_usd: None,
-            input_tokens: 0,
-            output_tokens: 0,
-            runner_session_id: None,
-            stdout: None,
-            stderr: None,
-            exit_code: None,
-            thinking: None,
-            tool_events: vec![],
-            modified: None,
+            ..Default::default()
         }
     }
 

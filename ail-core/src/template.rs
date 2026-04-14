@@ -62,70 +62,100 @@ fn resolve_variable(variable: &str, session: &Session) -> Result<String, AilErro
 
         "pipeline.run_id" => Ok(session.run_id.clone()),
 
+        "do_while.iteration" => session
+            .do_while_context
+            .as_ref()
+            .map(|ctx| ctx.iteration.to_string())
+            .ok_or_else(|| {
+                unresolved("'{{ do_while.iteration }}' is only available inside a do_while: body")
+            }),
+
+        "do_while.max_iterations" => session
+            .do_while_context
+            .as_ref()
+            .map(|ctx| ctx.max_iterations.to_string())
+            .ok_or_else(|| {
+                unresolved(
+                    "'{{ do_while.max_iterations }}' is only available inside a do_while: body",
+                )
+            }),
+
+        "for_each.index" => session
+            .for_each_context
+            .as_ref()
+            .map(|ctx| ctx.index.to_string())
+            .ok_or_else(|| {
+                unresolved("'{{ for_each.index }}' is only available inside a for_each: body")
+            }),
+
+        "for_each.total" => session
+            .for_each_context
+            .as_ref()
+            .map(|ctx| ctx.total.to_string())
+            .ok_or_else(|| {
+                unresolved("'{{ for_each.total }}' is only available inside a for_each: body")
+            }),
+
         other => {
+            // `for_each.<as_name>` — dynamic item access by the declared `as:` name (SPEC §28.4).
+            if let Some(name) = other.strip_prefix("for_each.") {
+                return session
+                    .for_each_context
+                    .as_ref()
+                    .and_then(|ctx| {
+                        if name == ctx.as_name || name == "item" {
+                            Some(ctx.item.clone())
+                        } else {
+                            None
+                        }
+                    })
+                    .ok_or_else(|| {
+                        unresolved(format!(
+                            "'{{{{ for_each.{name} }}}}' is not available — \
+                             either not inside a for_each: body or '{name}' does not match \
+                             the declared 'as:' name"
+                        ))
+                    });
+            }
+
             // `step.<id>.<field>` — split on last dot to get step_id and field.
             if let Some(rest) = other.strip_prefix("step.") {
                 if let Some(dot) = rest.rfind('.') {
                     let step_id = &rest[..dot];
                     let field = &rest[dot + 1..];
-                    return match field {
-                        "response" => session
-                            .turn_log
-                            .response_for_step(step_id)
-                            .map(|s| s.to_string())
-                            .ok_or_else(|| {
-                                unresolved(format!("No response recorded for step '{step_id}'"))
-                            }),
-                        "result" => session.turn_log.result_for_step(step_id).ok_or_else(|| {
-                            unresolved(format!("No result recorded for step '{step_id}'"))
-                        }),
-                        "stdout" => session
-                            .turn_log
-                            .stdout_for_step(step_id)
-                            .map(|s| s.to_string())
-                            .ok_or_else(|| {
-                                unresolved(format!("No stdout recorded for step '{step_id}'"))
-                            }),
-                        "stderr" => session
-                            .turn_log
-                            .stderr_for_step(step_id)
-                            .map(|s| s.to_string())
-                            .ok_or_else(|| {
-                                unresolved(format!("No stderr recorded for step '{step_id}'"))
-                            }),
-                        "exit_code" => session
-                            .turn_log
-                            .exit_code_for_step(step_id)
-                            .map(|c| c.to_string())
-                            .ok_or_else(|| {
-                                unresolved(format!("No exit_code recorded for step '{step_id}'"))
-                            }),
-                        "modified" => session
-                            .turn_log
-                            .modified_for_step(step_id)
-                            .map(|s| s.to_string())
-                            .ok_or_else(|| {
-                                unresolved(format!(
-                                    "No modified output recorded for step '{step_id}'"
-                                ))
-                            }),
-                        "tool_calls" => {
-                            let events = session
-                                .turn_log
-                                .tool_events_for_step(step_id)
-                                .ok_or_else(|| {
-                                    unresolved(format!("No entry recorded for step '{step_id}'"))
-                                })?;
-                            serde_json::to_string(events).map_err(|e| {
-                                unresolved(format!(
-                                    "Failed to serialize tool_calls for step '{step_id}': {e}"
-                                ))
-                            })
+
+                    // Try the exact step_id first. If it fails and we're inside a
+                    // do_while body, retry with the namespaced form (loop_id::step_id)
+                    // so that shorthand references like `step.check.exit_code` resolve
+                    // to the current iteration's namespaced entry (SPEC §27.3).
+                    let result = resolve_step_field(session, step_id, field, variable);
+                    if result.is_ok() {
+                        return result;
+                    }
+                    // Try namespaced form for do_while context.
+                    if let Some(ref ctx) = session.do_while_context {
+                        if !step_id.contains("::") {
+                            let namespaced = format!("{}::{}", ctx.loop_id, step_id);
+                            let ns_result =
+                                resolve_step_field(session, &namespaced, field, variable);
+                            if ns_result.is_ok() {
+                                return ns_result;
+                            }
                         }
-                        _ => Err(unresolved(format!(
-                            "'{{ {variable} }}' is not a recognised template variable"
-                        ))),
-                    };
+                    }
+                    // Try namespaced form for for_each context.
+                    if let Some(ref ctx) = session.for_each_context {
+                        if !step_id.contains("::") {
+                            let namespaced = format!("{}::{}", ctx.loop_id, step_id);
+                            let ns_result =
+                                resolve_step_field(session, &namespaced, field, variable);
+                            if ns_result.is_ok() {
+                                return ns_result;
+                            }
+                        }
+                    }
+                    // Return the original error.
+                    return result;
                 }
             }
 
@@ -139,5 +169,92 @@ fn resolve_variable(variable: &str, session: &Session) -> Result<String, AilErro
                 "'{{ {other} }}' is not a recognised template variable"
             )))
         }
+    }
+}
+
+/// Resolve a single step field lookup against the turn log.
+///
+/// Extracted so both the plain step_id and the do_while-namespaced form can
+/// reuse the same resolution logic without duplication.
+fn resolve_step_field(
+    session: &Session,
+    step_id: &str,
+    field: &str,
+    variable: &str,
+) -> Result<String, AilError> {
+    match field {
+        "response" => session
+            .turn_log
+            .response_for_step(step_id)
+            .map(|s| s.to_string())
+            .ok_or_else(|| unresolved(format!("No response recorded for step '{step_id}'"))),
+        "result" => session
+            .turn_log
+            .result_for_step(step_id)
+            .ok_or_else(|| unresolved(format!("No result recorded for step '{step_id}'"))),
+        "stdout" => session
+            .turn_log
+            .stdout_for_step(step_id)
+            .map(|s| s.to_string())
+            .ok_or_else(|| unresolved(format!("No stdout recorded for step '{step_id}'"))),
+        "stderr" => session
+            .turn_log
+            .stderr_for_step(step_id)
+            .map(|s| s.to_string())
+            .ok_or_else(|| unresolved(format!("No stderr recorded for step '{step_id}'"))),
+        "exit_code" => session
+            .turn_log
+            .exit_code_for_step(step_id)
+            .map(|c| c.to_string())
+            .ok_or_else(|| unresolved(format!("No exit_code recorded for step '{step_id}'"))),
+        "modified" => session
+            .turn_log
+            .modified_for_step(step_id)
+            .map(|s| s.to_string())
+            .ok_or_else(|| unresolved(format!("No modified output recorded for step '{step_id}'"))),
+        "index" => session
+            .turn_log
+            .index_for_step(step_id)
+            .map(|n| n.to_string())
+            .ok_or_else(|| {
+                unresolved(format!(
+                    "No index recorded for step '{step_id}' \
+                     (only available on do_while: steps)"
+                ))
+            }),
+        "items" => {
+            // {{ step.<id>.items }} — array access for steps with output_schema type: array (SPEC §26.5).
+            let response = session
+                .turn_log
+                .response_for_step(step_id)
+                .ok_or_else(|| unresolved(format!("No response recorded for step '{step_id}'")))?;
+            let json_value: serde_json::Value = serde_json::from_str(response).map_err(|e| {
+                unresolved(format!(
+                    "Step '{step_id}' response is not valid JSON \
+                         (required for .items access): {e}"
+                ))
+            })?;
+            if !json_value.is_array() {
+                return Err(unresolved(format!(
+                    "Step '{step_id}' response is not a JSON array \
+                     (required for .items access)"
+                )));
+            }
+            Ok(json_value.to_string())
+        }
+        "tool_calls" => {
+            let events = session
+                .turn_log
+                .tool_events_for_step(step_id)
+                .ok_or_else(|| unresolved(format!("No entry recorded for step '{step_id}'")))?;
+            serde_json::to_string(events).map_err(|e| {
+                unresolved(format!(
+                    "Failed to serialize tool_calls for step '{step_id}': {e}"
+                ))
+            })
+        }
+        _ => Err(unresolved(format!(
+            "'{{ {variable} }}' is not a recognised template variable"
+        ))),
     }
 }

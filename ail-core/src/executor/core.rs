@@ -7,11 +7,14 @@
 
 #![allow(clippy::result_large_err)]
 
-use crate::config::domain::{ActionKind, ContextSource, OnError, ResultAction, Step, StepBody};
+use crate::config::domain::{
+    ActionKind, Condition, ConditionExpr, ContextSource, OnError, OnMaxItems, ResultAction, Step,
+    StepBody, StepId, MAX_LOOP_DEPTH,
+};
 use crate::error::AilError;
 use crate::runner::{InvokeOptions, RunResult, Runner};
 use crate::session::turn_log::TurnEntry;
-use crate::session::Session;
+use crate::session::{DoWhileContext, ForEachContext, Session};
 
 use super::dispatch;
 use super::events::ExecuteOutcome;
@@ -291,6 +294,46 @@ fn execute_single_step<O: StepObserver>(
     // None → default behaviour (abort).
     let on_error = step.on_error.as_ref().unwrap_or(&OnError::AbortPipeline);
 
+    // Validate input_schema against the preceding step's output, if declared (SPEC §26.2).
+    // Capture the validated input JSON for use by field:equals: in on_result.
+    let validated_input = if let Some(ref schema) = step.input_schema {
+        match validate_input_schema(session, schema, &step_id) {
+            Ok(json) => Some(json),
+            Err(e) => {
+                // Input schema validation failure is a step error — escalate via on_error.
+                match on_error {
+                    OnError::Continue => {
+                        tracing::warn!(
+                            run_id = %session.run_id,
+                            step_id = %step_id,
+                            error_type = e.error_type(),
+                            error = %e.detail(),
+                            "input_schema validation failed — on_error: continue"
+                        );
+                        session.turn_log.record_step_error(
+                            &step_id,
+                            e.error_type(),
+                            e.detail(),
+                            "continue",
+                            None,
+                            None,
+                        );
+                        observer.on_step_error_continued(&step_id, e.detail(), e.error_type());
+                        // Run then: chain even when skipping.
+                        execute_chain_steps(&step.then, session, runner, observer, depth)?;
+                        return Ok(None);
+                    }
+                    _ => {
+                        observer.on_step_failed(&step_id, e.detail());
+                        return Err(e);
+                    }
+                }
+            }
+        }
+    } else {
+        None
+    };
+
     let max_attempts: u32 = match on_error {
         OnError::Retry { max_retries } => max_retries + 1, // first attempt + retries
         _ => 1,
@@ -358,10 +401,104 @@ fn execute_single_step<O: StepObserver>(
                 pipeline_base_dir,
                 observer,
             ),
+
+            StepBody::DoWhile {
+                max_iterations,
+                exit_when,
+                steps: inner_steps,
+            } => execute_do_while(
+                &step_id,
+                *max_iterations,
+                exit_when,
+                inner_steps,
+                session,
+                runner,
+                observer,
+                depth,
+            ),
+
+            StepBody::ForEach {
+                ref over,
+                ref as_name,
+                max_items,
+                ref on_max_items,
+                steps: ref inner_steps,
+            } => execute_for_each(
+                &step_id,
+                over,
+                as_name,
+                *max_items,
+                on_max_items,
+                inner_steps,
+                session,
+                runner,
+                observer,
+                depth,
+            ),
         };
 
         match result {
             Ok(entry) => {
+                // Validate output_schema if declared (SPEC §26).
+                if let Some(ref schema) = step.output_schema {
+                    if let Err(e) = validate_output_schema(&entry, schema, &step_id) {
+                        // Treat schema validation failure as a step error —
+                        // it flows through on_error handling (retry/continue/abort).
+                        match on_error {
+                            OnError::Continue => {
+                                tracing::warn!(
+                                    run_id = %session.run_id,
+                                    step_id = %step_id,
+                                    error_type = e.error_type(),
+                                    error = %e.detail(),
+                                    "output_schema validation failed — on_error: continue"
+                                );
+                                session.turn_log.record_step_error(
+                                    &step_id,
+                                    e.error_type(),
+                                    e.detail(),
+                                    "continue",
+                                    None,
+                                    None,
+                                );
+                                observer.on_step_error_continued(
+                                    &step_id,
+                                    e.detail(),
+                                    e.error_type(),
+                                );
+                                break;
+                            }
+                            OnError::Retry { max_retries } if attempt < max_attempts => {
+                                tracing::warn!(
+                                    run_id = %session.run_id,
+                                    step_id = %step_id,
+                                    attempt,
+                                    error = %e.detail(),
+                                    "output_schema validation failed — retrying"
+                                );
+                                session.turn_log.record_step_error(
+                                    &step_id,
+                                    e.error_type(),
+                                    e.detail(),
+                                    "retry",
+                                    Some(attempt),
+                                    Some(*max_retries),
+                                );
+                                observer.on_step_retrying(
+                                    &step_id,
+                                    e.detail(),
+                                    attempt,
+                                    *max_retries,
+                                );
+                                continue;
+                            }
+                            _ => {
+                                observer.on_step_failed(&step_id, e.detail());
+                                return Err(e);
+                            }
+                        }
+                    }
+                }
                 entry_opt = Some(entry);
                 break;
             }
@@ -455,7 +592,7 @@ fn execute_single_step<O: StepObserver>(
     let mut matched_action = None;
     if let Some(branches) = &step.on_result {
         let last_entry = session.turn_log.entries().last().expect("just appended");
-        if let Some(action) = evaluate_on_result(branches, last_entry) {
+        if let Some(action) = evaluate_on_result(branches, last_entry, validated_input.as_ref()) {
             matched_action = Some(action.clone());
         }
     }
@@ -498,6 +635,692 @@ fn execute_chain_steps<O: StepObserver>(
         // "Use top-level steps if branching is needed."
     }
     Ok(())
+}
+
+// ── do_while execution (SPEC §27) ────────────────────────────────────────────
+
+/// Exit reason for a do_while loop, used for logging and result reporting.
+enum DoWhileExitReason {
+    /// `exit_when` evaluated to true.
+    ExitWhen,
+    /// A `break` action fired inside the loop body.
+    Break,
+    /// The iteration budget was exhausted.
+    MaxIterations,
+}
+
+/// Execute a `do_while:` loop body (SPEC §27).
+///
+/// Runs `inner_steps` repeatedly until `exit_when` evaluates to true or
+/// `max_iterations` is reached. Each iteration executes all inner steps in
+/// order; the `exit_when` condition is checked after each complete iteration
+/// (post-iteration evaluation, like a do-while loop).
+///
+/// Inner step IDs are namespaced as `<loop_id>::<step_id>` so they don't
+/// collide with outer step IDs. The do_while context is set on the session
+/// so template variables `{{ do_while.iteration }}` and
+/// `{{ do_while.max_iterations }}` resolve correctly.
+///
+/// Returns a summary `TurnEntry` for the do_while step itself. The response
+/// is the last inner step's response from the final iteration.
+#[allow(clippy::too_many_arguments)]
+fn execute_do_while<O: StepObserver>(
+    loop_step_id: &str,
+    max_iterations: u64,
+    exit_when: &ConditionExpr,
+    inner_steps: &[Step],
+    session: &mut Session,
+    runner: &dyn Runner,
+    observer: &mut O,
+    depth: usize,
+) -> Result<TurnEntry, AilError> {
+    // Depth guard (SPEC §27.9).
+    if session.loop_depth >= MAX_LOOP_DEPTH {
+        return Err(AilError::LoopDepthExceeded {
+            detail: format!(
+                "Step '{loop_step_id}' would exceed the maximum loop nesting depth \
+                 of {MAX_LOOP_DEPTH}"
+            ),
+            context: Some(crate::error::ErrorContext::for_step(
+                &session.run_id,
+                loop_step_id,
+            )),
+        });
+    }
+
+    session.turn_log.record_step_started(
+        loop_step_id,
+        &format!("do_while(max_iterations={max_iterations})"),
+    );
+
+    let result = execute_do_while_inner(
+        loop_step_id,
+        max_iterations,
+        exit_when,
+        inner_steps,
+        session,
+        runner,
+        observer,
+        depth,
+    );
+
+    match &result {
+        Ok(_) => observer.on_non_prompt_completed(loop_step_id),
+        Err(e) => observer.on_step_failed(loop_step_id, e.detail()),
+    }
+    result
+}
+
+/// Inner loop logic, separated so the caller can attach observer hooks around it.
+#[allow(clippy::too_many_arguments)]
+fn execute_do_while_inner<O: StepObserver>(
+    loop_step_id: &str,
+    max_iterations: u64,
+    exit_when: &ConditionExpr,
+    inner_steps: &[Step],
+    session: &mut Session,
+    runner: &dyn Runner,
+    observer: &mut O,
+    depth: usize,
+) -> Result<TurnEntry, AilError> {
+    // Save and restore outer do_while context for nested loops.
+    let prev_context = session.do_while_context.take();
+    session.loop_depth += 1;
+
+    let prefix = format!("{loop_step_id}::");
+    let total_inner = inner_steps.len();
+    let mut index: u64 = 0;
+    let mut exit_reason = DoWhileExitReason::MaxIterations;
+
+    for iteration in 0..max_iterations {
+        // Clear previous iteration's inner step entries (SPEC §27.3 — iteration scope).
+        session.turn_log.remove_entries_with_prefix(&prefix);
+
+        // Set loop context for template variable resolution.
+        session.do_while_context = Some(DoWhileContext {
+            loop_id: loop_step_id.to_string(),
+            iteration,
+            max_iterations,
+        });
+
+        tracing::info!(
+            run_id = %session.run_id,
+            step_id = %loop_step_id,
+            iteration,
+            max_iterations,
+            "do_while iteration started"
+        );
+
+        // Execute each inner step with a namespaced ID.
+        let mut loop_broken = false;
+        for (inner_idx, inner_step) in inner_steps.iter().enumerate() {
+            let namespaced_id = format!("{}{}", prefix, inner_step.id.as_str());
+            let mut namespaced_step = inner_step.clone();
+            namespaced_step.id = StepId(namespaced_id.clone());
+
+            // Evaluate condition for the inner step.
+            let condition_skip = if let Some(ref cond) = namespaced_step.condition {
+                !evaluate_condition(cond, session, &namespaced_id)?
+            } else {
+                false
+            };
+
+            match observer.before_step(&namespaced_id, inner_idx, condition_skip) {
+                BeforeStepAction::Run => {}
+                BeforeStepAction::Skip => continue,
+                BeforeStepAction::Stop => {
+                    loop_broken = true;
+                    break;
+                }
+            }
+
+            tracing::info!(
+                run_id = %session.run_id,
+                step_id = %namespaced_id,
+                iteration,
+                "executing do_while inner step"
+            );
+
+            let matched_action = execute_single_step(
+                &namespaced_step,
+                session,
+                runner,
+                observer,
+                depth,
+                total_inner,
+                inner_idx,
+            )?;
+
+            // Handle on_result actions within the loop (SPEC §27.3 point 5).
+            // `break` exits the loop, not the pipeline.
+            if let Some(action) = matched_action {
+                match action {
+                    ResultAction::Continue => {}
+                    ResultAction::Break => {
+                        tracing::info!(
+                            run_id = %session.run_id,
+                            step_id = %loop_step_id,
+                            inner_step = %namespaced_id,
+                            iteration,
+                            "on_result break inside do_while — exiting loop"
+                        );
+                        loop_broken = true;
+                        break;
+                    }
+                    ResultAction::AbortPipeline => {
+                        // Restore state before propagating.
+                        session.loop_depth -= 1;
+                        session.do_while_context = prev_context;
+                        let err = AilError::PipelineAborted {
+                            detail: format!(
+                                "Step '{namespaced_id}' on_result fired abort_pipeline \
+                                 inside do_while loop '{loop_step_id}'"
+                            ),
+                            context: Some(crate::error::ErrorContext::for_step(
+                                &session.run_id,
+                                loop_step_id,
+                            )),
+                        };
+                        observer.on_pipeline_error(&err);
+                        return Err(err);
+                    }
+                    ResultAction::PauseForHuman => {
+                        observer.on_result_pause(&namespaced_id, None);
+                    }
+                    ResultAction::Pipeline {
+                        ref path,
+                        ref prompt,
+                    } => {
+                        let pipeline_base_dir_buf: Option<std::path::PathBuf> = session
+                            .pipeline
+                            .source
+                            .as_deref()
+                            .and_then(|p| p.parent())
+                            .map(|p| p.to_path_buf());
+                        let pipeline_base_dir = pipeline_base_dir_buf.as_deref();
+                        let on_result_step_id = format!("{namespaced_id}__on_result");
+                        let sub_entry = dispatch::sub_pipeline::execute_sub_pipeline(
+                            path,
+                            prompt.as_deref(),
+                            &on_result_step_id,
+                            session,
+                            runner,
+                            depth,
+                            pipeline_base_dir,
+                        )
+                        .inspect_err(|e| {
+                            // Restore state before propagating.
+                            observer.on_pipeline_error(e)
+                        })?;
+                        session.turn_log.append(sub_entry);
+                    }
+                }
+            }
+        }
+
+        // Inner steps completed — count this iteration.
+        index += 1;
+
+        if loop_broken {
+            exit_reason = DoWhileExitReason::Break;
+            break;
+        }
+
+        // Post-iteration: evaluate exit_when (SPEC §27.3 point 1).
+        let exit_condition = Condition::Expression(exit_when.clone());
+        let should_exit = evaluate_condition(&exit_condition, session, loop_step_id)?;
+
+        tracing::info!(
+            run_id = %session.run_id,
+            step_id = %loop_step_id,
+            iteration,
+            exit_when_result = should_exit,
+            "do_while exit_when evaluated"
+        );
+
+        if should_exit {
+            exit_reason = DoWhileExitReason::ExitWhen;
+            break;
+        }
+    }
+
+    // Restore state.
+    session.loop_depth -= 1;
+    session.do_while_context = prev_context;
+
+    tracing::info!(
+        run_id = %session.run_id,
+        step_id = %loop_step_id,
+        index,
+        exit_reason = match exit_reason {
+            DoWhileExitReason::ExitWhen => "exit_when",
+            DoWhileExitReason::Break => "break",
+            DoWhileExitReason::MaxIterations => "max_iterations",
+        },
+        "do_while completed"
+    );
+
+    // If max_iterations was exhausted without exit_when becoming true, abort (default).
+    if matches!(exit_reason, DoWhileExitReason::MaxIterations) {
+        return Err(AilError::DoWhileMaxIterations {
+            detail: format!(
+                "Step '{loop_step_id}' exhausted do_while.max_iterations ({max_iterations}) \
+                 without exit_when becoming true"
+            ),
+            context: Some(crate::error::ErrorContext::for_step(
+                &session.run_id,
+                loop_step_id,
+            )),
+        });
+    }
+
+    // Build summary TurnEntry. Response is the last inner step's response from
+    // the final iteration.
+    let response = session
+        .turn_log
+        .entries()
+        .iter()
+        .rev()
+        .filter(|e| e.step_id.starts_with(&prefix))
+        .find_map(|e| e.response.as_deref())
+        .map(|s| s.to_string());
+
+    Ok(TurnEntry {
+        step_id: loop_step_id.to_string(),
+        prompt: format!("do_while(max_iterations={max_iterations})"),
+        response,
+        index: Some(index),
+        ..Default::default()
+    })
+}
+
+// ── for_each execution (SPEC §28) ───────────────────────────────────────────
+
+/// Exit reason for a for_each loop, used for logging and result reporting.
+enum ForEachExitReason {
+    /// All items processed.
+    Completed,
+    /// A `break` action fired inside the loop body.
+    Break,
+}
+
+/// Execute a `for_each:` loop body (SPEC §28).
+///
+/// Resolves the `over` template to get a JSON array, then runs `inner_steps`
+/// once per item. The current item is available via `{{ for_each.<as_name> }}`
+/// (or `{{ for_each.item }}`), along with `{{ for_each.index }}` and
+/// `{{ for_each.total }}`.
+///
+/// Returns a summary `TurnEntry` for the for_each step itself.
+#[allow(clippy::too_many_arguments)]
+fn execute_for_each<O: StepObserver>(
+    loop_step_id: &str,
+    over: &str,
+    as_name: &str,
+    max_items: Option<u64>,
+    on_max_items: &OnMaxItems,
+    inner_steps: &[Step],
+    session: &mut Session,
+    runner: &dyn Runner,
+    observer: &mut O,
+    depth: usize,
+) -> Result<TurnEntry, AilError> {
+    // Depth guard (shared with do_while — SPEC §27.9, §28).
+    if session.loop_depth >= MAX_LOOP_DEPTH {
+        return Err(AilError::LoopDepthExceeded {
+            detail: format!(
+                "Step '{loop_step_id}' would exceed the maximum loop nesting depth \
+                 of {MAX_LOOP_DEPTH}"
+            ),
+            context: Some(crate::error::ErrorContext::for_step(
+                &session.run_id,
+                loop_step_id,
+            )),
+        });
+    }
+
+    // Resolve the `over` template to get the JSON array string.
+    let resolved_over = crate::template::resolve(over, session)?;
+
+    // Parse the resolved string as a JSON array.
+    let items_value: serde_json::Value = serde_json::from_str(&resolved_over).map_err(|e| {
+        AilError::for_each_source_invalid(format!(
+            "Step '{loop_step_id}' for_each.over resolved to a value that is not valid JSON: {e}"
+        ))
+    })?;
+
+    let items = items_value.as_array().ok_or_else(|| {
+        AilError::for_each_source_invalid(format!(
+            "Step '{loop_step_id}' for_each.over resolved to JSON that is not an array"
+        ))
+    })?;
+
+    let raw_count = items.len() as u64;
+
+    // Apply max_items cap.
+    let effective_count = if let Some(cap) = max_items {
+        if raw_count > cap {
+            match on_max_items {
+                OnMaxItems::AbortPipeline => {
+                    return Err(AilError::PipelineAborted {
+                        detail: format!(
+                            "Step '{loop_step_id}' for_each array has {raw_count} items \
+                             but max_items is {cap} and on_max_items is abort_pipeline"
+                        ),
+                        context: Some(crate::error::ErrorContext::for_step(
+                            &session.run_id,
+                            loop_step_id,
+                        )),
+                    });
+                }
+                OnMaxItems::Continue => cap,
+            }
+        } else {
+            raw_count
+        }
+    } else {
+        raw_count
+    };
+
+    session
+        .turn_log
+        .record_step_started(loop_step_id, &format!("for_each(items={effective_count})"));
+
+    let result = execute_for_each_inner(
+        loop_step_id,
+        as_name,
+        items,
+        effective_count,
+        inner_steps,
+        session,
+        runner,
+        observer,
+        depth,
+    );
+
+    match &result {
+        Ok(_) => observer.on_non_prompt_completed(loop_step_id),
+        Err(e) => observer.on_step_failed(loop_step_id, e.detail()),
+    }
+    result
+}
+
+/// Inner for_each loop logic, separated so the caller can attach observer hooks.
+#[allow(clippy::too_many_arguments)]
+fn execute_for_each_inner<O: StepObserver>(
+    loop_step_id: &str,
+    as_name: &str,
+    items: &[serde_json::Value],
+    effective_count: u64,
+    inner_steps: &[Step],
+    session: &mut Session,
+    runner: &dyn Runner,
+    observer: &mut O,
+    depth: usize,
+) -> Result<TurnEntry, AilError> {
+    // Save and restore outer for_each context for nested loops.
+    let prev_context = session.for_each_context.take();
+    session.loop_depth += 1;
+
+    let prefix = format!("{loop_step_id}::");
+    let total_inner = inner_steps.len();
+    let mut items_processed: u64 = 0;
+    let mut exit_reason = ForEachExitReason::Completed;
+
+    for (item_idx, item) in items.iter().take(effective_count as usize).enumerate() {
+        let one_based_index = (item_idx as u64) + 1;
+
+        // Clear previous item's inner step entries (SPEC §28.3 point 4 — item scope).
+        session.turn_log.remove_entries_with_prefix(&prefix);
+
+        // Format item as a string for template substitution.
+        // String values are unquoted; other JSON types keep their JSON representation.
+        let item_str = match item {
+            serde_json::Value::String(s) => s.clone(),
+            other => other.to_string(),
+        };
+
+        // Set loop context for template variable resolution.
+        session.for_each_context = Some(ForEachContext {
+            loop_id: loop_step_id.to_string(),
+            index: one_based_index,
+            total: effective_count,
+            item: item_str,
+            as_name: as_name.to_string(),
+        });
+
+        tracing::info!(
+            run_id = %session.run_id,
+            step_id = %loop_step_id,
+            index = one_based_index,
+            total = effective_count,
+            "for_each item started"
+        );
+
+        // Execute each inner step with a namespaced ID.
+        let mut loop_broken = false;
+        for (inner_idx, inner_step) in inner_steps.iter().enumerate() {
+            let namespaced_id = format!("{}{}", prefix, inner_step.id.as_str());
+            let mut namespaced_step = inner_step.clone();
+            namespaced_step.id = StepId(namespaced_id.clone());
+
+            // Evaluate condition for the inner step.
+            let condition_skip = if let Some(ref cond) = namespaced_step.condition {
+                !evaluate_condition(cond, session, &namespaced_id)?
+            } else {
+                false
+            };
+
+            match observer.before_step(&namespaced_id, inner_idx, condition_skip) {
+                BeforeStepAction::Run => {}
+                BeforeStepAction::Skip => continue,
+                BeforeStepAction::Stop => {
+                    loop_broken = true;
+                    break;
+                }
+            }
+
+            tracing::info!(
+                run_id = %session.run_id,
+                step_id = %namespaced_id,
+                item_index = one_based_index,
+                "executing for_each inner step"
+            );
+
+            let matched_action = execute_single_step(
+                &namespaced_step,
+                session,
+                runner,
+                observer,
+                depth,
+                total_inner,
+                inner_idx,
+            )?;
+
+            // Handle on_result actions within the loop (SPEC §28.3 point 5).
+            // `break` exits the loop, not the pipeline.
+            if let Some(action) = matched_action {
+                match action {
+                    ResultAction::Continue => {}
+                    ResultAction::Break => {
+                        tracing::info!(
+                            run_id = %session.run_id,
+                            step_id = %loop_step_id,
+                            inner_step = %namespaced_id,
+                            item_index = one_based_index,
+                            "on_result break inside for_each — exiting loop"
+                        );
+                        loop_broken = true;
+                        break;
+                    }
+                    ResultAction::AbortPipeline => {
+                        session.loop_depth -= 1;
+                        session.for_each_context = prev_context;
+                        let err = AilError::PipelineAborted {
+                            detail: format!(
+                                "Step '{namespaced_id}' on_result fired abort_pipeline \
+                                 inside for_each loop '{loop_step_id}'"
+                            ),
+                            context: Some(crate::error::ErrorContext::for_step(
+                                &session.run_id,
+                                loop_step_id,
+                            )),
+                        };
+                        observer.on_pipeline_error(&err);
+                        return Err(err);
+                    }
+                    ResultAction::PauseForHuman => {
+                        observer.on_result_pause(&namespaced_id, None);
+                    }
+                    ResultAction::Pipeline {
+                        ref path,
+                        ref prompt,
+                    } => {
+                        let pipeline_base_dir_buf: Option<std::path::PathBuf> = session
+                            .pipeline
+                            .source
+                            .as_deref()
+                            .and_then(|p| p.parent())
+                            .map(|p| p.to_path_buf());
+                        let pipeline_base_dir = pipeline_base_dir_buf.as_deref();
+                        let on_result_step_id = format!("{namespaced_id}__on_result");
+                        let sub_entry = dispatch::sub_pipeline::execute_sub_pipeline(
+                            path,
+                            prompt.as_deref(),
+                            &on_result_step_id,
+                            session,
+                            runner,
+                            depth,
+                            pipeline_base_dir,
+                        )
+                        .inspect_err(|e| observer.on_pipeline_error(e))?;
+                        session.turn_log.append(sub_entry);
+                    }
+                }
+            }
+        }
+
+        items_processed += 1;
+
+        if loop_broken {
+            exit_reason = ForEachExitReason::Break;
+            break;
+        }
+    }
+
+    // Restore state.
+    session.loop_depth -= 1;
+    session.for_each_context = prev_context;
+
+    tracing::info!(
+        run_id = %session.run_id,
+        step_id = %loop_step_id,
+        items_processed,
+        exit_reason = match exit_reason {
+            ForEachExitReason::Completed => "completed",
+            ForEachExitReason::Break => "break",
+        },
+        "for_each completed"
+    );
+
+    // Build summary TurnEntry. Response is the last inner step's response from
+    // the final item.
+    let response = session
+        .turn_log
+        .entries()
+        .iter()
+        .rev()
+        .filter(|e| e.step_id.starts_with(&prefix))
+        .find_map(|e| e.response.as_deref())
+        .map(|s| s.to_string());
+
+    Ok(TurnEntry {
+        step_id: loop_step_id.to_string(),
+        prompt: format!("for_each(items={effective_count})"),
+        response,
+        ..Default::default()
+    })
+}
+
+// ── Output schema validation (SPEC §26) ─────────────────────────────────────
+
+/// Validate a step's response against its declared `output_schema`.
+///
+/// Parses the response as JSON and validates against the JSON Schema.
+/// Returns `Ok(())` if valid, or an `OutputSchemaValidationFailed` error
+/// with details about what failed.
+fn validate_output_schema(
+    entry: &TurnEntry,
+    schema: &serde_json::Value,
+    step_id: &str,
+) -> Result<(), AilError> {
+    let response = entry.response.as_deref().unwrap_or("");
+
+    // Parse response as JSON.
+    let json_value: serde_json::Value =
+        serde_json::from_str(response).map_err(|e| AilError::OutputSchemaValidationFailed {
+            detail: format!(
+                "Step '{step_id}' declares output_schema but the response is not valid JSON: {e}"
+            ),
+            context: None,
+        })?;
+
+    // Validate against the schema.
+    let validator =
+        jsonschema::validator_for(schema).map_err(|e| AilError::OutputSchemaValidationFailed {
+            detail: format!("Step '{step_id}' output_schema failed to compile as JSON Schema: {e}"),
+            context: None,
+        })?;
+
+    if let Err(error) = validator.validate(&json_value) {
+        return Err(AilError::OutputSchemaValidationFailed {
+            detail: format!("Step '{step_id}' output failed output_schema validation: {error}"),
+            context: None,
+        });
+    }
+
+    Ok(())
+}
+
+// ── Input schema validation (SPEC §26.2) ────────────────────────────────────
+
+/// Validate the preceding step's output against this step's declared `input_schema`.
+///
+/// Parses the session's `last_response` as JSON and validates against the schema.
+/// Returns the parsed JSON value on success (for use by `field:` + `equals:` in `on_result`),
+/// or an `InputSchemaValidationFailed` error with details.
+fn validate_input_schema(
+    session: &Session,
+    schema: &serde_json::Value,
+    step_id: &str,
+) -> Result<serde_json::Value, AilError> {
+    let input = session.turn_log.last_response().unwrap_or("");
+
+    let json_value: serde_json::Value =
+        serde_json::from_str(input).map_err(|e| AilError::InputSchemaValidationFailed {
+            detail: format!(
+                "Step '{step_id}' declares input_schema but the preceding step's output \
+                 is not valid JSON: {e}"
+            ),
+            context: None,
+        })?;
+
+    let validator =
+        jsonschema::validator_for(schema).map_err(|e| AilError::InputSchemaValidationFailed {
+            detail: format!("Step '{step_id}' input_schema failed to compile as JSON Schema: {e}"),
+            context: None,
+        })?;
+
+    if let Err(error) = validator.validate(&json_value) {
+        return Err(AilError::InputSchemaValidationFailed {
+            detail: format!(
+                "Step '{step_id}' preceding step output failed input_schema validation: {error}"
+            ),
+            context: None,
+        });
+    }
+
+    Ok(json_value)
 }
 
 // ── Core loop ─────────────────────────────────────────────────────────────────

@@ -16,6 +16,10 @@ pub enum SystemPromptEntry {
 /// when pipelines call each other in a cycle.
 pub const MAX_SUB_PIPELINE_DEPTH: usize = 16;
 
+/// Maximum nesting depth for loop constructs (`do_while`, `for_each`).
+/// Prevents runaway resource consumption from deeply nested loops (SPEC §27).
+pub const MAX_LOOP_DEPTH: usize = 8;
+
 /// Provider and model configuration resolved from pipeline defaults, per-step overrides,
 /// or CLI flags. All fields are optional — unset fields fall back to runner/environment defaults.
 #[derive(Debug, Clone, Default)]
@@ -90,6 +94,8 @@ impl Pipeline {
                 on_error: None,
                 before: vec![],
                 then: vec![],
+                output_schema: None,
+                input_schema: None,
             }],
             source: None,
             defaults: ProviderConfig::default(),
@@ -195,6 +201,14 @@ pub struct Step {
     /// Private post-processing steps that run after this step completes (SPEC §5.7).
     /// Steps in this chain are not visible to the hook system and not independently referenceable.
     pub then: Vec<Step>,
+    /// Optional JSON Schema for validating this step's output (SPEC §26.1).
+    /// When set, the runtime validates the step's response as JSON against this schema
+    /// after execution. A validation failure escalates via `on_error`.
+    pub output_schema: Option<serde_json::Value>,
+    /// Optional JSON Schema for validating the preceding step's output (SPEC §26.2).
+    /// When set, the runtime validates the preceding step's response against this schema
+    /// before this step executes. A validation failure escalates via `on_error`.
+    pub input_schema: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Default, Clone)]
@@ -245,6 +259,40 @@ pub enum StepBody {
     // in validation. If the value does not match a named pipeline key, it remains
     // as `SubPipeline` (file-based sub-pipeline reference).
     Context(ContextSource),
+    /// Bounded repeat-until loop (SPEC §27). Inner steps execute repeatedly until
+    /// `exit_when` evaluates to true or `max_iterations` is reached.
+    DoWhile {
+        /// Maximum number of iterations (≥ 1, required, no default).
+        max_iterations: u64,
+        /// Condition expression evaluated after each complete iteration.
+        /// Uses the same expression syntax as `condition:` (SPEC §12.2).
+        exit_when: ConditionExpr,
+        /// Inner steps executed each iteration.
+        steps: Vec<Step>,
+    },
+    /// Collection iteration (SPEC §28). Runs inner steps once per item in a
+    /// validated array from a prior step's `output_schema: type: array`.
+    ForEach {
+        /// Template expression resolving to a validated JSON array.
+        over: String,
+        /// Local name for the current item (default: `item`).
+        as_name: String,
+        /// Optional hard cap on items processed.
+        max_items: Option<u64>,
+        /// What happens when the array exceeds `max_items`.
+        on_max_items: OnMaxItems,
+        /// Inner steps executed once per item.
+        steps: Vec<Step>,
+    },
+}
+
+/// Behavior when a `for_each:` array exceeds `max_items` (SPEC §28.2).
+#[derive(Debug, Clone, PartialEq)]
+pub enum OnMaxItems {
+    /// Silently skip excess items (default).
+    Continue,
+    /// Treat excess items as a fatal error.
+    AbortPipeline,
 }
 
 #[derive(Debug, Clone)]
@@ -287,6 +335,12 @@ pub struct ResultBranch {
 pub enum ResultMatcher {
     Contains(String),
     ExitCode(ExitCodeMatch),
+    /// Exact equality match against a named field in validated JSON input (SPEC §26.4).
+    /// Requires the step to declare an `input_schema` containing the referenced field.
+    Field {
+        name: String,
+        equals: serde_json::Value,
+    },
     Always,
 }
 

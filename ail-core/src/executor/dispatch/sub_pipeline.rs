@@ -4,7 +4,6 @@
 #![allow(clippy::result_large_err)]
 
 use std::collections::HashSet;
-use std::time::SystemTime;
 
 use crate::config::domain::{Pipeline, MAX_SUB_PIPELINE_DEPTH};
 use crate::error::AilError;
@@ -130,20 +129,11 @@ pub(in crate::executor) fn execute_sub_pipeline(
         step_id: step_id.to_string(),
         prompt: resolved_path,
         response: Some(response),
-        timestamp: SystemTime::now(),
-        cost_usd: None,
-        input_tokens: 0,
-        output_tokens: 0,
         runner_session_id: child_session
             .turn_log
             .last_runner_session_id()
             .map(str::to_string),
-        stdout: None,
-        stderr: None,
-        exit_code: None,
-        thinking: None,
-        tool_events: vec![],
-        modified: None,
+        ..Default::default()
     })
 }
 
@@ -289,19 +279,10 @@ pub(in crate::executor) fn execute_named_pipeline(
         step_id: step_id.to_string(),
         prompt: format!("named:{name}"),
         response: Some(response),
-        timestamp: SystemTime::now(),
-        cost_usd: None,
-        input_tokens: 0,
-        output_tokens: 0,
         runner_session_id: child_session
             .turn_log
             .last_runner_session_id()
             .map(str::to_string),
-        stdout: None,
-        stderr: None,
-        exit_code: None,
-        thinking: None,
-        tool_events: vec![],
-        modified: None,
+        ..Default::default()
     })
 }

@@ -7,5 +7,5 @@ pub use log_provider::{
     cwd_hash, project_dir, CompositeProvider, JsonlProvider, LogProvider, NullProvider,
 };
 pub use sqlite_provider::SqliteProvider;
-pub use state::Session;
+pub use state::{DoWhileContext, ForEachContext, Session};
 pub use turn_log::{TurnEntry, TurnLog};

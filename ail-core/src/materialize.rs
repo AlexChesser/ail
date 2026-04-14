@@ -1,11 +1,23 @@
 use crate::config::domain::{
-    ActionKind, ContextSource, ExitCodeMatch, OnError, Pipeline, ResultAction, ResultMatcher, Step,
-    StepBody,
+    ActionKind, ConditionExpr, ConditionOp, ContextSource, ExitCodeMatch, OnError, OnMaxItems,
+    Pipeline, ResultAction, ResultMatcher, Step, StepBody,
 };
 
 /// Escape a string for use inside a YAML double-quoted scalar.
 fn yaml_quote(s: &str) -> String {
     s.replace('\\', "\\\\").replace('"', "\\\"")
+}
+
+/// Format a `ConditionExpr` back to its string representation.
+fn format_condition_expr(expr: &ConditionExpr) -> String {
+    let op_str = match expr.op {
+        ConditionOp::Eq => "==",
+        ConditionOp::Ne => "!=",
+        ConditionOp::Contains => "contains",
+        ConditionOp::StartsWith => "starts_with",
+        ConditionOp::EndsWith => "ends_with",
+    };
+    format!("{} {} {}", expr.lhs, op_str, expr.rhs)
 }
 
 /// One-line summary of a chain step body for materialize comments.
@@ -26,6 +38,27 @@ fn chain_step_summary(body: &StepBody) -> String {
         StepBody::Action(ActionKind::ModifyOutput { .. }) => "action: modify_output".to_string(),
         StepBody::Context(ContextSource::Shell(cmd)) => {
             format!("context: shell: \"{}\"", yaml_quote(cmd))
+        }
+        StepBody::DoWhile {
+            max_iterations,
+            steps,
+            ..
+        } => {
+            format!(
+                "do_while: (max_iterations: {max_iterations}, {} inner steps)",
+                steps.len()
+            )
+        }
+        StepBody::ForEach {
+            ref over,
+            ref as_name,
+            steps,
+            ..
+        } => {
+            format!(
+                "for_each: (over: {over}, as: {as_name}, {} inner steps)",
+                steps.len()
+            )
         }
     }
 }
@@ -124,6 +157,43 @@ pub fn materialize(pipeline: &Pipeline) -> String {
                     yaml_quote(cmd)
                 ));
             }
+            StepBody::DoWhile {
+                max_iterations,
+                ref exit_when,
+                ref steps,
+            } => {
+                out.push_str("    do_while:\n");
+                out.push_str(&format!("      max_iterations: {max_iterations}\n"));
+                out.push_str(&format!(
+                    "      exit_when: \"{}\"\n",
+                    yaml_quote(&format_condition_expr(exit_when))
+                ));
+                out.push_str("      steps:\n");
+                for inner in steps {
+                    serialize_step(&mut out, inner, "        ", None);
+                }
+            }
+            StepBody::ForEach {
+                ref over,
+                ref as_name,
+                max_items,
+                ref on_max_items,
+                ref steps,
+            } => {
+                out.push_str("    for_each:\n");
+                out.push_str(&format!("      over: \"{}\"\n", yaml_quote(over)));
+                out.push_str(&format!("      as: {as_name}\n"));
+                if let Some(cap) = max_items {
+                    out.push_str(&format!("      max_items: {cap}\n"));
+                    if *on_max_items == OnMaxItems::AbortPipeline {
+                        out.push_str("      on_max_items: abort_pipeline\n");
+                    }
+                }
+                out.push_str("      steps:\n");
+                for inner in steps {
+                    serialize_step(&mut out, inner, "        ", None);
+                }
+            }
         }
 
         // then: chain (private — not hookable) — appears after the body (SPEC §5.7).
@@ -150,6 +220,12 @@ pub fn materialize(pipeline: &Pipeline) -> String {
                         format!("exit_code: {n}")
                     }
                     ResultMatcher::ExitCode(ExitCodeMatch::Any) => "exit_code: any".to_string(),
+                    ResultMatcher::Field {
+                        ref name,
+                        ref equals,
+                    } => {
+                        format!("field: {name}, equals: {equals}")
+                    }
                     ResultMatcher::Always => "always: true".to_string(),
                 };
                 let action = match &branch.action {
@@ -170,6 +246,17 @@ pub fn materialize(pipeline: &Pipeline) -> String {
                     }
                 };
                 out.push_str(&format!("      - {matcher}\n        action: {action}\n"));
+            }
+        }
+
+        if let Some(ref schema) = step.input_schema {
+            let schema_yaml = serde_yaml::to_string(schema).unwrap_or_else(|_| "{}".to_string());
+            out.push_str("    input_schema:\n");
+            for line in schema_yaml.lines() {
+                if line.trim().is_empty() {
+                    continue;
+                }
+                out.push_str(&format!("      {line}\n"));
             }
         }
     }
@@ -244,6 +331,69 @@ fn serialize_step(out: &mut String, step: &Step, indent: &str, origin_comment: O
                 yaml_quote(cmd)
             ));
         }
+        StepBody::DoWhile {
+            max_iterations,
+            ref exit_when,
+            ref steps,
+        } => {
+            out.push_str(&format!("{field_indent}do_while:\n"));
+            out.push_str(&format!(
+                "{field_indent}  max_iterations: {max_iterations}\n"
+            ));
+            out.push_str(&format!(
+                "{field_indent}  exit_when: \"{}\"\n",
+                yaml_quote(&format_condition_expr(exit_when))
+            ));
+            out.push_str(&format!("{field_indent}  steps:\n"));
+            let inner_indent = format!("{field_indent}    ");
+            for inner in steps {
+                serialize_step(out, inner, &inner_indent, None);
+            }
+        }
+        StepBody::ForEach {
+            ref over,
+            ref as_name,
+            max_items,
+            ref on_max_items,
+            ref steps,
+        } => {
+            out.push_str(&format!("{field_indent}for_each:\n"));
+            out.push_str(&format!("{field_indent}  over: \"{}\"\n", yaml_quote(over)));
+            out.push_str(&format!("{field_indent}  as: {as_name}\n"));
+            if let Some(cap) = max_items {
+                out.push_str(&format!("{field_indent}  max_items: {cap}\n"));
+                if *on_max_items == OnMaxItems::AbortPipeline {
+                    out.push_str(&format!("{field_indent}  on_max_items: abort_pipeline\n"));
+                }
+            }
+            out.push_str(&format!("{field_indent}  steps:\n"));
+            let inner_indent = format!("{field_indent}    ");
+            for inner in steps {
+                serialize_step(out, inner, &inner_indent, None);
+            }
+        }
+    }
+
+    if let Some(ref schema) = step.output_schema {
+        let schema_yaml = serde_yaml::to_string(schema).unwrap_or_else(|_| "{}".to_string());
+        out.push_str(&format!("{field_indent}output_schema:\n"));
+        for line in schema_yaml.lines() {
+            if line.trim().is_empty() {
+                continue;
+            }
+            out.push_str(&format!("{field_indent}  {line}\n"));
+        }
+    }
+
+    if let Some(ref schema) = step.input_schema {
+        let schema_yaml = serde_yaml::to_string(schema).unwrap_or_else(|_| "{}".to_string());
+        out.push_str(&format!("{field_indent}input_schema:\n"));
+        for line in schema_yaml.lines() {
+            if line.trim().is_empty() {
+                continue;
+            }
+            out.push_str(&format!("{field_indent}  {line}\n"));
+        }
     }
 
     if let Some(branches) = &step.on_result {
@@ -257,6 +407,12 @@ fn serialize_step(out: &mut String, step: &Step, indent: &str, origin_comment: O
                     format!("exit_code: {n}")
                 }
                 ResultMatcher::ExitCode(ExitCodeMatch::Any) => "exit_code: any".to_string(),
+                ResultMatcher::Field {
+                    ref name,
+                    ref equals,
+                } => {
+                    format!("field: {name}, equals: {equals}")
+                }
                 ResultMatcher::Always => "always: true".to_string(),
             };
             let action = match &branch.action {
@@ -396,6 +552,8 @@ mod tests {
             on_error: None,
             before: vec![],
             then: vec![],
+            output_schema: None,
+            input_schema: None,
         }
     }
 

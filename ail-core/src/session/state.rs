@@ -10,6 +10,36 @@ use super::log_provider::{CompositeProvider, JsonlProvider, LogProvider};
 use super::sqlite_provider::SqliteProvider;
 use super::turn_log::TurnLog;
 
+/// Active do_while loop context, set during loop body execution.
+/// Enables `{{ do_while.iteration }}` and `{{ do_while.max_iterations }}` template
+/// variables, and provides the scope prefix for namespaced step ID resolution.
+#[derive(Debug, Clone)]
+pub struct DoWhileContext {
+    /// The do_while step's ID (used as the `<loop_id>::` namespace prefix).
+    pub loop_id: String,
+    /// Current 0-based iteration index.
+    pub iteration: u64,
+    /// The declared `max_iterations` value.
+    pub max_iterations: u64,
+}
+
+/// Active for_each loop context, set during loop body execution (SPEC §28).
+/// Enables `{{ for_each.item }}` / `{{ for_each.<as_name> }}`, `{{ for_each.index }}`,
+/// and `{{ for_each.total }}` template variables.
+#[derive(Debug, Clone)]
+pub struct ForEachContext {
+    /// The for_each step's ID (used as the `<loop_id>::` namespace prefix).
+    pub loop_id: String,
+    /// Current 1-based item index.
+    pub index: u64,
+    /// Total number of items (after max_items cap).
+    pub total: u64,
+    /// The current item value as a JSON string.
+    pub item: String,
+    /// The declared `as` name (default: `item`).
+    pub as_name: String,
+}
+
 pub struct Session {
     pub run_id: String,
     pub pipeline: Pipeline,
@@ -30,6 +60,17 @@ pub struct Session {
     /// Shared HTTP runner session store — all HttpRunner instances in this pipeline run
     /// share the same in-memory conversation map.
     pub http_session_store: HttpSessionStore,
+    /// Active do_while loop context (SPEC §27). Set during loop body execution,
+    /// cleared after the loop exits. Enables `{{ do_while.* }}` template variables
+    /// and namespaced step ID resolution.
+    pub do_while_context: Option<DoWhileContext>,
+    /// Active for_each loop context (SPEC §28). Set during loop body execution,
+    /// cleared after the loop exits. Enables `{{ for_each.* }}` template variables
+    /// and namespaced step ID resolution.
+    pub for_each_context: Option<ForEachContext>,
+    /// Current nesting depth of loop constructs (do_while, for_each). Checked against
+    /// `MAX_LOOP_DEPTH` to prevent runaway resource consumption from deeply nested loops.
+    pub loop_depth: usize,
 }
 
 impl Session {
@@ -72,6 +113,9 @@ impl Session {
             runner_name,
             headless: false,
             http_session_store: Arc::new(Mutex::new(HashMap::new())),
+            do_while_context: None,
+            for_each_context: None,
+            loop_depth: 0,
         }
     }
 
@@ -183,6 +227,8 @@ mod tests {
             on_error: None,
             before: vec![],
             then: vec![],
+            output_schema: None,
+            input_schema: None,
         };
         let session = helpers_make_session(vec![step]);
         assert!(session.has_invocation_step());

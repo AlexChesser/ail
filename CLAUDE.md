@@ -139,12 +139,22 @@ If nothing found → passthrough mode (safe zero-config default).
 | `{{ step.<id>.stdout }}` | stdout of a `shell:` context step |
 | `{{ step.<id>.stderr }}` | stderr of a `shell:` context step |
 | `{{ step.<id>.exit_code }}` | Exit code of a `shell:` context step (string) |
+| `{{ step.<id>.items }}` | JSON array items from a step with `output_schema: type: array` (SPEC §26) |
 | `{{ step.<id>.modified }}` | Human-modified output from a `modify_output` HITL gate (SPEC §13.2) |
 | `{{ last_response }}` | Most recent step response |
 | `{{ pipeline.run_id }}` | UUID for this run |
 | `{{ session.tool }}` | Runner name (e.g. `claude`) |
 | `{{ session.cwd }}` | Working directory |
 | `{{ env.<VAR> }}` | Environment variable |
+| `{{ do_while.iteration }}` | Current 0-based iteration index (only inside `do_while:` body) |
+| `{{ do_while.max_iterations }}` | Declared `max_iterations` value (only inside `do_while:` body) |
+| `{{ step.<loop_id>::<step_id>.* }}` | Qualified reference to a do_while inner step from outside the loop |
+| `{{ step.<loop_id>.index }}` | Number of iterations completed by a do_while loop (after loop exits) |
+| `{{ step.<loop_id>::do_while[N].<step_id>.* }}` | Indexed iteration access — specific iteration's inner step (not yet implemented) |
+| `{{ for_each.item }}` | Current item value (default name — used when `as:` is not set; always available) |
+| `{{ for_each.<as_name> }}` | Current item value under the declared `as:` name (e.g. `{{ for_each.task }}` when `as: task`) |
+| `{{ for_each.index }}` | Current 1-based item index (only inside `for_each:` body) |
+| `{{ for_each.total }}` | Total number of items in the collection, after `max_items` cap (only inside `for_each:` body) |
 
 Note: `{{ session.invocation_prompt }}` is a supported alias for `{{ step.invocation.prompt }}` in the implementation but is deprecated — prefer the canonical form.
 
@@ -154,6 +164,7 @@ Unresolved variables **abort with a typed error** — never silently empty.
 
 - No `unwrap()`/`expect()` outside tests
 - No `println!`/`eprintln!` in `ail-core` — use `tracing::{info, warn, error}`
+- **Use `..Default::default()` for struct construction** — when building `Step`, `TurnEntry`, or other structs with many optional/defaultable fields, set only the fields that differ from the default. Never enumerate every field with `None`/`0`/`vec![]` explicitly.
 - `dto.rs` derives `Deserialize`; `domain.rs` does not — conversion in `validation.rs`
 - `#[allow(clippy::result_large_err)]` required in every module that returns `Result<_, AilError>`. Apply at file scope (`#![allow(...)]`). Current files: `config/{mod,inheritance,validation/mod,validation/step_body,validation/on_result,validation/system_prompt}.rs`, `template.rs`, `executor/{core,headless,controlled}.rs`, `executor/helpers/{invocation,runner_resolution,shell,system_prompt,condition}.rs`, `executor/dispatch/{prompt,context,skill,sub_pipeline}.rs`, `runner/{mod,factory,http,subprocess,claude/mod,claude/permission}.rs`, `runner/plugin/{mod,validation,discovery,protocol_runner}.rs`, `skill.rs`, `delete.rs`, `fs_util.rs`, `logs.rs`, `formatter.rs`
 - All errors use `AilError` with a stable `error_type` string constant from `error::error_types`
@@ -165,13 +176,18 @@ Unresolved variables **abort with a typed error** — never silently empty.
 - `ail-core/tests/fixtures/` — YAML test configs
 - `ClaudeCliRunner` integration tests are `#[ignore]` — cannot run inside a Claude Code session (nested-session guard). CI must run them separately with `--include-ignored`.
 
-## Known Constraints (v0.2)
+## Known Constraints (v0.3)
 
 - `--output-format stream-json` requires `--verbose` with `-p` — documented in `spec/runner/r02-claude-cli.md`
 - Must call `.env_remove("CLAUDECODE")` on the `Command` builder to avoid nested session guard
 - `pause_for_human` is a no-op in `--once` / headless mode; `modify_output` behavior is configurable via `on_headless` (skip/abort/use_default)
 - `skill:` steps are implemented with a built-in registry (§6, §14); skill parameterisation is deferred
 - `pipeline:` step bodies support both file-based sub-pipelines and named pipeline references (SPEC §9, §10)
+- `do_while:` fully implemented (§27): parse-time validation, executor loop, template vars, step ID namespacing, break/abort_pipeline, shared depth guard (MAX_LOOP_DEPTH=8). `on_max_iterations` field defaults to `abort_pipeline` (configurable variant not yet implemented). Controlled-mode executor events deferred.
+- `for_each:` fully implemented (§28): parse-time validation, runtime array iteration, item scope, template vars, break/abort_pipeline, max_items cap, shared depth guard with do_while. Controlled-mode executor events deferred.
+- `output_schema` / `input_schema` (§26): JSON Schema validation at parse time and runtime. `schema-as-file-path` variant (§26.1) not yet implemented — schemas must be inline.
+- `do_while[N]` indexed iteration access (§27.4) is specified but not implemented — template resolver only exposes the final iteration
+- `pipeline:` as alternative to inline `steps:` is supported in both `do_while:` and `for_each:` loop bodies
 - Interactive REPL deferred to v0.5
 - TUI removed in v0.2; all output goes to stdout/stderr
 - `ClaudeCliRunner::new(headless: bool)` — pass `true` for `--headless` mode (`--dangerously-skip-permissions`)
