@@ -407,8 +407,11 @@ struct ChatRequest<'a> {
    OpenAI recently switched to `max_completion_tokens`. **Proposed**:
    use `max_tokens` (shorter, more widely recognized). Runners map.
 
-4. **Validation strictness**: allow both `temperature` and `top_p`?
-   **Proposed**: allow both — let the provider decide. No ail-level conflict.
+4. ~~Validation strictness: allow both `temperature` and `top_p`?~~
+   **Resolved**: allow both, no conflict check. AIL passes values through
+   as-is. Spec §30.2.3 explains the interaction and steers authors toward
+   using `temperature` alone for most cases. This is a documentation
+   concern, not a validation concern — pipeline authors get to choose.
 
 5. **Per-step `provider:` field wiring**: this design assumes a future
    `step.provider: <name>` field that resolves to a named provider profile.
