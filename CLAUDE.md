@@ -139,6 +139,7 @@ If nothing found → passthrough mode (safe zero-config default).
 | `{{ step.<id>.stdout }}` | stdout of a `shell:` context step |
 | `{{ step.<id>.stderr }}` | stderr of a `shell:` context step |
 | `{{ step.<id>.exit_code }}` | Exit code of a `shell:` context step (string) |
+| `{{ step.<id>.items }}` | JSON array items from a step with `output_schema: type: array` (SPEC §26) |
 | `{{ step.<id>.modified }}` | Human-modified output from a `modify_output` HITL gate (SPEC §13.2) |
 | `{{ last_response }}` | Most recent step response |
 | `{{ pipeline.run_id }}` | UUID for this run |
@@ -175,13 +176,18 @@ Unresolved variables **abort with a typed error** — never silently empty.
 - `ail-core/tests/fixtures/` — YAML test configs
 - `ClaudeCliRunner` integration tests are `#[ignore]` — cannot run inside a Claude Code session (nested-session guard). CI must run them separately with `--include-ignored`.
 
-## Known Constraints (v0.2)
+## Known Constraints (v0.3)
 
 - `--output-format stream-json` requires `--verbose` with `-p` — documented in `spec/runner/r02-claude-cli.md`
 - Must call `.env_remove("CLAUDECODE")` on the `Command` builder to avoid nested session guard
 - `pause_for_human` is a no-op in `--once` / headless mode; `modify_output` behavior is configurable via `on_headless` (skip/abort/use_default)
 - `skill:` steps are implemented with a built-in registry (§6, §14); skill parameterisation is deferred
 - `pipeline:` step bodies support both file-based sub-pipelines and named pipeline references (SPEC §9, §10)
+- `do_while:` fully implemented (§27): parse-time validation, executor loop, template vars, step ID namespacing, break/abort_pipeline, shared depth guard (MAX_LOOP_DEPTH=8). `on_max_iterations` field defaults to `abort_pipeline` (configurable variant not yet implemented). Controlled-mode executor events deferred.
+- `for_each:` fully implemented (§28): parse-time validation, runtime array iteration, item scope, template vars, break/abort_pipeline, max_items cap, shared depth guard with do_while. Controlled-mode executor events deferred.
+- `output_schema` / `input_schema` (§26): JSON Schema validation at parse time and runtime. `schema-as-file-path` variant (§26.1) not yet implemented — schemas must be inline.
+- `do_while[N]` indexed iteration access (§27.4) is specified but not implemented — template resolver only exposes the final iteration
+- `pipeline:` as alternative to inline `steps:` is supported in both `do_while:` and `for_each:` loop bodies
 - Interactive REPL deferred to v0.5
 - TUI removed in v0.2; all output goes to stdout/stderr
 - `ClaudeCliRunner::new(headless: bool)` — pass `true` for `--headless` mode (`--dangerously-skip-permissions`)

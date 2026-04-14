@@ -5,18 +5,14 @@ meta:
   # Based on: https://github.com/obra/superpowers/tree/main/skills/executing-plans
   # Category B workflow: review plan -> execute tasks -> verify -> finish.
   #
-  # LIMITATION: The full superpowers version iterates over tasks in a plan,
-  # executing and verifying each one. AIL currently has no looping construct,
-  # so this pipeline handles the plan as a single batch rather than per-task.
-  # See: demo/superpowers/PROPOSED-ISSUES.md (Issue 1: Looping construct proposal)
-  #
-  # Status: Partially expressible. Looping/iteration is PROPOSED (not yet specced).
+  # This pipeline uses output_schema (§26), for_each (§28), and do_while (§27)
+  # to decompose a plan into tasks, implement each with a retry loop, and verify.
 
 pipeline:
-  # Phase 1: Review the plan critically before executing
-  - id: review_plan
+  # Phase 1: Review and decompose the plan into discrete tasks
+  - id: plan
     prompt: |
-      Review this implementation plan critically before executing:
+      Review this implementation plan critically and break it into discrete tasks:
 
       {{ step.invocation.prompt }}
 
@@ -26,8 +22,11 @@ pipeline:
       - Steps that conflict with each other
       - Missing verification steps
 
-      If you find concerns, list them clearly.
-      If the plan is sound, say "PLAN APPROVED" and proceed.
+      If you find concerns, list them as part of the first task.
+
+      Respond with a JSON array of task descriptions (strings).
+      Each task should be a single, actionable implementation step.
+      Example: ["Add user model", "Create auth endpoint", "Write tests"]
     append_system_prompt:
       - file: ./prompts/verification-discipline.md
     tools:
@@ -39,52 +38,55 @@ pipeline:
         - Edit
         - Write
         - Bash
-    on_result:
-      - contains: "PLAN APPROVED"
-        action: continue
-      - always: true
-        action: pause_for_human
-        # Plan has concerns — human must review before execution.
+    output_schema:
+      type: array
+      items:
+        type: string
+      maxItems: 20
 
-  # Phase 2: Execute the plan
-  # NOTE: In the full superpowers version, this would iterate over each task
-  # with per-task verification. Without a looping construct, we execute as a batch.
-  #
-  # PROPOSED: A looping construct (e.g., `for_each:` or `iterate:`) would allow:
-  #   - id: execute_task
-  #     iterate:
-  #       over: "{{ step.review_plan.response | parse_tasks }}"
-  #       as: task
-  #     prompt: "Execute this task: {{ task }}"
-  #     # ... per-task verification sub-pipeline
-  #
-  # This is not yet specced in AIL. See GitHub issue for the proposal.
-  - id: execute_all_tasks
-    resume: true
-    prompt: |
-      Execute the approved plan. For each task:
-      1. Mark it as in-progress
-      2. Follow the steps precisely — do not improvise
-      3. Run verification commands after each task
-      4. Mark it as complete
+  # Phase 2: Execute each task with a verification retry loop.
+  # for_each iterates over the plan's JSON array. Each iteration runs a
+  # do_while loop that implements the task and retries until tests pass.
+  - id: execute_tasks
+    for_each:
+      over: "{{ step.plan.items }}"
+      as: task
+      max_items: 20
+      on_max_items: abort_pipeline
+      steps:
+        - id: implement_and_verify
+          do_while:
+            max_iterations: 3
+            exit_when: "{{ step.verify.exit_code }} == 0"
+            steps:
+              - id: implement
+                resume: true
+                prompt: |
+                  Task {{ for_each.index }} of {{ for_each.total }}: {{ for_each.task }}
 
-      CRITICAL SAFETY RULES:
-      - Stop immediately when hitting blockers, missing dependencies, or unclear instructions
-      - Never force through repeated verification failures
-      - Request clarification rather than proceeding with assumptions
-    append_system_prompt:
-      - file: ./prompts/tdd-discipline.md
-      - file: ./prompts/verification-discipline.md
-    tools:
-      allow:
-        - Read
-        - Edit
-        - Write
-        - Bash
-        - Glob
-        - Grep
+                  Implement this task completely. Follow the instructions precisely.
 
-  # Phase 3: Final verification
+                  CRITICAL SAFETY RULES:
+                  - Stop immediately when hitting blockers or unclear instructions
+                  - Never force through repeated verification failures
+                  - Request clarification rather than proceeding with assumptions
+                append_system_prompt:
+                  - file: ./prompts/tdd-discipline.md
+                  - file: ./prompts/verification-discipline.md
+                tools:
+                  allow:
+                    - Read
+                    - Edit
+                    - Write
+                    - Bash
+                    - Glob
+                    - Grep
+
+              - id: verify
+                context:
+                  shell: "cargo test 2>&1 && cargo clippy -- -D warnings 2>&1"
+
+  # Phase 3: Final verification across the whole project
   - id: final_verification
     resume: true
     prompt: |

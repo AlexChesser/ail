@@ -29,6 +29,7 @@ mod s21_dry_run;
 mod s21_mvp;
 mod s23_structured_output;
 mod s26_output_schema;
+mod s26_s27_s28_integration;
 mod s27_do_while;
 mod s28_for_each;
 mod s35_ail_log_formatter;
