@@ -23,6 +23,8 @@ impl Default for Step {
             append_system_prompt: None,
             system_prompt: None,
             resume: false,
+            async_step: false,
+            depends_on: vec![],
             on_error: None,
             before: vec![],
             then: vec![],

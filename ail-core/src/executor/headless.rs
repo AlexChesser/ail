@@ -48,20 +48,7 @@ mod tests {
         Step {
             id: StepId(id.to_string()),
             body: StepBody::Context(ContextSource::Shell(cmd.to_string())),
-            message: None,
-            tools: None,
-            on_result: None,
-            model: None,
-            runner: None,
-            condition: None,
-            append_system_prompt: None,
-            system_prompt: None,
-            resume: false,
-            on_error: None,
-            before: vec![],
-            then: vec![],
-            output_schema: None,
-            input_schema: None,
+            ..Default::default()
         }
     }
 
@@ -76,20 +63,7 @@ mod tests {
         Step {
             id: StepId(id.to_string()),
             body: StepBody::Action(ActionKind::PauseForHuman),
-            message: None,
-            tools: None,
-            on_result: None,
-            model: None,
-            runner: None,
-            condition: None,
-            append_system_prompt: None,
-            system_prompt: None,
-            resume: false,
-            on_error: None,
-            before: vec![],
-            then: vec![],
-            output_schema: None,
-            input_schema: None,
+            ..Default::default()
         }
     }
 
@@ -99,20 +73,7 @@ mod tests {
             body: StepBody::Skill {
                 name: name.to_string(),
             },
-            message: None,
-            tools: None,
-            on_result: None,
-            model: None,
-            runner: None,
-            condition: None,
-            append_system_prompt: None,
-            system_prompt: None,
-            resume: false,
-            on_error: None,
-            before: vec![],
-            then: vec![],
-            output_schema: None,
-            input_schema: None,
+            ..Default::default()
         }
     }
 
@@ -600,19 +561,7 @@ mod tests {
                 default_value: default_value.map(str::to_string),
             }),
             message: Some("Review and edit".to_string()),
-            tools: None,
-            on_result: None,
-            model: None,
-            runner: None,
-            condition: None,
-            append_system_prompt: None,
-            system_prompt: None,
-            resume: false,
-            on_error: None,
-            before: vec![],
-            then: vec![],
-            output_schema: None,
-            input_schema: None,
+            ..Default::default()
         }
     }
 

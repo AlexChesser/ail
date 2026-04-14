@@ -190,20 +190,8 @@ mod tests {
         Step {
             id: StepId("test-step".to_string()),
             body: StepBody::Prompt("say hi".to_string()),
-            message: None,
-            tools: None,
-            on_result: None,
-            model: None,
-            runner: None,
-            condition: None,
             append_system_prompt: Some(entries),
-            system_prompt: None,
-            resume: false,
-            on_error: None,
-            before: vec![],
-            then: vec![],
-            output_schema: None,
-            input_schema: None,
+            ..Default::default()
         }
     }
 
@@ -215,6 +203,7 @@ mod tests {
             timeout_seconds: None,
             default_tools: None,
             named_pipelines: Default::default(),
+            max_concurrency: None,
         };
         Session::new(pipeline, "test invocation".to_string())
             .with_log_provider(Box::new(NullProvider))
@@ -283,20 +272,7 @@ mod tests {
         let step = Step {
             id: StepId("no-append".to_string()),
             body: StepBody::Prompt("hello".to_string()),
-            message: None,
-            tools: None,
-            on_result: None,
-            model: None,
-            runner: None,
-            condition: None,
-            append_system_prompt: None,
-            system_prompt: None,
-            resume: false,
-            on_error: None,
-            before: vec![],
-            then: vec![],
-            output_schema: None,
-            input_schema: None,
+            ..Default::default()
         };
         let session = make_test_session();
         let (system_prompt, append) =

@@ -3,7 +3,7 @@
 #![allow(clippy::result_large_err)]
 
 use crate::config::domain::{
-    ActionKind, ContextSource, HitlHeadlessBehavior, OnMaxItems, StepBody,
+    ActionKind, ContextSource, HitlHeadlessBehavior, JoinErrorMode, OnMaxItems, StepBody,
 };
 use crate::config::dto::StepDto;
 use crate::error::AilError;
@@ -85,6 +85,14 @@ pub(in crate::config) fn parse_step_body(
                 Ok(StepBody::Action(ActionKind::ModifyOutput {
                     headless_behavior,
                     default_value: step_dto.default_value.clone(),
+                }))
+            }
+            "join" => {
+                // on_error for join steps is parsed separately in validate_steps() to
+                // extract JoinErrorMode (fail_fast vs wait_for_all). Use FailFast as
+                // placeholder — overridden after step body construction.
+                Ok(StepBody::Action(ActionKind::Join {
+                    on_error_mode: JoinErrorMode::FailFast,
                 }))
             }
             other => Err(cfg_err!(

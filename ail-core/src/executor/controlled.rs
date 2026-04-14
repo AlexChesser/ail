@@ -355,20 +355,8 @@ mod tests {
         let step = Step {
             id: StepId("conditional".to_string()),
             body: StepBody::Prompt("should not run".to_string()),
-            message: None,
-            tools: None,
-            on_result: None,
-            model: None,
-            runner: None,
             condition: Some(Condition::Never),
-            append_system_prompt: None,
-            system_prompt: None,
-            resume: false,
-            on_error: None,
-            before: vec![],
-            then: vec![],
-            output_schema: None,
-            input_schema: None,
+            ..Default::default()
         };
         let mut session = make_session(vec![step]);
         let runner = StubRunner::new("stub");
@@ -463,20 +451,7 @@ mod tests {
         let step = Step {
             id: StepId("shell_ctx".to_string()),
             body: StepBody::Context(ContextSource::Shell("echo hello".to_string())),
-            message: None,
-            tools: None,
-            on_result: None,
-            model: None,
-            runner: None,
-            condition: None,
-            append_system_prompt: None,
-            system_prompt: None,
-            resume: false,
-            on_error: None,
-            before: vec![],
-            then: vec![],
-            output_schema: None,
-            input_schema: None,
+            ..Default::default()
         };
         let mut session = make_session(vec![step]);
         let runner = StubRunner::new("stub");
@@ -523,19 +498,7 @@ mod tests {
             id: StepId("gate".to_string()),
             body: StepBody::Action(ActionKind::PauseForHuman),
             message: Some("Waiting for approval".to_string()),
-            tools: None,
-            on_result: None,
-            model: None,
-            runner: None,
-            condition: None,
-            append_system_prompt: None,
-            system_prompt: None,
-            resume: false,
-            on_error: None,
-            before: vec![],
-            then: vec![],
-            output_schema: None,
-            input_schema: None,
+            ..Default::default()
         };
         let mut session = make_session(vec![step]);
         let runner = StubRunner::new("stub");
@@ -576,23 +539,11 @@ mod tests {
         let step = Step {
             id: StepId("check".to_string()),
             body: StepBody::Prompt("evaluate".to_string()),
-            message: None,
-            tools: None,
             on_result: Some(vec![ResultBranch {
                 matcher: ResultMatcher::Always,
                 action: ResultAction::Break,
             }]),
-            model: None,
-            runner: None,
-            condition: None,
-            append_system_prompt: None,
-            system_prompt: None,
-            resume: false,
-            on_error: None,
-            before: vec![],
-            then: vec![],
-            output_schema: None,
-            input_schema: None,
+            ..Default::default()
         };
         let mut session = make_session(vec![step]);
         let runner = StubRunner::new("any response");
@@ -738,23 +689,11 @@ mod tests {
         let step = Step {
             id: StepId("aborter".to_string()),
             body: StepBody::Prompt("evaluate".to_string()),
-            message: None,
-            tools: None,
             on_result: Some(vec![ResultBranch {
                 matcher: ResultMatcher::Always,
                 action: ResultAction::AbortPipeline,
             }]),
-            model: None,
-            runner: None,
-            condition: None,
-            append_system_prompt: None,
-            system_prompt: None,
-            resume: false,
-            on_error: None,
-            before: vec![],
-            then: vec![],
-            output_schema: None,
-            input_schema: None,
+            ..Default::default()
         };
         let mut session = make_session(vec![step]);
         let runner = StubRunner::new("any response");
@@ -824,19 +763,7 @@ mod tests {
                 default_value: None,
             }),
             message: Some("Review and edit the output".to_string()),
-            tools: None,
-            on_result: None,
-            model: None,
-            runner: None,
-            condition: None,
-            append_system_prompt: None,
-            system_prompt: None,
-            resume: false,
-            on_error: None,
-            before: vec![],
-            then: vec![],
-            output_schema: None,
-            input_schema: None,
+            ..Default::default()
         };
 
         let mut session = make_session(vec![generate, gate]);
@@ -885,19 +812,7 @@ mod tests {
                 default_value: None,
             }),
             message: Some("Edit this".to_string()),
-            tools: None,
-            on_result: None,
-            model: None,
-            runner: None,
-            condition: None,
-            append_system_prompt: None,
-            system_prompt: None,
-            resume: false,
-            on_error: None,
-            before: vec![],
-            then: vec![],
-            output_schema: None,
-            input_schema: None,
+            ..Default::default()
         };
 
         let mut session = make_session(vec![generate, gate]);

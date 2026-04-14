@@ -36,6 +36,7 @@ fn chain_step_summary(body: &StepBody) -> String {
         StepBody::NamedPipeline { name, .. } => format!("pipeline: {name}"),
         StepBody::Action(ActionKind::PauseForHuman) => "action: pause_for_human".to_string(),
         StepBody::Action(ActionKind::ModifyOutput { .. }) => "action: modify_output".to_string(),
+        StepBody::Action(ActionKind::Join { .. }) => "action: join".to_string(),
         StepBody::Context(ContextSource::Shell(cmd)) => {
             format!("context: shell: \"{}\"", yaml_quote(cmd))
         }
@@ -73,7 +74,11 @@ pub fn materialize(pipeline: &Pipeline) -> String {
         .map(|p| p.display().to_string())
         .unwrap_or_else(|| "<passthrough>".to_string());
 
-    let mut out = String::from("version: \"0.0.1\"\npipeline:\n");
+    let mut out = String::from("version: \"0.0.1\"\n");
+    if let Some(max_conc) = pipeline.max_concurrency {
+        out.push_str(&format!("defaults:\n  max_concurrency: {max_conc}\n"));
+    }
+    out.push_str("pipeline:\n");
 
     for (idx, step) in pipeline.steps.iter().enumerate() {
         out.push_str(&format!("  # origin: [{}] {}\n", idx + 1, source_label));
@@ -84,6 +89,13 @@ pub fn materialize(pipeline: &Pipeline) -> String {
         }
         if step.resume {
             out.push_str("    resume: true\n");
+        }
+        if step.async_step {
+            out.push_str("    async: true\n");
+        }
+        if !step.depends_on.is_empty() {
+            let dep_ids: Vec<&str> = step.depends_on.iter().map(|d| d.as_str()).collect();
+            out.push_str(&format!("    depends_on: [{}]\n", dep_ids.join(", ")));
         }
 
         if let Some(ref on_error) = step.on_error {
@@ -132,6 +144,12 @@ pub fn materialize(pipeline: &Pipeline) -> String {
             }
             StepBody::Action(ActionKind::PauseForHuman) => {
                 out.push_str("    action: pause_for_human\n");
+            }
+            StepBody::Action(ActionKind::Join { ref on_error_mode }) => {
+                out.push_str("    action: join\n");
+                if *on_error_mode == crate::config::domain::JoinErrorMode::WaitForAll {
+                    out.push_str("    on_error: wait_for_all\n");
+                }
             }
             StepBody::Action(ActionKind::ModifyOutput {
                 ref headless_behavior,
@@ -299,6 +317,16 @@ fn serialize_step(out: &mut String, step: &Step, indent: &str, origin_comment: O
     if step.resume {
         out.push_str(&format!("{field_indent}resume: true\n"));
     }
+    if step.async_step {
+        out.push_str(&format!("{field_indent}async: true\n"));
+    }
+    if !step.depends_on.is_empty() {
+        let dep_ids: Vec<&str> = step.depends_on.iter().map(|d| d.as_str()).collect();
+        out.push_str(&format!(
+            "{field_indent}depends_on: [{}]\n",
+            dep_ids.join(", ")
+        ));
+    }
 
     match &step.body {
         StepBody::Prompt(text) => {
@@ -324,6 +352,12 @@ fn serialize_step(out: &mut String, step: &Step, indent: &str, origin_comment: O
         }
         StepBody::Action(ActionKind::ModifyOutput { .. }) => {
             out.push_str(&format!("{field_indent}action: modify_output\n"));
+        }
+        StepBody::Action(ActionKind::Join { ref on_error_mode }) => {
+            out.push_str(&format!("{field_indent}action: join\n"));
+            if *on_error_mode == crate::config::domain::JoinErrorMode::WaitForAll {
+                out.push_str(&format!("{field_indent}on_error: wait_for_all\n"));
+            }
         }
         StepBody::Context(ContextSource::Shell(cmd)) => {
             out.push_str(&format!(
@@ -549,6 +583,8 @@ mod tests {
             append_system_prompt: None,
             system_prompt: None,
             resume: false,
+            async_step: false,
+            depends_on: vec![],
             on_error: None,
             before: vec![],
             then: vec![],
@@ -565,6 +601,7 @@ mod tests {
             timeout_seconds: None,
             default_tools: None,
             named_pipelines: Default::default(),
+            max_concurrency: None,
         }
     }
 
@@ -628,6 +665,7 @@ mod tests {
             timeout_seconds: None,
             default_tools: None,
             named_pipelines: Default::default(),
+            max_concurrency: None,
         };
         let output = materialize(&pipeline);
         assert!(output.contains("alpha"), "alpha not in output");
@@ -648,6 +686,7 @@ mod tests {
             timeout_seconds: None,
             default_tools: None,
             named_pipelines: Default::default(),
+            max_concurrency: None,
         };
         let output = materialize(&pipeline);
         assert!(output.contains("# origin: [1]"), "missing origin [1]");
@@ -691,6 +730,7 @@ mod tests {
             timeout_seconds: None,
             default_tools: None,
             named_pipelines: Default::default(),
+            max_concurrency: None,
         };
         let output = materialize(&pipeline);
         assert!(output.contains("context:"), "context: key missing");
@@ -711,6 +751,7 @@ mod tests {
             timeout_seconds: None,
             default_tools: None,
             named_pipelines: Default::default(),
+            max_concurrency: None,
         };
         let output = materialize(&pipeline);
         let result: Result<serde_yaml::Value, _> = serde_yaml::from_str(&output);
@@ -729,6 +770,7 @@ mod tests {
             timeout_seconds: None,
             default_tools: None,
             named_pipelines: Default::default(),
+            max_concurrency: None,
         };
         let output = materialize(&pipeline);
         assert!(
@@ -749,6 +791,7 @@ mod tests {
             timeout_seconds: None,
             default_tools: None,
             named_pipelines: Default::default(),
+            max_concurrency: None,
         };
         let output = materialize(&pipeline);
         assert!(
@@ -774,6 +817,7 @@ mod tests {
             timeout_seconds: None,
             default_tools: None,
             named_pipelines: Default::default(),
+            max_concurrency: None,
         };
         let output = materialize(&pipeline);
         assert!(
@@ -797,6 +841,7 @@ mod tests {
             timeout_seconds: None,
             default_tools: None,
             named_pipelines: Default::default(),
+            max_concurrency: None,
         };
         let output = materialize(&pipeline);
         assert!(output.contains("on_result:"), "on_result: key missing");
@@ -820,6 +865,7 @@ mod tests {
             timeout_seconds: None,
             default_tools: None,
             named_pipelines: Default::default(),
+            max_concurrency: None,
         };
         let output = materialize(&pipeline);
         assert!(
@@ -843,6 +889,7 @@ mod tests {
             timeout_seconds: None,
             default_tools: None,
             named_pipelines: Default::default(),
+            max_concurrency: None,
         };
         let output = materialize(&pipeline);
         assert!(output.contains("skill:"), "skill: key missing");
@@ -875,6 +922,7 @@ mod tests {
                 deny: vec![],
             }),
             named_pipelines: Default::default(),
+            max_concurrency: None,
         };
         let output = materialize(&pipeline);
         let result: Result<serde_yaml::Value, _> = serde_yaml::from_str(&output);

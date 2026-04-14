@@ -168,6 +168,7 @@ fn merge_defaults(base: Option<DefaultsDto>, child: Option<DefaultsDto>) -> Opti
             },
             timeout_seconds: c.timeout_seconds.or(b.timeout_seconds),
             tools: c.tools.or(b.tools),
+            max_concurrency: c.max_concurrency.or(b.max_concurrency),
         }),
     }
 }

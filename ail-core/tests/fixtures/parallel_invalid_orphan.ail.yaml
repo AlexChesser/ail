@@ -1,0 +1,9 @@
+version: "0.1"
+
+pipeline:
+  - id: lint
+    async: true
+    prompt: "Run lint."
+
+  - id: ship
+    prompt: "Ship it."

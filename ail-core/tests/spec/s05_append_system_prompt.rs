@@ -24,6 +24,8 @@ mod append_system_prompt {
             append_system_prompt: Some(entries),
             system_prompt: None,
             resume: false,
+            async_step: false,
+            depends_on: vec![],
             on_error: None,
             before: vec![],
             then: vec![],
@@ -40,6 +42,7 @@ mod append_system_prompt {
             timeout_seconds: None,
             default_tools: None,
             named_pipelines: Default::default(),
+            max_concurrency: None,
         };
         Session::new(pipeline, "test prompt".to_string()).with_log_provider(Box::new(NullProvider))
     }
@@ -173,6 +176,8 @@ mod append_system_prompt {
             append_system_prompt: None,
             system_prompt: None,
             resume: false,
+            async_step: false,
+            depends_on: vec![],
             on_error: None,
             before: vec![],
             then: vec![],

@@ -1,0 +1,10 @@
+version: "0.1"
+
+pipeline:
+  - id: join_first
+    depends_on: [lint]
+    action: join
+
+  - id: lint
+    async: true
+    prompt: "Run lint."

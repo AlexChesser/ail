@@ -1,0 +1,22 @@
+version: "0.1"
+
+pipeline:
+  - id: lint
+    async: true
+    prompt: "Run lint and report any issues."
+
+  - id: test
+    async: true
+    prompt: "Run the full test suite."
+
+  - id: checks_done
+    depends_on: [lint, test]
+    action: join
+    on_result:
+      - contains: "FAIL"
+        action: abort_pipeline
+      - always:
+        action: continue
+
+  - id: ship
+    prompt: "All checks passed. Finalize the release."

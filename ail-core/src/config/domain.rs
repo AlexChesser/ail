@@ -71,6 +71,8 @@ pub struct Pipeline {
     /// Named pipeline definitions (SPEC §10). Maps pipeline name → list of validated steps.
     /// Referenced by `StepBody::NamedPipeline` steps at execution time.
     pub named_pipelines: HashMap<String, Vec<Step>>,
+    /// Pipeline-wide concurrency cap for async steps (SPEC §29.10). `None` means unlimited.
+    pub max_concurrency: Option<u64>,
 }
 
 impl Pipeline {
@@ -82,26 +84,9 @@ impl Pipeline {
             steps: vec![Step {
                 id: StepId("invocation".to_string()),
                 body: StepBody::Prompt("{{ step.invocation.prompt }}".to_string()),
-                message: None,
-                tools: None,
-                on_result: None,
-                model: None,
-                runner: None,
-                condition: None,
-                append_system_prompt: None,
-                system_prompt: None,
-                resume: false,
-                on_error: None,
-                before: vec![],
-                then: vec![],
-                output_schema: None,
-                input_schema: None,
+                ..Default::default()
             }],
-            source: None,
-            defaults: ProviderConfig::default(),
-            timeout_seconds: None,
-            default_tools: None,
-            named_pipelines: HashMap::new(),
+            ..Default::default()
         }
     }
 }
@@ -192,6 +177,12 @@ pub struct Step {
     /// Whether this step resumes the previous runner session (SPEC §15.4).
     /// `false` (default) starts a fresh session for each step.
     pub resume: bool,
+    /// Whether this step runs asynchronously / non-blocking (SPEC §29.1).
+    /// When `true`, the pipeline cursor advances immediately after launching.
+    pub async_step: bool,
+    /// Step IDs this step must wait for before executing (SPEC §29.1).
+    /// Empty for most steps. Non-empty implies a synchronization barrier.
+    pub depends_on: Vec<StepId>,
     /// Error handling strategy for this step (SPEC §16).
     /// `None` means abort (default behaviour — same as `Some(OnError::AbortPipeline)`).
     pub on_error: Option<OnError>,
@@ -311,6 +302,22 @@ pub enum ActionKind {
         /// Optional default value used when `headless_behavior` is `UseDefault`.
         default_value: Option<String>,
     },
+    /// Synchronization barrier that waits for all `depends_on` steps to complete,
+    /// merges their outputs, and makes the result available to downstream steps (SPEC §29.3).
+    Join {
+        /// Error handling mode — controls behavior when a dependency fails (SPEC §29.7).
+        on_error_mode: JoinErrorMode,
+    },
+}
+
+/// Error handling mode for `action: join` steps (SPEC §29.7).
+#[derive(Debug, Clone, PartialEq)]
+pub enum JoinErrorMode {
+    /// Default — first dependency failure cancels all other in-flight branches.
+    FailFast,
+    /// All branches run to completion regardless of individual failures.
+    /// Failed branches contribute error envelopes to the merged output.
+    WaitForAll,
 }
 
 /// Behavior for HITL gates in headless/`--once` mode (SPEC §13.2).
