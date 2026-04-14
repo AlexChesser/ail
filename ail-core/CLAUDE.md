@@ -11,14 +11,14 @@ Consumed by `ail` (the binary) and future language-server / SDK targets.
 | `config/dto.rs` | Serde-deserialised raw structs — derives `Deserialize` |
 | `config/domain.rs` | Validated domain types — no `Deserialize` derives |
 | `config/validation/mod.rs` | `validate()` entry point, `cfg_err!` macro, `tools_to_policy` helper |
-| `config/validation/step_body.rs` | `parse_step_body()` — primary field count check + body construction |
+| `config/validation/step_body.rs` | `parse_step_body()` — primary field count check + body construction (including `parse_do_while_body`, `parse_for_each_body`) |
 | `config/validation/on_result.rs` | `parse_result_branches()` — DTO → domain for result matchers and actions |
 | `config/validation/system_prompt.rs` | `parse_append_system_prompt()` — DTO → domain for system prompt entries |
 | `config/inheritance.rs` | FROM inheritance — path resolution, cycle detection, DTO merging, hook operations (SPEC §7, §8) |
 | `config/mod.rs` | `load(path)` public entry point |
 | `error.rs` | `AilError`, `ErrorContext`, `error_types` string constants |
 | `executor/mod.rs` | `execute(&mut Session, &dyn Runner)` — SPEC §4.2 core invariant |
-| `executor/core.rs` | `StepObserver` trait, `NullObserver`, `execute_core()`, `execute_do_while()` — shared step-dispatch loop + do_while loop execution (SPEC §27) |
+| `executor/core.rs` | `StepObserver` trait, `NullObserver`, `execute_core()`, `execute_do_while()`, `execute_for_each()` — shared step-dispatch loop + loop execution (SPEC §27, §28) |
 | `executor/headless.rs` | `execute()` — headless mode entry point using `NullObserver` |
 | `executor/controlled.rs` | `execute_with_control()` — TUI-controlled mode with `ChannelObserver` |
 | `executor/events.rs` | `ExecuteOutcome`, `ExecutionControl`, `ExecutorEvent` |
@@ -50,7 +50,7 @@ Consumed by `ail` (the binary) and future language-server / SDK targets.
 | `runner/plugin/protocol_runner.rs` | `ProtocolRunner` — generic `Runner` impl that speaks JSON-RPC to any compliant executable |
 | `runner/http.rs` | `HttpRunner` — direct OpenAI-compatible HTTP runner (Ollama, direct API); full system-prompt control, think flag, in-memory session continuity |
 | `runner/dry_run.rs` | `DryRunRunner` — production no-op runner for `--dry-run` mode; returns synthetic response, zero tokens, zero cost |
-| `runner/stub.rs` | `StubRunner`, `CountingStubRunner`, `EchoStubRunner`, `RecordingStubRunner` — deterministic test doubles |
+| `runner/stub.rs` | `StubRunner`, `CountingStubRunner`, `EchoStubRunner`, `RecordingStubRunner`, `SequenceStubRunner` — deterministic test doubles |
 | `session/log_provider.rs` | `LogProvider` trait + `JsonlProvider` (NDJSON) + `NullProvider` (tests) |
 | `session/state.rs` | `Session` — `run_id`, `pipeline`, `invocation_prompt`, `turn_log` |
 | `session/turn_log.rs` | `TurnLog` — in-memory entry store + delegates persistence to `LogProvider` |
@@ -77,7 +77,7 @@ pub struct Pipeline { pub steps: Vec<Step>, pub source: Option<PathBuf>, pub def
 // default_tools: pipeline-wide fallback; per-step tools override entirely (SPEC §3.2)
 // named_pipelines: named pipeline definitions from the `pipelines:` section (SPEC §10)
 pub struct Step    { pub id: StepId, pub body: StepBody, pub tools: Option<ToolPolicy>, pub on_result: Option<Vec<ResultBranch>>, pub model: Option<String>, pub runner: Option<String> }
-pub enum StepBody  { Prompt(String), Skill { name: String }, SubPipeline { path: String, prompt: Option<String> }, NamedPipeline { name: String, prompt: Option<String> }, Action(ActionKind), Context(ContextSource) }
+pub enum StepBody  { Prompt(String), Skill { name: String }, SubPipeline { path: String, prompt: Option<String> }, NamedPipeline { name: String, prompt: Option<String> }, Action(ActionKind), Context(ContextSource), DoWhile { max_iterations, exit_when, steps }, ForEach { over, as_name, max_items, on_max_items, steps } }
 // NamedPipeline: references a named pipeline defined in pipelines: section (SPEC §10)
 // NamedPipeline.prompt: when Some, overrides child session's invocation_prompt (same as SubPipeline)
 // SubPipeline.path may contain {{ variable }} syntax — resolved at execution time (SPEC §11)
@@ -148,16 +148,21 @@ pub type HttpSessionStore = Arc<Mutex<HashMap<String, Vec<ChatMessage>>>>;
 pub enum ExecuteOutcome { Completed, Break { step_id: String } }
 
 // Session
-pub struct Session { pub run_id: String, pub pipeline: Pipeline, pub invocation_prompt: String, pub turn_log: TurnLog, pub cli_provider: ProviderConfig, pub cwd: String, pub runner_name: String, pub headless: bool, pub http_session_store: HttpSessionStore, pub do_while_context: Option<DoWhileContext>, pub loop_depth: usize }
+pub struct Session { pub run_id: String, pub pipeline: Pipeline, pub invocation_prompt: String, pub turn_log: TurnLog, pub cli_provider: ProviderConfig, pub cwd: String, pub runner_name: String, pub headless: bool, pub http_session_store: HttpSessionStore, pub do_while_context: Option<DoWhileContext>, pub for_each_context: Option<ForEachContext>, pub loop_depth: usize }
 // cwd: captured at Session::new() time via std::env::current_dir(); used by {{ session.cwd }} template variable.
 // do_while_context: set during do_while loop body execution, enables {{ do_while.iteration }} and {{ do_while.max_iterations }} template variables
-// loop_depth: current nesting depth of do_while loops, checked against MAX_LOOP_DEPTH (8)
+// for_each_context: set during for_each loop body execution, enables {{ for_each.item }}/{{ for_each.<as_name> }}, {{ for_each.index }}, {{ for_each.total }} template variables
+// loop_depth: current nesting depth of loop constructs (do_while, for_each), checked against MAX_LOOP_DEPTH (8)
 // Note: the "Allow for session" tool allowlist (SPEC §13.2, §13.4) lives in the `ail` binary crate
 // (control_bridge::AllowlistArc), not on Session — session allowlisting is a binary-layer concern.
 // TurnEntry carries prompt-step fields (response, runner_session_id, thinking, tool_events) and context-step fields (stdout, stderr, exit_code)
 // tool_events: Vec<ToolEvent> — populated from RunResult.tool_events for prompt steps; empty for context/action/sub-pipeline steps
 pub struct DoWhileContext { pub loop_id: String, pub iteration: u64, pub max_iterations: u64 }
 // DoWhileContext: active loop context — set during do_while body execution, cleared after loop exits (SPEC §27)
+pub struct ForEachContext { pub loop_id: String, pub index: u64, pub total: u64, pub item: String, pub as_name: String }
+// ForEachContext: active loop context — set during for_each body execution, cleared after loop exits (SPEC §28)
+pub enum OnMaxItems { Continue, AbortPipeline }
+// OnMaxItems: behavior when for_each array exceeds max_items (SPEC §28.2)
 
 // Error
 pub struct AilError { pub error_type: &'static str, pub title: &'static str, pub detail: String, pub context: Option<ErrorContext> }

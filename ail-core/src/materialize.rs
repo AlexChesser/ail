@@ -1,6 +1,6 @@
 use crate::config::domain::{
-    ActionKind, ConditionExpr, ConditionOp, ContextSource, ExitCodeMatch, OnError, Pipeline,
-    ResultAction, ResultMatcher, Step, StepBody,
+    ActionKind, ConditionExpr, ConditionOp, ContextSource, ExitCodeMatch, OnError, OnMaxItems,
+    Pipeline, ResultAction, ResultMatcher, Step, StepBody,
 };
 
 /// Escape a string for use inside a YAML double-quoted scalar.
@@ -46,6 +46,17 @@ fn chain_step_summary(body: &StepBody) -> String {
         } => {
             format!(
                 "do_while: (max_iterations: {max_iterations}, {} inner steps)",
+                steps.len()
+            )
+        }
+        StepBody::ForEach {
+            ref over,
+            ref as_name,
+            steps,
+            ..
+        } => {
+            format!(
+                "for_each: (over: {over}, as: {as_name}, {} inner steps)",
                 steps.len()
             )
         }
@@ -157,6 +168,27 @@ pub fn materialize(pipeline: &Pipeline) -> String {
                     "      exit_when: \"{}\"\n",
                     yaml_quote(&format_condition_expr(exit_when))
                 ));
+                out.push_str("      steps:\n");
+                for inner in steps {
+                    serialize_step(&mut out, inner, "        ", None);
+                }
+            }
+            StepBody::ForEach {
+                ref over,
+                ref as_name,
+                max_items,
+                ref on_max_items,
+                ref steps,
+            } => {
+                out.push_str("    for_each:\n");
+                out.push_str(&format!("      over: \"{}\"\n", yaml_quote(over)));
+                out.push_str(&format!("      as: {as_name}\n"));
+                if let Some(cap) = max_items {
+                    out.push_str(&format!("      max_items: {cap}\n"));
+                    if *on_max_items == OnMaxItems::AbortPipeline {
+                        out.push_str("      on_max_items: abort_pipeline\n");
+                    }
+                }
                 out.push_str("      steps:\n");
                 for inner in steps {
                     serialize_step(&mut out, inner, "        ", None);
@@ -312,6 +344,28 @@ fn serialize_step(out: &mut String, step: &Step, indent: &str, origin_comment: O
                 "{field_indent}  exit_when: \"{}\"\n",
                 yaml_quote(&format_condition_expr(exit_when))
             ));
+            out.push_str(&format!("{field_indent}  steps:\n"));
+            let inner_indent = format!("{field_indent}    ");
+            for inner in steps {
+                serialize_step(out, inner, &inner_indent, None);
+            }
+        }
+        StepBody::ForEach {
+            ref over,
+            ref as_name,
+            max_items,
+            ref on_max_items,
+            ref steps,
+        } => {
+            out.push_str(&format!("{field_indent}for_each:\n"));
+            out.push_str(&format!("{field_indent}  over: \"{}\"\n", yaml_quote(over)));
+            out.push_str(&format!("{field_indent}  as: {as_name}\n"));
+            if let Some(cap) = max_items {
+                out.push_str(&format!("{field_indent}  max_items: {cap}\n"));
+                if *on_max_items == OnMaxItems::AbortPipeline {
+                    out.push_str(&format!("{field_indent}  on_max_items: abort_pipeline\n"));
+                }
+            }
             out.push_str(&format!("{field_indent}  steps:\n"));
             let inner_indent = format!("{field_indent}    ");
             for inner in steps {

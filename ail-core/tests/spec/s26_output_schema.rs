@@ -358,9 +358,9 @@ pipeline:
         assert!(err.detail().contains("category"));
     }
 
-    /// s26 -- for_each is still rejected as reserved.
+    /// s26 -- for_each is mutually exclusive with prompt (SPEC §28.2).
     #[test]
-    fn for_each_still_reserved() {
+    fn for_each_mutually_exclusive_with_prompt() {
         let yaml = r#"
 version: "0.1"
 pipeline:
@@ -368,11 +368,14 @@ pipeline:
     prompt: "do things"
     for_each:
       over: "{{ step.plan.items }}"
+      steps:
+        - id: inner
+          prompt: "do"
 "#;
         let tmp = tempfile::NamedTempFile::with_suffix(".ail.yaml").unwrap();
         std::fs::write(tmp.path(), yaml).unwrap();
         let result = config::load(tmp.path());
-        assert!(result.is_err(), "for_each must still be rejected");
+        assert!(result.is_err(), "for_each + prompt must be rejected");
         let err = result.unwrap_err();
         assert_eq!(err.error_type(), error_types::CONFIG_VALIDATION_FAILED);
         assert!(err.detail().contains("for_each"));

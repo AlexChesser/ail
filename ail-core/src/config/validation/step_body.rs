@@ -2,7 +2,9 @@
 
 #![allow(clippy::result_large_err)]
 
-use crate::config::domain::{ActionKind, ContextSource, HitlHeadlessBehavior, StepBody};
+use crate::config::domain::{
+    ActionKind, ContextSource, HitlHeadlessBehavior, OnMaxItems, StepBody,
+};
 use crate::config::dto::StepDto;
 use crate::error::AilError;
 
@@ -17,14 +19,6 @@ pub(in crate::config) fn parse_step_body(
     step_dto: &mut StepDto,
     id_str: &str,
 ) -> Result<StepBody, AilError> {
-    // Reject reserved v0.3 fields that are accepted by serde but not yet implemented.
-    if step_dto.for_each.is_some() {
-        return Err(cfg_err!(
-            "Step '{id_str}' uses 'for_each' which is reserved for a future \
-             version and not yet implemented"
-        ));
-    }
-
     // When pipeline: is set, prompt: is treated as the child invocation override,
     // not a primary field — so don't count it in the primary field selector.
     let primary_count = [
@@ -34,6 +28,7 @@ pub(in crate::config) fn parse_step_body(
         step_dto.action.is_some(),
         step_dto.context.is_some(),
         step_dto.do_while.is_some(),
+        step_dto.for_each.is_some(),
     ]
     .iter()
     .filter(|&&b| b)
@@ -42,7 +37,7 @@ pub(in crate::config) fn parse_step_body(
     if primary_count != 1 {
         return Err(cfg_err!(
             "Step '{id_str}' must have exactly one primary field \
-             (prompt, skill, pipeline, action, context, or do_while); found {primary_count}"
+             (prompt, skill, pipeline, action, context, do_while, or for_each); found {primary_count}"
         ));
     }
 
@@ -104,6 +99,8 @@ pub(in crate::config) fn parse_step_body(
         }
     } else if step_dto.do_while.is_some() {
         parse_do_while_body(step_dto.do_while.take().unwrap(), id_str)
+    } else if step_dto.for_each.is_some() {
+        parse_for_each_body(step_dto.for_each.take().unwrap(), id_str)
     } else {
         unreachable!("primary_count == 1 enforced above")
     }
@@ -172,6 +169,88 @@ fn parse_do_while_body(
     Ok(StepBody::DoWhile {
         max_iterations,
         exit_when,
+        steps: inner_steps,
+    })
+}
+
+/// Parse a `for_each:` step body, validating all required fields (SPEC §28).
+///
+/// Takes ownership of the `ForEachDto` because the inner `steps` list
+/// is passed by value to `validate_steps`.
+fn parse_for_each_body(
+    fe: crate::config::dto::ForEachDto,
+    id_str: &str,
+) -> Result<StepBody, AilError> {
+    let over = fe.over.ok_or_else(|| {
+        cfg_err!(
+            "Step '{id_str}' declares for_each: but 'over' is missing; \
+             over is required and must reference a step's .items (SPEC §28)"
+        )
+    })?;
+
+    if over.trim().is_empty() {
+        return Err(cfg_err!(
+            "Step '{id_str}' declares for_each.over: but the value is empty"
+        ));
+    }
+
+    let as_name = fe.as_name.unwrap_or_else(|| "item".to_string());
+
+    // Validate `as` is a valid identifier.
+    if as_name.is_empty()
+        || as_name.starts_with(|c: char| c.is_ascii_digit())
+        || !as_name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_')
+    {
+        return Err(cfg_err!(
+            "Step '{id_str}' declares for_each.as: '{as_name}' which is not a valid identifier \
+             (must be letters, digits, underscores; cannot start with a digit)"
+        ));
+    }
+
+    if let Some(max_items) = fe.max_items {
+        if max_items < 1 {
+            return Err(cfg_err!(
+                "Step '{id_str}' specifies for_each.max_items: 0; \
+                 max_items must be at least 1"
+            ));
+        }
+    }
+
+    let on_max_items = match fe.on_max_items.as_deref() {
+        None | Some("continue") => OnMaxItems::Continue,
+        Some("abort_pipeline") => OnMaxItems::AbortPipeline,
+        Some(other) => {
+            return Err(cfg_err!(
+                "Step '{id_str}' specifies unknown for_each.on_max_items value '{other}'; \
+                 supported values are 'continue' and 'abort_pipeline'"
+            ));
+        }
+    };
+
+    let step_dtos = fe.steps.ok_or_else(|| {
+        cfg_err!(
+            "Step '{id_str}' declares for_each: but 'steps' is missing; \
+             at least one inner step is required (SPEC §28)"
+        )
+    })?;
+
+    if step_dtos.is_empty() {
+        return Err(cfg_err!(
+            "Step '{id_str}' declares for_each: with an empty 'steps' array; \
+             at least one inner step is required (SPEC §28)"
+        ));
+    }
+
+    let context_label = format!("for_each step '{id_str}'");
+    let inner_steps = validate_steps(step_dtos, &context_label)?;
+
+    Ok(StepBody::ForEach {
+        over,
+        as_name,
+        max_items: fe.max_items,
+        on_max_items,
         steps: inner_steps,
     })
 }

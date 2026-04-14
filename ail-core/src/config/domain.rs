@@ -270,6 +270,29 @@ pub enum StepBody {
         /// Inner steps executed each iteration.
         steps: Vec<Step>,
     },
+    /// Collection iteration (SPEC §28). Runs inner steps once per item in a
+    /// validated array from a prior step's `output_schema: type: array`.
+    ForEach {
+        /// Template expression resolving to a validated JSON array.
+        over: String,
+        /// Local name for the current item (default: `item`).
+        as_name: String,
+        /// Optional hard cap on items processed.
+        max_items: Option<u64>,
+        /// What happens when the array exceeds `max_items`.
+        on_max_items: OnMaxItems,
+        /// Inner steps executed once per item.
+        steps: Vec<Step>,
+    },
+}
+
+/// Behavior when a `for_each:` array exceeds `max_items` (SPEC §28.2).
+#[derive(Debug, Clone, PartialEq)]
+pub enum OnMaxItems {
+    /// Silently skip excess items (default).
+    Continue,
+    /// Treat excess items as a fatal error.
+    AbortPipeline,
 }
 
 #[derive(Debug, Clone)]

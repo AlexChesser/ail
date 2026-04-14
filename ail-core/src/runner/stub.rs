@@ -120,6 +120,36 @@ impl Runner for RecordingStubRunner {
     }
 }
 
+/// A stub runner that returns responses from a pre-configured sequence.
+/// Each invocation returns the next response in order. If the sequence
+/// is exhausted, returns a "sequence exhausted" error.
+pub struct SequenceStubRunner {
+    responses: std::sync::Mutex<Vec<String>>,
+}
+
+impl SequenceStubRunner {
+    pub fn new(responses: Vec<String>) -> Self {
+        // Reverse so we can pop from the back efficiently.
+        let mut reversed = responses;
+        reversed.reverse();
+        SequenceStubRunner {
+            responses: std::sync::Mutex::new(reversed),
+        }
+    }
+}
+
+impl Runner for SequenceStubRunner {
+    fn invoke(&self, _prompt: &str, _options: InvokeOptions) -> Result<RunResult, AilError> {
+        let response = self
+            .responses
+            .lock()
+            .expect("mutex not poisoned")
+            .pop()
+            .unwrap_or_else(|| "[SequenceStubRunner: sequence exhausted]".to_string());
+        Ok(RunResult::stub(response, "sequence-stub-session-id"))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

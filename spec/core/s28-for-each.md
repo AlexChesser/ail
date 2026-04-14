@@ -1,6 +1,6 @@
 ## 28. `for_each:` — Collection Iteration
 
-> **Implementation status:** Planned — v0.3 target (requires `output_schema` §26). `for_each:` is a reserved primary field. The parser will reject it with `CONFIG_VALIDATION_FAILED` until implementation is complete.
+> **Implementation status:** Fully implemented. `for_each:` — parse-time validation (`over`, `as`, `max_items`, `on_max_items`, `steps`), runtime array iteration with item scope, `{{ for_each.item }}` / `{{ for_each.<as_name> }}` / `{{ for_each.index }}` / `{{ for_each.total }}` template variables, `break` exits loop not pipeline, `max_items` cap with `on_max_items` behavior, step ID namespacing (`<loop_id>::<step_id>`), shared depth guard with `do_while:`. Controlled-mode executor events (§28.6) are deferred.
 
 A `for_each:` step runs a fixed set of inner steps once per item in a validated array produced by a prior step. Where `do_while:` (§27) repeats until a condition is met, `for_each:` maps a sub-pipeline across a known collection — the plan-execution pattern: generate a list of tasks, then implement each one.
 

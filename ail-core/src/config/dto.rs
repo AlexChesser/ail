@@ -92,8 +92,8 @@ pub struct StepDto {
     // "unknown field". Rejected at validation time until implemented.
     /// Bounded repeat-until loop (SPEC §27).
     pub do_while: Option<DoWhileDto>,
-    /// Reserved: collection iteration (SPEC §28). Rejected at validation time.
-    pub for_each: Option<serde_json::Value>,
+    /// Collection iteration (SPEC §28).
+    pub for_each: Option<ForEachDto>,
     /// Reserved: JSON Schema for step output validation (SPEC §26). Rejected at validation time.
     pub output_schema: Option<serde_json::Value>,
     /// Reserved: JSON Schema for step input validation (SPEC §26). Rejected at validation time.
@@ -126,6 +126,22 @@ pub struct DoWhileDto {
     /// Condition expression evaluated after each iteration; loop exits when true.
     pub exit_when: Option<String>,
     /// Inner steps executed each iteration.
+    pub steps: Option<Vec<StepDto>>,
+}
+
+/// DTO for `for_each:` collection iteration (SPEC §28).
+#[derive(Debug, Default, Deserialize)]
+pub struct ForEachDto {
+    /// Template expression resolving to a validated array (e.g. `{{ step.plan.items }}`).
+    pub over: Option<String>,
+    /// Local name for the current item within the loop body. Defaults to `item`.
+    #[serde(rename = "as")]
+    pub as_name: Option<String>,
+    /// Hard cap on items processed. Items beyond this limit are not processed.
+    pub max_items: Option<u64>,
+    /// What happens when the array contains more items than `max_items`.
+    pub on_max_items: Option<String>,
+    /// Inner steps executed once per item.
     pub steps: Option<Vec<StepDto>>,
 }
 
