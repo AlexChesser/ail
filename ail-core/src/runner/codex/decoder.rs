@@ -142,9 +142,9 @@ impl CodexNdjsonDecoder {
         }
         Ok(RunResult {
             response: self.response,
-            cost_usd: None,       // not available in codex --json wire format
+            cost_usd: None, // not available in codex --json wire format
             session_id: self.thread_id,
-            input_tokens: 0,      // not available in codex --json wire format
+            input_tokens: 0, // not available in codex --json wire format
             output_tokens: 0,
             thinking: if self.thinking.is_empty() {
                 None
@@ -226,10 +226,9 @@ impl CodexNdjsonDecoder {
                         .unwrap_or("");
 
                     // Accumulate the tool_call side
-                    let input =
-                        serde_json::json!({ "command": command });
-                    let content_json = serde_json::to_string(&input)
-                        .unwrap_or_else(|_| "{}".to_string());
+                    let input = serde_json::json!({ "command": command });
+                    let content_json =
+                        serde_json::to_string(&input).unwrap_or_else(|_| "{}".to_string());
                     self.tool_events.push(ToolEvent {
                         event_type: "tool_call".to_string(),
                         tool_name: "Bash".to_string(),
@@ -513,10 +512,13 @@ mod tests {
         dec.finalize().unwrap();
 
         let events: Vec<_> = rx.try_iter().collect();
-        assert!(events.iter().any(|e| matches!(e, RunnerEvent::ToolResult {
-            is_error: Some(true),
-            ..
-        })));
+        assert!(events.iter().any(|e| matches!(
+            e,
+            RunnerEvent::ToolResult {
+                is_error: Some(true),
+                ..
+            }
+        )));
     }
 
     #[test]

@@ -85,8 +85,8 @@ impl RunnerFactory {
                 Ok(Box::new(runner))
             }
             "codex" => {
-                let codex_bin = std::env::var("AIL_CODEX_BIN")
-                    .unwrap_or_else(|_| "codex".to_string());
+                let codex_bin =
+                    std::env::var("AIL_CODEX_BIN").unwrap_or_else(|_| "codex".to_string());
                 Ok(Box::new(
                     CodexRunnerConfig::default()
                         .codex_bin(codex_bin)

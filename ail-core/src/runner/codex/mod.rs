@@ -21,8 +21,8 @@
 
 #![allow(clippy::result_large_err)]
 
-mod wire_dto;
 pub mod decoder;
+mod wire_dto;
 
 use std::io::BufRead;
 use std::sync::mpsc;
