@@ -9,7 +9,9 @@
 //! - [`claude::ClaudeCliRunner`] — drives `claude --output-format stream-json --verbose -p`.
 //!   Handles Anthropic API, Ollama, Bedrock, and any provider the `claude` CLI supports,
 //!   because the CLI normalises upstream differences into one `stream-json` format.
-//! - Future runners would live here (e.g. `codex::CodexRunner`, `opencode::OpenCodeRunner`).
+//! - [`codex::CodexRunner`] — drives `codex exec --json` (OpenAI Codex CLI).
+//!   Uses an item-lifecycle NDJSON stream; `turn.completed` is the terminal signal.
+//! - Future runners would live here (e.g. `opencode::OpenCodeRunner`).
 //!
 //! Provider config (base URL, auth token, model) flows through [`InvokeOptions`] so the
 //! executor never names a specific provider. Model-specific output quirks — XML tool calls
@@ -23,6 +25,7 @@
 #![allow(clippy::result_large_err)]
 
 pub mod claude;
+pub mod codex;
 pub mod dry_run;
 pub mod factory;
 pub mod http;

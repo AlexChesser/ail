@@ -40,6 +40,9 @@ Consumed by `ail` (the binary) and future language-server / SDK targets.
 | `runner/claude/mod.rs` | `ClaudeCliRunner` — orchestrates subprocess + decoder + permission listener |
 | `runner/claude/decoder.rs` | `ClaudeNdjsonDecoder` — stateful NDJSON stream decoder, no process coupling; unit-testable with raw byte strings |
 | `runner/claude/permission.rs` | `ClaudePermissionListener` — RAII guard for the tool-permission socket (hook settings file, accept loop, `__close__` sentinel, cleanup on drop) |
+| `runner/codex/mod.rs` | `CodexRunner` — orchestrates subprocess + decoder for `codex exec --json` |
+| `runner/codex/decoder.rs` | `CodexNdjsonDecoder` — stateful item-lifecycle NDJSON decoder; unit-testable with raw byte strings |
+| `runner/codex/wire_dto.rs` | Serde DTOs for the `codex exec --json` wire format |
 | `runner/factory.rs` | `RunnerFactory` — builds runners by name; honours `AIL_DEFAULT_RUNNER` env; checks plugin registry for unknown names |
 | `runner/plugin/mod.rs` | Plugin system entry point — re-exports `PluginRegistry`, `PluginManifest`, `ProtocolRunner` |
 | `runner/plugin/discovery.rs` | `discover_plugins()` — scans `~/.ail/runners/` for manifest files; returns `PluginRegistry` |
