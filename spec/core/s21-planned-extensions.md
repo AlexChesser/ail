@@ -14,75 +14,45 @@ These features are designed and their syntax is reserved. Not yet implemented. D
 
 ### Parallel Step Execution
 
-> **Status: Planned**
+> **Status: Design complete — see §29**
 
-#### Grouped Parallel Steps
-
-A step may declare a `parallel:` block containing child steps that execute concurrently. Results are accessed via the parent step ID:
-
-```yaml
-- id: parallel_review
-  parallel:
-    - id: security
-      skill: ./skills/security-reviewer/
-    - id: dry_check
-      skill: ail/dry-refactor
-```
-
-#### Fan-Out / Fan-In with Synthesis
-
-```yaml
-- id: full_review
-  parallel:
-    - id: security
-      skill: ./skills/security-reviewer/
-    - id: dry
-      skill: ail/dry-refactor
-  synthesize:
-    prompt: |
-      Security: {{ step.full_review.security.response }}
-      DRY: {{ step.full_review.dry.response }}
-      Produce a single consolidated report.
-```
+Parallel step execution has been fully designed and promoted to its own spec section. See [s29-parallel-execution.md](s29-parallel-execution.md) for the complete specification covering `async:`, `depends_on:`, `action: join`, the session fork model, structured join with `output_schema` namespacing, error handling, and turn log format.
 
 #### Multi-Provider Parallel Sampling
 
 > **Status: Planned — design seed (see D-020)**
 
-A specific application of parallel execution: the same prompt sent simultaneously to two providers. The canonical use case is quality comparison — a frontier model and a commodity model running in parallel, with a synthesis step that identifies what the frontier did better and proposes prompt improvements that would produce similar results from the commodity runner.
+A specific application of parallel execution (§29): the same prompt sent simultaneously to two providers. The canonical use case is quality comparison — a frontier model and a commodity model running in parallel, with a synthesis step that identifies what the frontier did better and proposes prompt improvements that would produce similar results from the commodity runner.
 
 ```yaml
-# Note: parallel execution and provider: aliases require primitives not yet implemented.
-# This is a design seed. Syntax is not final.
-
+# Uses §29 parallel primitives — async: true + depends_on:
 - id: implement_frontier
+  async: true
   prompt: "{{ step.invocation.prompt }}"
   provider: frontier
 
 - id: implement_commodity
+  async: true
   prompt: "{{ step.invocation.prompt }}"
   provider: commodity
-  # runs in parallel with implement_frontier — requires parallel execution
 
 - id: quality_compare
+  depends_on: [implement_frontier, implement_commodity]
+  action: join
+
+- id: analysis
   prompt: |
     Two implementations of the same task:
-    A: {{ step.implement_frontier.response }}
-    B: {{ step.implement_commodity.response }}
-    What did A do better? What prompt change would produce A's result from B's model?
+    {{ step.quality_compare.response }}
+    What did the frontier implementation do better? What prompt change would produce
+    the frontier result from the commodity model?
   on_result:
-    always:
+    - always:
       action: pause_for_human
       message: "Quality comparison complete. Approve pipeline update?"
 ```
 
-This creates a systematic feedback loop: the pipeline's prompts and skills improve over time at directing any runner. The commodity runner produces better results not because the model improves, but because the instructions directing it get better. Combined with the self-modifying pipeline primitive (see below), the comparison step can propose and apply those improvements automatically.
-
-**Unresolved questions:**
-
-- Are parallel branches isolated (separate sessions) or do they share a provider connection?
-- How does the runtime handle failure in one parallel branch — does the other branch continue, or does the whole group fail?
-- Is `parallel_with:` (sibling syntax) needed alongside the `parallel:` group block, or is one sufficient? The grouped form requires a parent step ID; top-level step IDs referenced individually require the sibling form.
+This creates a systematic feedback loop: the pipeline's prompts improve over time at directing any runner. Combined with the self-modifying pipeline primitive (see below), the comparison step can propose and apply those improvements automatically.
 
 ---
 
