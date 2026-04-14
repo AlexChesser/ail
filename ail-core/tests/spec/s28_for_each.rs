@@ -732,6 +732,7 @@ mod materialize {
             timeout_seconds: None,
             default_tools: None,
             named_pipelines: Default::default(),
+            max_concurrency: None,
         };
         let output = ail_core::materialize::materialize(&pipeline);
         assert!(output.contains("for_each:"), "for_each: key missing");

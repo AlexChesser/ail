@@ -171,26 +171,14 @@ fn context_shell_captures_stdout() {
         steps: vec![Step {
             id: StepId("greet".to_string()),
             body: StepBody::Context(ContextSource::Shell("printf 'hello'".to_string())),
-            message: None,
-            tools: None,
-            model: None,
-            on_result: None,
-            runner: None,
-            condition: None,
-            append_system_prompt: None,
-            system_prompt: None,
-            resume: false,
-            on_error: None,
-            before: vec![],
-            then: vec![],
-            output_schema: None,
-            input_schema: None,
+            ..Default::default()
         }],
         defaults: Default::default(),
         timeout_seconds: None,
         source: None,
         default_tools: None,
         named_pipelines: Default::default(),
+        max_concurrency: None,
     };
     let mut session = ail_core::session::Session::new(pipeline, "p".to_string());
     execute(&mut session, &StubRunner::new("x")).unwrap();
@@ -216,26 +204,14 @@ fn context_shell_captures_stderr() {
         steps: vec![Step {
             id: StepId("warn".to_string()),
             body: StepBody::Context(ContextSource::Shell("printf 'error msg' >&2".to_string())),
-            message: None,
-            tools: None,
-            model: None,
-            on_result: None,
-            runner: None,
-            condition: None,
-            append_system_prompt: None,
-            system_prompt: None,
-            resume: false,
-            on_error: None,
-            before: vec![],
-            then: vec![],
-            output_schema: None,
-            input_schema: None,
+            ..Default::default()
         }],
         defaults: Default::default(),
         timeout_seconds: None,
         source: None,
         default_tools: None,
         named_pipelines: Default::default(),
+        max_concurrency: None,
     };
     let mut session = ail_core::session::Session::new(pipeline, "p".to_string());
     execute(&mut session, &StubRunner::new("x")).unwrap();
@@ -264,26 +240,14 @@ fn context_shell_captures_exit_code_zero() {
         steps: vec![Step {
             id: StepId("ok".to_string()),
             body: StepBody::Context(ContextSource::Shell("true".to_string())),
-            message: None,
-            tools: None,
-            model: None,
-            on_result: None,
-            runner: None,
-            condition: None,
-            append_system_prompt: None,
-            system_prompt: None,
-            resume: false,
-            on_error: None,
-            before: vec![],
-            then: vec![],
-            output_schema: None,
-            input_schema: None,
+            ..Default::default()
         }],
         defaults: Default::default(),
         timeout_seconds: None,
         source: None,
         default_tools: None,
         named_pipelines: Default::default(),
+        max_concurrency: None,
     };
     let mut session = ail_core::session::Session::new(pipeline, "p".to_string());
     execute(&mut session, &StubRunner::new("x")).unwrap();
@@ -307,26 +271,14 @@ fn context_shell_captures_nonzero_exit_code() {
         steps: vec![Step {
             id: StepId("fail".to_string()),
             body: StepBody::Context(ContextSource::Shell("exit 42".to_string())),
-            message: None,
-            tools: None,
-            model: None,
-            on_result: None,
-            runner: None,
-            condition: None,
-            append_system_prompt: None,
-            system_prompt: None,
-            resume: false,
-            on_error: None,
-            before: vec![],
-            then: vec![],
-            output_schema: None,
-            input_schema: None,
+            ..Default::default()
         }],
         defaults: Default::default(),
         timeout_seconds: None,
         source: None,
         default_tools: None,
         named_pipelines: Default::default(),
+        max_concurrency: None,
     };
     let mut session = ail_core::session::Session::new(pipeline, "p".to_string());
     let result = execute(&mut session, &StubRunner::new("x"));
@@ -351,26 +303,14 @@ fn context_shell_does_not_call_runner() {
         steps: vec![Step {
             id: StepId("lint".to_string()),
             body: StepBody::Context(ContextSource::Shell("true".to_string())),
-            message: None,
-            tools: None,
-            model: None,
-            on_result: None,
-            runner: None,
-            condition: None,
-            append_system_prompt: None,
-            system_prompt: None,
-            resume: false,
-            on_error: None,
-            before: vec![],
-            then: vec![],
-            output_schema: None,
-            input_schema: None,
+            ..Default::default()
         }],
         defaults: Default::default(),
         timeout_seconds: None,
         source: None,
         default_tools: None,
         named_pipelines: Default::default(),
+        max_concurrency: None,
     };
     let mut session = ail_core::session::Session::new(pipeline, "p".to_string());
     let counting_runner = ail_core::runner::stub::CountingStubRunner::new("x");
@@ -401,38 +341,12 @@ fn context_then_prompt_pipeline() {
                 body: StepBody::Context(ContextSource::Shell(
                     "printf 'no issues found'".to_string(),
                 )),
-                message: None,
-                tools: None,
-                model: None,
-                on_result: None,
-                runner: None,
-                condition: None,
-                append_system_prompt: None,
-                system_prompt: None,
-                resume: false,
-                on_error: None,
-                before: vec![],
-                then: vec![],
-                output_schema: None,
-                input_schema: None,
+                ..Default::default()
             },
             Step {
                 id: StepId("review".to_string()),
                 body: StepBody::Prompt("Lint output: {{ step.lint.result }}".to_string()),
-                message: None,
-                tools: None,
-                model: None,
-                on_result: None,
-                runner: None,
-                condition: None,
-                append_system_prompt: None,
-                system_prompt: None,
-                resume: false,
-                on_error: None,
-                before: vec![],
-                then: vec![],
-                output_schema: None,
-                input_schema: None,
+                ..Default::default()
             },
         ],
         defaults: Default::default(),
@@ -440,6 +354,7 @@ fn context_then_prompt_pipeline() {
         source: None,
         default_tools: None,
         named_pipelines: Default::default(),
+        max_concurrency: None,
     };
     let mut session = ail_core::session::Session::new(pipeline, "p".to_string());
     execute(&mut session, &StubRunner::new("ok")).unwrap();
@@ -470,38 +385,12 @@ fn template_step_exit_code_resolves() {
             Step {
                 id: StepId("lint".to_string()),
                 body: StepBody::Context(ContextSource::Shell("exit 3".to_string())),
-                message: None,
-                tools: None,
-                model: None,
-                on_result: None,
-                runner: None,
-                condition: None,
-                append_system_prompt: None,
-                system_prompt: None,
-                resume: false,
-                on_error: None,
-                before: vec![],
-                then: vec![],
-                output_schema: None,
-                input_schema: None,
+                ..Default::default()
             },
             Step {
                 id: StepId("report".to_string()),
                 body: StepBody::Prompt("Exit was: {{ step.lint.exit_code }}".to_string()),
-                message: None,
-                tools: None,
-                model: None,
-                on_result: None,
-                runner: None,
-                condition: None,
-                append_system_prompt: None,
-                system_prompt: None,
-                resume: false,
-                on_error: None,
-                before: vec![],
-                then: vec![],
-                output_schema: None,
-                input_schema: None,
+                ..Default::default()
             },
         ],
         defaults: Default::default(),
@@ -509,6 +398,7 @@ fn template_step_exit_code_resolves() {
         source: None,
         default_tools: None,
         named_pipelines: Default::default(),
+        max_concurrency: None,
     };
     let mut session = ail_core::session::Session::new(pipeline, "p".to_string());
     execute(&mut session, &StubRunner::new("ok")).unwrap();
@@ -540,26 +430,14 @@ fn prompt_file_path_loads_contents() {
         steps: vec![Step {
             id: StepId("review".to_string()),
             body: StepBody::Prompt(prompt_file.to_str().unwrap().to_string()),
-            message: None,
-            tools: None,
-            model: None,
-            on_result: None,
-            runner: None,
-            condition: None,
-            append_system_prompt: None,
-            system_prompt: None,
-            resume: false,
-            on_error: None,
-            before: vec![],
-            then: vec![],
-            output_schema: None,
-            input_schema: None,
+            ..Default::default()
         }],
         defaults: Default::default(),
         timeout_seconds: None,
         source: None,
         default_tools: None,
         named_pipelines: Default::default(),
+        max_concurrency: None,
     };
     let mut session = ail_core::session::Session::new(pipeline, "p".to_string());
     execute(&mut session, &StubRunner::new("ok")).unwrap();
@@ -588,26 +466,14 @@ fn prompt_file_not_found_returns_error() {
         steps: vec![Step {
             id: StepId("review".to_string()),
             body: StepBody::Prompt("./nonexistent_prompt_file.md".to_string()),
-            message: None,
-            tools: None,
-            model: None,
-            on_result: None,
-            runner: None,
-            condition: None,
-            append_system_prompt: None,
-            system_prompt: None,
-            resume: false,
-            on_error: None,
-            before: vec![],
-            then: vec![],
-            output_schema: None,
-            input_schema: None,
+            ..Default::default()
         }],
         defaults: Default::default(),
         timeout_seconds: None,
         source: None,
         default_tools: None,
         named_pipelines: Default::default(),
+        max_concurrency: None,
     };
     let mut session = ail_core::session::Session::new(pipeline, "p".to_string());
     let result = execute(&mut session, &StubRunner::new("x"));
@@ -634,26 +500,14 @@ fn prompt_inline_string_unchanged() {
         steps: vec![Step {
             id: StepId("review".to_string()),
             body: StepBody::Prompt("Please review this code.".to_string()),
-            message: None,
-            tools: None,
-            model: None,
-            on_result: None,
-            runner: None,
-            condition: None,
-            append_system_prompt: None,
-            system_prompt: None,
-            resume: false,
-            on_error: None,
-            before: vec![],
-            then: vec![],
-            output_schema: None,
-            input_schema: None,
+            ..Default::default()
         }],
         defaults: Default::default(),
         timeout_seconds: None,
         source: None,
         default_tools: None,
         named_pipelines: Default::default(),
+        max_concurrency: None,
     };
     let mut session = ail_core::session::Session::new(pipeline, "p".to_string());
     execute(&mut session, &StubRunner::new("ok")).unwrap();

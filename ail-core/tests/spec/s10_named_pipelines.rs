@@ -27,6 +27,8 @@ fn make_named_pipeline_step(id: &str, name: &str) -> Step {
         append_system_prompt: None,
         system_prompt: None,
         resume: false,
+        async_step: false,
+        depends_on: vec![],
         on_error: None,
         before: vec![],
         then: vec![],
@@ -48,6 +50,8 @@ fn prompt_step(id: &str, text: &str) -> Step {
         append_system_prompt: None,
         system_prompt: None,
         resume: false,
+        async_step: false,
+        depends_on: vec![],
         on_error: None,
         before: vec![],
         then: vec![],
@@ -106,6 +110,7 @@ fn named_pipeline_step_executes_child_steps() {
         timeout_seconds: None,
         default_tools: None,
         named_pipelines,
+        max_concurrency: None,
     };
     let mut session = Session::new(pipeline, "invocation prompt".to_string())
         .with_log_provider(Box::new(ail_core::session::log_provider::NullProvider));
@@ -136,6 +141,7 @@ fn named_pipeline_response_is_accessible_as_template_variable() {
         timeout_seconds: None,
         default_tools: None,
         named_pipelines,
+        max_concurrency: None,
     };
     let mut session = Session::new(pipeline, "invocation prompt".to_string())
         .with_log_provider(Box::new(ail_core::session::log_provider::NullProvider));
@@ -230,6 +236,7 @@ fn undefined_named_pipeline_reference_returns_error() {
         timeout_seconds: None,
         default_tools: None,
         named_pipelines: HashMap::new(),
+        max_concurrency: None,
     };
     let mut session = Session::new(pipeline, "trigger".to_string())
         .with_log_provider(Box::new(ail_core::session::log_provider::NullProvider));
@@ -353,6 +360,7 @@ fn materialize_expanded_circular_returns_error() {
         timeout_seconds: None,
         default_tools: None,
         named_pipelines,
+        max_concurrency: None,
     };
     let result = ail_core::materialize::materialize_expanded(&pipeline);
     assert!(result.is_err());

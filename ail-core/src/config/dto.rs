@@ -21,6 +21,8 @@ pub struct DefaultsDto {
     pub provider: Option<ProviderDto>,
     pub timeout_seconds: Option<u64>,
     pub tools: Option<ToolsDto>,
+    /// Pipeline-wide concurrency cap for async steps (SPEC §29.10). None = unlimited.
+    pub max_concurrency: Option<u64>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -86,6 +88,15 @@ pub struct StepDto {
     pub before: Option<Vec<ChainStepDto>>,
     /// Private post-processing steps chained to this step (SPEC §5.7).
     pub then: Option<Vec<ChainStepDto>>,
+
+    // ── Parallel execution fields (SPEC §29) ───────────────────────────────────
+    /// Marks this step as non-blocking. The pipeline cursor advances immediately
+    /// after launching the step (SPEC §29.1).
+    #[serde(rename = "async")]
+    pub async_step: Option<bool>,
+    /// Step IDs this step depends on. The step waits for all named dependencies
+    /// to complete before executing (SPEC §29.1).
+    pub depends_on: Option<Vec<String>>,
 
     // ── Reserved v0.3 fields ─────────────────────────────────────────────────
     // Accepted by serde so users get a clear validation error instead of

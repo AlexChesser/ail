@@ -10,8 +10,8 @@ use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
 use super::domain::{
-    Condition, ConditionExpr, ConditionOp, OnError, Pipeline, ProviderConfig, Step, StepBody,
-    StepId, ToolPolicy,
+    ActionKind, Condition, ConditionExpr, ConditionOp, JoinErrorMode, OnError, Pipeline,
+    ProviderConfig, Step, StepBody, StepId, ToolPolicy,
 };
 use super::dto::{ChainStepDto, PipelineFileDto, StepDto, ToolsDto};
 use crate::error::AilError;
@@ -255,51 +255,76 @@ pub(in crate::config) fn validate_steps(
             .map(|entries| system_prompt::parse_append_system_prompt(&id_str, entries))
             .transpose()?;
 
-        let on_error = match step_dto.on_error.as_deref() {
-            None => None,
-            Some("continue") => {
-                if step_dto.max_retries.is_some() {
+        // For join steps, on_error has different semantics: fail_fast vs wait_for_all (SPEC §29.7).
+        // Parse it here and override the JoinErrorMode on the step body.
+        let is_join = matches!(body, StepBody::Action(ActionKind::Join { .. }));
+        let mut body = body;
+        if is_join {
+            let join_error_mode = match step_dto.on_error.as_deref() {
+                None | Some("fail_fast") => JoinErrorMode::FailFast,
+                Some("wait_for_all") => JoinErrorMode::WaitForAll,
+                Some(other) => {
                     return Err(cfg_err!(
+                        "Step '{id_str}' (action: join) specifies unknown on_error value '{other}'; \
+                         supported values for join steps are 'fail_fast' (default) and 'wait_for_all'"
+                    ));
+                }
+            };
+            body = StepBody::Action(ActionKind::Join {
+                on_error_mode: join_error_mode,
+            });
+        }
+
+        let on_error = if is_join {
+            // Join steps don't use the standard OnError; their error mode is in the body.
+            None
+        } else {
+            match step_dto.on_error.as_deref() {
+                None => None,
+                Some("continue") => {
+                    if step_dto.max_retries.is_some() {
+                        return Err(cfg_err!(
                         "Step '{id_str}' specifies 'max_retries' but 'on_error' is 'continue'; \
                          'max_retries' is only valid with 'on_error: retry'"
                     ));
+                    }
+                    Some(OnError::Continue)
                 }
-                Some(OnError::Continue)
-            }
-            Some("retry") => {
-                let max_retries = step_dto.max_retries.ok_or_else(|| {
-                    cfg_err!(
+                Some("retry") => {
+                    let max_retries = step_dto.max_retries.ok_or_else(|| {
+                        cfg_err!(
                         "Step '{id_str}' specifies 'on_error: retry' but 'max_retries' is missing; \
                          'max_retries' is required when 'on_error' is 'retry'"
                     )
-                })?;
-                if max_retries == 0 {
-                    return Err(cfg_err!(
-                        "Step '{id_str}' specifies 'max_retries: 0'; \
+                    })?;
+                    if max_retries == 0 {
+                        return Err(cfg_err!(
+                            "Step '{id_str}' specifies 'max_retries: 0'; \
                          'max_retries' must be at least 1"
-                    ));
+                        ));
+                    }
+                    Some(OnError::Retry { max_retries })
                 }
-                Some(OnError::Retry { max_retries })
-            }
-            Some("abort_pipeline") => {
-                if step_dto.max_retries.is_some() {
-                    return Err(cfg_err!(
+                Some("abort_pipeline") => {
+                    if step_dto.max_retries.is_some() {
+                        return Err(cfg_err!(
                         "Step '{id_str}' specifies 'max_retries' but 'on_error' is 'abort_pipeline'; \
                          'max_retries' is only valid with 'on_error: retry'"
                     ));
+                    }
+                    Some(OnError::AbortPipeline)
                 }
-                Some(OnError::AbortPipeline)
-            }
-            Some(other) => {
-                return Err(cfg_err!(
-                    "Step '{id_str}' specifies unknown on_error value '{other}'; \
+                Some(other) => {
+                    return Err(cfg_err!(
+                        "Step '{id_str}' specifies unknown on_error value '{other}'; \
                      supported values are 'continue', 'retry', and 'abort_pipeline'"
-                ))
+                    ))
+                }
             }
-        };
+        }; // close the `if is_join { None } else { match ... }` expression
 
-        // max_retries without on_error is an error
-        if step_dto.on_error.is_none() && step_dto.max_retries.is_some() {
+        // max_retries without on_error is an error (not applicable to join steps).
+        if !is_join && step_dto.on_error.is_none() && step_dto.max_retries.is_some() {
             return Err(cfg_err!(
                 "Step '{id_str}' specifies 'max_retries' without 'on_error'; \
                  'max_retries' is only valid with 'on_error: retry'"
@@ -336,6 +361,13 @@ pub(in crate::config) fn validate_steps(
             append_system_prompt,
             system_prompt: step_dto.system_prompt,
             resume: step_dto.resume.unwrap_or(false),
+            async_step: step_dto.async_step.unwrap_or(false),
+            depends_on: step_dto
+                .depends_on
+                .unwrap_or_default()
+                .into_iter()
+                .map(StepId)
+                .collect(),
             on_error,
             before,
             then,
@@ -346,6 +378,9 @@ pub(in crate::config) fn validate_steps(
 
     // Parse-time schema compatibility: check adjacent steps' output_schema / input_schema (SPEC §26.3).
     check_adjacent_schema_compatibility(&steps)?;
+
+    // Parallel step validation (SPEC §29.11).
+    validate_parallel_constraints(&steps)?;
 
     Ok(steps)
 }
@@ -405,6 +440,180 @@ fn check_adjacent_schema_compatibility(steps: &[Step]) -> Result<(), AilError> {
             }
         }
     }
+    Ok(())
+}
+
+/// Validate parallel execution constraints (SPEC §29.11).
+///
+/// This is a second-pass validation that runs after all steps have been individually
+/// validated and constructed. It enforces the DAG structure and scoping rules that
+/// require full pipeline visibility.
+fn validate_parallel_constraints(steps: &[Step]) -> Result<(), AilError> {
+    // Build a set of step IDs in declaration order for forward-reference detection.
+    let step_ids: Vec<&str> = steps.iter().map(|s| s.id.as_str()).collect();
+
+    // Quick exit: if no steps use async or depends_on, nothing to validate.
+    let has_parallel = steps
+        .iter()
+        .any(|s| s.async_step || !s.depends_on.is_empty());
+    if !has_parallel {
+        return Ok(());
+    }
+
+    // Collect all step IDs referenced in depends_on lists.
+    let mut collected_dep_ids: HashSet<&str> = HashSet::new();
+    for step in steps {
+        for dep_id in &step.depends_on {
+            collected_dep_ids.insert(dep_id.as_str());
+        }
+    }
+
+    // Rule 1: Orphaned async step — every async step must be named in some depends_on.
+    for step in steps {
+        if step.async_step && !collected_dep_ids.contains(step.id.as_str()) {
+            return Err(cfg_err!(
+                "Step '{}' is marked async: true but is not named in any step's depends_on list; \
+                 every async step must have at least one collector (SPEC §29.11)",
+                step.id.as_str()
+            ));
+        }
+    }
+
+    // Rule 2: Join requires non-empty depends_on.
+    for step in steps {
+        if matches!(step.body, StepBody::Action(ActionKind::Join { .. }))
+            && step.depends_on.is_empty()
+        {
+            return Err(cfg_err!(
+                "Step '{}' declares action: join but has no depends_on list; \
+                 a join step requires at least one dependency (SPEC §29.3)",
+                step.id.as_str()
+            ));
+        }
+    }
+
+    // Build a position map for forward-reference and cycle detection.
+    let pos_map: HashMap<&str, usize> = step_ids
+        .iter()
+        .enumerate()
+        .map(|(i, &id)| (id, i))
+        .collect();
+
+    // Rule 3: Forward references in depends_on.
+    for step in steps {
+        let step_pos = pos_map.get(step.id.as_str()).copied().unwrap_or(usize::MAX);
+        for dep_id in &step.depends_on {
+            match pos_map.get(dep_id.as_str()) {
+                None => {
+                    return Err(cfg_err!(
+                        "Step '{}' depends_on references '{}' which is not declared in this pipeline",
+                        step.id.as_str(),
+                        dep_id.as_str()
+                    ));
+                }
+                Some(&dep_pos) if dep_pos >= step_pos => {
+                    return Err(cfg_err!(
+                        "Step '{}' depends_on references '{}' which is declared later \
+                         (or is self-referencing); depends_on must reference earlier steps (SPEC §29.1)",
+                        step.id.as_str(),
+                        dep_id.as_str()
+                    ));
+                }
+                _ => {}
+            }
+        }
+    }
+
+    // Rule 4: Cycle detection via DFS on the depends_on graph.
+    {
+        let mut visited: HashSet<&str> = HashSet::new();
+        let mut in_stack: HashSet<&str> = HashSet::new();
+        let dep_graph: HashMap<&str, Vec<&str>> = steps
+            .iter()
+            .map(|s| {
+                (
+                    s.id.as_str(),
+                    s.depends_on.iter().map(|d| d.as_str()).collect(),
+                )
+            })
+            .collect();
+
+        for step in steps {
+            let id = step.id.as_str();
+            if !visited.contains(id) {
+                dfs_depends_on_cycle(id, &dep_graph, &mut visited, &mut in_stack)?;
+            }
+        }
+    }
+
+    // Rule 5: Concurrent session constraint — two async steps that could run
+    // concurrently cannot both have resume: true (SPEC §29.9).
+    let async_resume_steps: Vec<&str> = steps
+        .iter()
+        .filter(|s| s.async_step && s.resume)
+        .map(|s| s.id.as_str())
+        .collect();
+    if async_resume_steps.len() >= 2 {
+        return Err(cfg_err!(
+            "Multiple async steps declare resume: true ({}) — concurrent steps \
+             cannot share a runner session (SPEC §29.9)",
+            async_resume_steps.join(", ")
+        ));
+    }
+
+    // Rule 6: Structured join compatibility — if a join declares output_schema,
+    // all its depends_on steps must also declare output_schema (SPEC §29.5).
+    for step in steps {
+        if !matches!(step.body, StepBody::Action(ActionKind::Join { .. })) {
+            continue;
+        }
+        if step.output_schema.is_none() {
+            continue;
+        }
+        for dep_id in &step.depends_on {
+            let dep_step = steps.iter().find(|s| s.id.as_str() == dep_id.as_str());
+            if let Some(dep) = dep_step {
+                if dep.output_schema.is_none() {
+                    return Err(cfg_err!(
+                        "Step '{}' (action: join) declares output_schema but dependency '{}' \
+                         does not declare output_schema; all dependencies must be structured \
+                         for a structured join (SPEC §29.5)",
+                        step.id.as_str(),
+                        dep_id.as_str()
+                    ));
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
+/// DFS cycle detection for depends_on edges.
+fn dfs_depends_on_cycle<'a>(
+    id: &'a str,
+    graph: &HashMap<&'a str, Vec<&'a str>>,
+    visited: &mut HashSet<&'a str>,
+    in_stack: &mut HashSet<&'a str>,
+) -> Result<(), AilError> {
+    visited.insert(id);
+    in_stack.insert(id);
+
+    if let Some(deps) = graph.get(id) {
+        for &dep in deps {
+            if in_stack.contains(dep) {
+                return Err(cfg_err!(
+                    "Circular dependency detected in depends_on: \
+                     '{id}' depends on '{dep}' which forms a cycle (SPEC §29.11)"
+                ));
+            }
+            if !visited.contains(dep) {
+                dfs_depends_on_cycle(dep, graph, visited, in_stack)?;
+            }
+        }
+    }
+
+    in_stack.remove(id);
     Ok(())
 }
 
@@ -503,20 +712,7 @@ fn parse_chain_step(
             Ok(Step {
                 id: StepId(auto_id),
                 body: StepBody::Prompt(s),
-                message: None,
-                tools: None,
-                on_result: None,
-                model: None,
-                runner: None,
-                condition: None,
-                append_system_prompt: None,
-                system_prompt: None,
-                resume: false,
-                on_error: None,
-                before: vec![],
-                then: vec![],
-                output_schema: None,
-                input_schema: None,
+                ..Default::default()
             })
         }
         ChainStepDto::Full(mut step_dto) => {
@@ -549,11 +745,11 @@ fn parse_chain_step(
                 append_system_prompt: append_system_prompt_entries,
                 system_prompt: step_dto.system_prompt,
                 resume: step_dto.resume.unwrap_or(false),
-                on_error: None,
                 before,
                 then,
                 output_schema: step_dto.output_schema,
                 input_schema,
+                ..Default::default()
             })
         }
     }
@@ -579,6 +775,7 @@ fn parse_chain_steps(
 pub fn validate(dto: PipelineFileDto, source: PathBuf) -> Result<Pipeline, AilError> {
     // Resolve top-level defaults (provider/model config, tool policy, and timeout).
     let timeout_seconds = dto.defaults.as_ref().and_then(|d| d.timeout_seconds);
+    let max_concurrency = dto.defaults.as_ref().and_then(|d| d.max_concurrency);
     let (defaults, default_tools) = dto
         .defaults
         .map(|d| {
@@ -699,6 +896,7 @@ pub fn validate(dto: PipelineFileDto, source: PathBuf) -> Result<Pipeline, AilEr
         timeout_seconds,
         default_tools,
         named_pipelines,
+        max_concurrency,
     })
 }
 

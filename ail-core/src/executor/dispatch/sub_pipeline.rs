@@ -254,6 +254,7 @@ pub(in crate::executor) fn execute_named_pipeline(
         timeout_seconds: session.pipeline.timeout_seconds,
         default_tools: session.pipeline.default_tools.clone(),
         named_pipelines: session.pipeline.named_pipelines.clone(),
+        max_concurrency: session.pipeline.max_concurrency,
     };
 
     let mut child_session = crate::session::Session::new(child_pipeline, invocation_prompt);

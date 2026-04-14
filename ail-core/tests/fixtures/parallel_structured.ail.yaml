@@ -1,0 +1,42 @@
+version: "0.1"
+
+pipeline:
+  - id: lint
+    async: true
+    prompt: "Run lint. Respond with JSON only."
+    output_schema:
+      type: object
+      properties:
+        clean: { type: boolean }
+        issues: { type: array, items: { type: string } }
+      required: [clean]
+
+  - id: test
+    async: true
+    prompt: "Run tests. Respond with JSON only."
+    output_schema:
+      type: object
+      properties:
+        passed: { type: integer }
+        failed: { type: integer }
+        clean: { type: boolean }
+      required: [clean]
+
+  - id: checks_done
+    depends_on: [lint, test]
+    action: join
+    on_error: wait_for_all
+    output_schema:
+      type: object
+      properties:
+        lint:
+          type: object
+          properties:
+            clean: { type: boolean }
+          required: [clean]
+        test:
+          type: object
+          properties:
+            clean: { type: boolean }
+          required: [clean]
+      required: [lint, test]

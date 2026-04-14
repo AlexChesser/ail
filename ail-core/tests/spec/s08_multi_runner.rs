@@ -188,6 +188,8 @@ fn executor_dispatches_per_step_runner() {
         append_system_prompt: None,
         system_prompt: None,
         resume: false,
+        async_step: false,
+        depends_on: vec![],
         on_error: None,
         before: vec![],
         then: vec![],
@@ -207,6 +209,8 @@ fn executor_dispatches_per_step_runner() {
         append_system_prompt: None,
         system_prompt: None,
         resume: false,
+        async_step: false,
+        depends_on: vec![],
         on_error: None,
         before: vec![],
         then: vec![],
@@ -221,6 +225,7 @@ fn executor_dispatches_per_step_runner() {
         timeout_seconds: None,
         default_tools: None,
         named_pipelines: Default::default(),
+        max_concurrency: None,
     };
 
     // The default runner returns a distinct response so we can tell it apart from the stub.

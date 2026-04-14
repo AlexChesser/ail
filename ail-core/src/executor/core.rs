@@ -259,6 +259,24 @@ fn execute_single_step<O: StepObserver>(
         return Ok(None);
     }
 
+    // action: join — synchronization barrier, handled by the parallel execution engine
+    // in execute_core(). If we reach here, the join logic in execute_core() should have
+    // already processed this step. This arm is a safeguard for direct calls.
+    if let StepBody::Action(ActionKind::Join { .. }) = &step.body {
+        // Join steps are processed by the parallel execution coordinator, not dispatched
+        // as individual steps. If this is reached from a non-parallel context (e.g. a
+        // pipeline with action:join but no async steps), produce an empty entry.
+        let entry = TurnEntry {
+            step_id: step_id.clone(),
+            prompt: "join".to_string(),
+            response: Some(String::new()),
+            ..Default::default()
+        };
+        session.turn_log.append(entry);
+        execute_chain_steps(&step.then, session, runner, observer, depth)?;
+        return Ok(None);
+    }
+
     // modify_output HITL gate — may produce a TurnEntry with modified text, or skip.
     if let StepBody::Action(ActionKind::ModifyOutput {
         ref headless_behavior,
@@ -364,6 +382,10 @@ fn execute_single_step<O: StepObserver>(
 
             StepBody::Action(ActionKind::ModifyOutput { .. }) => {
                 unreachable!("ModifyOutput handled above")
+            }
+
+            StepBody::Action(ActionKind::Join { .. }) => {
+                unreachable!("Join handled above")
             }
 
             StepBody::SubPipeline {

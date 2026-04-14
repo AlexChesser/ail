@@ -112,6 +112,8 @@ fn invoke_options_carries_resolved_model() {
         append_system_prompt: None,
         system_prompt: None,
         resume: false,
+        async_step: false,
+        depends_on: vec![],
         on_error: None,
         before: vec![],
         then: vec![],
@@ -128,6 +130,7 @@ fn invoke_options_carries_resolved_model() {
         timeout_seconds: None,
         default_tools: None,
         named_pipelines: Default::default(),
+        max_concurrency: None,
     };
     let mut session = Session::new(pipeline, "prompt".to_string());
     let runner = CountingStubRunner::new("ok");

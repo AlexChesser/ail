@@ -1,0 +1,8 @@
+version: "0.1"
+
+pipeline:
+  - id: bad_join
+    action: join
+
+  - id: next
+    prompt: "Continue."

@@ -39,6 +39,18 @@ pub struct TurnEntry {
     /// its body once has `index: Some(1)`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub index: Option<u64>,
+    /// Concurrent group ID shared by all steps that were in-flight simultaneously (SPEC §29.8).
+    /// `None` for sequential steps.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub concurrent_group: Option<String>,
+    /// Wall-clock timestamp when the step was launched (SPEC §29.8). ISO 8601 format.
+    /// Populated for async steps; `None` for sequential steps.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub launched_at: Option<String>,
+    /// Wall-clock timestamp when the step completed (SPEC §29.8). ISO 8601 format.
+    /// Populated for async steps; `None` for sequential steps.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub completed_at: Option<String>,
 }
 
 impl Default for TurnEntry {
@@ -59,6 +71,9 @@ impl Default for TurnEntry {
             tool_events: vec![],
             modified: None,
             index: None,
+            concurrent_group: None,
+            launched_at: None,
+            completed_at: None,
         }
     }
 }
@@ -100,6 +115,16 @@ struct StepErrorEvent<'a> {
     /// Maximum retries allowed. Only meaningful when on_error_action is "retry".
     #[serde(skip_serializing_if = "Option::is_none")]
     max_retries: Option<u32>,
+}
+
+/// Written when an async step is cancelled by a sibling's failure (SPEC §29.8).
+#[derive(Serialize)]
+struct StepCancelledEvent<'a> {
+    #[serde(rename = "type")]
+    event_type: &'static str,
+    step_id: &'a str,
+    cancelled_by: &'a str,
+    reason: &'a str,
 }
 
 impl TurnEntry {
@@ -289,6 +314,37 @@ impl TurnLog {
                     step_id = %step_id,
                     error = %e,
                     "failed to serialize step_error event"
+                );
+            }
+        }
+    }
+
+    /// Write a `step_cancelled` event when a parallel branch is cancelled (SPEC §29.8).
+    /// Not added to in-memory entries — persisted for observability only.
+    pub fn record_step_cancelled(&mut self, step_id: &str, cancelled_by: &str, reason: &str) {
+        let event = StepCancelledEvent {
+            event_type: "step_cancelled",
+            step_id,
+            cancelled_by,
+            reason,
+        };
+        match serde_json::to_value(&event) {
+            Ok(json_value) => {
+                if let Err(e) = self.provider.write_entry(&self.run_id, &json_value) {
+                    tracing::warn!(
+                        run_id = %self.run_id,
+                        step_id = %step_id,
+                        error = %e,
+                        "failed to persist step_cancelled event"
+                    );
+                }
+            }
+            Err(e) => {
+                tracing::warn!(
+                    run_id = %self.run_id,
+                    step_id = %step_id,
+                    error = %e,
+                    "failed to serialize step_cancelled event"
                 );
             }
         }

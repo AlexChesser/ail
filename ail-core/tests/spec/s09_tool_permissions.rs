@@ -66,6 +66,8 @@ mod s9_tool_permissions {
                 append_system_prompt: None,
                 system_prompt: None,
                 resume: false,
+                async_step: false,
+                depends_on: vec![],
                 on_error: None,
                 before: vec![],
                 then: vec![],
@@ -81,6 +83,7 @@ mod s9_tool_permissions {
                 deny: vec![],
             }),
             named_pipelines: Default::default(),
+            max_concurrency: None,
         };
         let mut session = Session::new(pipeline, "p".to_string());
         let runner = RecordingStubRunner::new("ok");
@@ -134,6 +137,8 @@ mod s9_tool_permissions {
                 append_system_prompt: None,
                 system_prompt: None,
                 resume: false,
+                async_step: false,
+                depends_on: vec![],
                 on_error: None,
                 before: vec![],
                 then: vec![],
@@ -149,6 +154,7 @@ mod s9_tool_permissions {
                 deny: vec![],
             }),
             named_pipelines: Default::default(),
+            max_concurrency: None,
         };
         let mut session = Session::new(pipeline, "p".to_string());
         let runner = RecordingStubRunner::new("ok");
@@ -207,6 +213,8 @@ mod s9_tool_permissions {
                 append_system_prompt: None,
                 system_prompt: None,
                 resume: false,
+                async_step: false,
+                depends_on: vec![],
                 on_error: None,
                 before: vec![],
                 then: vec![],
@@ -218,6 +226,7 @@ mod s9_tool_permissions {
             source: None,
             default_tools: None,
             named_pipelines: Default::default(),
+            max_concurrency: None,
         };
         let mut session = Session::new(pipeline, "p".to_string());
         // StubRunner ignores tool policy (it's a test double); we verify it doesn't error
