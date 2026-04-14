@@ -125,8 +125,11 @@ pub struct DoWhileDto {
     pub max_iterations: Option<u64>,
     /// Condition expression evaluated after each iteration; loop exits when true.
     pub exit_when: Option<String>,
-    /// Inner steps executed each iteration.
+    /// Inner steps executed each iteration. Mutually exclusive with `pipeline`.
     pub steps: Option<Vec<StepDto>>,
+    /// Path to an external pipeline file whose steps become the loop body (SPEC §27.2).
+    /// Mutually exclusive with `steps`.
+    pub pipeline: Option<String>,
 }
 
 /// DTO for `for_each:` collection iteration (SPEC §28).
@@ -141,8 +144,11 @@ pub struct ForEachDto {
     pub max_items: Option<u64>,
     /// What happens when the array contains more items than `max_items`.
     pub on_max_items: Option<String>,
-    /// Inner steps executed once per item.
+    /// Inner steps executed once per item. Mutually exclusive with `pipeline`.
     pub steps: Option<Vec<StepDto>>,
+    /// Path to an external pipeline file whose steps become the loop body (SPEC §28.2).
+    /// Mutually exclusive with `steps`.
+    pub pipeline: Option<String>,
 }
 
 /// `on_result:` accepts two shapes (SPEC §5.4, §26.4):

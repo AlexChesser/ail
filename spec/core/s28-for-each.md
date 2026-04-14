@@ -1,6 +1,6 @@
 ## 28. `for_each:` — Collection Iteration
 
-> **Implementation status:** Fully implemented. `for_each:` — parse-time validation (`over`, `as`, `max_items`, `on_max_items`, `steps`), runtime array iteration with item scope, `{{ for_each.item }}` / `{{ for_each.<as_name> }}` / `{{ for_each.index }}` / `{{ for_each.total }}` template variables, `break` exits loop not pipeline, `max_items` cap with `on_max_items` behavior, step ID namespacing (`<loop_id>::<step_id>`), shared depth guard with `do_while:`. Controlled-mode executor events (§28.6) are deferred.
+> **Implementation status:** Fully implemented. `for_each:` — parse-time validation (`over`, `as`, `max_items`, `on_max_items`, `steps`/`pipeline`), runtime array iteration with item scope, `{{ for_each.item }}` / `{{ for_each.<as_name> }}` / `{{ for_each.index }}` / `{{ for_each.total }}` template variables, `break` exits loop not pipeline, `max_items` cap with `on_max_items` behavior, step ID namespacing (`<loop_id>::<step_id>`), shared depth guard with `do_while:`. `pipeline:` as alternative to inline `steps:` implemented. Controlled-mode executor events (§28.6) are deferred.
 
 A `for_each:` step runs a fixed set of inner steps once per item in a validated array produced by a prior step. Where `do_while:` (§27) repeats until a condition is met, `for_each:` maps a sub-pipeline across a known collection — the plan-execution pattern: generate a list of tasks, then implement each one.
 
@@ -25,16 +25,28 @@ A `for_each:` step runs a fixed set of inner steps once per item in a validated 
     as: task
     max_items: 20
     on_max_items: abort_pipeline
-  steps:
-    - id: implement
-      prompt: |
-        Task {{ for_each.index }} of {{ for_each.total }}: {{ for_each.task }}
-        Implement this task completely.
-      resume: true
-    - id: verify
-      context:
-        shell: "cargo test 2>&1"
+    steps:
+      - id: implement
+        prompt: |
+          Task {{ for_each.index }} of {{ for_each.total }}: {{ for_each.task }}
+          Implement this task completely.
+        resume: true
+      - id: verify
+        context:
+          shell: "cargo test 2>&1"
 ```
+
+The loop body can also reference an external pipeline file instead of inline steps:
+
+```yaml
+- id: implement_tasks
+  for_each:
+    over: "{{ step.plan.items }}"
+    as: task
+    pipeline: ./task-handler.ail.yaml
+```
+
+The referenced file's `pipeline:` steps become the loop body. Template variables (`{{ for_each.item }}`, `{{ for_each.index }}`, etc.) are available inside the referenced pipeline.
 
 ---
 
@@ -46,7 +58,10 @@ A `for_each:` step runs a fixed set of inner steps once per item in a validated 
 | `as` | Identifier string | No | `item` | Local name for the current item within the loop body. Accessed as `{{ for_each.<as> }}`. |
 | `max_items` | Integer ≥ 1 | No | None | Hard cap on items processed. Items beyond this limit are not processed. |
 | `on_max_items` | `abort_pipeline` / `continue` | No | `continue` | What happens when the array contains more items than `max_items`. `continue` silently skips excess items. `abort_pipeline` treats excess items as a fatal error. |
-| `steps` | Array of Step | **Yes** | None | Inner steps executed once per item. Same schema as top-level pipeline steps. |
+| `steps` | Array of Step | Conditional | None | Inner steps executed once per item. Same schema as top-level pipeline steps. Required if `pipeline` is not set. |
+| `pipeline` | String (file path) | Conditional | None | Path to an external `.ail.yaml` file whose `pipeline:` steps become the loop body. Resolved relative to the current pipeline file at parse time. Required if `steps` is not set. |
+
+`steps` and `pipeline` are mutually exclusive — declare one or the other. Declaring both or neither is a `CONFIG_VALIDATION_FAILED` error.
 
 ---
 
@@ -126,13 +141,14 @@ For pipelines running in `--output-format json` controlled mode (§4.5):
 
 ### 28.7 Validation Rules
 
-1. `for_each:` requires `over` and `steps` (non-empty). Missing → `CONFIG_VALIDATION_FAILED`.
+1. `for_each:` requires `over` and either `steps` (non-empty) or `pipeline`. Missing both or providing both → `CONFIG_VALIDATION_FAILED`.
 2. `over` must reference `{{ step.<id>.items }}` where step `<id>` declared `output_schema` with `type: array`. No schema, or non-array schema → `FOR_EACH_SOURCE_INVALID`.
 3. `for_each:` is mutually exclusive with all other primary fields. Combining them → `CONFIG_VALIDATION_FAILED`.
 4. `as` must be a valid identifier (letters, digits, underscores; does not start with a digit). Invalid → `CONFIG_VALIDATION_FAILED`.
 5. `max_items` must be an integer ≥ 1 if specified.
 6. `on_max_items` must be one of `abort_pipeline`, `continue`. Unknown value → `CONFIG_VALIDATION_FAILED`.
 7. Step IDs within `steps` must be unique within the loop.
+8. `pipeline` file path must be resolvable and the referenced file must be a valid pipeline. File not found → `CONFIG_FILE_NOT_FOUND`.
 
 ---
 

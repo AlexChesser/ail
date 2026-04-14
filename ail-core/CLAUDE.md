@@ -11,7 +11,7 @@ Consumed by `ail` (the binary) and future language-server / SDK targets.
 | `config/dto.rs` | Serde-deserialised raw structs — derives `Deserialize` |
 | `config/domain.rs` | Validated domain types — no `Deserialize` derives |
 | `config/validation/mod.rs` | `validate()` entry point, `cfg_err!` macro, `tools_to_policy` helper |
-| `config/validation/step_body.rs` | `parse_step_body()` — primary field count check + body construction (including `parse_do_while_body`, `parse_for_each_body`) |
+| `config/validation/step_body.rs` | `parse_step_body()` — primary field count check + body construction (including `parse_do_while_body`, `parse_for_each_body`, `load_loop_pipeline_steps`) |
 | `config/validation/on_result.rs` | `parse_result_branches()` — DTO → domain for result matchers and actions |
 | `config/validation/system_prompt.rs` | `parse_append_system_prompt()` — DTO → domain for system prompt entries |
 | `config/inheritance.rs` | FROM inheritance — path resolution, cycle detection, DTO merging, hook operations (SPEC §7, §8) |

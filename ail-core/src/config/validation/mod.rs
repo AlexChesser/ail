@@ -169,9 +169,12 @@ fn strip_quotes(s: &str) -> &str {
 /// Validate a list of step DTOs into domain `Step`s.
 /// `context_label` is used in error messages to indicate where these steps come from
 /// (e.g. "pipeline" or "named pipeline 'security_gates'").
+/// `pipeline_source` is the path of the pipeline file being validated — used to
+/// resolve relative file paths (e.g. `for_each.pipeline`, `do_while.pipeline`).
 pub(in crate::config) fn validate_steps(
     step_dtos: Vec<StepDto>,
     context_label: &str,
+    pipeline_source: &std::path::Path,
 ) -> Result<Vec<Step>, AilError> {
     let mut seen_ids: HashSet<String> = HashSet::new();
     let mut steps: Vec<Step> = Vec::with_capacity(step_dtos.len());
@@ -221,7 +224,7 @@ pub(in crate::config) fn validate_steps(
             ));
         }
 
-        let body = step_body::parse_step_body(&mut step_dto, &id_str)?;
+        let body = step_body::parse_step_body(&mut step_dto, &id_str, pipeline_source)?;
 
         // Validate input_schema is a valid JSON Schema if present (SPEC §26.2).
         let input_schema = if let Some(ref schema) = step_dto.input_schema {
@@ -303,8 +306,8 @@ pub(in crate::config) fn validate_steps(
             ));
         }
 
-        let before = parse_chain_steps(step_dto.before, &id_str, "before")?;
-        let then = parse_chain_steps(step_dto.then, &id_str, "then")?;
+        let before = parse_chain_steps(step_dto.before, &id_str, "before", pipeline_source)?;
+        let then = parse_chain_steps(step_dto.then, &id_str, "then", pipeline_source)?;
 
         // Validate output_schema is a valid JSON Schema if present (SPEC §26).
         let output_schema = if let Some(ref schema) = step_dto.output_schema {
@@ -488,6 +491,7 @@ fn parse_chain_step(
     parent_id: &str,
     chain_kind: &str,
     index: usize,
+    pipeline_source: &std::path::Path,
 ) -> Result<Step, AilError> {
     let auto_id = format!("{parent_id}::{chain_kind}::{index}");
 
@@ -516,7 +520,7 @@ fn parse_chain_step(
             })
         }
         ChainStepDto::Full(mut step_dto) => {
-            let body = step_body::parse_step_body(&mut step_dto, &auto_id)?;
+            let body = step_body::parse_step_body(&mut step_dto, &auto_id, pipeline_source)?;
 
             let input_schema = step_dto.input_schema.take();
             let on_result_branches = step_dto
@@ -530,8 +534,8 @@ fn parse_chain_step(
                 .transpose()?;
 
             // Recursively parse nested before/then chains.
-            let before = parse_chain_steps(step_dto.before, &auto_id, "before")?;
-            let then = parse_chain_steps(step_dto.then, &auto_id, "then")?;
+            let before = parse_chain_steps(step_dto.before, &auto_id, "before", pipeline_source)?;
+            let then = parse_chain_steps(step_dto.then, &auto_id, "then", pipeline_source)?;
 
             Ok(Step {
                 id: StepId(auto_id),
@@ -560,13 +564,14 @@ fn parse_chain_steps(
     entries: Option<Vec<ChainStepDto>>,
     parent_id: &str,
     chain_kind: &str,
+    pipeline_source: &std::path::Path,
 ) -> Result<Vec<Step>, AilError> {
     match entries {
         None => Ok(vec![]),
         Some(entries) => entries
             .into_iter()
             .enumerate()
-            .map(|(i, entry)| parse_chain_step(entry, parent_id, chain_kind, i))
+            .map(|(i, entry)| parse_chain_step(entry, parent_id, chain_kind, i, pipeline_source))
             .collect(),
     }
 }
@@ -632,7 +637,7 @@ pub fn validate(dto: PipelineFileDto, source: PathBuf) -> Result<Pipeline, AilEr
         }
     }
 
-    let mut steps = validate_steps(step_dtos, "pipeline")?;
+    let mut steps = validate_steps(step_dtos, "pipeline", &source)?;
 
     // ── Validate named pipelines (SPEC §10) ─────────────────────────────────
     let mut named_pipelines = if let Some(named_dtos) = dto.pipelines {
@@ -647,7 +652,7 @@ pub fn validate(dto: PipelineFileDto, source: PathBuf) -> Result<Pipeline, AilEr
                 ));
             }
             let label = format!("named pipeline '{name}'");
-            let np_steps = validate_steps(np_step_dtos, &label)?;
+            let np_steps = validate_steps(np_step_dtos, &label, &source)?;
             named.insert(name, np_steps);
         }
         named
