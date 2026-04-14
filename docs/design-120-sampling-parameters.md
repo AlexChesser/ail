@@ -22,24 +22,40 @@ later as a backwards-compatible extension.
 **Alternative rejected**: Flat fields on Step (e.g., `step.temperature`).
 Pollutes the step namespace. A `sampling:` block groups related concerns.
 
-### D2: YAML syntax — `sampling:` block
+### D2: YAML syntax — reusable `sampling:` block at three scopes
 
-**Decision**: Nested `sampling:` block on both `defaults:` and per-step.
+**Decision**: `sampling:` is a single reusable block type that attaches at
+three scopes:
+
+1. `defaults.sampling:` — pipeline-wide baseline
+2. `defaults.provider.sampling:` (now) / `providers.<name>.sampling:` (§15) — attached to a provider profile
+3. per-step `sampling:` — override for a single step
+
+Merge: `defaults.sampling.merge(provider.sampling).merge(step.sampling)` —
+field-level, right-wins.
 
 ```yaml
 defaults:
+  provider:
+    model: anthropic/claude-sonnet-4-5
+    sampling: { temperature: 0.3 }    # attached to this provider
   sampling:
-    temperature: 0.3
+    max_tokens: 4096                  # pipeline-wide, orthogonal to provider
+
 pipeline:
   - id: creative
     prompt: "..."
-    sampling:
-      temperature: 0.9
+    sampling: { temperature: 0.9 }    # per-step override
 ```
 
-**Rationale**: Groups sampling params cleanly. Parallels `tools:`, `on_result:`,
-`context:` as a nested block. Keeps the step's top-level namespace for
-behavioral fields (id, prompt, model, runner, condition, etc.).
+**Rationale**: Pairing sampling with a provider profile means "define the
+behavior once, reference by name." When §15 named providers land, authors
+can declare `creative` and `precise` profiles and swap behavior with a
+single field change (`provider: creative` → `provider: precise`), bringing
+matched temperature, top_p, and thinking settings along. For now, even a
+single `defaults.provider.sampling:` block colocates sampling intent with
+the model it was tuned for. The pipeline-level `defaults.sampling:`
+remains for cross-provider baselines (e.g., "always cap max_tokens").
 
 ### D3: Runner pass-through — first-class on InvokeOptions
 
@@ -86,16 +102,27 @@ as an explicit "I know what I'm doing" escape hatch.
 final selection step with `temperature: 0.0`. Adding a built-in would
 duplicate what the loop system already does.
 
-### D7: `thinking` subsumes HttpRunner's `think` field
+### D7: `thinking` is a decimal fraction in [0.0, 1.0]
 
-**Decision**: `sampling.thinking: bool` replaces the current
-`HttpRunnerConfig.think` as the per-step control. The config-level `think`
-remains as the runner's default.
+**Decision**: `sampling.thinking: f64` in the range [0.0, 1.0]. `0.0` = off,
+`1.0` = max. YAML booleans are accepted as aliases: `true` → `1.0`,
+`false` → `0.0`. Each runner quantizes to its own supported granularity.
 
-**Rationale**: The HttpRunner already has `think: Option<bool>`. Promoting
-this to a sampling parameter makes it accessible to pipeline authors
-without knowing runner internals. The merge is: `sampling.thinking`
-overrides `HttpRunnerConfig.think` for that step.
+**Runner quantization**:
+- **ClaudeCliRunner**: quartiles → `--effort low|medium|high|max`; `0.0` omits the flag entirely.
+- **HttpRunner / Ollama**: `>= 0.5` → `"think": true`; `< 0.5` → `"think": false`.
+- **Future Anthropic API with `budget_tokens`**: `budget_tokens = thinking * PROVIDER_MAX_BUDGET`, no information loss.
+- **Future ail-native runner**: passes the float through as-is.
+
+**Rationale**: Runners today have wildly different thinking granularity —
+boolean (Ollama), 4-level enum (Claude CLI), continuous budget
+(Anthropic API direction). A float expresses author intent once and
+every runner quantizes on its own terms. Upgrades in runner granularity
+(e.g., Ollama adding intensity levels) don't require any pipeline change.
+The author wrote `thinking: 0.7` once and it still means the same thing.
+
+This supersedes the current `HttpRunnerConfig.think` as the per-step
+control. The config-level `think` remains as a runner-wide default.
 
 ### D8: Unsupported parameters warn, never error
 
@@ -114,22 +141,31 @@ warnings instead of failures.
 **Files to change**:
 
 1. **`ail-core/src/config/dto.rs`**
-   - Add `SamplingDto` struct with all six fields (all `Option`)
+   - Add `SamplingDto` struct with all six fields
+   - Add custom deserializer `deserialize_thinking` that accepts f64 OR bool
+     (bool `true`→1.0, `false`→0.0); wire via `#[serde(deserialize_with = ...)]`
    - Add `sampling: Option<SamplingDto>` to `StepDto`
-   - Add `sampling: Option<SamplingDto>` to `DefaultsDto`
+   - Add `sampling: Option<SamplingDto>` to `DefaultsDto` (pipeline-scope)
+   - Add `sampling: Option<SamplingDto>` to `ProviderDto` (provider-scope)
 
 2. **`ail-core/src/config/domain.rs`**
-   - Add `SamplingConfig` struct (Debug, Clone, Default) with all six fields
-   - Add `SamplingConfig::merge(self, other) -> SamplingConfig` method
-   - Add `sampling: Option<SamplingConfig>` to `Step`
-   - Add `sampling_defaults: Option<SamplingConfig>` to `Pipeline`
+   - Add `SamplingConfig` struct (Debug, Clone, Default) with all six fields,
+     `thinking: Option<f64>`
+   - Add `SamplingConfig::merge(self, other) -> SamplingConfig`
+   - Add `SamplingConfig::is_empty()` helper
+   - Add `sampling: Option<SamplingConfig>` to `ProviderConfig` (provider-scope)
+   - Extend `ProviderConfig::merge()` to field-merge the inner sampling
+   - Add `sampling_defaults: Option<SamplingConfig>` to `Pipeline` (pipeline-scope)
+   - Add `sampling: Option<SamplingConfig>` to `Step` (step-scope)
 
-3. **`ail-core/src/config/validation/mod.rs`**
+3. **`ail-core/src/config/validation/mod.rs`** (+ new `sampling.rs` submodule)
    - Add `validate_sampling(dto: Option<SamplingDto>) -> Result<Option<SamplingConfig>>`
-   - Range checks: temperature [0.0, 2.0], top_p [0.0, 1.0], top_k ≥ 1, max_tokens ≥ 1
-   - Warn if `sampling:` appears on context/action step
+   - Range checks: temperature [0.0, 2.0], top_p [0.0, 1.0], top_k ≥ 1,
+     max_tokens ≥ 1, thinking [0.0, 1.0]
+   - Warn if `sampling:` appears on a context/action step
    - Wire into `validate_steps()` step construction
-   - Wire into pipeline-level validation for `defaults.sampling`
+   - Wire into pipeline-level validation for `defaults.sampling` (pipeline-scope)
+   - Wire into provider validation for `defaults.provider.sampling` (provider-scope)
 
 ### Phase 2: Executor plumbing
 
@@ -141,7 +177,13 @@ warnings instead of failures.
 
 5. **`ail-core/src/executor/helpers/runner_resolution.rs`**
    - Add `resolve_step_sampling(session: &Session, step: &Step) -> Option<SamplingConfig>`
-   - Merge: `session.pipeline.sampling_defaults.merge(step.sampling)`
+   - Merge chain (low → high precedence):
+     1. `session.pipeline.sampling_defaults` (pipeline-scope)
+     2. `session.pipeline.defaults.sampling` (provider-scope, current single provider)
+     3. `step.sampling` (step-scope)
+   - Returns `None` if merged config is empty (nothing was set anywhere)
+   - When §15 named providers land, step 2 resolves against the step's
+     chosen provider profile instead of the single `defaults.provider`.
 
 6. **`ail-core/src/executor/dispatch/prompt.rs`**
    - Call `resolve_step_sampling()` and set `options.sampling`
@@ -154,16 +196,24 @@ warnings instead of failures.
 **Files to change**:
 
 8. **`ail-core/src/runner/claude/mod.rs`**
-   - In `build_subprocess_spec()`: if `options.sampling` has any `Some` field,
-     emit `tracing::warn!("ClaudeCliRunner: sampling parameter '{name}' is not \
-     supported by the claude CLI; ignoring")`
-   - No CLI args added (claude CLI doesn't support them)
+   - In `build_subprocess_spec()`:
+     - Quantize `thinking: f64` to `--effort`:
+       - `0.0` → omit flag (CLI default applies)
+       - `(0.0, 0.25]` → `--effort low`
+       - `(0.25, 0.50]` → `--effort medium`
+       - `(0.50, 0.75]` → `--effort high`
+       - `(0.75, 1.0]` → `--effort max`
+     - Warn for each of `temperature`, `top_p`, `top_k`, `max_tokens`,
+       `stop_sequences` when set — "not supported by claude CLI; ignoring"
+   - The warning messages should be rate-limited or one-shot per field per
+     run to avoid log spam (stretch goal — start with straight warnings).
 
 9. **`ail-core/src/runner/http.rs`**
    - Add sampling fields to `ChatRequest`: `temperature`, `top_p`, `top_k`,
      `max_tokens`, `stop` (mapped from `stop_sequences`)
    - In `invoke()`: read from `options.sampling`, populate `ChatRequest` fields
-   - `sampling.thinking` overrides `self.config.think` for that invocation
+   - Quantize `thinking` → `think` boolean: `>= 0.5` → `true`, `< 0.5` → `false`.
+     Overrides `self.config.think` for that invocation.
    - Warn on `top_k` if the endpoint is not known to support it (optional)
 
 10. **`ail-core/src/runner/plugin/protocol_runner.rs`**
@@ -216,6 +266,14 @@ warnings instead of failures.
 
 ```rust
 // ── DTO (dto.rs) ──────────────────────────────────────────────────────
+// `thinking` is a float in [0.0, 1.0]. YAML booleans are accepted:
+//   true  → 1.0
+//   false → 0.0
+// This is implemented via a custom Deserialize (e.g. a small `ThinkingDto`
+// enum-deserialize that accepts f64 OR bool and normalizes to f64) OR a
+// serde `#[serde(deserialize_with = "...")]` helper. Either way, the
+// domain-level `SamplingConfig.thinking` is a plain `Option<f64>`.
+
 #[derive(Debug, Default, Deserialize)]
 pub struct SamplingDto {
     pub temperature: Option<f64>,
@@ -223,8 +281,27 @@ pub struct SamplingDto {
     pub top_k: Option<u64>,
     pub max_tokens: Option<u64>,
     pub stop_sequences: Option<Vec<String>>,
-    pub thinking: Option<bool>,
+    #[serde(default, deserialize_with = "deserialize_thinking")]
+    pub thinking: Option<f64>,  // accepts f64 | bool
 }
+
+// fn deserialize_thinking<'de, D>(d: D) -> Result<Option<f64>, D::Error>
+// matches on visitor: f64 passes through; bool → 1.0 / 0.0.
+
+// Attached to ProviderDto (provider-scope)
+#[derive(Debug, Default, Deserialize)]
+pub struct ProviderDto {
+    pub model: Option<String>,
+    pub base_url: Option<String>,
+    pub auth_token: Option<String>,
+    pub connect_timeout_seconds: Option<u64>,
+    pub read_timeout_seconds: Option<u64>,
+    pub max_history_messages: Option<usize>,
+    pub sampling: Option<SamplingDto>,  // NEW: provider-attached sampling
+}
+
+// Attached to DefaultsDto (pipeline-scope) AND StepDto (step-scope)
+// Both get: pub sampling: Option<SamplingDto>
 
 // ── Domain (domain.rs) ────────────────────────────────────────────────
 #[derive(Debug, Clone, Default)]
@@ -234,7 +311,7 @@ pub struct SamplingConfig {
     pub top_k: Option<u64>,
     pub max_tokens: Option<u64>,
     pub stop_sequences: Option<Vec<String>>,
-    pub thinking: Option<bool>,
+    pub thinking: Option<f64>,  // validated [0.0, 1.0] at parse time
 }
 
 impl SamplingConfig {
@@ -250,21 +327,46 @@ impl SamplingConfig {
         }
     }
 
-    /// Returns true if all fields are None.
-    pub fn is_empty(&self) -> bool {
-        self.temperature.is_none()
-            && self.top_p.is_none()
-            && self.top_k.is_none()
-            && self.max_tokens.is_none()
-            && self.stop_sequences.is_none()
-            && self.thinking.is_none()
-    }
+    pub fn is_empty(&self) -> bool { /* all None */ }
+}
+
+// ProviderConfig gains a sampling field (domain.rs)
+pub struct ProviderConfig {
+    // ... existing fields ...
+    pub sampling: Option<SamplingConfig>,  // NEW
+}
+// ProviderConfig::merge() extends to merge sampling blocks field-wise.
+
+// Pipeline already has `defaults: ProviderConfig`.
+// Add pipeline-level orthogonal sampling:
+pub struct Pipeline {
+    // ... existing fields ...
+    pub sampling_defaults: Option<SamplingConfig>,  // NEW: from defaults.sampling
+}
+
+// Step gains a sampling field:
+pub struct Step {
+    // ... existing fields ...
+    pub sampling: Option<SamplingConfig>,  // NEW
 }
 
 // ── InvokeOptions addition (runner/mod.rs) ────────────────────────────
 pub struct InvokeOptions {
     // ... existing fields ...
     pub sampling: Option<SamplingConfig>,
+}
+
+// ── Resolution helper (executor/helpers/runner_resolution.rs) ─────────
+pub fn resolve_step_sampling(session: &Session, step: &Step) -> Option<SamplingConfig> {
+    let pipeline_default = session.pipeline.sampling_defaults.clone().unwrap_or_default();
+    let provider_attached = session.pipeline.defaults.sampling.clone().unwrap_or_default();
+    let step_override = step.sampling.clone().unwrap_or_default();
+
+    let merged = pipeline_default
+        .merge(provider_attached)
+        .merge(step_override);
+
+    if merged.is_empty() { None } else { Some(merged) }
 }
 
 // ── HttpRunner ChatRequest addition (runner/http.rs) ──────────────────
@@ -290,27 +392,35 @@ struct ChatRequest<'a> {
 
 ## Open Questions for Review
 
-1. **Should `stop_sequences` merge or replace?** Current design: step-level
-   `stop_sequences` *replaces* (not appends to) pipeline default. This is
-   simpler and avoids surprising accumulation. But append could be useful.
-   **Proposed**: replace (matches how `tools:` works — step overrides pipeline).
+1. **Should `stop_sequences` merge or replace?** Current design: higher scope
+   *replaces* (not appends to) lower scope. Simpler; avoids surprising
+   accumulation. **Proposed**: replace (matches how `tools:` works).
 
-2. **Should `thinking` support a `budget_tokens` variant?** The Anthropic API
-   allows `thinking: { type: "enabled", budget_tokens: 10000 }`. We could model
-   this as `thinking: true` (boolean) or `thinking: { budget_tokens: 10000 }`
-   (struct). **Proposed**: boolean for v1, struct variant for later. The YAML
-   syntax `thinking: true` is forwards-compatible — a future `thinking:
-   budget_tokens: 10000` syntax doesn't conflict.
+2. ~~`thinking` shape~~ **Resolved** (D7): decimal fraction `thinking: f64`
+   in [0.0, 1.0]. YAML bool aliases: `true`→1.0, `false`→0.0. Each runner
+   quantizes to its own supported granularity (ClaudeCliRunner: quartiles →
+   `--effort`; HttpRunner: threshold at 0.5 → boolean; future API with
+   `budget_tokens`: `thinking * PROVIDER_MAX_BUDGET`). Pipeline author's
+   numeric intent survives runner granularity upgrades without edits.
 
-3. **`max_tokens` vs `max_output_tokens`?** Anthropic API uses `max_tokens`,
-   OpenAI recently switched to `max_completion_tokens`. We use `max_tokens`
-   because it's shorter and more widely recognized. Runners map to the
-   provider's preferred name.
+3. **`max_tokens` vs `max_output_tokens`?** Anthropic uses `max_tokens`,
+   OpenAI recently switched to `max_completion_tokens`. **Proposed**:
+   use `max_tokens` (shorter, more widely recognized). Runners map.
 
-4. **Validation strictness**: Should we error or warn when `temperature` and
-   `top_p` are both set? Some providers recommend using one or the other.
-   **Proposed**: allow both — let the provider decide. No ail-level conflict
-   check.
+4. **Validation strictness**: allow both `temperature` and `top_p`?
+   **Proposed**: allow both — let the provider decide. No ail-level conflict.
+
+5. **Per-step `provider:` field wiring**: this design assumes a future
+   `step.provider: <name>` field that resolves to a named provider profile.
+   Until §15 aliases land, provider-scope sampling only works via the single
+   `defaults.provider.sampling:` block — which applies to *every* step.
+   That's fine for v1 (equivalent to pipeline-scope) and degrades gracefully
+   when §15 lands.
+
+6. **Ail's native runner (future)**: when we build it, this spec is the
+   forward contract. The native runner implements all fields as the
+   "platonic ideal" — temperature, top_p, top_k, max_tokens, stop_sequences,
+   and thinking all behave per §30 without translation loss.
 
 ## Dependency Graph
 
