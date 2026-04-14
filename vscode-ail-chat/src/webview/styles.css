@@ -228,6 +228,20 @@ body {
   display: none;
 }
 
+.chat-message-timestamp {
+  font-size: 10px;
+  color: var(--vscode-descriptionForeground);
+  opacity: 0;
+  transition: opacity 0.15s ease;
+  user-select: none;
+  align-self: flex-end;
+  padding: 0 2px;
+}
+
+.chat-message:hover .chat-message-timestamp {
+  opacity: 0.5;
+}
+
 .chat-message-content {
   white-space: pre-wrap;
   word-break: break-word;
@@ -281,6 +295,12 @@ body {
   transform: rotate(90deg);
 }
 
+.thinking-block-icon {
+  font-size: 11px;
+  color: var(--vscode-editorLightBulb-foreground, var(--vscode-editorWarning-foreground, #e5c07b));
+  flex-shrink: 0;
+}
+
 .thinking-block-label {
   font-weight: 500;
   font-style: italic;
@@ -294,6 +314,13 @@ body {
   white-space: nowrap;
   flex: 1;
   min-width: 0;
+}
+
+.thinking-block-meta {
+  font-size: 10px;
+  opacity: 0.4;
+  flex-shrink: 0;
+  margin-left: auto;
 }
 
 .thinking-block-content {
@@ -434,6 +461,44 @@ body {
 
 .tool-card-code.error {
   color: var(--vscode-errorForeground);
+}
+
+/* Copy button appears on hover over a code block */
+.tool-card-code-wrapper {
+  position: relative;
+}
+
+.tool-card-copy-btn {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  background: var(--vscode-editor-background);
+  border: 1px solid var(--ail-card-border);
+  border-radius: 3px;
+  padding: 2px 5px;
+  cursor: pointer;
+  font-size: 11px;
+  line-height: 1;
+  color: var(--vscode-foreground);
+  opacity: 0;
+  transition: opacity 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+  display: flex;
+  align-items: center;
+}
+
+.tool-card-code-wrapper:hover .tool-card-copy-btn {
+  opacity: 0.6;
+}
+
+.tool-card-copy-btn:hover:not(.copied) {
+  opacity: 1 !important;
+  background: var(--vscode-toolbar-hoverBackground);
+}
+
+.tool-card-copy-btn.copied {
+  color: var(--vscode-testing-iconPassed, #4ec959);
+  border-color: var(--vscode-testing-iconPassed, #4ec959);
+  opacity: 1 !important;
 }
 
 /* ── Tool call group ── */

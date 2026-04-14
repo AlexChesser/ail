@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useCallback, useState } from 'react';
 
 export interface ToolCallData {
   toolUseId: string;
@@ -42,6 +42,29 @@ function resultSummary(result: string | undefined, isError: boolean | undefined)
     return `${chars} chars`;
   }
   return null;
+}
+
+function CopyButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
+    void navigator.clipboard.writeText(text).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    });
+  }, [text]);
+
+  return (
+    <button
+      className={`tool-card-copy-btn${copied ? ' copied' : ''}`}
+      onClick={handleCopy}
+      title={copied ? 'Copied!' : 'Copy to clipboard'}
+      aria-label={copied ? 'Copied!' : 'Copy to clipboard'}
+    >
+      <span className={`codicon ${copied ? 'codicon-check' : 'codicon-copy'}`} />
+    </button>
+  );
 }
 
 function StatusIcon({ data }: { data: ToolCallData }) {
@@ -101,15 +124,21 @@ export const ToolCallCard: React.FC<ToolCallCardProps> = ({ data }) => {
         {inputStr && (
           <>
             <div className="tool-card-section-label">Input</div>
-            <pre className="tool-card-code">{inputStr}</pre>
+            <div className="tool-card-code-wrapper">
+              <pre className="tool-card-code">{inputStr}</pre>
+              <CopyButton text={inputStr} />
+            </div>
           </>
         )}
         {hasResult && (
           <>
             <div className="tool-card-section-label">Result</div>
-            <pre className={`tool-card-code${data.isError ? ' error' : ''}`}>
-              {data.result}
-            </pre>
+            <div className="tool-card-code-wrapper">
+              <pre className={`tool-card-code${data.isError ? ' error' : ''}`}>
+                {data.result}
+              </pre>
+              <CopyButton text={data.result ?? ''} />
+            </div>
           </>
         )}
       </div>

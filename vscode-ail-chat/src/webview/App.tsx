@@ -43,8 +43,8 @@ function postToHost(msg: WebviewToHostMessage): void {
 
 /** A single item in the chat display list. */
 export type DisplayItem =
-  | { kind: 'user-message'; id: string; text: string }
-  | { kind: 'assistant-stream'; id: string; text: string; streaming: boolean; stepId?: string }
+  | { kind: 'user-message'; id: string; text: string; timestamp: number }
+  | { kind: 'assistant-stream'; id: string; text: string; streaming: boolean; stepId?: string; timestamp: number }
   | { kind: 'thinking'; id: string; text: string }
   | { kind: 'tool-call'; id: string; data: ToolCallData }
   | { kind: 'hitl'; id: string; stepId: string; message?: string; cardState: HitlCardState; resolvedText?: string }
@@ -234,7 +234,7 @@ function reducer(state: ChatState, action: Action): ChatState {
       return {
         ...s2,
         isRunning: true,
-        items: [...s2.items, { kind: 'user-message', id, text: action.text }],
+        items: [...s2.items, { kind: 'user-message', id, text: action.text, timestamp: Date.now() }],
       };
     }
 
@@ -273,7 +273,7 @@ function reducer(state: ChatState, action: Action): ChatState {
           const [id, s2] = nextId(state);
           return {
             ...s2,
-            items: [...s2.items, { kind: 'assistant-stream', id, text: msg.text, streaming: true, stepId: state.currentStepId ?? undefined }],
+            items: [...s2.items, { kind: 'assistant-stream', id, text: msg.text, streaming: true, stepId: state.currentStepId ?? undefined, timestamp: Date.now() }],
           };
         }
 
@@ -328,7 +328,7 @@ function reducer(state: ChatState, action: Action): ChatState {
           if (!hasActiveStream && msg.response) {
             const [id, s2] = nextId(state);
             finalState = s2;
-            finalItems = [...closedItems, { kind: 'assistant-stream' as const, id, text: msg.response, streaming: false }];
+            finalItems = [...closedItems, { kind: 'assistant-stream' as const, id, text: msg.response, streaming: false, timestamp: Date.now() }];
           }
           return {
             ...finalState,
@@ -729,9 +729,9 @@ export const App: React.FC = () => {
             const renderItem = (item: DisplayItem): React.ReactNode => {
               switch (item.kind) {
                 case 'user-message':
-                  return <ChatMessage role="user" content={item.text} />;
+                  return <ChatMessage role="user" content={item.text} timestamp={item.timestamp} />;
                 case 'assistant-stream':
-                  return <ChatMessage role="assistant" content={item.text} streaming={item.streaming} />;
+                  return <ChatMessage role="assistant" content={item.text} streaming={item.streaming} timestamp={item.timestamp} />;
                 case 'thinking':
                   return <ThinkingBlock text={item.text} />;
                 case 'tool-call':
