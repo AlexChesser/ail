@@ -16,6 +16,7 @@
 
 use super::{
     claude::{ClaudeCliRunner, ClaudeCliRunnerConfig},
+    codex::CodexRunnerConfig,
     http::{HttpRunner, HttpRunnerConfig, HttpSessionStore},
     plugin::{PluginRegistry, ProtocolRunner},
     stub::StubRunner,
@@ -39,6 +40,8 @@ impl RunnerFactory {
     ///
     /// Recognised names (case-insensitive, whitespace-trimmed):
     /// - `"claude"` — `ClaudeCliRunner` with the given headless flag
+    /// - `"codex"` — `CodexRunner`; reads `AIL_CODEX_BIN` (default: `"codex"`) from the
+    ///   environment. Requires `OPENAI_API_KEY` set in the ambient environment.
     /// - `"http"` or `"ollama"` — `HttpRunner`; reads `AIL_HTTP_BASE_URL` (default:
     ///   `http://localhost:11434/v1`), `AIL_HTTP_TOKEN`, `AIL_HTTP_MODEL`, `AIL_HTTP_THINK`
     ///   from the environment.
@@ -74,13 +77,22 @@ impl RunnerFactory {
         provider: &ProviderConfig,
         registry: &PluginRegistry,
     ) -> Result<Box<dyn Runner + Send>, AilError> {
-        let _ = headless; // consumed by claude only
         let normalized = runner_name.trim().to_lowercase();
         match normalized.as_str() {
             "claude" => {
                 let runner: ClaudeCliRunner =
                     ClaudeCliRunnerConfig::default().headless(headless).build();
                 Ok(Box::new(runner))
+            }
+            "codex" => {
+                let codex_bin =
+                    std::env::var("AIL_CODEX_BIN").unwrap_or_else(|_| "codex".to_string());
+                Ok(Box::new(
+                    CodexRunnerConfig::default()
+                        .codex_bin(codex_bin)
+                        .headless(headless)
+                        .build(),
+                ))
             }
             "http" | "ollama" => {
                 // ProviderConfig values take precedence over env vars.
@@ -118,7 +130,7 @@ impl RunnerFactory {
                     return Ok(Box::new(ProtocolRunner::new(manifest.clone())));
                 }
 
-                let mut known: Vec<&str> = vec!["claude", "http", "ollama", "stub"];
+                let mut known: Vec<&str> = vec!["claude", "codex", "http", "ollama", "stub"];
                 let plugin_names = registry.runner_names();
                 known.extend(plugin_names.iter().copied());
 
