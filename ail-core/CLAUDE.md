@@ -61,8 +61,10 @@ Consumed by `ail` (the binary) and future language-server / SDK targets.
 
 ```rust
 // Pipeline and its steps
-pub struct Pipeline { pub steps: Vec<Step>, pub source: Option<PathBuf> }
-pub struct Step    { pub id: StepId, pub body: StepBody, pub tools: Option<ToolPolicy>, pub on_result: Option<Vec<ResultBranch>>, pub model: Option<String>, pub runner: Option<String>, pub condition: Option<Condition>, pub on_error: Option<OnError>, pub before: Vec<Step>, pub then: Vec<Step>, pub output_schema: Option<serde_json::Value>, pub input_schema: Option<serde_json::Value> }
+pub struct Pipeline { pub steps: Vec<Step>, pub source: Option<PathBuf>, pub defaults: ProviderConfig, pub timeout_seconds: Option<u64>, pub default_tools: Option<ToolPolicy>, pub named_pipelines: HashMap<String, Vec<Step>> }
+// default_tools: pipeline-wide fallback; per-step tools override entirely (SPEC §3.2)
+// named_pipelines: named pipeline definitions from the `pipelines:` section (SPEC §10)
+pub struct Step    { pub id: StepId, pub body: StepBody, pub message: Option<String>, pub tools: Option<ToolPolicy>, pub on_result: Option<Vec<ResultBranch>>, pub model: Option<String>, pub runner: Option<String>, pub condition: Option<Condition>, pub append_system_prompt: Option<Vec<SystemPromptEntry>>, pub system_prompt: Option<String>, pub resume: bool, pub on_error: Option<OnError>, pub before: Vec<Step>, pub then: Vec<Step>, pub output_schema: Option<serde_json::Value>, pub input_schema: Option<serde_json::Value> }
 // before: private pre-processing chain (SPEC §5.10) — runs before the step fires
 // then: private post-processing chain (SPEC §5.7) — runs after the step completes
 // output_schema: optional JSON Schema for validating step output (SPEC §26.1); validated at parse time, response validated at runtime
@@ -71,12 +73,6 @@ pub enum Condition { Always, Never, Expression(ConditionExpr) }  // SPEC §12 �
 pub struct ConditionExpr { pub lhs: String, pub op: ConditionOp, pub rhs: String }
 pub enum ConditionOp { Eq, Ne, Contains, StartsWith, EndsWith }
 pub enum OnError { Continue, Retry { max_retries: u32 }, AbortPipeline }  // SPEC §16 — None means AbortPipeline (default)
-pub struct Pipeline { pub steps: Vec<Step>, pub source: Option<PathBuf>, pub defaults: ProviderConfig, pub default_tools: Option<ToolPolicy> }
-pub enum Condition { Always, Never }  // SPEC §12 — None means Always; Never skips the step
-pub struct Pipeline { pub steps: Vec<Step>, pub source: Option<PathBuf>, pub defaults: ProviderConfig, pub default_tools: Option<ToolPolicy>, pub named_pipelines: HashMap<String, Vec<Step>> }
-// default_tools: pipeline-wide fallback; per-step tools override entirely (SPEC §3.2)
-// named_pipelines: named pipeline definitions from the `pipelines:` section (SPEC §10)
-pub struct Step    { pub id: StepId, pub body: StepBody, pub tools: Option<ToolPolicy>, pub on_result: Option<Vec<ResultBranch>>, pub model: Option<String>, pub runner: Option<String> }
 pub enum StepBody  { Prompt(String), Skill { name: String }, SubPipeline { path: String, prompt: Option<String> }, NamedPipeline { name: String, prompt: Option<String> }, Action(ActionKind), Context(ContextSource), DoWhile { max_iterations, exit_when, steps }, ForEach { over, as_name, max_items, on_max_items, steps } }
 // NamedPipeline: references a named pipeline defined in pipelines: section (SPEC §10)
 // NamedPipeline.prompt: when Some, overrides child session's invocation_prompt (same as SubPipeline)
@@ -191,6 +187,12 @@ pub struct AilError { pub error_type: &'static str, pub title: &'static str, pub
 | `PIPELINE_CIRCULAR_REFERENCE` | `ail:pipeline/circular-reference` |
 | `CIRCULAR_INHERITANCE` | `ail:config/circular-inheritance` |
 | `SKILL_UNKNOWN` | `ail:skill/unknown` |
+| `DO_WHILE_MAX_ITERATIONS` | `ail:do-while/max-iterations-exceeded` |
+| `LOOP_DEPTH_EXCEEDED` | `ail:loop/depth-exceeded` |
+| `OUTPUT_SCHEMA_VALIDATION_FAILED` | `ail:schema/output-validation-failed` |
+| `INPUT_SCHEMA_VALIDATION_FAILED` | `ail:schema/input-validation-failed` |
+| `SCHEMA_COMPATIBILITY_FAILED` | `ail:schema/compatibility-failed` |
+| `FOR_EACH_SOURCE_INVALID` | `ail:for-each/source-invalid` |
 
 ## Invariants (do not break)
 
@@ -224,14 +226,21 @@ s05  — step specification (core fields)
 s05_3 — on_result multi-branch evaluation
 s05_5 — context:shell: steps + file path resolution
 s05_7 — before:/then: step chains (§5.7, §5.10)
+s06  — skills
+s07  — pipeline inheritance (FROM)
 s08  — runner adapter
 s09  — sub-pipeline execution + template vars in pipeline: paths
 s09  — tool permissions (separate file: s09_tool_permissions)
 s10  — named pipelines (definition, reference, execution, circular detection, materialize)
 s11  — template variables
+s12  — step conditions (always, never, expression)
 s16  — on_error error handling (continue, retry, abort_pipeline)
 s18  — materialize
 s21  — MVP scope
+s26  — output_schema, input_schema, field:equals:, schema compatibility
+s27  — do_while: bounded repeat-until loop (parse + executor)
+s28  — for_each: collection iteration (parse + executor)
+s26_s27_s28_integration — cross-feature integration tests (schema+loops, nested loops, full pipeline)
 ```
 
 `#[ignore]` tests require the `claude` binary and a live session — run with
