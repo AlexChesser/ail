@@ -1,0 +1,21 @@
+version: "0.0.1"
+defaults:
+  sampling:
+    temperature: 0.3
+    max_tokens: 4096
+pipeline:
+  - id: inherit_defaults
+    prompt: "Inherits pipeline defaults."
+  - id: override_temperature
+    prompt: "Override just the temperature."
+    sampling:
+      temperature: 0.9
+  - id: full_override
+    prompt: "Full sampling override."
+    sampling:
+      temperature: 0.0
+      top_p: 0.95
+      top_k: 40
+      max_tokens: 8192
+      stop_sequences: ["Human:", "</answer>"]
+      thinking: 0.75

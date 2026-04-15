@@ -1,0 +1,6 @@
+version: "0.0.1"
+pipeline:
+  - id: too_hot
+    prompt: "Temperature out of range."
+    sampling:
+      temperature: 3.5

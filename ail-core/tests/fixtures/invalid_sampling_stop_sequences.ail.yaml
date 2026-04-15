@@ -1,0 +1,6 @@
+version: "0.0.1"
+pipeline:
+  - id: empty_stop
+    prompt: "stop_sequences must be a non-empty list."
+    sampling:
+      stop_sequences: []

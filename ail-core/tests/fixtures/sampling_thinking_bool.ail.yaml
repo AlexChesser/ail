@@ -1,0 +1,14 @@
+version: "0.0.1"
+pipeline:
+  - id: thinking_on
+    prompt: "thinking: true should normalize to 1.0."
+    sampling:
+      thinking: true
+  - id: thinking_off
+    prompt: "thinking: false should normalize to 0.0."
+    sampling:
+      thinking: false
+  - id: thinking_fraction
+    prompt: "A fractional thinking value passes through as-is."
+    sampling:
+      thinking: 0.5
