@@ -354,6 +354,17 @@ impl ClaudeNdjsonDecoder {
                 ParseAction::Continue
             }
 
+            "rate_limit_event" => {
+                // Claude CLI handles HTTP 429 retries internally with exponential backoff.
+                // By the time this event reaches the decoder the CLI has already retried
+                // and the stream continues — no action required from AIL.
+                // The full payload is logged at debug so the undocumented field schema
+                // can be captured from production runs.
+                tracing::info!("claude CLI rate limited; retry is handled internally by the CLI");
+                tracing::debug!(raw_event = %event, "rate_limit_event wire payload");
+                ParseAction::Continue
+            }
+
             other => {
                 tracing::warn!(event_type = other, "unexpected stream-json event type");
                 ParseAction::Continue
@@ -583,5 +594,24 @@ mod tests {
         dec.feed(&make_result_event("second"), None).unwrap();
         let result = dec.finalize().unwrap();
         assert_eq!(result.response, "first");
+    }
+
+    #[test]
+    fn rate_limit_event_does_not_set_done_or_error() {
+        let mut dec = ClaudeNdjsonDecoder::new();
+        // Simulate the rate_limit_event the Claude CLI emits when it backs off internally.
+        // Field names are illustrative — the wire schema is undocumented and captured via debug logs.
+        let event = serde_json::json!({
+            "type": "rate_limit_event",
+            "retry_after_ms": 1000
+        })
+        .to_string();
+        dec.feed(&event, None).unwrap();
+        assert!(!dec.is_done());
+        assert!(dec.take_error().is_none());
+        // Stream continues normally after the rate limit event.
+        dec.feed(&make_result_event("answer"), None).unwrap();
+        let result = dec.finalize().unwrap();
+        assert_eq!(result.response, "answer");
     }
 }
