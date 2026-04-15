@@ -93,7 +93,7 @@ pub(in crate::executor) fn execute<O: StepObserver>(
         cancel_token: None,
         system_prompt: resolved_system_prompt,
         append_system_prompt: resolved_append_system_prompt,
-        sampling,
+        sampling: sampling.clone(),
     };
     observer.augment_options(&mut options);
 
@@ -110,9 +110,8 @@ pub(in crate::executor) fn execute<O: StepObserver>(
     );
     observer.on_prompt_completed(step_id, &result);
 
-    Ok(TurnEntry::from_prompt(
-        step_id.to_string(),
-        resolved,
-        result,
-    ))
+    Ok(
+        TurnEntry::from_prompt(step_id.to_string(), resolved, result)
+            .with_sampling(sampling.as_ref()),
+    )
 }
