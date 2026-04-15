@@ -123,6 +123,22 @@ impl CodexRunner {
                 "CodexRunner: permission_responder is not supported by the codex CLI; ignoring"
             );
         }
+        // SPEC §30.4.1 — warn-and-ignore unsupported sampling fields so pipelines
+        // remain portable. The codex CLI exposes no sampling flags today.
+        if let Some(s) = options.sampling.as_ref() {
+            if s.temperature.is_some()
+                || s.top_p.is_some()
+                || s.top_k.is_some()
+                || s.max_tokens.is_some()
+                || s.stop_sequences.is_some()
+                || s.thinking.is_some()
+            {
+                tracing::warn!(
+                    "CodexRunner: sampling parameters are not supported by the codex \
+                     CLI; ignoring (temperature/top_p/top_k/max_tokens/stop_sequences/thinking)"
+                );
+            }
+        }
 
         // Build the argument list.
         // Invocation form:

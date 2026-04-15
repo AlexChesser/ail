@@ -195,6 +195,7 @@ fn executor_dispatches_per_step_runner() {
         then: vec![],
         output_schema: None,
         input_schema: None,
+        sampling: None,
     };
     // Step B: runner: "stub" — executor builds StubRunner via RunnerFactory.
     let step_b = Step {
@@ -216,6 +217,7 @@ fn executor_dispatches_per_step_runner() {
         then: vec![],
         output_schema: None,
         input_schema: None,
+        sampling: None,
     };
 
     let pipeline = Pipeline {
@@ -226,6 +228,7 @@ fn executor_dispatches_per_step_runner() {
         default_tools: None,
         named_pipelines: Default::default(),
         max_concurrency: None,
+        sampling_defaults: None,
     };
 
     // The default runner returns a distinct response so we can tell it apart from the stub.

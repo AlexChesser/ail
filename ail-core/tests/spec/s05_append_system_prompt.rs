@@ -31,6 +31,7 @@ mod append_system_prompt {
             then: vec![],
             output_schema: None,
             input_schema: None,
+            sampling: None,
         }
     }
 
@@ -43,6 +44,7 @@ mod append_system_prompt {
             default_tools: None,
             named_pipelines: Default::default(),
             max_concurrency: None,
+            sampling_defaults: None,
         };
         Session::new(pipeline, "test prompt".to_string()).with_log_provider(Box::new(NullProvider))
     }
@@ -183,6 +185,7 @@ mod append_system_prompt {
             then: vec![],
             output_schema: None,
             input_schema: None,
+            sampling: None,
         };
         let runner = RecordingStubRunner::new("ok");
         let mut session = make_session(vec![step]);

@@ -32,6 +32,7 @@ mod s26_output_schema;
 mod s26_s27_s28_integration;
 mod s27_do_while;
 mod s28_for_each;
+mod s30_sampling;
 mod s35_ail_log_formatter;
 mod s39_consistency;
 mod s40_delete_run;

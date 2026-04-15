@@ -190,6 +190,29 @@ pub struct InvokeParams {
     pub system_prompt: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tool_policy: Option<serde_json::Value>,
+    /// Sampling parameters (SPEC §30). Wire format mirrors the `SamplingConfig`
+    /// domain type. Plugins apply or ignore fields at their discretion — unknown
+    /// or unsupported fields SHOULD produce a warning, not an error.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sampling: Option<InvokeSamplingParams>,
+}
+
+/// Sampling parameters sent to plugin runners (SPEC §30.4.4).
+#[derive(Debug, Clone, Serialize, Default)]
+pub struct InvokeSamplingParams {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub temperature: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub top_p: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub top_k: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_tokens: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stop_sequences: Option<Vec<String>>,
+    /// Reasoning/extended-thinking intensity as a fraction in [0.0, 1.0].
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub thinking: Option<f64>,
 }
 
 /// Result of the `invoke` request — maps directly to RunResult fields.
@@ -361,6 +384,7 @@ mod tests {
             model: None,
             system_prompt: None,
             tool_policy: None,
+            sampling: None,
         };
         let json = serde_json::to_value(&params).unwrap();
         assert_eq!(json["prompt"], "hello");

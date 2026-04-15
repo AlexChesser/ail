@@ -4,7 +4,42 @@ use std::time::SystemTime;
 use serde::Serialize;
 
 use super::log_provider::{cwd_hash, JsonlProvider, LogProvider};
+use crate::config::domain::SamplingConfig;
 use crate::runner::{RunResult, ToolEvent};
+
+/// Sampling snapshot recorded in a `TurnEntry` (SPEC §30.8). Mirrors
+/// `SamplingConfig` field-for-field as a serializable projection — kept in
+/// `turn_log.rs` so `domain.rs` stays free of serde derives.
+///
+/// Only fields that were actually set are included in the JSON output.
+#[derive(Serialize, Debug, Clone, Default)]
+pub struct TurnEntrySampling {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub temperature: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub top_p: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub top_k: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_tokens: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stop_sequences: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub thinking: Option<f64>,
+}
+
+impl From<&SamplingConfig> for TurnEntrySampling {
+    fn from(src: &SamplingConfig) -> Self {
+        TurnEntrySampling {
+            temperature: src.temperature,
+            top_p: src.top_p,
+            top_k: src.top_k,
+            max_tokens: src.max_tokens,
+            stop_sequences: src.stop_sequences.clone(),
+            thinking: src.thinking,
+        }
+    }
+}
 
 #[derive(Serialize)]
 pub struct TurnEntry {
@@ -51,6 +86,12 @@ pub struct TurnEntry {
     /// Populated for async steps; `None` for sequential steps.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub completed_at: Option<String>,
+    /// Effective sampling parameters applied to this step (SPEC §30.8).
+    /// Only the fields that were actually set at some scope appear in the JSON
+    /// output — everything inside the `TurnEntrySampling` struct uses
+    /// `skip_serializing_if` so the per-run log stays compact.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sampling: Option<TurnEntrySampling>,
 }
 
 impl Default for TurnEntry {
@@ -74,6 +115,7 @@ impl Default for TurnEntry {
             concurrent_group: None,
             launched_at: None,
             completed_at: None,
+            sampling: None,
         }
     }
 }
@@ -128,6 +170,14 @@ struct StepCancelledEvent<'a> {
 }
 
 impl TurnEntry {
+    /// Record the effective sampling parameters for this turn (SPEC §30.8).
+    /// Builder-style so callers can chain it onto `from_prompt` /
+    /// `from_context` etc. without enumerating every field.
+    pub fn with_sampling(mut self, sampling: Option<&SamplingConfig>) -> Self {
+        self.sampling = sampling.map(TurnEntrySampling::from);
+        self
+    }
+
     /// Construct a TurnEntry for a completed prompt step.
     pub fn from_prompt(step_id: impl Into<String>, prompt: String, result: RunResult) -> Self {
         TurnEntry {

@@ -10,7 +10,7 @@ use crate::template;
 use crate::executor::core::StepObserver;
 use crate::executor::helpers::{
     build_step_runner_box, build_tool_policy, resolve_effective_runner_name, resolve_prompt_file,
-    resolve_step_provider, resolve_step_system_prompts,
+    resolve_step_provider, resolve_step_sampling, resolve_step_system_prompts,
 };
 
 use crate::config::domain::Step;
@@ -70,6 +70,7 @@ pub(in crate::executor) fn execute<O: StepObserver>(
         .unwrap_or(runner);
 
     let extensions = effective_runner.build_extensions(&resolved_provider);
+    let sampling = resolve_step_sampling(session, step);
     let mut options = InvokeOptions {
         resume_session_id: resume_id,
         tool_policy: build_tool_policy(effective_tools),
@@ -79,6 +80,7 @@ pub(in crate::executor) fn execute<O: StepObserver>(
         cancel_token: None,
         system_prompt: resolved_system_prompt,
         append_system_prompt: resolved_append_system_prompt,
+        sampling: sampling.clone(),
     };
     observer.augment_options(&mut options);
 
@@ -94,9 +96,8 @@ pub(in crate::executor) fn execute<O: StepObserver>(
     );
     observer.on_prompt_completed(step_id, &result);
 
-    Ok(TurnEntry::from_prompt(
-        step_id.to_string(),
-        resolved,
-        result,
-    ))
+    Ok(
+        TurnEntry::from_prompt(step_id.to_string(), resolved, result)
+            .with_sampling(sampling.as_ref()),
+    )
 }

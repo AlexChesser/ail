@@ -84,6 +84,7 @@ fn before_chain_runs_before_parent() {
         then: vec![],
         output_schema: None,
         input_schema: None,
+        sampling: None,
     }];
 
     let mut session = make_session(vec![parent]);
@@ -123,6 +124,7 @@ fn then_chain_runs_after_parent() {
         then: vec![],
         output_schema: None,
         input_schema: None,
+        sampling: None,
     }];
 
     let mut session = make_session(vec![parent]);
@@ -162,6 +164,7 @@ fn before_then_lifecycle_order() {
         then: vec![],
         output_schema: None,
         input_schema: None,
+        sampling: None,
     }];
     parent.then = vec![Step {
         id: StepId("parent::then::0".to_string()),
@@ -182,6 +185,7 @@ fn before_then_lifecycle_order() {
         then: vec![],
         output_schema: None,
         input_schema: None,
+        sampling: None,
     }];
 
     let mut session = make_session(vec![parent]);
@@ -222,6 +226,7 @@ fn then_chain_accesses_parent_response_via_template() {
         then: vec![],
         output_schema: None,
         input_schema: None,
+        sampling: None,
     }];
 
     let mut session = make_session(vec![parent]);
@@ -262,6 +267,7 @@ fn before_chain_result_accessible_via_template() {
         then: vec![],
         output_schema: None,
         input_schema: None,
+        sampling: None,
     }];
 
     let mut session = make_session(vec![parent]);
@@ -322,10 +328,12 @@ fn nested_chains_execute_in_correct_order() {
             then: vec![],
             output_schema: None,
             input_schema: None,
+            sampling: None,
         }],
         then: vec![],
         output_schema: None,
         input_schema: None,
+        sampling: None,
     };
 
     // then chain step has its own then chain
@@ -364,9 +372,11 @@ fn nested_chains_execute_in_correct_order() {
             then: vec![],
             output_schema: None,
             input_schema: None,
+            sampling: None,
         }],
         output_schema: None,
         input_schema: None,
+        sampling: None,
     };
 
     parent.before = vec![before_step];
@@ -415,6 +425,7 @@ fn context_step_in_before_chain_works() {
         then: vec![],
         output_schema: None,
         input_schema: None,
+        sampling: None,
     }];
 
     let mut session = make_session(vec![parent]);
@@ -464,6 +475,7 @@ fn multiple_before_chain_steps_run_in_order() {
             then: vec![],
             output_schema: None,
             input_schema: None,
+            sampling: None,
         },
         Step {
             id: StepId("parent::before::1".to_string()),
@@ -484,6 +496,7 @@ fn multiple_before_chain_steps_run_in_order() {
             then: vec![],
             output_schema: None,
             input_schema: None,
+            sampling: None,
         },
     ];
 
@@ -523,6 +536,7 @@ fn multiple_then_chain_steps_run_in_order() {
             then: vec![],
             output_schema: None,
             input_schema: None,
+            sampling: None,
         },
         Step {
             id: StepId("parent::then::1".to_string()),
@@ -543,6 +557,7 @@ fn multiple_then_chain_steps_run_in_order() {
             then: vec![],
             output_schema: None,
             input_schema: None,
+            sampling: None,
         },
     ];
 
@@ -586,6 +601,7 @@ fn materialize_shows_before_then_chains() {
         then: vec![],
         output_schema: None,
         input_schema: None,
+        sampling: None,
     }];
     step.then = vec![Step {
         id: StepId("review::then::0".to_string()),
@@ -606,6 +622,7 @@ fn materialize_shows_before_then_chains() {
         then: vec![],
         output_schema: None,
         input_schema: None,
+        sampling: None,
     }];
 
     let pipeline = Pipeline {
@@ -616,6 +633,7 @@ fn materialize_shows_before_then_chains() {
         default_tools: None,
         named_pipelines: Default::default(),
         max_concurrency: None,
+        sampling_defaults: None,
     };
 
     let output = materialize(&pipeline);

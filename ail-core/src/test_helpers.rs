@@ -30,6 +30,7 @@ impl Default for Step {
             then: vec![],
             output_schema: None,
             input_schema: None,
+            sampling: None,
         }
     }
 }

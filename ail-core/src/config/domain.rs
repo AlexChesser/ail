@@ -37,11 +37,16 @@ pub struct ProviderConfig {
     /// Maximum number of non-system messages in HTTP runner session history.
     /// Older messages are dropped (sliding window). `None` means unlimited.
     pub max_history_messages: Option<usize>,
+    /// Provider-attached sampling defaults (SPEC §30.2). Applied with higher
+    /// precedence than pipeline-wide `sampling_defaults` and lower than per-step
+    /// `step.sampling`. Field-level merge within the sampling block.
+    pub sampling: Option<SamplingConfig>,
 }
 
 impl ProviderConfig {
     /// Merge another `ProviderConfig` on top of `self`, with `other` taking precedence.
     /// Fields present in `other` override fields in `self`; absent fields fall through.
+    /// Sampling blocks are field-merged recursively, not replaced.
     pub fn merge(self, other: ProviderConfig) -> ProviderConfig {
         ProviderConfig {
             model: other.model.or(self.model),
@@ -52,7 +57,63 @@ impl ProviderConfig {
                 .or(self.connect_timeout_seconds),
             read_timeout_seconds: other.read_timeout_seconds.or(self.read_timeout_seconds),
             max_history_messages: other.max_history_messages.or(self.max_history_messages),
+            sampling: match (self.sampling, other.sampling) {
+                (Some(a), Some(b)) => Some(a.merge(b)),
+                (a, b) => b.or(a),
+            },
         }
+    }
+}
+
+/// Sampling parameter configuration (SPEC §30). Reusable block shared across
+/// three scopes: pipeline defaults, provider-attached, and per-step.
+///
+/// All fields are `Option<T>` so scopes can merge field-by-field — absent
+/// fields fall through from lower-precedence scopes.
+#[derive(Debug, Clone, Default)]
+pub struct SamplingConfig {
+    /// Sampling temperature. Range [0.0, 2.0]. Lower = deterministic, higher = diverse.
+    pub temperature: Option<f64>,
+    /// Nucleus sampling cutoff. Range [0.0, 1.0]. Keeps tokens in the top `p` probability mass.
+    pub top_p: Option<f64>,
+    /// Top-K sampling cutoff. Keeps only the top `k` most-likely tokens. Not universally supported.
+    pub top_k: Option<u64>,
+    /// Maximum number of tokens in the response.
+    pub max_tokens: Option<u64>,
+    /// Stop generation when any of these strings is produced. Replace (not append) semantics
+    /// across scopes — SPEC §30.3.1.
+    pub stop_sequences: Option<Vec<String>>,
+    /// Reasoning / extended-thinking intensity as a fraction in [0.0, 1.0]. `0.0` = off;
+    /// `1.0` = maximum. Each runner quantizes to whatever granularity it supports.
+    pub thinking: Option<f64>,
+}
+
+impl SamplingConfig {
+    /// Merge `other` on top of `self`. `other` wins per-field; absent fields
+    /// fall through from `self`. `stop_sequences` follows replace semantics
+    /// (SPEC §30.3.1) — if `other.stop_sequences` is `Some(_)`, it replaces
+    /// `self.stop_sequences` entirely rather than appending.
+    pub fn merge(self, other: SamplingConfig) -> SamplingConfig {
+        SamplingConfig {
+            temperature: other.temperature.or(self.temperature),
+            top_p: other.top_p.or(self.top_p),
+            top_k: other.top_k.or(self.top_k),
+            max_tokens: other.max_tokens.or(self.max_tokens),
+            stop_sequences: other.stop_sequences.or(self.stop_sequences),
+            thinking: other.thinking.or(self.thinking),
+        }
+    }
+
+    /// `true` when no field is set — used by the resolver to return `None`
+    /// rather than an empty `SamplingConfig`, so runners can cheaply skip
+    /// the sampling path when the author set nothing at any scope.
+    pub fn is_empty(&self) -> bool {
+        self.temperature.is_none()
+            && self.top_p.is_none()
+            && self.top_k.is_none()
+            && self.max_tokens.is_none()
+            && self.stop_sequences.is_none()
+            && self.thinking.is_none()
     }
 }
 
@@ -73,6 +134,10 @@ pub struct Pipeline {
     pub named_pipelines: HashMap<String, Vec<Step>>,
     /// Pipeline-wide concurrency cap for async steps (SPEC §29.10). `None` means unlimited.
     pub max_concurrency: Option<u64>,
+    /// Pipeline-wide sampling defaults (SPEC §30.2). Orthogonal to provider —
+    /// applied as the lowest-precedence scope in the three-scope merge chain
+    /// (pipeline defaults → provider-attached → per-step).
+    pub sampling_defaults: Option<SamplingConfig>,
 }
 
 impl Pipeline {
@@ -200,6 +265,10 @@ pub struct Step {
     /// When set, the runtime validates the preceding step's response against this schema
     /// before this step executes. A validation failure escalates via `on_error`.
     pub input_schema: Option<serde_json::Value>,
+    /// Per-step sampling parameter override (SPEC §30). Highest-precedence scope in the
+    /// three-scope merge chain. Field-level merge with pipeline and provider-attached
+    /// defaults; `stop_sequences` follows replace semantics (SPEC §30.3.1).
+    pub sampling: Option<SamplingConfig>,
 }
 
 #[derive(Debug, Default, Clone)]

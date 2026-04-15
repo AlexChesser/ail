@@ -1,6 +1,6 @@
 use crate::config::domain::{
     ActionKind, ConditionExpr, ConditionOp, ContextSource, ExitCodeMatch, OnError, OnMaxItems,
-    Pipeline, ResultAction, ResultMatcher, Step, StepBody,
+    Pipeline, ResultAction, ResultMatcher, SamplingConfig, Step, StepBody,
 };
 
 /// Escape a string for use inside a YAML double-quoted scalar.
@@ -64,6 +64,49 @@ fn chain_step_summary(body: &StepBody) -> String {
     }
 }
 
+/// Render a `SamplingConfig` as a YAML block with the given field-indent prefix.
+///
+/// Appends:
+/// ```yaml
+/// {indent}sampling:
+/// {indent}  temperature: ...
+/// {indent}  ...
+/// ```
+/// Only fields that are `Some` are emitted (per SPEC §30.7). Callers skip the
+/// block entirely when `sampling.is_empty()`.
+fn render_sampling(out: &mut String, sampling: &SamplingConfig, field_indent: &str) {
+    if sampling.is_empty() {
+        return;
+    }
+    out.push_str(&format!("{field_indent}sampling:\n"));
+    let inner = format!("{field_indent}  ");
+    if let Some(t) = sampling.temperature {
+        out.push_str(&format!("{inner}temperature: {t}\n"));
+    }
+    if let Some(p) = sampling.top_p {
+        out.push_str(&format!("{inner}top_p: {p}\n"));
+    }
+    if let Some(k) = sampling.top_k {
+        out.push_str(&format!("{inner}top_k: {k}\n"));
+    }
+    if let Some(m) = sampling.max_tokens {
+        out.push_str(&format!("{inner}max_tokens: {m}\n"));
+    }
+    if let Some(stops) = sampling.stop_sequences.as_ref() {
+        let rendered: Vec<String> = stops
+            .iter()
+            .map(|s| format!("\"{}\"", yaml_quote(s)))
+            .collect();
+        out.push_str(&format!(
+            "{inner}stop_sequences: [{}]\n",
+            rendered.join(", ")
+        ));
+    }
+    if let Some(th) = sampling.thinking {
+        out.push_str(&format!("{inner}thinking: {th}\n"));
+    }
+}
+
 /// Serialize a pipeline back to annotated YAML with origin comments per step.
 ///
 /// Output round-trips through `config::load()` (YAML parsers ignore comments).
@@ -75,8 +118,35 @@ pub fn materialize(pipeline: &Pipeline) -> String {
         .unwrap_or_else(|| "<passthrough>".to_string());
 
     let mut out = String::from("version: \"0.0.1\"\n");
-    if let Some(max_conc) = pipeline.max_concurrency {
-        out.push_str(&format!("defaults:\n  max_concurrency: {max_conc}\n"));
+
+    // Emit `defaults:` when any pipeline-level default has been set. Keeps the
+    // header compact — we don't print an empty `defaults: {}` block.
+    let has_defaults = pipeline.max_concurrency.is_some()
+        || pipeline
+            .sampling_defaults
+            .as_ref()
+            .map(|s| !s.is_empty())
+            .unwrap_or(false)
+        || pipeline
+            .defaults
+            .sampling
+            .as_ref()
+            .map(|s| !s.is_empty())
+            .unwrap_or(false);
+    if has_defaults {
+        out.push_str("defaults:\n");
+        if let Some(max_conc) = pipeline.max_concurrency {
+            out.push_str(&format!("  max_concurrency: {max_conc}\n"));
+        }
+        if let Some(ref s) = pipeline.sampling_defaults {
+            render_sampling(&mut out, s, "  ");
+        }
+        if let Some(ref s) = pipeline.defaults.sampling {
+            // Provider-attached sampling lives under `defaults.provider.sampling:`
+            // in YAML (SPEC §30.2.2). Emit a minimal `provider:` block around it.
+            out.push_str("  provider:\n");
+            render_sampling(&mut out, s, "    ");
+        }
     }
     out.push_str("pipeline:\n");
 
@@ -277,6 +347,10 @@ pub fn materialize(pipeline: &Pipeline) -> String {
                 out.push_str(&format!("      {line}\n"));
             }
         }
+
+        if let Some(ref sampling) = step.sampling {
+            render_sampling(&mut out, sampling, "    ");
+        }
     }
 
     // Append named pipeline definitions if present.
@@ -471,6 +545,10 @@ fn serialize_step(out: &mut String, step: &Step, indent: &str, origin_comment: O
             ));
         }
     }
+
+    if let Some(ref sampling) = step.sampling {
+        render_sampling(out, sampling, &field_indent);
+    }
 }
 
 /// Serialize a pipeline with `--expand-pipelines` — inlines named pipeline references
@@ -590,6 +668,7 @@ mod tests {
             then: vec![],
             output_schema: None,
             input_schema: None,
+            sampling: None,
         }
     }
 
@@ -602,6 +681,7 @@ mod tests {
             default_tools: None,
             named_pipelines: Default::default(),
             max_concurrency: None,
+            sampling_defaults: None,
         }
     }
 
@@ -666,6 +746,7 @@ mod tests {
             default_tools: None,
             named_pipelines: Default::default(),
             max_concurrency: None,
+            sampling_defaults: None,
         };
         let output = materialize(&pipeline);
         assert!(output.contains("alpha"), "alpha not in output");
@@ -687,6 +768,7 @@ mod tests {
             default_tools: None,
             named_pipelines: Default::default(),
             max_concurrency: None,
+            sampling_defaults: None,
         };
         let output = materialize(&pipeline);
         assert!(output.contains("# origin: [1]"), "missing origin [1]");
@@ -731,6 +813,7 @@ mod tests {
             default_tools: None,
             named_pipelines: Default::default(),
             max_concurrency: None,
+            sampling_defaults: None,
         };
         let output = materialize(&pipeline);
         assert!(output.contains("context:"), "context: key missing");
@@ -752,6 +835,7 @@ mod tests {
             default_tools: None,
             named_pipelines: Default::default(),
             max_concurrency: None,
+            sampling_defaults: None,
         };
         let output = materialize(&pipeline);
         let result: Result<serde_yaml::Value, _> = serde_yaml::from_str(&output);
@@ -771,6 +855,7 @@ mod tests {
             default_tools: None,
             named_pipelines: Default::default(),
             max_concurrency: None,
+            sampling_defaults: None,
         };
         let output = materialize(&pipeline);
         assert!(
@@ -792,6 +877,7 @@ mod tests {
             default_tools: None,
             named_pipelines: Default::default(),
             max_concurrency: None,
+            sampling_defaults: None,
         };
         let output = materialize(&pipeline);
         assert!(
@@ -818,6 +904,7 @@ mod tests {
             default_tools: None,
             named_pipelines: Default::default(),
             max_concurrency: None,
+            sampling_defaults: None,
         };
         let output = materialize(&pipeline);
         assert!(
@@ -842,6 +929,7 @@ mod tests {
             default_tools: None,
             named_pipelines: Default::default(),
             max_concurrency: None,
+            sampling_defaults: None,
         };
         let output = materialize(&pipeline);
         assert!(output.contains("on_result:"), "on_result: key missing");
@@ -866,6 +954,7 @@ mod tests {
             default_tools: None,
             named_pipelines: Default::default(),
             max_concurrency: None,
+            sampling_defaults: None,
         };
         let output = materialize(&pipeline);
         assert!(
@@ -890,6 +979,7 @@ mod tests {
             default_tools: None,
             named_pipelines: Default::default(),
             max_concurrency: None,
+            sampling_defaults: None,
         };
         let output = materialize(&pipeline);
         assert!(output.contains("skill:"), "skill: key missing");
@@ -923,6 +1013,7 @@ mod tests {
             }),
             named_pipelines: Default::default(),
             max_concurrency: None,
+            sampling_defaults: None,
         };
         let output = materialize(&pipeline);
         let result: Result<serde_yaml::Value, _> = serde_yaml::from_str(&output);

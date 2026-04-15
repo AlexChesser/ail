@@ -1,0 +1,16 @@
+version: "0.0.1"
+defaults:
+  provider:
+    model: claude-sonnet-4-5
+    base_url: "https://api.anthropic.com/v1"
+    sampling:
+      temperature: 0.2
+      thinking: 0.75
+pipeline:
+  - id: uses_provider
+    prompt: "Inherits provider-attached sampling."
+  - id: step_overrides
+    prompt: "Step-level override on top of provider."
+    sampling:
+      temperature: 0.9
+      max_tokens: 16384

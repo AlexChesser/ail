@@ -14,13 +14,25 @@ at the pipeline level (defaults) and per step (overrides).
 
 ## 30.2 The `sampling:` Block
 
-A `sampling:` block may appear in two places:
+`sampling:` is a **reusable block** that can be declared at three scopes.
+It uses the same schema everywhere; only where it attaches changes:
 
-1. **Pipeline defaults** — `defaults.sampling:` sets baseline parameters for all steps.
-2. **Per step** — `sampling:` on any `prompt:` or `skill:` step overrides the pipeline default.
+1. **Pipeline defaults** — `defaults.sampling:` sets a baseline for every step.
+2. **Provider-attached** — `defaults.provider.sampling:` (single provider) or
+   `providers.<name>.sampling:` (named provider, per §15) binds sampling to a
+   provider profile. When a step uses that provider, those sampling defaults
+   apply — so "switch provider, switch behavior" is a single-knob change.
+3. **Per step** — `sampling:` on any `prompt:` or `skill:` step overrides
+   both pipeline and provider defaults for that step only.
 
 Context steps (`context: shell:`) and action steps (`action:`) bypass the runner
 entirely, so `sampling:` is ignored on those step types (validation warning).
+
+**Design rationale for the reusable block**: pairing sampling with a provider
+profile means the author defines `creative` and `precise` profiles once, and
+steps just reference them. This avoids copying temperature/top_p across
+every step, and keeps sampling intent co-located with the model it was
+tuned for.
 
 ### 30.2.1 Supported Fields
 
@@ -31,57 +43,192 @@ entirely, so `sampling:` is ignored on those step types (validation warning).
 | `top_k` | integer | ≥ 1 | Consider only the top K most likely tokens. Not supported by all providers. |
 | `max_tokens` | integer | ≥ 1 | Maximum number of tokens in the response. |
 | `stop_sequences` | list of strings | — | Stop generation when any of these strings is produced. |
-| `thinking` | boolean | — | Enable/disable extended thinking (chain-of-thought). |
+| `thinking` | float | 0.0–1.0 | Reasoning / extended-thinking intensity as a fraction. `0.0` = off; `1.0` = maximum. Each runner quantizes to whatever granularity it supports. |
 
-All fields are optional. Absent fields inherit from the pipeline default;
-if absent there too, the runner's own default applies.
+All fields are optional. Absent fields inherit from the next-higher scope;
+if absent at every scope, the runner's own default applies.
+
+> **YAML aliases for `thinking`**: boolean values are accepted as shorthand.
+> `thinking: true` normalizes to `1.0`; `thinking: false` normalizes to `0.0`.
+> This keeps simple on/off pipelines readable while allowing fine control
+> when needed.
+>
+> **Rationale for a decimal**: runners have wildly different granularity —
+> Ollama accepts a boolean, Claude CLI accepts a 4-level enum (`--effort`),
+> and Anthropic's API is heading toward continuous `budget_tokens`. A single
+> decimal value lets authors express intent once and each runner quantizes
+> on its own terms. Upgrades in any runner's granularity happen without any
+> pipeline change.
+
+### 30.2.3 Picking Between `temperature` and `top_p`
+
+Both `temperature` and `top_p` shape the token probability distribution
+before sampling, and both are legal to set together. However, Anthropic and
+OpenAI both recommend altering **one or the other, not both**. AIL
+intentionally does **not** enforce this — the value is passed through to
+the provider, which will accept both without error — but pipeline authors
+should understand the interaction.
+
+**What each does**
+
+- **`temperature`** reshapes the full distribution over tokens. `0.0` is
+  deterministic (argmax). Values below `1.0` sharpen the distribution
+  (the model becomes more confident and less diverse); values above `1.0`
+  flatten it (more randomness, more unusual tokens).
+- **`top_p`** truncates the distribution: keep the smallest set of tokens
+  whose cumulative probability reaches `p`, renormalize, then sample.
+  `1.0` means no truncation; lower values narrow the candidate pool.
+
+**How they compose**
+
+Providers apply temperature first, then top_p truncation, then sample.
+The more restrictive parameter tends to dominate:
+
+- `temperature: 0.0` + any `top_p` → argmax wins; `top_p` is irrelevant.
+- Sharp `temperature` (e.g. `0.3`) + loose `top_p` (e.g. `0.9`) →
+  temperature dominates; the distribution is already concentrated.
+- Flat `temperature` (e.g. `1.5`) + tight `top_p` (e.g. `0.1`) →
+  `top_p` dominates; only a few tokens are eligible, sampled flatly among them.
+
+**Practical guidance**
+
+- For most pipelines, set only `temperature`. It's the more intuitive knob.
+- Use `top_p` alone when you want to cap the long tail of improbable tokens
+  without sharpening the whole distribution (e.g. creative writing that
+  should stay coherent).
+- Setting both is not wrong; it is simply harder to reason about. AIL
+  respects the author's choice and ships the values to the provider as-is.
 
 ### 30.2.2 Syntax
 
+**Scope 1 + 3: Pipeline defaults + per-step override**
+
 ```yaml
-# Pipeline-level defaults
 defaults:
-  model: claude-sonnet-4-20250514
-  sampling:
+  model: claude-sonnet-4-5
+  sampling:                    # pipeline-wide baseline
     temperature: 0.3
     max_tokens: 4096
 
 pipeline:
   # Inherits defaults: temperature=0.3, max_tokens=4096
-  - id: analyze
-    prompt: "Analyze the codebase for security issues"
-    sampling:
-      thinking: true          # override: enable thinking for this step
+  - id: summarize
+    prompt: "Summarize the findings"
 
-  # Full override
+  # Per-step override (field-level merge)
   - id: brainstorm
     prompt: "Brainstorm 10 creative solutions"
     sampling:
+      temperature: 0.9         # overrides 0.3; max_tokens still 4096
+```
+
+**Scope 2: Provider-attached sampling**
+
+Sampling attaches to the provider block. When the step uses that provider,
+those sampling defaults apply.
+
+```yaml
+defaults:
+  provider:
+    model: anthropic/claude-sonnet-4-5
+    base_url: "https://api.anthropic.com/v1"
+    sampling:                  # provider-attached — applies whenever this provider is used
+      temperature: 0.2
+      thinking: 0.75
+
+pipeline:
+  - id: review
+    prompt: "Review the code"
+    # Inherits provider.sampling: temperature=0.2, thinking=high
+```
+
+**Scope 2 (advanced): Named provider profiles** *(requires §15 aliases, deferred)*
+
+```yaml
+providers:
+  creative:
+    model: anthropic/claude-sonnet-4-5
+    sampling:
       temperature: 0.9
       top_p: 0.95
-      max_tokens: 8192
+      thinking: 0.2          # light reasoning
+  precise:
+    model: anthropic/claude-sonnet-4-5
+    sampling:
+      temperature: 0.0
+      thinking: 1.0          # full reasoning
 
-  # No sampling block — uses pipeline defaults as-is
-  - id: summarize
-    prompt: "Summarize the above findings"
+pipeline:
+  - id: ideas
+    provider: creative         # inherits creative.sampling
+    prompt: "Generate 10 ideas"
+
+  - id: implement
+    provider: precise          # inherits precise.sampling
+    prompt: "Implement the best idea"
+    sampling:
+      max_tokens: 16384        # step-level fine-tune on top
 ```
 
 ## 30.3 Merge Semantics
 
 Sampling parameters merge at the **field level**, not block level.
-A step's `sampling:` block overrides individual fields from the pipeline default;
-unspecified fields fall through.
+Higher-precedence scopes override individual fields; unspecified fields
+fall through from the lower scope.
+
+**Merge chain** (right-hand wins, per field):
 
 ```
-effective = pipeline.defaults.sampling.merge(step.sampling)
+effective = defaults.sampling
+    .merge(provider.sampling)    // provider-attached (if step uses a provider)
+    .merge(step.sampling)        // per-step override
 ```
 
-Where `merge(other)` applies: `other.field.unwrap_or(self.field)` per field.
+Where `merge(other)` applies `other.field.or(self.field)` per field —
+identical to `ProviderConfig.merge()` semantics (§15).
 
-This is identical to the `ProviderConfig.merge()` semantics already used for
-model/provider resolution (§15).
+**Precedence (low → high):**
 
-**Merge chain**: `defaults.sampling` → step `sampling:` → (no CLI override for sampling).
+1. `defaults.sampling` — pipeline baseline
+2. `defaults.provider.sampling` (or `providers.<name>.sampling` when §15 lands)
+3. `step.sampling` — per-step override
+
+### 30.3.1 `stop_sequences` Replaces, Does Not Append
+
+`stop_sequences` is a list, but it follows the same replace semantics as
+every other field: a higher-precedence scope that sets `stop_sequences`
+**replaces** the entire list from lower scopes. It does not append.
+
+```yaml
+defaults:
+  provider:
+    sampling:
+      stop_sequences: ["Human:"]       # safety boundary
+
+pipeline:
+  - id: structured
+    sampling:
+      stop_sequences: ["</answer>"]    # REPLACES — "Human:" is gone
+```
+
+To keep inherited stops while adding new ones, include them explicitly:
+
+```yaml
+  - id: structured
+    sampling:
+      stop_sequences: ["Human:", "</answer>"]
+```
+
+**Rationale**: consistency with every other sampling field and with ail's
+`tools:` override (§5). Replace is strictly more expressive than append
+(you can emulate append by copying; you cannot remove an inherited stop
+under append semantics). Authors who need `stop_sequences` are generally
+operating at a level of detail where explicit lists aid clarity over
+implicit accumulation.
+
+**Guidance**: put critical safety stops (e.g., `"Human:"`) at the
+provider-scope `sampling:` block, and — when writing a step that overrides
+`stop_sequences` — remember to re-include the ones you still need.
 
 There is intentionally no `--temperature` CLI flag. Sampling is a pipeline
 design concern, not a runtime override. The `--model` CLI flag remains the
@@ -102,14 +249,33 @@ This ensures pipelines are portable across runners with graceful degradation.
 
 ### 30.4.2 Claude CLI Runner (`claude`)
 
-The Claude CLI does not currently expose sampling parameter flags.
-The ClaudeCliRunner therefore **warns on all sampling parameters** in the
-initial implementation. When Claude CLI adds `--temperature`, `--max-tokens`,
-or similar flags, the runner will map them.
+The Claude CLI exposes **only one sampling-related flag**: `--effort
+<low|medium|high|max>` (reasoning intensity). It does NOT expose
+`--temperature`, `--top-p`, `--top-k`, `--max-tokens`, or `--stop-sequences`.
 
-> **Implementation note**: The `--model` flag already flows through. If Anthropic
-> adds sampling flags to the CLI, adding support is a one-line change in
-> `build_subprocess_spec()`.
+| Sampling field | ClaudeCliRunner behavior |
+|---|---|
+| `thinking: 0.0` | Omit `--effort` entirely (CLI default applies). |
+| `thinking: (0.0, 0.25]` | `--effort low` |
+| `thinking: (0.25, 0.50]` | `--effort medium` |
+| `thinking: (0.50, 0.75]` | `--effort high` |
+| `thinking: (0.75, 1.0]` | `--effort max` |
+| `temperature` | Warn: "not supported by claude CLI; ignored" |
+| `top_p` | Warn: same |
+| `top_k` | Warn: same |
+| `max_tokens` | Warn: same (distinct from `--max-budget-usd`, which is a dollar cap) |
+| `stop_sequences` | Warn: same |
+
+The quartile quantization is the default mapping; it MAY be refined if
+Anthropic adds more `--effort` levels in future.
+
+When Anthropic adds sampling flags to the CLI, each is a one-line change in
+`build_subprocess_spec()`. The spec is the forward contract; runner support
+fills in over time.
+
+> **On `max_tokens` vs `--max-budget-usd`**: Claude CLI has no per-response
+> token cap, but does have a dollar budget cap. These are different knobs
+> and we do NOT auto-map one to the other.
 
 ### 30.4.3 HTTP Runner (`http`, `ollama`)
 
@@ -122,7 +288,8 @@ The HTTP runner controls the API request body directly and supports:
 | `top_k` | `"top_k"` in request body | Anthropic API; ignored by OpenAI-compat if unsupported |
 | `max_tokens` | `"max_tokens"` in request body | |
 | `stop_sequences` | `"stop"` in request body | OpenAI format; Anthropic uses `"stop_sequences"` |
-| `thinking` | `"think"` in request body | Existing `HttpRunnerConfig.think` field; sampling overrides it |
+| `thinking: < 0.5` | `"think": false` | |
+| `thinking: >= 0.5` | `"think": true` | Intensity is collapsed to a boolean. When a provider adds `budget_tokens` support, the runner will map `thinking` to `budget_tokens = thinking * PROVIDER_MAX_BUDGET` instead. |
 
 ### 30.4.4 Plugin Runners (JSON-RPC)
 
@@ -151,15 +318,31 @@ unrecognized fields.
 
 ### 30.5.1 Provider Strings (§15)
 
-Sampling parameters are orthogonal to provider strings. The provider string
-selects *which model*; sampling controls *how the model generates*.
+A `sampling:` block attaches to a provider. The provider string still selects
+*which model*, and the attached sampling controls *how the model generates*.
+When §15 named provider aliases land, each named provider carries its own
+sampling profile:
 
 ```yaml
-- id: creative_step
-  model: anthropic/claude-sonnet-4-20250514
-  sampling:
-    temperature: 0.9
+providers:
+  creative:
+    model: anthropic/claude-sonnet-4-5
+    sampling: { temperature: 0.9, top_p: 0.95 }
+  precise:
+    model: anthropic/claude-sonnet-4-5
+    sampling: { temperature: 0.0, thinking: 1.0 }
+
+pipeline:
+  - id: idea
+    provider: creative
+    prompt: "..."
+  - id: ship
+    provider: precise
+    prompt: "..."
 ```
+
+Switching `provider:` on a step switches model *and* sampling as one unit —
+keeping intent co-located.
 
 ### 30.5.2 Sub-pipelines (§9)
 
@@ -207,7 +390,7 @@ pipeline:
       Explain why it's best.
     sampling:
       temperature: 0.0
-      thinking: true
+      thinking: 1.0
 ```
 
 This keeps the sampling spec simple and orthogonal.
@@ -221,8 +404,9 @@ This keeps the sampling spec simple and orthogonal.
 - `top_k` must be ≥ 1 if present.
 - `max_tokens` must be ≥ 1 if present.
 - `stop_sequences` must be a non-empty list of non-empty strings if present.
-- `thinking` must be a boolean if present.
+- `thinking` must be a float in [0.0, 1.0] if present. YAML `true` normalizes to `1.0` and `false` to `0.0`. Values outside the range fail validation.
 - `sampling:` on a `context:` or `action:` step emits a validation warning.
+- The same schema validates at every scope (defaults / provider / step).
 
 ### 30.6.2 Runtime
 
