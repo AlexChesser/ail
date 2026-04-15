@@ -95,6 +95,7 @@ pub(in crate::config) fn parse_step_body(
                     on_error_mode: JoinErrorMode::FailFast,
                 }))
             }
+            "reload_self" => Ok(StepBody::Action(ActionKind::ReloadSelf)),
             other => Err(cfg_err!(
                 "Step '{id_str}' specifies unknown action '{other}'"
             )),

@@ -2,8 +2,6 @@
 
 mod common;
 
-use predicates::prelude::*;
-
 #[test]
 fn materialize_prints_to_stdout() {
     let (mut cmd, _home) = common::ail_cmd_isolated();

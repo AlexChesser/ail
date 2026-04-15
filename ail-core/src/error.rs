@@ -190,6 +190,12 @@ pub enum AilError {
         detail: String,
         context: Option<ErrorContext>,
     },
+
+    #[error("[ail:pipeline/reload-failed] {detail}")]
+    PipelineReloadFailed {
+        detail: String,
+        context: Option<ErrorContext>,
+    },
 }
 
 impl AilError {
@@ -228,6 +234,7 @@ impl AilError {
             Self::InputSchemaValidationFailed { .. } => error_types::INPUT_SCHEMA_VALIDATION_FAILED,
             Self::SchemaCompatibilityFailed { .. } => error_types::SCHEMA_COMPATIBILITY_FAILED,
             Self::ForEachSourceInvalid { .. } => error_types::FOR_EACH_SOURCE_INVALID,
+            Self::PipelineReloadFailed { .. } => error_types::PIPELINE_RELOAD_FAILED,
         }
     }
 
@@ -260,7 +267,8 @@ impl AilError {
             | Self::OutputSchemaValidationFailed { detail, .. }
             | Self::InputSchemaValidationFailed { detail, .. }
             | Self::SchemaCompatibilityFailed { detail, .. }
-            | Self::ForEachSourceInvalid { detail, .. } => detail,
+            | Self::ForEachSourceInvalid { detail, .. }
+            | Self::PipelineReloadFailed { detail, .. } => detail,
         }
     }
 
@@ -291,7 +299,8 @@ impl AilError {
             | Self::OutputSchemaValidationFailed { detail, .. }
             | Self::InputSchemaValidationFailed { detail, .. }
             | Self::SchemaCompatibilityFailed { detail, .. }
-            | Self::ForEachSourceInvalid { detail, .. } => detail,
+            | Self::ForEachSourceInvalid { detail, .. }
+            | Self::PipelineReloadFailed { detail, .. } => detail,
         }
     }
 
@@ -324,7 +333,8 @@ impl AilError {
             | Self::OutputSchemaValidationFailed { context, .. }
             | Self::InputSchemaValidationFailed { context, .. }
             | Self::SchemaCompatibilityFailed { context, .. }
-            | Self::ForEachSourceInvalid { context, .. } => context.as_ref(),
+            | Self::ForEachSourceInvalid { context, .. }
+            | Self::PipelineReloadFailed { context, .. } => context.as_ref(),
         }
     }
 
@@ -433,6 +443,10 @@ impl AilError {
                 context: ctx,
             },
             Self::ForEachSourceInvalid { detail, .. } => Self::ForEachSourceInvalid {
+                detail,
+                context: ctx,
+            },
+            Self::PipelineReloadFailed { detail, .. } => Self::PipelineReloadFailed {
                 detail,
                 context: ctx,
             },
@@ -631,6 +645,13 @@ impl AilError {
             context: None,
         }
     }
+
+    pub fn pipeline_reload_failed(detail: impl Into<String>) -> Self {
+        Self::PipelineReloadFailed {
+            detail: detail.into(),
+            context: None,
+        }
+    }
 }
 
 pub mod error_types {
@@ -659,6 +680,7 @@ pub mod error_types {
     pub const INPUT_SCHEMA_VALIDATION_FAILED: &str = "ail:schema/input-validation-failed";
     pub const SCHEMA_COMPATIBILITY_FAILED: &str = "ail:schema/compatibility-failed";
     pub const FOR_EACH_SOURCE_INVALID: &str = "ail:for-each/source-invalid";
+    pub const PIPELINE_RELOAD_FAILED: &str = "ail:pipeline/reload-failed";
 }
 
 #[cfg(test)]

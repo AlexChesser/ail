@@ -37,6 +37,7 @@ fn chain_step_summary(body: &StepBody) -> String {
         StepBody::Action(ActionKind::PauseForHuman) => "action: pause_for_human".to_string(),
         StepBody::Action(ActionKind::ModifyOutput { .. }) => "action: modify_output".to_string(),
         StepBody::Action(ActionKind::Join { .. }) => "action: join".to_string(),
+        StepBody::Action(ActionKind::ReloadSelf) => "action: reload_self".to_string(),
         StepBody::Context(ContextSource::Shell(cmd)) => {
             format!("context: shell: \"{}\"", yaml_quote(cmd))
         }
@@ -220,6 +221,9 @@ pub fn materialize(pipeline: &Pipeline) -> String {
                 if *on_error_mode == crate::config::domain::JoinErrorMode::WaitForAll {
                     out.push_str("    on_error: wait_for_all\n");
                 }
+            }
+            StepBody::Action(ActionKind::ReloadSelf) => {
+                out.push_str("    action: reload_self\n");
             }
             StepBody::Action(ActionKind::ModifyOutput {
                 ref headless_behavior,
@@ -432,6 +436,9 @@ fn serialize_step(out: &mut String, step: &Step, indent: &str, origin_comment: O
             if *on_error_mode == crate::config::domain::JoinErrorMode::WaitForAll {
                 out.push_str(&format!("{field_indent}on_error: wait_for_all\n"));
             }
+        }
+        StepBody::Action(ActionKind::ReloadSelf) => {
+            out.push_str(&format!("{field_indent}action: reload_self\n"));
         }
         StepBody::Context(ContextSource::Shell(cmd)) => {
             out.push_str(&format!(

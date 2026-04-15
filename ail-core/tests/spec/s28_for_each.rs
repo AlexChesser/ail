@@ -1,4 +1,4 @@
-/// SPEC §28 — for_each collection iteration.
+//! SPEC §28 — for_each collection iteration.
 
 // ── Parse-time validation (valid configs) ───────────────────────────────────
 

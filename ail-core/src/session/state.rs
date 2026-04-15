@@ -71,6 +71,13 @@ pub struct Session {
     /// Current nesting depth of loop constructs (do_while, for_each). Checked against
     /// `MAX_LOOP_DEPTH` to prevent runaway resource consumption from deeply nested loops.
     pub loop_depth: usize,
+    /// Number of `action: reload_self` invocations that have fired in this run (SPEC §21).
+    /// Checked against `MAX_RELOADS_PER_RUN` to prevent infinite self-rewrite loops.
+    pub reload_count: usize,
+    /// Signal set by `action: reload_self` after a successful in-place pipeline swap.
+    /// The top-level sequential executor loop observes this flag after each step,
+    /// re-clones `session.pipeline.steps`, and re-anchors by step-id.
+    pub reload_requested: bool,
 }
 
 impl Session {
@@ -116,6 +123,8 @@ impl Session {
             do_while_context: None,
             for_each_context: None,
             loop_depth: 0,
+            reload_count: 0,
+            reload_requested: false,
         }
     }
 
@@ -191,6 +200,11 @@ impl Session {
             do_while_context: self.do_while_context.clone(),
             for_each_context: self.for_each_context.clone(),
             loop_depth: self.loop_depth,
+            // Reload state is not inherited by async branches — branches run against
+            // the forked pipeline snapshot and must not trigger reloads themselves
+            // (see §21: reload is sequential-top-level only).
+            reload_count: 0,
+            reload_requested: false,
         }
     }
 }

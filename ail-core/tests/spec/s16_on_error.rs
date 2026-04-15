@@ -1,11 +1,9 @@
 //! SPEC §16 — `on_error` error handling with retry, continue, and abort_pipeline.
 
-use ail_core::config::domain::{OnError, Pipeline, Step, StepBody, StepId};
+use ail_core::config::domain::{OnError, Step, StepBody, StepId};
 use ail_core::error::{error_types, AilError};
 use ail_core::executor::{execute, ExecuteOutcome};
 use ail_core::runner::{InvokeOptions, RunResult, Runner};
-use ail_core::session::log_provider::NullProvider;
-use ail_core::session::Session;
 use ail_core::test_helpers::{make_session, prompt_step};
 
 use std::sync::atomic::{AtomicU32, Ordering};

@@ -1,9 +1,9 @@
-/// Cross-feature integration tests for §26 (output_schema/input_schema),
-/// §27 (do_while), and §28 (for_each).
-///
-/// These tests verify that the three feature areas compose correctly when
-/// used together in a single pipeline — the scenarios that individual
-/// per-section test files cannot cover.
+//! Cross-feature integration tests for §26 (output_schema/input_schema),
+//! §27 (do_while), and §28 (for_each).
+//!
+//! These tests verify that the three feature areas compose correctly when
+//! used together in a single pipeline — the scenarios that individual
+//! per-section test files cannot cover.
 
 // ── §26 + §28: for_each consuming schema-validated arrays ──────────────────
 

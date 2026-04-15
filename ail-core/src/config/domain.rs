@@ -20,6 +20,11 @@ pub const MAX_SUB_PIPELINE_DEPTH: usize = 16;
 /// Prevents runaway resource consumption from deeply nested loops (SPEC §27).
 pub const MAX_LOOP_DEPTH: usize = 8;
 
+/// Maximum number of `action: reload_self` invocations per pipeline run (SPEC §21).
+/// Prevents infinite self-rewrite loops — the LLM can edit `.ail.yaml` and reload,
+/// but only a bounded number of times within a single `ail --once` invocation.
+pub const MAX_RELOADS_PER_RUN: usize = 16;
+
 /// Provider and model configuration resolved from pipeline defaults, per-step overrides,
 /// or CLI flags. All fields are optional — unset fields fall back to runner/environment defaults.
 #[derive(Debug, Clone, Default)]
@@ -377,6 +382,11 @@ pub enum ActionKind {
         /// Error handling mode — controls behavior when a dependency fails (SPEC §29.7).
         on_error_mode: JoinErrorMode,
     },
+    /// Hot-reload the active pipeline from its source file on disk (SPEC §21).
+    /// Re-parses `session.pipeline.source`, validates, swaps `session.pipeline`
+    /// in place, and re-anchors the top-level sequential loop by matching the
+    /// reload step's own id in the new step list.
+    ReloadSelf,
 }
 
 /// Error handling mode for `action: join` steps (SPEC §29.7).

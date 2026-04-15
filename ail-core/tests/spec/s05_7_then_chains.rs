@@ -294,7 +294,7 @@ fn nested_chains_execute_in_correct_order() {
     let mut parent = prompt_step("parent", "main");
 
     // before chain step has its own before chain
-    let mut before_step = Step {
+    let before_step = Step {
         id: StepId("parent::before::0".to_string()),
         body: StepBody::Prompt("before-main".to_string()),
         message: None,

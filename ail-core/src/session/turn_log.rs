@@ -526,9 +526,7 @@ impl TurnLog {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::runner::ToolEvent;
     use crate::session::log_provider::NullProvider;
-    use std::time::SystemTime;
 
     fn make_entry(step_id: &str, response: Option<&str>) -> TurnEntry {
         TurnEntry {

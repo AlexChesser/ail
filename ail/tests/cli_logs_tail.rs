@@ -5,8 +5,6 @@
 
 mod common;
 
-use predicates::prelude::*;
-
 /// Helper: run `ail --once "hello" --output-format json` and extract the run_id.
 fn create_run(home: &std::path::Path) -> String {
     let mut cmd = common::ail_cmd(home);
@@ -91,9 +89,8 @@ fn logs_json_format_produces_valid_ndjson() {
 
 #[test]
 fn logs_tail_emits_existing_then_can_be_killed() {
-    use std::io::Read;
     use std::process::{Command, Stdio};
-    use std::time::{Duration, Instant};
+    use std::time::Duration;
 
     let home = common::isolated_home();
     let run_id = create_run(home.path());

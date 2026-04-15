@@ -5,8 +5,6 @@
 
 mod common;
 
-use predicates::prelude::*;
-
 #[test]
 fn chat_message_flag_text_mode_one_shot() {
     let (mut cmd, _home) = common::ail_cmd_isolated();
