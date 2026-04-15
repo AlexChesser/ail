@@ -39,9 +39,17 @@ The Claude CLI supports a structured bidirectional JSON interface that `ail` use
 
 // Run failed
 { "type": "result", "subtype": "error", "error": "...", "session_id": "abc123" }
+
+// Rate limit notification (observed; not in official stream-json contract)
+// Emitted when the Claude CLI encounters an HTTP 429 and retries internally with
+// exponential backoff. The stream continues after retry — no AIL action required.
+// Field schema is undocumented; fields are captured via debug-level logging.
+{ "type": "rate_limit_event", ... }
 ```
 
-**Completion signal:** `ail` considers a Claude CLI invocation complete when it receives a `result` event. `subtype: success` → pipeline step succeeded. `subtype: error` → `on_error` handling fires.
+**Completion signal:** `ail` considers a Claude CLI invocation complete when it receives a `result` event.
+
+**Note on undocumented event types:** The Claude CLI may emit event types not listed above (e.g. `rate_limit_event`). Specifically recognised undocumented types are logged at `info` level and the stream continues. Truly unrecognised event types are still caught by a catch-all and logged at `warn` level — distinguishing "known-but-not-in-contract" from "genuinely unexpected". `subtype: success` → pipeline step succeeded. `subtype: error` → `on_error` handling fires.
 
 **Cost tracking:** `total_cost_usd` in the result event feeds directly into `ail/budget-gate` without any external token counting.
 
@@ -190,7 +198,7 @@ When `ail` is invoked with `--headless` (required for automated runs such as CI 
 claude --output-format stream-json --verbose --dangerously-skip-permissions -p <prompt>
 ```
 
-`pause_for_human` actions in headless mode abort the pipeline immediately (default) or auto-approve (if `--headless-approve` is set). This is a session-level flag, never a pipeline YAML option — it must not be committable to a shared pipeline file.
+`pause_for_human` actions in headless / `--once` text mode are a no-op: the executor emits a `WARN`-level log message identifying the step and any configured message, then continues the pipeline. No HITL gate is raised and no input is awaited. This matches the behaviour described in §13.6 of the pipeline spec.
 
 > **Security:** Only use headless mode in a sandboxed or fully trusted environment. `--dangerously-skip-permissions` grants the model unrestricted tool access.
 
