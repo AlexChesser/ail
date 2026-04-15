@@ -15,6 +15,7 @@ pub(super) use condition::evaluate_condition;
 pub(super) use on_result::{build_tool_policy, evaluate_on_result};
 pub(super) use runner_resolution::{
     build_step_runner_box, resolve_effective_runner_name, resolve_step_provider,
+    resolve_step_sampling,
 };
 pub(super) use shell::run_shell_command;
 pub(super) use system_prompt::{resolve_prompt_file, resolve_step_system_prompts};

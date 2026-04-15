@@ -269,6 +269,12 @@ pub struct InvokeOptions {
     /// Each entry is appended in order after the default system prompt.
     /// Runners that do not support system prompt appending ignore this field.
     pub append_system_prompt: Vec<String>,
+    /// Effective sampling parameters for this invocation (SPEC §30). Resolved by
+    /// the executor from the merge chain: pipeline defaults → provider-attached
+    /// → per-step. `None` when the author set nothing at any scope.
+    /// Runners that do not support a particular field should emit a
+    /// `tracing::warn!` and ignore it (SPEC §30.4.1) rather than failing.
+    pub sampling: Option<crate::config::domain::SamplingConfig>,
 }
 
 pub trait Runner {
