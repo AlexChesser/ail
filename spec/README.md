@@ -52,6 +52,7 @@ The AIL Pipeline Language Specification — for pipeline authors and implementer
 | [s27-do-while.md](core/s27-do-while.md) | §27 `do_while:` — Bounded Repeat-Until | Bounded generate→test→fix loop; `max_iterations` (required), `exit_when` (§12.2 syntax), `on_max_iterations`; step namespacing (`<loop_id>::<step_id>`); iteration scope; turn log events; executor events | **draft** |
 | [s28-for-each.md](core/s28-for-each.md) | §28 `for_each:` — Collection Iteration | Map steps over a validated array from a prior `output_schema: type: array` step; `over`, `as`, `max_items`, `on_max_items`; plan-execution pattern; requires §26 | **v0.3** |
 | [s29-parallel-execution.md](core/s29-parallel-execution.md) | §29 Parallel Step Execution | `async: true`, `depends_on:`, `action: join`; session fork model; structured join with `output_schema` namespacing; `on_error: fail_fast \| wait_for_all`; cancel signals; template scoping rules; turn log concurrent_group | **planned** — design complete (#117) |
+| [s30-sampling-parameters.md](core/s30-sampling-parameters.md) | §30 Sampling Parameter Control | `sampling:` block at three scopes (pipeline / provider-attached / per-step); temperature, top_p, top_k, max_tokens, stop_sequences, thinking; field-level merge; stop_sequences replace semantics; runner-specific quantization of `thinking` (ClaudeCLI `--effort`, HTTP boolean, ail-native passthrough) | **v0.3** — spec + all runners + tests |
 
 ---
 

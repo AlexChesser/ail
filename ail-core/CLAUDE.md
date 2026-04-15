@@ -14,6 +14,7 @@ Consumed by `ail` (the binary) and future language-server / SDK targets.
 | `config/validation/step_body.rs` | `parse_step_body()` — primary field count check + body construction (including `parse_do_while_body`, `parse_for_each_body`, `load_loop_pipeline_steps`) |
 | `config/validation/on_result.rs` | `parse_result_branches()` — DTO → domain for result matchers and actions |
 | `config/validation/system_prompt.rs` | `parse_append_system_prompt()` — DTO → domain for system prompt entries |
+| `config/validation/sampling.rs` | `validate_sampling()` — DTO → domain with range checks; normalizes thinking (f64 OR bool) to `Option<f64>` (SPEC §30.6.1) |
 | `config/inheritance.rs` | FROM inheritance — path resolution, cycle detection, DTO merging, hook operations (SPEC §7, §8) |
 | `config/mod.rs` | `load(path)` public entry point |
 | `error.rs` | `AilError`, `ErrorContext`, `error_types` string constants |
@@ -24,7 +25,7 @@ Consumed by `ail` (the binary) and future language-server / SDK targets.
 | `executor/events.rs` | `ExecuteOutcome`, `ExecutionControl`, `ExecutorEvent` |
 | `executor/helpers/mod.rs` | Re-exports all helper functions for the executor |
 | `executor/helpers/invocation.rs` | `run_invocation_step()` — host-managed invocation step lifecycle |
-| `executor/helpers/runner_resolution.rs` | `resolve_step_provider()`, `build_step_runner_box()`, `resolve_effective_runner_name()` |
+| `executor/helpers/runner_resolution.rs` | `resolve_step_provider()`, `resolve_step_sampling()` (SPEC §30.3 three-scope merge), `build_step_runner_box()`, `resolve_effective_runner_name()` |
 | `executor/helpers/shell.rs` | `run_shell_command()` — `/bin/sh -c` subprocess execution |
 | `executor/helpers/condition.rs` | `evaluate_condition()` — runtime condition expression evaluation against session state (SPEC §12) |
 | `executor/helpers/on_result.rs` | `evaluate_on_result()`, `build_tool_policy()` — on_result branch evaluation + tool policy |
@@ -64,10 +65,11 @@ Consumed by `ail` (the binary) and future language-server / SDK targets.
 
 ```rust
 // Pipeline and its steps
-pub struct Pipeline { pub steps: Vec<Step>, pub source: Option<PathBuf>, pub defaults: ProviderConfig, pub timeout_seconds: Option<u64>, pub default_tools: Option<ToolPolicy>, pub named_pipelines: HashMap<String, Vec<Step>> }
+pub struct Pipeline { pub steps: Vec<Step>, pub source: Option<PathBuf>, pub defaults: ProviderConfig, pub timeout_seconds: Option<u64>, pub default_tools: Option<ToolPolicy>, pub named_pipelines: HashMap<String, Vec<Step>>, pub max_concurrency: Option<u64>, pub sampling_defaults: Option<SamplingConfig> }
 // default_tools: pipeline-wide fallback; per-step tools override entirely (SPEC §3.2)
 // named_pipelines: named pipeline definitions from the `pipelines:` section (SPEC §10)
-pub struct Step    { pub id: StepId, pub body: StepBody, pub message: Option<String>, pub tools: Option<ToolPolicy>, pub on_result: Option<Vec<ResultBranch>>, pub model: Option<String>, pub runner: Option<String>, pub condition: Option<Condition>, pub append_system_prompt: Option<Vec<SystemPromptEntry>>, pub system_prompt: Option<String>, pub resume: bool, pub on_error: Option<OnError>, pub before: Vec<Step>, pub then: Vec<Step>, pub output_schema: Option<serde_json::Value>, pub input_schema: Option<serde_json::Value> }
+// sampling_defaults: pipeline-wide sampling baseline (SPEC §30.2); orthogonal to provider-attached sampling on `defaults: ProviderConfig`
+pub struct Step    { pub id: StepId, pub body: StepBody, pub message: Option<String>, pub tools: Option<ToolPolicy>, pub on_result: Option<Vec<ResultBranch>>, pub model: Option<String>, pub runner: Option<String>, pub condition: Option<Condition>, pub append_system_prompt: Option<Vec<SystemPromptEntry>>, pub system_prompt: Option<String>, pub resume: bool, pub on_error: Option<OnError>, pub before: Vec<Step>, pub then: Vec<Step>, pub output_schema: Option<serde_json::Value>, pub input_schema: Option<serde_json::Value>, pub sampling: Option<SamplingConfig> }
 // before: private pre-processing chain (SPEC §5.10) — runs before the step fires
 // then: private post-processing chain (SPEC §5.7) — runs after the step completes
 // output_schema: optional JSON Schema for validating step output (SPEC §26.1); validated at parse time, response validated at runtime
@@ -94,10 +96,18 @@ pub enum ResultAction { Continue, Break, AbortPipeline, PauseForHuman, Pipeline 
 // const MAX_SUB_PIPELINE_DEPTH: usize = 16 — enforced by execute_inner depth counter
 
 // Provider/model config (SPEC §15) — resolved chain: defaults → per-step → cli_provider
-pub struct ProviderConfig { pub model: Option<String>, pub base_url: Option<String>, pub auth_token: Option<String>, pub connect_timeout_seconds: Option<u64>, pub read_timeout_seconds: Option<u64>, pub max_history_messages: Option<usize> }
-// merge(self, other): other wins on conflict; absent fields fall through from self
+pub struct ProviderConfig { pub model: Option<String>, pub base_url: Option<String>, pub auth_token: Option<String>, pub connect_timeout_seconds: Option<u64>, pub read_timeout_seconds: Option<u64>, pub max_history_messages: Option<usize>, pub sampling: Option<SamplingConfig> }
+// merge(self, other): other wins on conflict; absent fields fall through from self; sampling merges field-wise (not replaced)
 // connect_timeout_seconds / read_timeout_seconds: HTTP runner timeouts (defaults 10s / 300s)
 // max_history_messages: sliding window cap for HTTP runner session history (None = unlimited)
+// sampling: provider-attached sampling defaults (SPEC §30.2); middle precedence between pipeline defaults and per-step
+
+// Sampling parameter config (SPEC §30)
+pub struct SamplingConfig { pub temperature: Option<f64>, pub top_p: Option<f64>, pub top_k: Option<u64>, pub max_tokens: Option<u64>, pub stop_sequences: Option<Vec<String>>, pub thinking: Option<f64> }
+// merge(self, other): field-level, other wins; stop_sequences replaces (no append — SPEC §30.3.1)
+// is_empty(): true when all fields are None — used by resolve_step_sampling to return None rather than empty config
+// thinking: [0.0, 1.0] — YAML accepts bool aliases (true→1.0, false→0.0) via ThinkingDto at the DTO layer
+// Each runner quantizes thinking to its own granularity: ClaudeCLI quartiles → --effort; HTTP threshold 0.5 → bool
 
 // Runner contract
 pub trait Runner { fn invoke(&self, prompt: &str, options: InvokeOptions) -> Result<RunResult, AilError>; }
@@ -115,7 +125,8 @@ pub struct PermissionRequest { pub display_name: String, pub display_detail: Str
 // tool_input: raw JSON tool input from the runner; used by AskUserQuestion intercept. ClaudeCliRunner populates; others may leave None.
 pub enum ToolPermissionPolicy { RunnerDefault, NoTools, Allowlist(Vec<String>), Denylist(Vec<String>), Mixed { allow: Vec<String>, deny: Vec<String> } }
 // NoTools → --tools "" on ClaudeCliRunner; disables all tool calls. ToolPolicy.disabled=true maps to this.
-pub struct InvokeOptions { pub resume_session_id: Option<String>, pub tool_policy: ToolPermissionPolicy, pub model: Option<String>, pub extensions: Option<Box<dyn Any + Send>>, pub permission_responder: Option<PermissionResponder>, pub cancel_token: Option<CancelToken>, pub system_prompt: Option<String>, pub append_system_prompt: Vec<String> }
+pub struct InvokeOptions { pub resume_session_id: Option<String>, pub tool_policy: ToolPermissionPolicy, pub model: Option<String>, pub extensions: Option<Box<dyn Any + Send>>, pub permission_responder: Option<PermissionResponder>, pub cancel_token: Option<CancelToken>, pub system_prompt: Option<String>, pub append_system_prompt: Vec<String>, pub sampling: Option<SamplingConfig> }
+// sampling: effective sampling config after the three-scope merge — populated by resolve_step_sampling() (SPEC §30.3)
 // extensions: runners downcast to their own type (e.g. ClaudeInvokeExtensions { base_url, auth_token, permission_socket }).
 // cancel_token: event-driven cancellation — CancelToken wraps Arc<AtomicBool> + Arc<event_listener::Event>.
 // Runners block on token.listen().wait() (no polling). Callers signal via token.cancel().
@@ -244,6 +255,7 @@ s26  — output_schema, input_schema, field:equals:, schema compatibility
 s27  — do_while: bounded repeat-until loop (parse + executor)
 s28  — for_each: collection iteration (parse + executor)
 s26_s27_s28_integration — cross-feature integration tests (schema+loops, nested loops, full pipeline)
+s30  — sampling parameter control (parse + merge + executor flow, SPEC §30)
 ```
 
 `#[ignore]` tests require the `claude` binary and a live session — run with
