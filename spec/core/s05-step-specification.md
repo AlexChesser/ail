@@ -202,7 +202,7 @@ Rules are evaluated in declared order; the first match fires. Used when differen
 | Operator | Meaning |
 |---|---|
 | `contains: "TEXT"` | Response contains literal string (case-insensitive). |
-| `matches: /REGEX/FLAGS` | Response matches regular expression. Uses conventional regex-literal syntax — e.g. `/warn\|error/i` for case-insensitive. Shorthand for `expression: '{{ step.<id>.response }} matches /.../flags'`. See §12.2 for regex semantics. |
+| `matches: /REGEX/FLAGS` | Response matches regular expression. Shorthand for `expression: '{{ step.<id>.response }} matches /.../flags'`. See §12.3 for regex syntax and semantics. |
 | `starts_with: "TEXT"` | Response begins with literal string. |
 | `is_empty` | Response is blank or whitespace only. |
 | `exit_code: N` | Process exit code equals N. Valid on `shell:` sources within `context:` steps only. |
