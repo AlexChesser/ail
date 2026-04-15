@@ -143,6 +143,29 @@ fn merge_dtos(
     })
 }
 
+/// Field-merge two optional `SamplingDto` blocks. Child fields override base
+/// fields; absent fields fall through. Mirrors `SamplingConfig::merge` at the
+/// DTO layer (SPEC §30 — sampling participates in FROM inheritance on the
+/// same terms as every other defaults field).
+fn merge_sampling_dto(
+    base: Option<super::dto::SamplingDto>,
+    child: Option<super::dto::SamplingDto>,
+) -> Option<super::dto::SamplingDto> {
+    match (base, child) {
+        (None, None) => None,
+        (Some(b), None) => Some(b),
+        (None, Some(c)) => Some(c),
+        (Some(b), Some(c)) => Some(super::dto::SamplingDto {
+            temperature: c.temperature.or(b.temperature),
+            top_p: c.top_p.or(b.top_p),
+            top_k: c.top_k.or(b.top_k),
+            max_tokens: c.max_tokens.or(b.max_tokens),
+            stop_sequences: c.stop_sequences.or(b.stop_sequences),
+            thinking: c.thinking.or(b.thinking),
+        }),
+    }
+}
+
 /// Merge defaults DTOs. Child values override base values.
 fn merge_defaults(base: Option<DefaultsDto>, child: Option<DefaultsDto>) -> Option<DefaultsDto> {
     match (base, child) {
@@ -164,11 +187,13 @@ fn merge_defaults(base: Option<DefaultsDto>, child: Option<DefaultsDto>) -> Opti
                         .or(bp.connect_timeout_seconds),
                     read_timeout_seconds: cp.read_timeout_seconds.or(bp.read_timeout_seconds),
                     max_history_messages: cp.max_history_messages.or(bp.max_history_messages),
+                    sampling: merge_sampling_dto(bp.sampling, cp.sampling),
                 }),
             },
             timeout_seconds: c.timeout_seconds.or(b.timeout_seconds),
             tools: c.tools.or(b.tools),
             max_concurrency: c.max_concurrency.or(b.max_concurrency),
+            sampling: merge_sampling_dto(b.sampling, c.sampling),
         }),
     }
 }

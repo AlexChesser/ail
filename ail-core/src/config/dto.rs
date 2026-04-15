@@ -23,6 +23,9 @@ pub struct DefaultsDto {
     pub tools: Option<ToolsDto>,
     /// Pipeline-wide concurrency cap for async steps (SPEC §29.10). None = unlimited.
     pub max_concurrency: Option<u64>,
+    /// Pipeline-wide sampling defaults (SPEC §30). Orthogonal to provider —
+    /// applies as the lowest-precedence baseline for every step, regardless of provider.
+    pub sampling: Option<SamplingDto>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -33,6 +36,46 @@ pub struct ProviderDto {
     pub connect_timeout_seconds: Option<u64>,
     pub read_timeout_seconds: Option<u64>,
     pub max_history_messages: Option<usize>,
+    /// Sampling parameters attached to this provider (SPEC §30.2). When a step
+    /// uses this provider, these sampling defaults apply with higher precedence
+    /// than pipeline-wide `defaults.sampling`, but lower than per-step `sampling:`.
+    pub sampling: Option<SamplingDto>,
+}
+
+/// Sampling parameters DTO (SPEC §30). Same shape is reused at three scopes:
+/// pipeline defaults (`defaults.sampling`), provider-attached
+/// (`defaults.provider.sampling`), and per-step (`step.sampling`).
+#[derive(Debug, Default, Deserialize, Clone)]
+pub struct SamplingDto {
+    pub temperature: Option<f64>,
+    pub top_p: Option<f64>,
+    pub top_k: Option<u64>,
+    pub max_tokens: Option<u64>,
+    pub stop_sequences: Option<Vec<String>>,
+    /// Reasoning / extended-thinking intensity. Accepts a float in [0.0, 1.0]
+    /// or a YAML boolean (`true` → 1.0, `false` → 0.0).
+    pub thinking: Option<ThinkingDto>,
+}
+
+/// Raw YAML value for `thinking:` — either a float or a boolean.
+/// Normalized to `f64` in domain validation.
+#[derive(Debug, Clone, Copy, Deserialize)]
+#[serde(untagged)]
+pub enum ThinkingDto {
+    Number(f64),
+    Bool(bool),
+}
+
+impl ThinkingDto {
+    /// Normalize to the canonical f64 representation.
+    /// `true` → 1.0, `false` → 0.0, numbers pass through.
+    pub fn to_f64(self) -> f64 {
+        match self {
+            ThinkingDto::Number(n) => n,
+            ThinkingDto::Bool(true) => 1.0,
+            ThinkingDto::Bool(false) => 0.0,
+        }
+    }
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -109,6 +152,10 @@ pub struct StepDto {
     pub output_schema: Option<serde_json::Value>,
     /// Reserved: JSON Schema for step input validation (SPEC §26). Rejected at validation time.
     pub input_schema: Option<serde_json::Value>,
+
+    /// Per-step sampling parameter override (SPEC §30). Highest-precedence scope;
+    /// overrides provider-attached and pipeline-wide sampling defaults field-by-field.
+    pub sampling: Option<SamplingDto>,
 }
 
 /// A step entry in a `before:` or `then:` chain (SPEC §5.7, §5.10).

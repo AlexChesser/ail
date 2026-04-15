@@ -119,6 +119,7 @@ fn invoke_options_carries_resolved_model() {
         then: vec![],
         output_schema: None,
         input_schema: None,
+        sampling: None,
     };
     let pipeline = Pipeline {
         steps: vec![step],
@@ -131,6 +132,7 @@ fn invoke_options_carries_resolved_model() {
         default_tools: None,
         named_pipelines: Default::default(),
         max_concurrency: None,
+        sampling_defaults: None,
     };
     let mut session = Session::new(pipeline, "prompt".to_string());
     let runner = CountingStubRunner::new("ok");

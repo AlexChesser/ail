@@ -21,6 +21,7 @@ mod executor {
             default_tools: None,
             named_pipelines: Default::default(),
             max_concurrency: None,
+            sampling_defaults: None,
         };
         let mut session = Session::new(pipeline, "p".to_string());
         execute(&mut session, &StubRunner::new("r")).unwrap();

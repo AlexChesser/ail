@@ -3,6 +3,7 @@
 #![allow(clippy::result_large_err)]
 
 mod on_result;
+mod sampling;
 mod step_body;
 mod system_prompt;
 
@@ -15,6 +16,8 @@ use super::domain::{
 };
 use super::dto::{ChainStepDto, PipelineFileDto, StepDto, ToolsDto};
 use crate::error::AilError;
+
+use sampling::validate_sampling;
 
 macro_rules! cfg_err {
     ($($arg:tt)*) => {
@@ -349,6 +352,11 @@ pub(in crate::config) fn validate_steps(
             None
         };
 
+        // Parse-time sampling validation (SPEC §30.6.1). The `step.sampling:` block
+        // is validated here; merging with pipeline/provider scopes happens at
+        // execution time via `resolve_step_sampling()`.
+        let sampling = validate_sampling(step_dto.sampling, &format!("step '{id_str}'"))?;
+
         steps.push(Step {
             id: StepId(id_str),
             body,
@@ -373,6 +381,7 @@ pub(in crate::config) fn validate_steps(
             then,
             output_schema,
             input_schema,
+            sampling,
         });
     }
 
@@ -776,6 +785,22 @@ pub fn validate(dto: PipelineFileDto, source: PathBuf) -> Result<Pipeline, AilEr
     // Resolve top-level defaults (provider/model config, tool policy, and timeout).
     let timeout_seconds = dto.defaults.as_ref().and_then(|d| d.timeout_seconds);
     let max_concurrency = dto.defaults.as_ref().and_then(|d| d.max_concurrency);
+
+    // Sampling (SPEC §30) is validated at two scopes in the pipeline file:
+    // `defaults.sampling:` (pipeline-wide) and `defaults.provider.sampling:`
+    // (provider-attached). Per-step sampling is validated later in `validate_steps`.
+    let pipeline_sampling = validate_sampling(
+        dto.defaults.as_ref().and_then(|d| d.sampling.clone()),
+        "defaults",
+    )?;
+    let provider_sampling = validate_sampling(
+        dto.defaults
+            .as_ref()
+            .and_then(|d| d.provider.as_ref())
+            .and_then(|p| p.sampling.clone()),
+        "defaults.provider",
+    )?;
+
     let (defaults, default_tools) = dto
         .defaults
         .map(|d| {
@@ -793,6 +818,7 @@ pub fn validate(dto: PipelineFileDto, source: PathBuf) -> Result<Pipeline, AilEr
                     .and_then(|p| p.connect_timeout_seconds),
                 read_timeout_seconds: d.provider.as_ref().and_then(|p| p.read_timeout_seconds),
                 max_history_messages: d.provider.as_ref().and_then(|p| p.max_history_messages),
+                sampling: provider_sampling,
             };
             (provider_config, d.tools.map(tools_to_policy))
         })
@@ -897,6 +923,7 @@ pub fn validate(dto: PipelineFileDto, source: PathBuf) -> Result<Pipeline, AilEr
         default_tools,
         named_pipelines,
         max_concurrency,
+        sampling_defaults: pipeline_sampling,
     })
 }
 
