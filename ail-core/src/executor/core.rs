@@ -1687,8 +1687,24 @@ fn execute_core_with_parallel<O: StepObserver>(
 
                 // Evaluate on_result against the merged response.
                 let matched_action = if let Some(ref branches) = step.on_result {
-                    let last_entry = session.turn_log.entries().last();
-                    last_entry.and_then(|e| evaluate_on_result(branches, e, None))
+                    // Clone the entry so we can release the immutable borrow on
+                    // `session.turn_log` before passing `session` itself to the
+                    // evaluator (which needs it for template resolution in
+                    // `expression:` matchers).
+                    let last_entry = session.turn_log.entries().last().cloned();
+                    match last_entry {
+                        Some(e) => {
+                            match evaluate_on_result(branches, session, &step_id, &e, None) {
+                                Ok(action) => action,
+                                Err(err) => {
+                                    observer.on_step_failed(&step_id, err.detail());
+                                    *outcome_cell.borrow_mut() = Some(Err(err));
+                                    return;
+                                }
+                            }
+                        }
+                        None => None,
+                    }
                 } else {
                     None
                 };
