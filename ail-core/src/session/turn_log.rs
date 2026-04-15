@@ -41,7 +41,7 @@ impl From<&SamplingConfig> for TurnEntrySampling {
     }
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Clone)]
 pub struct TurnEntry {
     pub step_id: String,
     pub prompt: String,

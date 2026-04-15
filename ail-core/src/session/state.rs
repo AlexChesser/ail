@@ -146,6 +146,53 @@ impl Session {
         self.turn_log.record_run_started(pipeline_source);
         self
     }
+
+    /// Fork a branch session for parallel async step execution (SPEC §29.9).
+    ///
+    /// The branch gets:
+    /// - A fresh `TurnLog` seeded with a clone of the parent's existing entries
+    ///   (so template resolution of prior steps works inside the branch).
+    /// - `NullProvider` for log persistence — branch results are collected and
+    ///   merged back into the main session's turn log after the join barrier.
+    /// - The same `run_id`, `invocation_prompt`, `cwd`, `runner_name`, `headless`,
+    ///   `cli_provider` as the parent.
+    /// - A fresh `http_session_store` when `isolated_http` is true (for
+    ///   `resume: false` async steps that opt out of context inheritance).
+    ///   Otherwise shares the parent's store.
+    /// - Cleared loop contexts — loop bodies spawning async steps is an
+    ///   unsupported edge case the spec defers; branches run sequentially inside.
+    pub fn fork_for_branch(&self, isolated_http: bool) -> Session {
+        let entries: Vec<super::turn_log::TurnEntry> = self.turn_log.entries().to_vec();
+
+        let mut turn_log = TurnLog::with_provider(
+            self.run_id.clone(),
+            Box::new(super::log_provider::NullProvider),
+        );
+        for e in entries {
+            turn_log.append(e);
+        }
+
+        let http_session_store = if isolated_http {
+            Arc::new(Mutex::new(HashMap::new()))
+        } else {
+            self.http_session_store.clone()
+        };
+
+        Session {
+            run_id: self.run_id.clone(),
+            pipeline: self.pipeline.clone(),
+            invocation_prompt: self.invocation_prompt.clone(),
+            turn_log,
+            cli_provider: self.cli_provider.clone(),
+            cwd: self.cwd.clone(),
+            runner_name: self.runner_name.clone(),
+            headless: self.headless,
+            http_session_store,
+            do_while_context: self.do_while_context.clone(),
+            for_each_context: self.for_each_context.clone(),
+            loop_depth: self.loop_depth,
+        }
+    }
 }
 
 #[cfg(test)]

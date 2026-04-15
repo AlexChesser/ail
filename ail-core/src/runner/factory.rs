@@ -54,7 +54,7 @@ impl RunnerFactory {
         headless: bool,
         http_store: &HttpSessionStore,
         provider: &ProviderConfig,
-    ) -> Result<Box<dyn Runner + Send>, AilError> {
+    ) -> Result<Box<dyn Runner + Send + Sync>, AilError> {
         Self::build_with_registry(
             runner_name,
             headless,
@@ -76,7 +76,7 @@ impl RunnerFactory {
         http_store: &HttpSessionStore,
         provider: &ProviderConfig,
         registry: &PluginRegistry,
-    ) -> Result<Box<dyn Runner + Send>, AilError> {
+    ) -> Result<Box<dyn Runner + Send + Sync>, AilError> {
         let normalized = runner_name.trim().to_lowercase();
         match normalized.as_str() {
             "claude" => {
@@ -154,7 +154,7 @@ impl RunnerFactory {
         headless: bool,
         http_store: &HttpSessionStore,
         provider: &ProviderConfig,
-    ) -> Result<Box<dyn Runner + Send>, AilError> {
+    ) -> Result<Box<dyn Runner + Send + Sync>, AilError> {
         let name = std::env::var("AIL_DEFAULT_RUNNER").unwrap_or_else(|_| "claude".to_string());
         Self::build(&name, headless, http_store, provider)
     }
@@ -165,7 +165,7 @@ impl RunnerFactory {
         http_store: &HttpSessionStore,
         provider: &ProviderConfig,
         registry: &PluginRegistry,
-    ) -> Result<Box<dyn Runner + Send>, AilError> {
+    ) -> Result<Box<dyn Runner + Send + Sync>, AilError> {
         let name = std::env::var("AIL_DEFAULT_RUNNER").unwrap_or_else(|_| "claude".to_string());
         Self::build_with_registry(&name, headless, http_store, provider, registry)
     }

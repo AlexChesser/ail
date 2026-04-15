@@ -57,7 +57,7 @@ fn emit(value: &serde_json::Value) {
 async fn run_turn_stream(
     pipeline: Pipeline,
     cli_provider: &ProviderConfig,
-    runner: &dyn Runner,
+    runner: &(dyn Runner + Sync),
     prompt: &str,
     resume_session_id: Option<&str>,
     turn_id: &str,
@@ -205,7 +205,7 @@ async fn run_turn_stream(
 pub async fn run_chat_stream(
     pipeline: Pipeline,
     cli_provider: ProviderConfig,
-    runner: &dyn Runner,
+    runner: &(dyn Runner + Sync),
     initial_message: Option<String>,
 ) -> Result<(), String> {
     let chat_session_id = Uuid::new_v4().to_string();
@@ -364,7 +364,7 @@ pub async fn run_chat_stream(
 pub fn run_chat_text(
     pipeline: Pipeline,
     cli_provider: ProviderConfig,
-    runner: &dyn Runner,
+    runner: &(dyn Runner + Sync),
     initial_message: Option<String>,
 ) -> Result<(), String> {
     use std::io::BufRead;

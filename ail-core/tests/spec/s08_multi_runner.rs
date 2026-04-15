@@ -15,7 +15,7 @@ fn test_provider() -> ProviderConfig {
     ProviderConfig::default()
 }
 
-fn build(name: &str) -> Result<Box<dyn Runner + Send>, ail_core::error::AilError> {
+fn build(name: &str) -> Result<Box<dyn Runner + Send + Sync>, ail_core::error::AilError> {
     RunnerFactory::build(name, false, &test_store(), &test_provider())
 }
 

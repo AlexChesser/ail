@@ -1,6 +1,8 @@
 ## 29. Parallel Step Execution
 
-> **Implementation status:** Planned — design complete (issue #117). Not yet implemented.
+> **Implementation status:** Implemented in v0.3 (issue #117). Uses `std::thread::scope` for
+> scoped-thread dispatch. `do_while[N]` indexed access (§29.12 intersection with §27.4) and
+> controlled-mode executor events for async launches are deferred.
 
 Independent pipeline steps running sequentially is pure waste — lint and test do not depend on each other. Parallel step execution allows independent steps to run concurrently, with explicit synchronization points that merge results and gate further execution. This also unlocks multi-provider comparison patterns and fan-out/fan-in workflows.
 

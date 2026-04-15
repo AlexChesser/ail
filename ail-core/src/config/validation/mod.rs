@@ -461,10 +461,14 @@ fn validate_parallel_constraints(steps: &[Step]) -> Result<(), AilError> {
     // Build a set of step IDs in declaration order for forward-reference detection.
     let step_ids: Vec<&str> = steps.iter().map(|s| s.id.as_str()).collect();
 
-    // Quick exit: if no steps use async or depends_on, nothing to validate.
-    let has_parallel = steps
-        .iter()
-        .any(|s| s.async_step || !s.depends_on.is_empty());
+    // Quick exit: if no steps use async, depends_on, or action:join, nothing
+    // to validate. Checking for `action: join` catches the edge case of a
+    // malformed `action: join` step without `depends_on` — still a parse error.
+    let has_parallel = steps.iter().any(|s| {
+        s.async_step
+            || !s.depends_on.is_empty()
+            || matches!(s.body, StepBody::Action(ActionKind::Join { .. }))
+    });
     if !has_parallel {
         return Ok(());
     }

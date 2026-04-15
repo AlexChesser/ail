@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.3 — in progress
+
+### What's new
+
+- **Parallel step execution (SPEC §29, #117)** — `async: true` marks non-blocking steps; `depends_on: [...]` declares dependencies; `action: join` synchronizes and merges branch results. String join (default, labelled headers in declaration order) and structured join (JSON merge when all deps declare `output_schema`) with optional `output_schema` validation on the join. Error modes: `fail_fast` (default) and `wait_for_all`. Pipeline-wide concurrency cap via `defaults.max_concurrency`. Uses `std::thread::scope` — no async runtime added. Complete parse-time validation (orphan detection, forward references, cycles, concurrent session conflicts, structured-join compatibility). Turn log entries tagged with `concurrent_group`, `launched_at`, `completed_at`. Template resolution for `{{ step.<join>.<dep>.<field> }}` dotted-path access.
+- **Sampling parameter control (SPEC §30, #120)** — three-scope `sampling:` block (pipeline / provider / per-step) with field-level merge; temperature, top_p, top_k, max_tokens, stop_sequences, thinking; runner-specific quantization.
+
 ## v0.2 — 2026-04-05
 
 ### What works (all v0.1 features plus)

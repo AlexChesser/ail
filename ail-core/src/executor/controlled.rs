@@ -246,7 +246,7 @@ impl<'a> StepObserver for ChannelObserver<'a> {
 /// Blocks on `hitl_rx.recv()` when a `pause_for_human` step is reached.
 pub fn execute_with_control(
     session: &mut Session,
-    runner: &dyn Runner,
+    runner: &(dyn Runner + Sync),
     control: &ExecutionControl,
     disabled_steps: &HashSet<String>,
     event_tx: mpsc::Sender<ExecutorEvent>,

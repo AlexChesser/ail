@@ -23,6 +23,7 @@ Consumed by `ail` (the binary) and future language-server / SDK targets.
 | `executor/headless.rs` | `execute()` — headless mode entry point using `NullObserver` |
 | `executor/controlled.rs` | `execute_with_control()` — TUI-controlled mode with `ChannelObserver` |
 | `executor/events.rs` | `ExecuteOutcome`, `ExecutionControl`, `ExecutorEvent` |
+| `executor/parallel.rs` | `ConcurrencySemaphore`, `BranchResult`, `merge_join_results()`, timestamp helpers — SPEC §29 parallel step dispatch primitives |
 | `executor/helpers/mod.rs` | Re-exports all helper functions for the executor |
 | `executor/helpers/invocation.rs` | `run_invocation_step()` — host-managed invocation step lifecycle |
 | `executor/helpers/runner_resolution.rs` | `resolve_step_provider()`, `resolve_step_sampling()` (SPEC §30.3 three-scope merge), `build_step_runner_box()`, `resolve_effective_runner_name()` |
@@ -69,7 +70,8 @@ pub struct Pipeline { pub steps: Vec<Step>, pub source: Option<PathBuf>, pub def
 // default_tools: pipeline-wide fallback; per-step tools override entirely (SPEC §3.2)
 // named_pipelines: named pipeline definitions from the `pipelines:` section (SPEC §10)
 // sampling_defaults: pipeline-wide sampling baseline (SPEC §30.2); orthogonal to provider-attached sampling on `defaults: ProviderConfig`
-pub struct Step    { pub id: StepId, pub body: StepBody, pub message: Option<String>, pub tools: Option<ToolPolicy>, pub on_result: Option<Vec<ResultBranch>>, pub model: Option<String>, pub runner: Option<String>, pub condition: Option<Condition>, pub append_system_prompt: Option<Vec<SystemPromptEntry>>, pub system_prompt: Option<String>, pub resume: bool, pub on_error: Option<OnError>, pub before: Vec<Step>, pub then: Vec<Step>, pub output_schema: Option<serde_json::Value>, pub input_schema: Option<serde_json::Value>, pub sampling: Option<SamplingConfig> }
+pub struct Step    { pub id: StepId, pub body: StepBody, pub message: Option<String>, pub tools: Option<ToolPolicy>, pub on_result: Option<Vec<ResultBranch>>, pub model: Option<String>, pub runner: Option<String>, pub condition: Option<Condition>, pub append_system_prompt: Option<Vec<SystemPromptEntry>>, pub system_prompt: Option<String>, pub resume: bool, pub async_step: bool, pub depends_on: Vec<StepId>, pub on_error: Option<OnError>, pub before: Vec<Step>, pub then: Vec<Step>, pub output_schema: Option<serde_json::Value>, pub input_schema: Option<serde_json::Value>, pub sampling: Option<SamplingConfig> }
+// async_step / depends_on: parallel execution primitives (SPEC §29). async_step=true marks a non-blocking step; depends_on lists step IDs this step waits for.
 // before: private pre-processing chain (SPEC §5.10) — runs before the step fires
 // then: private post-processing chain (SPEC §5.7) — runs after the step completes
 // output_schema: optional JSON Schema for validating step output (SPEC §26.1); validated at parse time, response validated at runtime
@@ -84,7 +86,8 @@ pub enum StepBody  { Prompt(String), Skill { name: String }, SubPipeline { path:
 // SubPipeline.path may contain {{ variable }} syntax — resolved at execution time (SPEC §11)
 // SubPipeline.prompt: when Some, overrides child session's invocation_prompt instead of using parent's last_response (SPEC §9.3)
 pub enum ContextSource { Shell(String) }
-pub enum ActionKind { PauseForHuman, ModifyOutput { headless_behavior: HitlHeadlessBehavior, default_value: Option<String> } }
+pub enum ActionKind { PauseForHuman, ModifyOutput { headless_behavior: HitlHeadlessBehavior, default_value: Option<String> }, Join { on_error_mode: JoinErrorMode } }
+pub enum JoinErrorMode { FailFast, WaitForAll }  // SPEC §29.7 — default FailFast
 pub enum HitlHeadlessBehavior { Skip, Abort, UseDefault }
 pub struct ResultBranch { pub matcher: ResultMatcher, pub action: ResultAction }
 pub enum ResultMatcher { Contains(String), ExitCode(ExitCodeMatch), Field { name: String, equals: serde_json::Value }, Always }

@@ -31,7 +31,7 @@ pub(in crate::executor) fn execute<O: StepObserver>(
     prompt_override: Option<&str>,
     step_id: &str,
     session: &mut Session,
-    runner: &dyn Runner,
+    runner: &(dyn Runner + Sync),
     depth: usize,
     base_dir: Option<&std::path::Path>,
     observer: &mut O,
@@ -58,7 +58,7 @@ pub(in crate::executor) fn execute_sub_pipeline(
     prompt_override: Option<&str>,
     step_id: &str,
     session: &mut Session,
-    runner: &dyn Runner,
+    runner: &(dyn Runner + Sync),
     depth: usize,
     base_dir: Option<&std::path::Path>,
 ) -> Result<TurnEntry, AilError> {
@@ -154,7 +154,7 @@ pub(in crate::executor) fn execute_named<O: StepObserver>(
     prompt_override: Option<&str>,
     step_id: &str,
     session: &mut Session,
-    runner: &dyn Runner,
+    runner: &(dyn Runner + Sync),
     depth: usize,
     observer: &mut O,
 ) -> Result<TurnEntry, AilError> {
@@ -183,7 +183,7 @@ pub(in crate::executor) fn execute_named_pipeline(
     prompt_override: Option<&str>,
     step_id: &str,
     session: &mut Session,
-    runner: &dyn Runner,
+    runner: &(dyn Runner + Sync),
     depth: usize,
     visited: &mut HashSet<String>,
 ) -> Result<TurnEntry, AilError> {
