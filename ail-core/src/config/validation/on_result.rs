@@ -6,7 +6,7 @@ use crate::config::domain::{ExitCodeMatch, ResultAction, ResultBranch, ResultMat
 use crate::config::dto::{ExitCodeDto, FieldEqualsActionDto, OnResultDto};
 use crate::error::AilError;
 
-use super::cfg_err;
+use super::{cfg_err, parse_condition_expression};
 
 /// Parse `on_result` from either the multi-branch array format or the
 /// field-equals binary branch format (SPEC §5.4, §26.4).
@@ -32,6 +32,8 @@ fn parse_result_branches(
             let matcher_count = [
                 branch.contains.is_some(),
                 branch.exit_code.is_some(),
+                branch.matches.is_some(),
+                branch.expression.is_some(),
                 branch.always.is_some(),
             ]
             .iter()
@@ -41,7 +43,7 @@ fn parse_result_branches(
             if matcher_count != 1 {
                 return Err(cfg_err!(
                     "Step '{step_id}' on_result branch {i} must have exactly one matcher \
-                     (contains, exit_code, always); found {matcher_count}"
+                     (contains, exit_code, matches, expression, always); found {matcher_count}"
                 ));
             }
 
@@ -65,6 +67,28 @@ fn parse_result_branches(
                     }
                 };
                 ResultMatcher::ExitCode(exit_code_match)
+            } else if let Some(regex_literal) = branch.matches {
+                // Named `matches:` is shorthand for `expression: '{{ step.<id>.response }} matches /.../'`
+                // (SPEC §5.4). Desugar at parse time so both forms share a single evaluator.
+                let source = format!("{{{{ step.{step_id}.response }}}} matches {regex_literal}");
+                let condition = parse_condition_expression(&source, step_id).map_err(|e| {
+                    cfg_err!(
+                        "Step '{step_id}' on_result branch {i} matches: {}",
+                        e.detail()
+                    )
+                })?;
+                ResultMatcher::Expression { source, condition }
+            } else if let Some(expr_str) = branch.expression {
+                let condition = parse_condition_expression(&expr_str, step_id).map_err(|e| {
+                    cfg_err!(
+                        "Step '{step_id}' on_result branch {i} expression: {}",
+                        e.detail()
+                    )
+                })?;
+                ResultMatcher::Expression {
+                    source: expr_str,
+                    condition,
+                }
             } else {
                 ResultMatcher::Always
             };

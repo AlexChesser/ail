@@ -387,6 +387,215 @@ fn condition_expression_starts_with_operator() {
     std::env::set_current_dir(orig).unwrap();
 }
 
+/// SPEC §12.2/§12.3 — `matches` operator with basic regex, unanchored and
+/// case-sensitive by default. The RegexCondition is hand-built here (parser
+/// coverage lives in the regex_literal unit tests); this exercises the
+/// evaluator end-to-end.
+#[test]
+fn condition_matches_operator_basic() {
+    use ail_core::config::domain::RegexCondition;
+
+    let _cwd_guard = crate::spec::CWD_LOCK.lock().unwrap();
+    let tmp = tempfile::tempdir().unwrap();
+    let orig = std::env::current_dir().unwrap();
+    std::env::set_current_dir(tmp.path()).unwrap();
+
+    let regex = regex::Regex::new(r"error|warning").unwrap();
+    let mut session = make_session(vec![
+        prompt_step_with_condition("lint", "Run lint", None),
+        prompt_step_with_condition(
+            "triage",
+            "Triage issues",
+            Some(Condition::Regex(RegexCondition {
+                lhs: "{{ step.lint.response }}".to_string(),
+                regex,
+                source: "/error|warning/".to_string(),
+            })),
+        ),
+    ]);
+
+    let result = execute(&mut session, &StubRunner::new("3 warnings, 0 errors"));
+    assert!(result.is_ok());
+    assert_eq!(
+        session.turn_log.entries().len(),
+        2,
+        "triage should run when lint output matches"
+    );
+
+    std::env::set_current_dir(orig).unwrap();
+}
+
+/// SPEC §12.3 — `matches` operator is case-sensitive by default; the `i`
+/// flag must be set explicitly to toggle case-insensitive matching.
+#[test]
+fn condition_matches_operator_case_sensitive_by_default() {
+    use ail_core::config::domain::RegexCondition;
+
+    let _cwd_guard = crate::spec::CWD_LOCK.lock().unwrap();
+    let tmp = tempfile::tempdir().unwrap();
+    let orig = std::env::current_dir().unwrap();
+    std::env::set_current_dir(tmp.path()).unwrap();
+
+    // No `i` flag — pattern `error` should NOT match "ERROR".
+    let regex = regex::Regex::new(r"error").unwrap();
+    let mut session = make_session(vec![
+        prompt_step_with_condition("check", "Check", None),
+        prompt_step_with_condition(
+            "act",
+            "Act on error",
+            Some(Condition::Regex(RegexCondition {
+                lhs: "{{ step.check.response }}".to_string(),
+                regex,
+                source: "/error/".to_string(),
+            })),
+        ),
+    ]);
+
+    let result = execute(&mut session, &StubRunner::new("FATAL ERROR: boom"));
+    assert!(result.is_ok());
+    assert_eq!(
+        session.turn_log.entries().len(),
+        1,
+        "act step should be skipped — case-sensitive pattern does not match uppercase"
+    );
+
+    std::env::set_current_dir(orig).unwrap();
+}
+
+/// SPEC §12.3 — `matches` with `i` flag enables case-insensitive matching.
+#[test]
+fn condition_matches_operator_i_flag() {
+    use ail_core::config::domain::RegexCondition;
+
+    let _cwd_guard = crate::spec::CWD_LOCK.lock().unwrap();
+    let tmp = tempfile::tempdir().unwrap();
+    let orig = std::env::current_dir().unwrap();
+    std::env::set_current_dir(tmp.path()).unwrap();
+
+    let regex = regex::RegexBuilder::new("error")
+        .case_insensitive(true)
+        .build()
+        .unwrap();
+    let mut session = make_session(vec![
+        prompt_step_with_condition("check", "Check", None),
+        prompt_step_with_condition(
+            "act",
+            "Act on error",
+            Some(Condition::Regex(RegexCondition {
+                lhs: "{{ step.check.response }}".to_string(),
+                regex,
+                source: "/error/i".to_string(),
+            })),
+        ),
+    ]);
+
+    let result = execute(&mut session, &StubRunner::new("FATAL ERROR: boom"));
+    assert!(result.is_ok());
+    assert_eq!(
+        session.turn_log.entries().len(),
+        2,
+        "case-insensitive match should succeed"
+    );
+
+    std::env::set_current_dir(orig).unwrap();
+}
+
+/// SPEC §12.3 — `matches` parsing via the condition expression grammar.
+/// Covers the full path: raw YAML expression → condition parser →
+/// RegexCondition → evaluator.
+#[test]
+fn condition_matches_operator_via_parser() {
+    let _cwd_guard = crate::spec::CWD_LOCK.lock().unwrap();
+    let tmp = tempfile::tempdir().unwrap();
+    let orig = std::env::current_dir().unwrap();
+    std::env::set_current_dir(tmp.path()).unwrap();
+
+    let yaml = r#"
+version: "1"
+pipeline:
+  - id: lint
+    prompt: "run lint"
+  - id: triage
+    prompt: "triage"
+    condition: "{{ step.lint.response }} matches /ERROR|FAIL/i"
+"#;
+    let pipeline_path = tmp.path().join(".ail.yaml");
+    std::fs::write(&pipeline_path, yaml).unwrap();
+    let pipeline = ail_core::config::load(&pipeline_path).unwrap();
+    let mut session = Session::new(pipeline, "p".to_string());
+
+    let result = execute(
+        &mut session,
+        &StubRunner::new("Process failed with FATAL error"),
+    );
+    assert!(result.is_ok());
+    assert_eq!(
+        session.turn_log.entries().len(),
+        2,
+        "triage should run when matches fires (case-insensitive)"
+    );
+
+    std::env::set_current_dir(orig).unwrap();
+}
+
+/// SPEC §12.3 — invalid regex at parse time fails pipeline load.
+#[test]
+fn condition_matches_invalid_regex_fails_at_parse() {
+    let _cwd_guard = crate::spec::CWD_LOCK.lock().unwrap();
+    let tmp = tempfile::tempdir().unwrap();
+    let orig = std::env::current_dir().unwrap();
+    std::env::set_current_dir(tmp.path()).unwrap();
+
+    let yaml = r#"
+version: "1"
+pipeline:
+  - id: broken
+    prompt: "x"
+    condition: "{{ step.x.response }} matches /[unclosed/"
+"#;
+    let pipeline_path = tmp.path().join(".ail.yaml");
+    std::fs::write(&pipeline_path, yaml).unwrap();
+    let err = ail_core::config::load(&pipeline_path).unwrap_err();
+    assert_eq!(
+        err.error_type(),
+        ail_core::error::error_types::CONFIG_VALIDATION_FAILED
+    );
+    assert!(
+        err.detail().contains("failed to compile"),
+        "detail should explain regex compile failure: {}",
+        err.detail()
+    );
+
+    std::env::set_current_dir(orig).unwrap();
+}
+
+/// SPEC §12.3 — `g` flag is explicitly rejected with a specific message.
+#[test]
+fn condition_matches_g_flag_rejected() {
+    let _cwd_guard = crate::spec::CWD_LOCK.lock().unwrap();
+    let tmp = tempfile::tempdir().unwrap();
+    let orig = std::env::current_dir().unwrap();
+    std::env::set_current_dir(tmp.path()).unwrap();
+
+    let yaml = r#"
+version: "1"
+pipeline:
+  - id: broken
+    prompt: "x"
+    condition: "{{ step.x.response }} matches /warn/gi"
+"#;
+    let pipeline_path = tmp.path().join(".ail.yaml");
+    std::fs::write(&pipeline_path, yaml).unwrap();
+    let err = ail_core::config::load(&pipeline_path).unwrap_err();
+    assert!(
+        err.detail().contains("'g' flag"),
+        "detail should call out the g flag specifically: {}",
+        err.detail()
+    );
+
+    std::env::set_current_dir(orig).unwrap();
+}
+
 /// SPEC §12.2 — expression condition: ends_with operator
 #[test]
 fn condition_expression_ends_with_operator() {

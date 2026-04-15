@@ -57,6 +57,7 @@ dependencies = [
  "event-listener",
  "interprocess",
  "jsonschema",
+ "regex",
  "rusqlite",
  "serde",
  "serde_json",
