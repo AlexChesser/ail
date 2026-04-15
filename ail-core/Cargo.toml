@@ -18,6 +18,7 @@ rusqlite = { version = "0.31", features = ["bundled"] }
 tempfile = "3"
 ureq = { version = "2", features = ["json"] }
 event-listener = "5"
+regex = "1"
 
 [dev-dependencies]
 stub-llm = { path = "../stub-llm" }

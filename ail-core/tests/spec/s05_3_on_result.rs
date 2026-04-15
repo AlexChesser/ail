@@ -5,6 +5,7 @@ use ail_core::executor::{
     execute, execute_with_control, ExecuteOutcome, ExecutionControl, ExecutorEvent,
 };
 use ail_core::runner::stub::StubRunner;
+use ail_core::session::Session;
 use ail_core::test_helpers::{make_session, prompt_step};
 use std::collections::HashSet;
 use std::sync::mpsc;
@@ -402,6 +403,200 @@ fn on_result_break_skips_remaining_steps() {
     // Only step1 should have run
     assert_eq!(session.turn_log.entries().len(), 1);
     assert_eq!(session.turn_log.entries()[0].step_id, "tests");
+
+    std::env::set_current_dir(orig).unwrap();
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SPEC §5.4 — `expression:` and `matches:` matchers
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// SPEC §5.4 — `expression:` matcher fires on a §12.2-grammar comparison
+/// against a previous step's field other than `response`/`exit_code`.
+#[test]
+fn on_result_expression_matcher_fires_on_stderr() {
+    let _cwd_guard = crate::spec::CWD_LOCK.lock().unwrap();
+    let tmp = tempfile::tempdir().unwrap();
+    let orig = std::env::current_dir().unwrap();
+    std::env::set_current_dir(tmp.path()).unwrap();
+
+    // Step 1 writes "rate limit" to stderr and exits 0. We can't assert on
+    // the `response` directly via `contains:` because this is a context
+    // step (no response) — `expression:` is the only way to branch on
+    // stderr text from an on_result.
+    let yaml = r#"
+version: "1"
+pipeline:
+  - id: upstream
+    context:
+      shell: "echo 'rate limit exceeded' 1>&2; true"
+    on_result:
+      - expression: "{{ step.upstream.stderr }} contains 'rate limit'"
+        action: abort_pipeline
+      - always: true
+        action: continue
+  - id: downstream
+    prompt: "proceed"
+"#;
+    let pipeline_path = tmp.path().join(".ail.yaml");
+    std::fs::write(&pipeline_path, yaml).unwrap();
+    let pipeline = ail_core::config::load(&pipeline_path).unwrap();
+    let mut session = Session::new(pipeline, "p".to_string());
+
+    let result = execute(&mut session, &StubRunner::new("x"));
+    let err = result.expect_err("expression: branch should have aborted");
+    assert_eq!(
+        err.error_type(),
+        ail_core::error::error_types::PIPELINE_ABORTED,
+        "should have aborted via expression: + action: abort_pipeline"
+    );
+
+    std::env::set_current_dir(orig).unwrap();
+}
+
+/// SPEC §5.4 — `matches:` named matcher is shorthand for the expression
+/// form. Regex is compiled at parse time; runtime just applies it.
+#[test]
+fn on_result_matches_named_matcher_shorthand() {
+    let _cwd_guard = crate::spec::CWD_LOCK.lock().unwrap();
+    let tmp = tempfile::tempdir().unwrap();
+    let orig = std::env::current_dir().unwrap();
+    std::env::set_current_dir(tmp.path()).unwrap();
+
+    let yaml = r#"
+version: "1"
+pipeline:
+  - id: review
+    prompt: "review"
+    on_result:
+      - matches: "/LGTM|SHIP IT/"
+        action: continue
+      - always: true
+        action: abort_pipeline
+  - id: ship
+    prompt: "ship"
+"#;
+    let pipeline_path = tmp.path().join(".ail.yaml");
+    std::fs::write(&pipeline_path, yaml).unwrap();
+    let pipeline = ail_core::config::load(&pipeline_path).unwrap();
+    let mut session = Session::new(pipeline, "p".to_string());
+
+    // StubRunner's response contains LGTM → first branch matches → pipeline continues.
+    let result = execute(&mut session, &StubRunner::new("Looks great — LGTM"));
+    assert!(result.is_ok(), "expected Ok, got: {result:?}");
+    assert_eq!(
+        session.turn_log.entries().len(),
+        2,
+        "both review and ship should run"
+    );
+
+    std::env::set_current_dir(orig).unwrap();
+}
+
+/// SPEC §5.4 — `expression:` with the regex `matches` operator (the full
+/// confidence-gating shape users will hit once native LLM runners surface
+/// numeric signals).
+#[test]
+fn on_result_expression_with_matches_operator() {
+    let _cwd_guard = crate::spec::CWD_LOCK.lock().unwrap();
+    let tmp = tempfile::tempdir().unwrap();
+    let orig = std::env::current_dir().unwrap();
+    std::env::set_current_dir(tmp.path()).unwrap();
+
+    let yaml = r#"
+version: "1"
+pipeline:
+  - id: lint
+    context:
+      shell: "echo 'warning: unused import'; true"
+    on_result:
+      - expression: "{{ step.lint.stdout }} matches /warning|error/i"
+        action: abort_pipeline
+      - always: true
+        action: continue
+  - id: next
+    prompt: "continue"
+"#;
+    let pipeline_path = tmp.path().join(".ail.yaml");
+    std::fs::write(&pipeline_path, yaml).unwrap();
+    let pipeline = ail_core::config::load(&pipeline_path).unwrap();
+    let mut session = Session::new(pipeline, "p".to_string());
+
+    let result = execute(&mut session, &StubRunner::new("x"));
+    assert_eq!(
+        result.unwrap_err().error_type(),
+        ail_core::error::error_types::PIPELINE_ABORTED,
+        "expression: with matches operator should fire abort_pipeline"
+    );
+
+    std::env::set_current_dir(orig).unwrap();
+}
+
+/// SPEC §5.4 / §11 — expression: LHS that fails to resolve aborts the
+/// pipeline rather than silently failing to match.
+#[test]
+fn on_result_expression_unresolvable_template_aborts() {
+    let _cwd_guard = crate::spec::CWD_LOCK.lock().unwrap();
+    let tmp = tempfile::tempdir().unwrap();
+    let orig = std::env::current_dir().unwrap();
+    std::env::set_current_dir(tmp.path()).unwrap();
+
+    let yaml = r#"
+version: "1"
+pipeline:
+  - id: s1
+    prompt: "x"
+    on_result:
+      - expression: "{{ step.nonexistent.response }} == 'anything'"
+        action: continue
+"#;
+    let pipeline_path = tmp.path().join(".ail.yaml");
+    std::fs::write(&pipeline_path, yaml).unwrap();
+    let pipeline = ail_core::config::load(&pipeline_path).unwrap();
+    let mut session = Session::new(pipeline, "p".to_string());
+
+    let result = execute(&mut session, &StubRunner::new("x"));
+    let err = result.expect_err("unresolvable template in expression: should error");
+    assert_eq!(
+        err.error_type(),
+        ail_core::error::error_types::CONDITION_INVALID,
+        "expression: template failures route through CONDITION_INVALID (same as condition:)"
+    );
+
+    std::env::set_current_dir(orig).unwrap();
+}
+
+/// SPEC §5.4 — multiple matchers on the same branch (e.g. contains: AND
+/// expression:) is a parse error.
+#[test]
+fn on_result_multiple_matchers_rejected_at_parse() {
+    let _cwd_guard = crate::spec::CWD_LOCK.lock().unwrap();
+    let tmp = tempfile::tempdir().unwrap();
+    let orig = std::env::current_dir().unwrap();
+    std::env::set_current_dir(tmp.path()).unwrap();
+
+    let yaml = r#"
+version: "1"
+pipeline:
+  - id: s1
+    prompt: "x"
+    on_result:
+      - contains: "LGTM"
+        expression: "{{ step.s1.response }} == 'x'"
+        action: continue
+"#;
+    let pipeline_path = tmp.path().join(".ail.yaml");
+    std::fs::write(&pipeline_path, yaml).unwrap();
+    let err = ail_core::config::load(&pipeline_path).unwrap_err();
+    assert_eq!(
+        err.error_type(),
+        ail_core::error::error_types::CONFIG_VALIDATION_FAILED
+    );
+    assert!(
+        err.detail().contains("exactly one matcher"),
+        "expected matcher-count error, got: {}",
+        err.detail()
+    );
 
     std::env::set_current_dir(orig).unwrap();
 }

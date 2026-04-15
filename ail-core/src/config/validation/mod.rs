@@ -3,16 +3,19 @@
 #![allow(clippy::result_large_err)]
 
 mod on_result;
+mod regex_literal;
 mod sampling;
 mod step_body;
 mod system_prompt;
+
+pub(crate) use regex_literal::parse_regex_literal;
 
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
 use super::domain::{
     ActionKind, Condition, ConditionExpr, ConditionOp, JoinErrorMode, OnError, Pipeline,
-    ProviderConfig, Step, StepBody, StepId, ToolPolicy,
+    ProviderConfig, RegexCondition, Step, StepBody, StepId, ToolPolicy,
 };
 use super::dto::{ChainStepDto, PipelineFileDto, StepDto, ToolsDto};
 use crate::error::AilError;
@@ -39,20 +42,50 @@ fn tools_to_policy(t: ToolsDto) -> ToolPolicy {
     }
 }
 
-/// Parse a condition expression string into a `Condition::Expression`.
+/// Parse a condition expression string into a [`Condition`] (SPEC §12.2).
 ///
-/// Supported operators: `==`, `!=`, `contains`, `starts_with`, `ends_with`.
-/// The LHS is typically a template variable (e.g. `{{ step.test.exit_code }}`),
-/// and the RHS is a literal or quoted string.
+/// Supported operators: `==`, `!=`, `contains`, `starts_with`, `ends_with`,
+/// `matches`. The LHS is typically a template variable (e.g. `{{ step.test.exit_code }}`),
+/// and the RHS is a literal for comparison operators or a `/PATTERN/FLAGS`
+/// regex literal for `matches` (see §12.3).
 ///
 /// Examples:
 ///   `"{{ step.test.exit_code }} == 0"`
 ///   `"{{ step.review.response }} contains 'LGTM'"`
 ///   `"{{ step.build.exit_code }} != 0"`
+///   `"{{ step.lint.stdout }} matches /warning|error/i"`
 pub(in crate::config) fn parse_condition_expression(
     raw: &str,
     step_id: &str,
 ) -> Result<Condition, AilError> {
+    // The `matches` operator is parsed first because its RHS has its own
+    // syntax (a regex literal) and must not be confused with other operators.
+    if let Some(pos) = find_operator_position(raw, "matches") {
+        let lhs = raw[..pos].trim().to_string();
+        let rhs_raw = raw[pos + "matches".len()..].trim();
+
+        if lhs.is_empty() {
+            return Err(cfg_err!(
+                "Step '{step_id}' condition expression has an empty left-hand side"
+            ));
+        }
+        if rhs_raw.is_empty() {
+            return Err(cfg_err!(
+                "Step '{step_id}' condition expression 'matches' operator requires a regex \
+                 literal on the right-hand side (e.g. /pattern/flags) (SPEC §12.3)"
+            ));
+        }
+
+        let parsed = parse_regex_literal(rhs_raw)
+            .map_err(|e| cfg_err!("Step '{step_id}' condition 'matches' operator: {e}"))?;
+
+        return Ok(Condition::Regex(RegexCondition {
+            lhs,
+            regex: parsed.regex,
+            source: parsed.source,
+        }));
+    }
+
     // Operator tokens in order of specificity (multi-word first to avoid partial matches).
     let operators: &[(&str, ConditionOp)] = &[
         ("starts_with", ConditionOp::StartsWith),
@@ -90,7 +123,7 @@ pub(in crate::config) fn parse_condition_expression(
     Err(cfg_err!(
         "Step '{step_id}' specifies condition '{raw}' which is not a recognised \
          named condition ('always', 'never') and does not contain a supported operator \
-         (==, !=, contains, starts_with, ends_with)"
+         (==, !=, contains, starts_with, ends_with, matches)"
     ))
 }
 
@@ -1220,7 +1253,10 @@ mod tests {
         step.condition = Some("never".to_string());
         let dto = minimal_dto(vec![step]);
         let pipeline = validate(dto, source()).expect("should succeed");
-        assert_eq!(pipeline.steps[0].condition, Some(Condition::Never));
+        assert!(matches!(
+            pipeline.steps[0].condition,
+            Some(Condition::Never)
+        ));
     }
 
     #[test]

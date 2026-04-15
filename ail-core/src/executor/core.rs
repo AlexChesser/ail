@@ -623,7 +623,13 @@ pub(super) fn execute_single_step<O: StepObserver>(
     let mut matched_action = None;
     if let Some(branches) = &step.on_result {
         let last_entry = session.turn_log.entries().last().expect("just appended");
-        if let Some(action) = evaluate_on_result(branches, last_entry, validated_input.as_ref()) {
+        if let Some(action) = evaluate_on_result(
+            branches,
+            session,
+            step.id.as_str(),
+            last_entry,
+            validated_input.as_ref(),
+        )? {
             matched_action = Some(action.clone());
         }
     }

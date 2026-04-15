@@ -318,6 +318,9 @@ pub fn materialize(pipeline: &Pipeline) -> String {
                     } => {
                         format!("field: {name}, equals: {equals}")
                     }
+                    ResultMatcher::Expression { source, .. } => {
+                        format!("expression: \"{}\"", yaml_quote(source))
+                    }
                     ResultMatcher::Always => "always: true".to_string(),
                 };
                 let action = match &branch.action {
@@ -527,6 +530,9 @@ fn serialize_step(out: &mut String, step: &Step, indent: &str, origin_comment: O
                     ref equals,
                 } => {
                     format!("field: {name}, equals: {equals}")
+                }
+                ResultMatcher::Expression { source, .. } => {
+                    format!("expression: \"{}\"", yaml_quote(source))
                 }
                 ResultMatcher::Always => "always: true".to_string(),
             };

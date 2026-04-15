@@ -162,16 +162,24 @@ impl Pipeline {
 }
 
 /// Controls whether a step executes (SPEC §12).
-#[derive(Debug, Clone, PartialEq)]
+///
+/// `PartialEq` is intentionally not derived: `Regex` variants carry a
+/// compiled [`regex::Regex`], which does not implement `PartialEq`. Compare
+/// via pattern-match (`matches!`) or by inspecting the contained source.
+#[derive(Debug, Clone)]
 pub enum Condition {
     /// Step always executes (same as omitting `condition:`).
     Always,
     /// Step is unconditionally skipped.
     Never,
-    /// Expression condition evaluated at runtime against session state (SPEC §12.2).
+    /// Comparison expression evaluated at runtime against session state (SPEC §12.2).
     /// The string may contain `{{ variable }}` template syntax which is resolved
     /// before evaluating the expression operator.
     Expression(ConditionExpr),
+    /// Regex-match expression evaluated at runtime (SPEC §12.2 `matches` operator,
+    /// regex semantics from §12.3). The pattern is compiled at parse time; an
+    /// invalid regex fails pipeline load, not evaluation.
+    Regex(RegexCondition),
 }
 
 /// A parsed condition expression (SPEC §12.2).
@@ -186,6 +194,21 @@ pub struct ConditionExpr {
     pub op: ConditionOp,
     /// Right-hand side — a literal value.
     pub rhs: String,
+}
+
+/// A parsed regex-match condition (SPEC §12.2 `matches` / §12.3).
+///
+/// The `lhs` is a template string resolved at evaluation time; the compiled
+/// regex is applied to the resolved string. `source` preserves the original
+/// `/PATTERN/FLAGS` literal for error messages and materialize output.
+#[derive(Debug, Clone)]
+pub struct RegexCondition {
+    /// Left-hand side — a template string resolved at evaluation time.
+    pub lhs: String,
+    /// Compiled regex, built at parse time per §12.3.
+    pub regex: regex::Regex,
+    /// Original source literal, e.g. `/warn|error/i`. Preserved for diagnostics.
+    pub source: String,
 }
 
 /// Comparison operators for condition expressions (SPEC §12.2).
@@ -426,6 +449,18 @@ pub enum ResultMatcher {
     Field {
         name: String,
         equals: serde_json::Value,
+    },
+    /// Arbitrary §12.2 expression matcher (SPEC §5.4 `expression:`). Accepts the full
+    /// `Condition` union because the condition parser returns `Expression` for
+    /// comparison operators and `Regex` for the `matches` operator.
+    ///
+    /// The `source` field preserves the original expression string for diagnostics
+    /// and materialize output. `Condition::Always`/`Never` do not occur here —
+    /// only `Expression` and `Regex` variants are produced by the expression
+    /// parser used for this matcher.
+    Expression {
+        source: String,
+        condition: Condition,
     },
     Always,
 }

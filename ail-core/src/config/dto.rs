@@ -226,6 +226,13 @@ pub enum OnResultDto {
 pub struct OnResultBranchDto {
     pub contains: Option<String>,
     pub exit_code: Option<ExitCodeDto>,
+    /// Regex literal `/PATTERN/FLAGS` matched against the step's `response`
+    /// (SPEC §5.4, §12.3). Shorthand for `expression: '{{ step.<id>.response }}
+    /// matches /.../flags'`.
+    pub matches: Option<String>,
+    /// Full §12.2 condition expression (SPEC §5.4 `expression:`). Supports any
+    /// operator the §12.2 grammar supports, including `matches` for regex.
+    pub expression: Option<String>,
     pub always: Option<bool>,
     pub action: Option<String>,
     /// Optional prompt override passed to the child session when action is `pipeline:`.

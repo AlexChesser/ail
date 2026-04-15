@@ -1,19 +1,31 @@
 //! on_result branch evaluation and tool policy construction.
 
+#![allow(clippy::result_large_err)]
+
 use crate::config::domain::{ExitCodeMatch, ResultAction, ResultMatcher};
+use crate::error::AilError;
 use crate::runner::ToolPermissionPolicy;
-use crate::session::TurnEntry;
+use crate::session::{Session, TurnEntry};
+
+use super::condition::evaluate_condition;
 
 /// Evaluate `on_result` branches against the most recent `TurnEntry`.
 /// Returns the action of the first matching branch, or `None` if no branch matches.
 ///
 /// `validated_input` is the parsed JSON from `input_schema` validation (SPEC §26.2).
 /// When present, `ResultMatcher::Field` can match against named fields in the input JSON.
+///
+/// An `Err` return indicates the `expression:` matcher failed to evaluate —
+/// typically an unresolvable template variable in the expression's LHS
+/// (SPEC §11 contract). The pipeline aborts rather than silently treating the
+/// branch as non-matching.
 pub(in crate::executor) fn evaluate_on_result(
     branches: &[crate::config::domain::ResultBranch],
+    session: &Session,
+    step_id: &str,
     entry: &TurnEntry,
     validated_input: Option<&serde_json::Value>,
-) -> Option<ResultAction> {
+) -> Result<Option<ResultAction>, AilError> {
     for branch in branches {
         let matched = match &branch.matcher {
             ResultMatcher::Contains(text) => {
@@ -36,14 +48,20 @@ pub(in crate::executor) fn evaluate_on_result(
                     .and_then(|json| json.get(name))
                     .is_some_and(|val| val == equals)
             }
+            ResultMatcher::Expression { condition, .. } => {
+                // SPEC §5.4 `expression:` matcher — delegate to the shared
+                // condition evaluator so `condition:` and `expression:` stay in
+                // sync grammatically and semantically.
+                evaluate_condition(condition, session, step_id)?
+            }
             ResultMatcher::Always => true,
         };
 
         if matched {
-            return Some(branch.action.clone());
+            return Ok(Some(branch.action.clone()));
         }
     }
-    None
+    Ok(None)
 }
 
 /// Build a `ToolPermissionPolicy` from an optional `ToolPolicy` domain value.

@@ -12,7 +12,8 @@ Consumed by `ail` (the binary) and future language-server / SDK targets.
 | `config/domain.rs` | Validated domain types — no `Deserialize` derives |
 | `config/validation/mod.rs` | `validate()` entry point, `cfg_err!` macro, `tools_to_policy` helper |
 | `config/validation/step_body.rs` | `parse_step_body()` — primary field count check + body construction (including `parse_do_while_body`, `parse_for_each_body`, `load_loop_pipeline_steps`) |
-| `config/validation/on_result.rs` | `parse_result_branches()` — DTO → domain for result matchers and actions |
+| `config/validation/on_result.rs` | `parse_result_branches()` — DTO → domain for result matchers and actions (incl. `expression:` via `parse_condition_expression`, and `matches:` desugared to expression form) |
+| `config/validation/regex_literal.rs` | `parse_regex_literal()` — parses `/PATTERN/FLAGS` into a compiled `regex::Regex` with source preservation (SPEC §12.3) |
 | `config/validation/system_prompt.rs` | `parse_append_system_prompt()` — DTO → domain for system prompt entries |
 | `config/validation/sampling.rs` | `validate_sampling()` — DTO → domain with range checks; normalizes thinking (f64 OR bool) to `Option<f64>` (SPEC §30.6.1) |
 | `config/inheritance.rs` | FROM inheritance — path resolution, cycle detection, DTO merging, hook operations (SPEC §7, §8) |
@@ -76,8 +77,9 @@ pub struct Step    { pub id: StepId, pub body: StepBody, pub message: Option<Str
 // then: private post-processing chain (SPEC §5.7) — runs after the step completes
 // output_schema: optional JSON Schema for validating step output (SPEC §26.1); validated at parse time, response validated at runtime
 // input_schema: optional JSON Schema for validating preceding step's output (SPEC §26.2); validated at parse time, runtime validation before step executes
-pub enum Condition { Always, Never, Expression(ConditionExpr) }  // SPEC §12 — None means Always; Never skips; Expression evaluates at runtime
+pub enum Condition { Always, Never, Expression(ConditionExpr), Regex(RegexCondition) }  // SPEC §12 — None means Always; Never skips; Expression evaluates comparison at runtime; Regex evaluates regex::is_match at runtime (SPEC §12.2/§12.3). Does NOT derive PartialEq — regex::Regex doesn't implement it.
 pub struct ConditionExpr { pub lhs: String, pub op: ConditionOp, pub rhs: String }
+pub struct RegexCondition { pub lhs: String, pub regex: regex::Regex, pub source: String }  // SPEC §12.3 — regex compiled at parse time via parse_regex_literal(); source is original /PATTERN/FLAGS for diagnostics
 pub enum ConditionOp { Eq, Ne, Contains, StartsWith, EndsWith }
 pub enum OnError { Continue, Retry { max_retries: u32 }, AbortPipeline }  // SPEC §16 — None means AbortPipeline (default)
 pub enum StepBody  { Prompt(String), Skill { name: String }, SubPipeline { path: String, prompt: Option<String> }, NamedPipeline { name: String, prompt: Option<String> }, Action(ActionKind), Context(ContextSource), DoWhile { max_iterations, exit_when, steps }, ForEach { over, as_name, max_items, on_max_items, steps } }
@@ -90,8 +92,9 @@ pub enum ActionKind { PauseForHuman, ModifyOutput { headless_behavior: HitlHeadl
 pub enum JoinErrorMode { FailFast, WaitForAll }  // SPEC §29.7 — default FailFast
 pub enum HitlHeadlessBehavior { Skip, Abort, UseDefault }
 pub struct ResultBranch { pub matcher: ResultMatcher, pub action: ResultAction }
-pub enum ResultMatcher { Contains(String), ExitCode(ExitCodeMatch), Field { name: String, equals: serde_json::Value }, Always }
+pub enum ResultMatcher { Contains(String), ExitCode(ExitCodeMatch), Field { name: String, equals: serde_json::Value }, Expression { source: String, condition: Condition }, Always }
 // Field: exact equality match against a named field in validated input JSON (SPEC §26.4); requires input_schema
+// Expression: §12.2 condition grammar (SPEC §5.4 `expression:`) — source is original expression string for materialize/diagnostics; condition is Expression(ConditionExpr) or Regex(RegexCondition). Named `matches:` in YAML desugars to Expression at parse time (SPEC §5.4).
 pub enum ExitCodeMatch { Exact(i32), Any }
 pub enum ResultAction { Continue, Break, AbortPipeline, PauseForHuman, Pipeline { path: String, prompt: Option<String> } }
 // Pipeline.path may contain {{ variable }} syntax — resolved at execution time (SPEC §11)

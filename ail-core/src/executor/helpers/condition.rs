@@ -6,7 +6,7 @@
 
 #![allow(clippy::result_large_err)]
 
-use crate::config::domain::{Condition, ConditionExpr, ConditionOp};
+use crate::config::domain::{Condition, ConditionExpr, ConditionOp, RegexCondition};
 use crate::error::AilError;
 use crate::session::Session;
 use crate::template;
@@ -28,7 +28,36 @@ pub fn evaluate_condition(
         Condition::Always => Ok(true),
         Condition::Never => Ok(false),
         Condition::Expression(expr) => evaluate_expression(expr, session, step_id),
+        Condition::Regex(reg) => evaluate_regex(reg, session, step_id),
     }
+}
+
+fn evaluate_regex(
+    reg: &RegexCondition,
+    session: &Session,
+    step_id: &str,
+) -> Result<bool, AilError> {
+    let lhs_resolved =
+        template::resolve(&reg.lhs, session).map_err(|e| AilError::ConditionInvalid {
+            detail: format!(
+                "Step '{step_id}' condition: failed to resolve left-hand side '{}': {}",
+                reg.lhs,
+                e.detail()
+            ),
+            context: None,
+        })?;
+
+    let result = reg.regex.is_match(lhs_resolved.trim());
+
+    tracing::debug!(
+        step_id = %step_id,
+        lhs = %lhs_resolved,
+        regex = %reg.source,
+        result = %result,
+        "condition regex evaluated"
+    );
+
+    Ok(result)
 }
 
 fn evaluate_expression(
@@ -205,6 +234,62 @@ mod tests {
             rhs: "passed".to_string(),
         };
         assert!(evaluate_condition(&Condition::Expression(expr), &session, "s").unwrap());
+    }
+
+    #[test]
+    fn matches_operator_regex() {
+        use crate::config::domain::RegexCondition;
+        let session = session_with_prompt_entry("test", "tests PASSED");
+        let parsed = crate::config::validation::parse_regex_literal("/^tests\\s+PASS/").unwrap();
+        let cond = Condition::Regex(RegexCondition {
+            lhs: "{{ step.test.response }}".to_string(),
+            regex: parsed.regex,
+            source: parsed.source,
+        });
+        assert!(evaluate_condition(&cond, &session, "s").unwrap());
+    }
+
+    #[test]
+    fn matches_operator_case_insensitive_flag() {
+        use crate::config::domain::RegexCondition;
+        let session = session_with_prompt_entry("test", "WARNING: bad things");
+        let parsed = crate::config::validation::parse_regex_literal("/warn/i").unwrap();
+        let cond = Condition::Regex(RegexCondition {
+            lhs: "{{ step.test.response }}".to_string(),
+            regex: parsed.regex,
+            source: parsed.source,
+        });
+        assert!(evaluate_condition(&cond, &session, "s").unwrap());
+    }
+
+    #[test]
+    fn matches_operator_no_match() {
+        use crate::config::domain::RegexCondition;
+        let session = session_with_prompt_entry("test", "all ok");
+        let parsed = crate::config::validation::parse_regex_literal("/error/").unwrap();
+        let cond = Condition::Regex(RegexCondition {
+            lhs: "{{ step.test.response }}".to_string(),
+            regex: parsed.regex,
+            source: parsed.source,
+        });
+        assert!(!evaluate_condition(&cond, &session, "s").unwrap());
+    }
+
+    #[test]
+    fn matches_operator_unresolvable_template() {
+        use crate::config::domain::RegexCondition;
+        let session = make_session(vec![]);
+        let parsed = crate::config::validation::parse_regex_literal("/x/").unwrap();
+        let cond = Condition::Regex(RegexCondition {
+            lhs: "{{ step.nonexistent.response }}".to_string(),
+            regex: parsed.regex,
+            source: parsed.source,
+        });
+        let err = evaluate_condition(&cond, &session, "mycheck").unwrap_err();
+        assert_eq!(
+            err.error_type(),
+            crate::error::error_types::CONDITION_INVALID
+        );
     }
 
     #[test]
