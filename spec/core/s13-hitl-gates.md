@@ -84,13 +84,13 @@ TUI shows permission modal (display_name + display_detail)
   → y (Approve once)       → PermissionResponse::Allow
   → a (Allow for session)  → PermissionResponse::Allow + add display_name to session allowlist
   → n (Deny)               → PermissionResponse::Deny("User rejected")
-  [Modify deferred to v0.2]
+  [Modify deferred to v0.3]
   ↓
 Runner serialises response to its native protocol
 ```
 
 **v0.1 supported responses:** approve once, allow for session, deny.
-**v0.2 deferred:** modify (edit tool input before allowing).
+**v0.3 deferred:** modify (edit tool input before allowing).
 
 ### 13.5 Implicit HITL via `on_result`
 

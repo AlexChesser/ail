@@ -69,7 +69,7 @@ on_result:
 
 `prompt:` is a template string resolved against the **parent** session at execution time. Any template variable valid in the parent is valid here. The resolved value becomes the child session's `invocation_prompt`.
 
-When `prompt:` is omitted, the default is `session.turn_log.last_response() ?? session.invocation_prompt`.
+When `prompt:` is omitted, the child session's invocation prompt defaults to the most recent step response, falling back to the original invocation prompt if no prior step has run.
 
 ### 9.5 Failure Propagation
 

@@ -1,6 +1,6 @@
 # 30. Sampling Parameter Control
 
-> **Status**: draft — design proposal for #120
+> **Implementation status:** v0.3 — fully implemented. Applies to `ClaudeCliRunner`, `HttpRunner`, and `StubRunner`. All validation rules and runner mappings are active at parse time and runtime.
 
 ## 30.1 Purpose
 
@@ -59,45 +59,6 @@ if absent at every scope, the runner's own default applies.
 > decimal value lets authors express intent once and each runner quantizes
 > on its own terms. Upgrades in any runner's granularity happen without any
 > pipeline change.
-
-### 30.2.3 Picking Between `temperature` and `top_p`
-
-Both `temperature` and `top_p` shape the token probability distribution
-before sampling, and both are legal to set together. However, Anthropic and
-OpenAI both recommend altering **one or the other, not both**. AIL
-intentionally does **not** enforce this — the value is passed through to
-the provider, which will accept both without error — but pipeline authors
-should understand the interaction.
-
-**What each does**
-
-- **`temperature`** reshapes the full distribution over tokens. `0.0` is
-  deterministic (argmax). Values below `1.0` sharpen the distribution
-  (the model becomes more confident and less diverse); values above `1.0`
-  flatten it (more randomness, more unusual tokens).
-- **`top_p`** truncates the distribution: keep the smallest set of tokens
-  whose cumulative probability reaches `p`, renormalize, then sample.
-  `1.0` means no truncation; lower values narrow the candidate pool.
-
-**How they compose**
-
-Providers apply temperature first, then top_p truncation, then sample.
-The more restrictive parameter tends to dominate:
-
-- `temperature: 0.0` + any `top_p` → argmax wins; `top_p` is irrelevant.
-- Sharp `temperature` (e.g. `0.3`) + loose `top_p` (e.g. `0.9`) →
-  temperature dominates; the distribution is already concentrated.
-- Flat `temperature` (e.g. `1.5`) + tight `top_p` (e.g. `0.1`) →
-  `top_p` dominates; only a few tokens are eligible, sampled flatly among them.
-
-**Practical guidance**
-
-- For most pipelines, set only `temperature`. It's the more intuitive knob.
-- Use `top_p` alone when you want to cap the long tail of improbable tokens
-  without sharpening the whole distribution (e.g. creative writing that
-  should stay coherent).
-- Setting both is not wrong; it is simply harder to reason about. AIL
-  respects the author's choice and ships the values to the provider as-is.
 
 ### 30.2.2 Syntax
 
@@ -169,6 +130,45 @@ pipeline:
     sampling:
       max_tokens: 16384        # step-level fine-tune on top
 ```
+
+### 30.2.3 Picking Between `temperature` and `top_p`
+
+Both `temperature` and `top_p` shape the token probability distribution
+before sampling, and both are legal to set together. However, Anthropic and
+OpenAI both recommend altering **one or the other, not both**. AIL
+intentionally does **not** enforce this — the value is passed through to
+the provider, which will accept both without error — but pipeline authors
+should understand the interaction.
+
+**What each does**
+
+- **`temperature`** reshapes the full distribution over tokens. `0.0` is
+  deterministic (argmax). Values below `1.0` sharpen the distribution
+  (the model becomes more confident and less diverse); values above `1.0`
+  flatten it (more randomness, more unusual tokens).
+- **`top_p`** truncates the distribution: keep the smallest set of tokens
+  whose cumulative probability reaches `p`, renormalize, then sample.
+  `1.0` means no truncation; lower values narrow the candidate pool.
+
+**How they compose**
+
+Providers apply temperature first, then top_p truncation, then sample.
+The more restrictive parameter tends to dominate:
+
+- `temperature: 0.0` + any `top_p` → argmax wins; `top_p` is irrelevant.
+- Sharp `temperature` (e.g. `0.3`) + loose `top_p` (e.g. `0.9`) →
+  temperature dominates; the distribution is already concentrated.
+- Flat `temperature` (e.g. `1.5`) + tight `top_p` (e.g. `0.1`) →
+  `top_p` dominates; only a few tokens are eligible, sampled flatly among them.
+
+**Practical guidance**
+
+- For most pipelines, set only `temperature`. It's the more intuitive knob.
+- Use `top_p` alone when you want to cap the long tail of improbable tokens
+  without sharpening the whole distribution (e.g. creative writing that
+  should stay coherent).
+- Setting both is not wrong; it is simply harder to reason about. AIL
+  respects the author's choice and ships the values to the provider as-is.
 
 ## 30.3 Merge Semantics
 

@@ -142,6 +142,8 @@ A called pipeline (via `pipeline:` step) owns its context in isolation. The call
 
 ### §4.5 Controlled Execution Mode
 
+> **Consumer documentation:** §23 (Structured Output & Controlled Mode) documents the same event stream and stdin control protocol from the consumer's perspective. §4.5 is the implementation source of truth; §23 extends it with consumer-oriented detail. Keep both in sync when adding or changing event types.
+
 > **Implementation status:** v0.1 — fully implemented. Used by `--output-format json` and TUI mode.
 
 #### When It Is Used

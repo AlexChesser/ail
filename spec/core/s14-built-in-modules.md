@@ -1,5 +1,7 @@
 ## 14. Built-in Modules
 
+> **Implementation status:** v0.3 — fully implemented. All four built-in modules (`ail/code_review`, `ail/test_writer`, `ail/security_audit`, `ail/janitor`) are registered in the skill registry at startup. Skill parameterisation (`with:`) is deferred — see §22.
+
 `ail`'s built-in modules are referenceable via `skill: ail/<name>`. Each is implemented as a named prompt template registered in the skill registry at startup.
 
 ### 14.1 Available Modules

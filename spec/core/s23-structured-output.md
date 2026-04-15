@@ -1,5 +1,7 @@
 # 23. Structured Output Mode
 
+> **Source of truth:** §4.5 (Execution Model — Controlled Mode) is the implementation-authoritative description of the executor event types and stdin control protocol. This section (§23) is the consumer-facing documentation and extends §4.5 with usage examples and integration guidance. When event types change, update §4.5 first, then reflect changes here.
+
 ## 23.1 Purpose
 
 `ail` supports a structured output mode that emits pipeline execution events as NDJSON (newline-delimited JSON) to stdout. This enables programmatic consumers — VS Code extensions, CI systems, monitoring tools, and other agent orchestrators — to observe and react to pipeline execution in real time without parsing human-readable text.

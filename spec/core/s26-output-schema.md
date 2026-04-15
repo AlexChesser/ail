@@ -91,6 +91,8 @@ When adjacent steps declare `output_schema` + `input_schema`, the runtime valida
 
 Parse-time compatibility checks catch interface mismatches between pipeline steps during pipeline load, not mid-run.
 
+> **Limitation:** The schema-as-file-path variant (§26.1) is not yet implemented. Parse-time compatibility checks cannot run on schemas declared as file paths because the schema file is not loaded during pipeline validation in v0.3. This caveat applies only to the file-path variant; inline schemas are fully validated at parse time.
+
 ---
 
 ### 26.4 The `field:` + `equals:` Operator in `on_result`

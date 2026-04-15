@@ -6,13 +6,9 @@ These are unresolved questions that require either implementation experience or 
 
 ### Completion Detection
 
-**Status: Resolved for Claude CLI.**
+**Status: Resolved.**
 
-The Claude CLI `--output-format stream-json` flag produces a newline-delimited NDJSON stream. Completion is signalled by a `{"type": "result", "subtype": "success", ...}` event — unambiguous, structured, and carrying cost metadata. PTY wrapping is not required for the Claude CLI runner.
-
-For other runners without a structured output mode, process exit code 0 remains the fallback hypothesis. This should be validated per runner during each integration sprint. See `RUNNER-SPEC.md`.
-
-**Remaining work:** Verify that `--output-format stream-json` is available in all Claude CLI invocation modes used by `ail`, and document error event shapes (`subtype: error`) for `on_error` handling.
+The Claude CLI `--output-format stream-json` flag produces a newline-delimited NDJSON stream. Completion is signalled by a `{"type": "result", "subtype": "success", ...}` event — unambiguous, structured, and carrying cost metadata. PTY wrapping is not required for the Claude CLI runner. Error shapes (`subtype: error`) are documented in `r02-claude-cli.md`. For other runners without a structured output mode, process exit code 0 remains the fallback, validated per runner during each integration sprint. See `RUNNER-SPEC.md`.
 
 ---
 
@@ -20,9 +16,7 @@ For other runners without a structured output mode, process exit code 0 remains 
 
 **Status: Resolved. See §4.4.**
 
-The pipeline run log (§4.4) is the context system. Steps access prior results by querying the persisted log via template variables. Provider isolation is the default; session continuity is opt-in via `resume: true` (§15.4). The spike must validate the exact mechanics of `--input-format stream-json` for same-provider session resumption.
-
-**Remaining work:** Spike must determine whether `--input-format stream-json` supports sending a new pipeline step prompt within the same session, or whether each step requires a new subprocess invocation with context passed via `{{ step.invocation.response }}` and `{{ last_response }}` template variables.
+The pipeline run log (§4.4) is the context system. Steps access prior results by querying the persisted log via template variables. Provider isolation is the default; session continuity is opt-in via `resume: true` (§15.4). Each step uses a new subprocess invocation; context flows via `{{ step.invocation.response }}` and `{{ last_response }}` template variables. `--input-format stream-json` is used for session resumption within a provider when `resume: true` is set.
 
 ---
 
@@ -61,6 +55,8 @@ Full speccing of `step.<id>.turns[]` template variable access is deferred until 
 The mid-run case creates a consistency risk: a step that fires after the reload was not declared in the pipeline that started the run. The between-runs case is safer but limits the utility of immediate self-improvement within a session.
 
 **Note:** This may be a tool implementation decision rather than a spec decision. The spec defines what pipelines *are*; whether the runtime watches for file changes is an operational concern. The self-modifying pipeline case requires an explicit decision — the diff action cannot be useful without a defined reload contract. Flagged here until implementation experience clarifies both paths.
+
+**Partial resolution:** The primitive for within-run self-modification — `action: reload_self` — is implemented in v0.3. See §21 (Planned Extensions) for full semantics. The timing contract question (whether a reload affects steps later in the *same* run or only subsequent runs) remains open and is addressed in §21's description of `reload_self`.
 
 ---
 

@@ -12,7 +12,7 @@
 | `completion event` | The signal that the underlying runner has finished. For CLI tools, this is typically process exit with code 0. See §22 Open Questions. |
 | `HITL gate` | A Human-in-the-Loop gate. The pipeline pauses and waits for explicit human input before continuing. |
 | `pipeline run log` | The durable, persisted record of a pipeline execution. Written to disk before the next step runs. The authoritative source for template variable resolution. See §4.4. |
-| `context` | The working memory passed between pipeline steps, accessed via the pipeline run log and template variables. |
+| `context` (working memory) | The accumulated state passed between pipeline steps, accessed via the pipeline run log and template variables. Distinct from the `context:` step type. |
 | `provider` | The LLM backend a step routes its prompt to. May differ per step. |
 | `condition` | A boolean expression evaluated before a step runs. If false, the step is skipped. |
 | `on_result` | Declarative branching logic that fires after a step completes, based on the content of the response. |

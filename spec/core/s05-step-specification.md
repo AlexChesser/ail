@@ -1,6 +1,6 @@
 ## 5. Step Specification
 
-Every item in the `pipeline` array is a step. Each step is of exactly one of four types, declared by its primary field:
+Every item in the `pipeline` array is a step. Each step is of exactly one of six types, declared by its primary field:
 
 | Step type | Primary field | Task source | LLM call | Token cost |
 |---|---|---|---|---|
@@ -22,7 +22,7 @@ Exactly one primary field is required per step. All other fields are optional.
 | `id` | String. **Required.** Unique identifier for this step within the resolved pipeline. Snake_case recommended. Step IDs are the public API of a `FROM`-able pipeline — treat them as stable identifiers. |
 | `runner` | String. Optional. Name of the runner to use for this step. Overrides `AIL_DEFAULT_RUNNER` and the pipeline-level default. See §19 and `RunnerFactory`. Recognised values: `claude`, `stub`. |
 | `condition` | Expression string. Step is skipped if false. See §12. |
-| `on_error` | Enum: `continue` \| `pause_for_human` \| `abort_pipeline` \| `retry`. Default: `pause_for_human`. |
+| `on_error` | Enum: `continue` \| `pause_for_human` \| `abort_pipeline` \| `retry`. Default: `abort_pipeline`. |
 | `max_retries` | Integer. Retry attempts when `on_error: retry`. Default: `2`. |
 | `disabled` | Boolean. Skips step unconditionally. Useful during development. |
 

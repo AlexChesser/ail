@@ -49,11 +49,11 @@ pipeline:
 
   - id: dry_refactor
     condition: if_code_changed
-    skill: ail/dry-refactor
+    skill: ail/dry_refactor
 
   - id: security_audit
     condition: if_code_changed
-    skill: ail/security-audit
+    skill: ail/security_audit
 ```
 
 `load-or-generate-architecture.yaml` might check for a cached `.ail/architecture.md`, load it into context if present, or `pause_for_human` offering to run an architecture exploration if not.
@@ -77,12 +77,12 @@ defaults:
 pipeline:
   - id: dry_refactor
     condition: if_code_changed
-    skill: ail/dry-refactor
+    skill: ail/dry_refactor
 
   - id: security_audit
     provider: frontier
     condition: if_code_changed
-    skill: ail/security-audit
+    skill: ail/security_audit
     append_system_prompt:
       - file: ./prompts/acme-security-context.md
     on_result:
@@ -95,7 +95,7 @@ pipeline:
 
   - id: commit_checkpoint
     condition: if_code_changed
-    skill: ail/commit-checkpoint
+    skill: ail/commit_checkpoint
 ```
 
 ### 18.5 Project Inheriting from Org Base

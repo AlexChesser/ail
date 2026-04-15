@@ -1,5 +1,7 @@
 ## 6. Skills
 
+> **Implementation status:** v0.3 — fully implemented. The built-in skill registry is populated at startup. Project-defined skills (SKILL.md files) are resolved from the project directory. See §14 for the catalogue of built-in modules.
+
 Skills are reusable, named prompt templates invoked via the `skill:` step body. Built-in skills live under the `ail/` namespace and are registered in the skill registry at startup. See §14 for the catalogue of built-in modules.
 
 ### 6.1 The Skill/Pipeline Distinction

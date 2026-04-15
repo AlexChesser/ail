@@ -29,9 +29,10 @@ These two mechanisms are mutually exclusive within a single step execution:
 
 | Value | Effect |
 |---|---|
-| `abort_pipeline` | Stop immediately. Log full error context to pipeline run log. **Default.** |
 | `continue` | Log error, proceed to next step. No turn entry is recorded for the failed step. Only for explicitly non-critical steps. |
+| `pause_for_human` | Block pipeline and emit a HITL gate event. In headless / `--once` text mode, this is a no-op: a `WARN`-level log is emitted and the pipeline continues. See §13.6. |
 | `retry` | Retry up to `max_retries` times (required field), then abort pipeline. |
+| `abort_pipeline` | Stop immediately. Log full error context to pipeline run log. **Default.** |
 
 When `on_error` is not specified, the default behaviour is `abort_pipeline`.
 
@@ -112,7 +113,6 @@ Every `AilError` carries a stable `error_type` string used in NDJSON output and 
 
 Step types that are declared in the spec but not yet implemented in the current version are rejected at pipeline **load time** (validation), not at execution time. This ensures users see a clear `CONFIG_VALIDATION_FAILED` error immediately rather than a runtime abort.
 
-Currently unimplemented step types:
-- `skill:` — planned for v0.2+. Use `pipeline:` steps to compose pipelines.
+Currently, all declared step types are implemented. This section is retained for documenting future step types during their pre-implementation phase.
 
 ---

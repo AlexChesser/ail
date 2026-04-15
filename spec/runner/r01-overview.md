@@ -12,8 +12,6 @@
 
 ---
 
----
-
 ## Purpose
 
 This document defines the **AIL Runner Contract** — the behavioural specification that a CLI tool must satisfy to be considered AIL-compliant and work with `ail`'s built-in generic adapter without requiring a custom implementation.

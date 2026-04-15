@@ -314,6 +314,20 @@ exit code: 3
 
 ---
 
+## 24.11 Summary
+
+| Aspect | Specification |
+|--------|---------------|
+| **Command** | `ail log [run_id] [--format <fmt>] [--follow]` |
+| **Default format** | markdown (ail-log/1) |
+| **Project scoping** | CWD-bound; SHA-1 hash of absolute path |
+| **Default run_id** | Most recent for current project |
+| **stdout** | Clean ail-log output only |
+| **stderr** | Errors and warnings only |
+| **Exit codes** | 0=success, 1=not found, 2=DB error, 3=invalid args |
+| **--follow behavior** | Stream until completion; exit on final step or error |
+| **Version compatibility** | Unknown flags → error; future directives silently skipped by old parsers |
+
 ---
 
 # 25. The `ail logs` Command (Plural)
@@ -437,18 +451,4 @@ Sessions are returned only if at least one of their steps matches the FTS query.
 | Use case | Deep inspection; live tail of a specific run | Browse history; find a `run_id` |
 
 ---
-
-## 24.11 Summary
-
-| Aspect | Specification |
-|--------|---------------|
-| **Command** | `ail log [run_id] [--format <fmt>] [--follow]` |
-| **Default format** | markdown (ail-log/1) |
-| **Project scoping** | CWD-bound; SHA-1 hash of absolute path |
-| **Default run_id** | Most recent for current project |
-| **stdout** | Clean ail-log output only |
-| **stderr** | Errors and warnings only |
-| **Exit codes** | 0=success, 1=not found, 2=DB error, 3=invalid args |
-| **--follow behavior** | Stream until completion; exit on final step or error |
-| **Version compatibility** | Unknown flags → error; future directives silently skipped by old parsers |
 
