@@ -21,7 +21,7 @@ pub(in crate::executor) fn execute<O: StepObserver>(
     skill_name: &str,
     step: &Step,
     session: &mut Session,
-    runner: &dyn Runner,
+    runner: &(dyn Runner + Sync),
     step_id: &str,
     step_index: usize,
     total_steps: usize,

@@ -10,6 +10,7 @@ mod dispatch;
 mod events;
 mod headless;
 mod helpers;
+mod parallel;
 
 pub use controlled::execute_with_control;
 pub use events::{ExecuteOutcome, ExecutionControl, ExecutorEvent};

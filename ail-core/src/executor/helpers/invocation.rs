@@ -15,7 +15,7 @@ use crate::session::{Session, TurnEntry};
 /// unconditionally runs the runner and logs the result. It does not recheck.
 pub fn run_invocation_step(
     session: &mut Session,
-    runner: &dyn Runner,
+    runner: &(dyn Runner + Sync),
     prompt: &str,
     options: InvokeOptions,
 ) -> Result<RunResult, AilError> {

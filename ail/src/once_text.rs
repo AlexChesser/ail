@@ -7,7 +7,7 @@ use ail_core::runner::{InvokeOptions, Runner};
 /// per-step progress, thinking blocks, and/or responses as they arrive.
 pub fn run_once_text(
     session: &mut ail_core::session::Session,
-    runner: &dyn Runner,
+    runner: &(dyn Runner + Sync),
     prompt: &str,
     show_thinking: bool,
     watch: bool,
@@ -54,7 +54,7 @@ pub fn run_once_text(
 /// Lean/quiet path: no per-step output, just print the final response(s), with a subtle footer.
 fn run_once_text_quiet(
     session: &mut ail_core::session::Session,
-    runner: &dyn Runner,
+    runner: &(dyn Runner + Sync),
     has_invocation_step: bool,
     run_start: std::time::Instant,
 ) {
@@ -106,7 +106,7 @@ fn run_once_text_quiet(
 /// Show-work summary mode: print one line per completed step after execution.
 fn run_once_text_show_work(
     session: &mut ail_core::session::Session,
-    runner: &dyn Runner,
+    runner: &(dyn Runner + Sync),
     run_start: std::time::Instant,
 ) {
     match ail_core::executor::execute(session, runner) {
@@ -166,7 +166,7 @@ fn run_once_text_show_work(
 /// never blocks; events are drained after it returns.
 fn run_once_text_verbose(
     session: &mut ail_core::session::Session,
-    runner: &dyn Runner,
+    runner: &(dyn Runner + Sync),
     show_thinking: bool,
     watch: bool,
 ) {

@@ -9,7 +9,11 @@ use ail_core::runner::{InvokeOptions, Runner};
 ///
 /// Output clearly labels each step with `[DRY RUN]` and shows the resolved prompt
 /// or shell command that would be sent.
-pub fn run_dry_run(session: &mut ail_core::session::Session, runner: &dyn Runner, prompt: &str) {
+pub fn run_dry_run(
+    session: &mut ail_core::session::Session,
+    runner: &(dyn Runner + Sync),
+    prompt: &str,
+) {
     println!("[DRY RUN] Pipeline: {}", pipeline_label(session));
     println!("[DRY RUN] Run ID: {}", session.run_id);
     println!("[DRY RUN] Invocation prompt: {}", truncate(prompt, 200));

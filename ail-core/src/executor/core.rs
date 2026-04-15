@@ -8,17 +8,18 @@
 #![allow(clippy::result_large_err)]
 
 use crate::config::domain::{
-    ActionKind, Condition, ConditionExpr, ContextSource, OnError, OnMaxItems, ResultAction, Step,
-    StepBody, StepId, MAX_LOOP_DEPTH,
+    ActionKind, Condition, ConditionExpr, ContextSource, JoinErrorMode, OnError, OnMaxItems,
+    ResultAction, Step, StepBody, StepId, MAX_LOOP_DEPTH,
 };
 use crate::error::AilError;
-use crate::runner::{InvokeOptions, RunResult, Runner};
+use crate::runner::{CancelToken, InvokeOptions, RunResult, Runner};
 use crate::session::turn_log::TurnEntry;
 use crate::session::{DoWhileContext, ForEachContext, Session};
 
 use super::dispatch;
 use super::events::ExecuteOutcome;
 use super::helpers::{evaluate_condition, evaluate_on_result};
+use super::parallel;
 
 // ── Observer trait ────────────────────────────────────────────────────────────
 
@@ -230,10 +231,10 @@ impl StepObserver for NullObserver {
 ///
 /// Returns `Some(ResultAction)` if the step's on_result matched and the caller
 /// should handle that action, or `None` if no on_result matched / no on_result defined.
-fn execute_single_step<O: StepObserver>(
+pub(super) fn execute_single_step<O: StepObserver>(
     step: &Step,
     session: &mut Session,
-    runner: &dyn Runner,
+    runner: &(dyn Runner + Sync),
     observer: &mut O,
     depth: usize,
     total_steps: usize,
@@ -259,16 +260,13 @@ fn execute_single_step<O: StepObserver>(
         return Ok(None);
     }
 
-    // action: join — synchronization barrier, handled by the parallel execution engine
-    // in execute_core(). If we reach here, the join logic in execute_core() should have
-    // already processed this step. This arm is a safeguard for direct calls.
+    // action: join — synchronization barrier. Handled in execute_core_with_parallel
+    // before this function is reached. If a join step reaches here, it means there
+    // were no async steps to coordinate; produce an empty join entry as a no-op.
     if let StepBody::Action(ActionKind::Join { .. }) = &step.body {
-        // Join steps are processed by the parallel execution coordinator, not dispatched
-        // as individual steps. If this is reached from a non-parallel context (e.g. a
-        // pipeline with action:join but no async steps), produce an empty entry.
         let entry = TurnEntry {
             step_id: step_id.clone(),
-            prompt: "join".to_string(),
+            prompt: "join (no async deps)".to_string(),
             response: Some(String::new()),
             ..Default::default()
         };
@@ -630,7 +628,7 @@ fn execute_single_step<O: StepObserver>(
 fn execute_chain_steps<O: StepObserver>(
     chain: &[Step],
     session: &mut Session,
-    runner: &dyn Runner,
+    runner: &(dyn Runner + Sync),
     observer: &mut O,
     depth: usize,
 ) -> Result<(), AilError> {
@@ -692,7 +690,7 @@ fn execute_do_while<O: StepObserver>(
     exit_when: &ConditionExpr,
     inner_steps: &[Step],
     session: &mut Session,
-    runner: &dyn Runner,
+    runner: &(dyn Runner + Sync),
     observer: &mut O,
     depth: usize,
 ) -> Result<TurnEntry, AilError> {
@@ -741,7 +739,7 @@ fn execute_do_while_inner<O: StepObserver>(
     exit_when: &ConditionExpr,
     inner_steps: &[Step],
     session: &mut Session,
-    runner: &dyn Runner,
+    runner: &(dyn Runner + Sync),
     observer: &mut O,
     depth: usize,
 ) -> Result<TurnEntry, AilError> {
@@ -983,7 +981,7 @@ fn execute_for_each<O: StepObserver>(
     on_max_items: &OnMaxItems,
     inner_steps: &[Step],
     session: &mut Session,
-    runner: &dyn Runner,
+    runner: &(dyn Runner + Sync),
     observer: &mut O,
     depth: usize,
 ) -> Result<TurnEntry, AilError> {
@@ -1076,7 +1074,7 @@ fn execute_for_each_inner<O: StepObserver>(
     effective_count: u64,
     inner_steps: &[Step],
     session: &mut Session,
-    runner: &dyn Runner,
+    runner: &(dyn Runner + Sync),
     observer: &mut O,
     depth: usize,
 ) -> Result<TurnEntry, AilError> {
@@ -1356,7 +1354,7 @@ fn validate_input_schema(
 /// Early exit only via explicit declared outcomes — never silent failures.
 pub(super) fn execute_core<O: StepObserver>(
     session: &mut Session,
-    runner: &dyn Runner,
+    runner: &(dyn Runner + Sync),
     observer: &mut O,
     depth: usize,
 ) -> Result<ExecuteOutcome, AilError> {
@@ -1373,98 +1371,492 @@ pub(super) fn execute_core<O: StepObserver>(
     // while iterating step bodies.
     let steps: Vec<_> = session.pipeline.steps.clone();
 
+    // Fast path: if no async steps, take the sequential path. This avoids the
+    // scoped-thread machinery entirely for the common case.
+    let has_async = steps.iter().any(|s| s.async_step);
+    if !has_async {
+        return execute_core_sequential(session, runner, observer, depth, &steps, total_steps);
+    }
+
+    execute_core_with_parallel(session, runner, observer, depth, &steps, total_steps)
+}
+
+/// Sequential execution path (no async steps). Preserves the pre-§29 behavior.
+fn execute_core_sequential<O: StepObserver>(
+    session: &mut Session,
+    runner: &(dyn Runner + Sync),
+    observer: &mut O,
+    depth: usize,
+    steps: &[Step],
+    total_steps: usize,
+) -> Result<ExecuteOutcome, AilError> {
     for (step_index, step) in steps.iter().enumerate() {
-        let step_id = step.id.as_str().to_string();
-
-        // Evaluate the condition — `None` means always run.
-        let condition_skip = if let Some(ref cond) = step.condition {
-            !evaluate_condition(cond, session, &step_id)?
-        } else {
-            false
-        };
-
-        match observer.before_step(&step_id, step_index, condition_skip) {
-            BeforeStepAction::Run => {}
-            BeforeStepAction::Skip => continue,
-            BeforeStepAction::Stop => break,
-        }
-
-        tracing::info!(run_id = %session.run_id, step_id = %step_id, "executing step");
-
-        // Execute the step (including before/then chains) and get on_result action.
-        let matched_action = execute_single_step(
+        match dispatch_top_level_step(
             step,
+            step_index,
             session,
             runner,
             observer,
             depth,
             total_steps,
-            step_index,
-        )?;
-
-        // Handle on_result action at the top-level pipeline level.
-        if let Some(action) = matched_action {
-            let pipeline_base_dir_buf: Option<std::path::PathBuf> = session
-                .pipeline
-                .source
-                .as_deref()
-                .and_then(|p| p.parent())
-                .map(|p| p.to_path_buf());
-            let pipeline_base_dir = pipeline_base_dir_buf.as_deref();
-
-            match action {
-                ResultAction::Continue => {}
-                ResultAction::Break => {
-                    tracing::info!(
-                        run_id = %session.run_id,
-                        step_id = %step_id,
-                        "on_result break — stopping pipeline early"
-                    );
-                    let outcome = ExecuteOutcome::Break {
-                        step_id: step_id.clone(),
-                    };
-                    observer.on_pipeline_done(&outcome);
-                    return Ok(outcome);
-                }
-                ResultAction::AbortPipeline => {
-                    let err = AilError::PipelineAborted {
-                        detail: format!("Step '{step_id}' on_result fired abort_pipeline"),
-                        context: Some(crate::error::ErrorContext::for_step(
-                            &session.run_id,
-                            &step_id,
-                        )),
-                    };
-                    observer.on_pipeline_error(&err);
-                    return Err(err);
-                }
-                ResultAction::PauseForHuman => {
-                    observer.on_result_pause(&step_id, step.message.as_deref());
-                }
-                ResultAction::Pipeline {
-                    ref path,
-                    ref prompt,
-                } => {
-                    // Use a derived step ID so the sub-pipeline's response is
-                    // addressable as `{{ step.<id>__on_result.response }}` without
-                    // shadowing the parent step's own turn log entry (SPEC §11).
-                    let on_result_step_id = format!("{step_id}__on_result");
-                    let sub_entry = dispatch::sub_pipeline::execute_sub_pipeline(
-                        path,
-                        prompt.as_deref(),
-                        &on_result_step_id,
-                        session,
-                        runner,
-                        depth,
-                        pipeline_base_dir,
-                    )
-                    .inspect_err(|e| observer.on_pipeline_error(e))?;
-                    session.turn_log.append(sub_entry);
-                }
-            }
+        )? {
+            LoopControl::Continue => {}
+            LoopControl::Skip => continue,
+            LoopControl::Break => break,
+            LoopControl::Return(outcome) => return Ok(outcome),
         }
     }
 
     let outcome = ExecuteOutcome::Completed;
     observer.on_pipeline_done(&outcome);
     Ok(outcome)
+}
+
+/// Parallel execution path (SPEC §29). Wraps the iteration in
+/// [`std::thread::scope`] so async steps can be spawned as scoped threads
+/// that run concurrently with subsequent sequential steps.
+fn execute_core_with_parallel<O: StepObserver>(
+    session: &mut Session,
+    runner: &(dyn Runner + Sync),
+    observer: &mut O,
+    depth: usize,
+    steps: &[Step],
+    total_steps: usize,
+) -> Result<ExecuteOutcome, AilError> {
+    let concurrent_group = parallel::new_concurrent_group_id();
+    let cancel_token = CancelToken::new();
+    let max_concurrency = session.pipeline.max_concurrency;
+
+    // Semaphore enforcing the pipeline-wide `defaults.max_concurrency` cap.
+    let effective_max = max_concurrency
+        .map(|n| n as usize)
+        .filter(|n| *n > 0)
+        .unwrap_or(steps.len().max(1));
+    let semaphore = std::sync::Arc::new(parallel::ConcurrencySemaphore::new(effective_max));
+
+    let outcome_cell: std::cell::RefCell<Option<Result<ExecuteOutcome, AilError>>> =
+        std::cell::RefCell::new(None);
+
+    std::thread::scope(|scope| {
+        // step_id → launch metadata for in-flight async branches.
+        let mut in_flight: std::collections::HashMap<String, AsyncHandle> =
+            std::collections::HashMap::new();
+
+        for (step_index, step) in steps.iter().enumerate() {
+            let step_id = step.id.as_str().to_string();
+
+            // Evaluate condition — `None` means always run.
+            let condition_skip = match step.condition {
+                Some(ref cond) => match evaluate_condition(cond, session, &step_id) {
+                    Ok(v) => !v,
+                    Err(e) => {
+                        *outcome_cell.borrow_mut() = Some(Err(e));
+                        return;
+                    }
+                },
+                None => false,
+            };
+
+            match observer.before_step(&step_id, step_index, condition_skip) {
+                BeforeStepAction::Run => {}
+                BeforeStepAction::Skip => continue,
+                BeforeStepAction::Stop => break,
+            }
+
+            // ── Async launch ─────────────────────────────────────────────
+            if step.async_step {
+                let launched_at = parallel::iso8601(std::time::SystemTime::now());
+                // Branches observe a snapshot of the session at launch time.
+                let isolated_http = !step.resume;
+                let branch_session = session.fork_for_branch(isolated_http);
+                let step_clone = step.clone();
+                let sem = std::sync::Arc::clone(&semaphore);
+                let ct = cancel_token.clone();
+                let group = concurrent_group.clone();
+                let launched_at_c = launched_at.clone();
+
+                let handle = scope.spawn(move || {
+                    if !sem.acquire(&ct) || ct.is_cancelled() {
+                        let now = parallel::iso8601(std::time::SystemTime::now());
+                        return parallel::BranchResult {
+                            step_id: step_clone.id.as_str().to_string(),
+                            outcome: Err(AilError::runner_cancelled(format!(
+                                "Step '{}' cancelled by sibling failure (fail_fast)",
+                                step_clone.id.as_str()
+                            ))),
+                            launched_at: launched_at_c.clone(),
+                            completed_at: now,
+                            extra_entries: vec![],
+                        };
+                    }
+
+                    let mut branch_session = branch_session;
+                    let mut null_obs = NullObserver;
+                    let parent_count = branch_session.turn_log.entries().len();
+                    let res = execute_single_step(
+                        &step_clone,
+                        &mut branch_session,
+                        runner,
+                        &mut null_obs,
+                        depth,
+                        1,
+                        0,
+                    );
+                    let completed_at = parallel::iso8601(std::time::SystemTime::now());
+                    sem.release();
+
+                    let mut branch_entries: Vec<TurnEntry> =
+                        branch_session.turn_log.entries().to_vec();
+                    if branch_entries.len() >= parent_count {
+                        branch_entries.drain(..parent_count);
+                    }
+
+                    let outcome = match res {
+                        Ok(_) => {
+                            if let Some(mut entry) = branch_entries.pop() {
+                                entry.concurrent_group = Some(group.clone());
+                                entry.launched_at = Some(launched_at_c.clone());
+                                entry.completed_at = Some(completed_at.clone());
+                                Ok(entry)
+                            } else {
+                                Ok(TurnEntry {
+                                    step_id: step_clone.id.as_str().to_string(),
+                                    prompt: String::new(),
+                                    response: Some(String::new()),
+                                    concurrent_group: Some(group.clone()),
+                                    launched_at: Some(launched_at_c.clone()),
+                                    completed_at: Some(completed_at.clone()),
+                                    ..Default::default()
+                                })
+                            }
+                        }
+                        Err(e) => Err(e),
+                    };
+
+                    parallel::BranchResult {
+                        step_id: step_clone.id.as_str().to_string(),
+                        outcome,
+                        launched_at: launched_at_c,
+                        completed_at,
+                        extra_entries: branch_entries,
+                    }
+                });
+
+                in_flight.insert(
+                    step_id.clone(),
+                    AsyncHandle {
+                        handle,
+                        launched_at,
+                    },
+                );
+                continue;
+            }
+
+            // ── Dependency barrier ───────────────────────────────────────
+            // Collect any in-flight async results this step depends on.
+            let mut branch_results: Vec<parallel::BranchResult> = Vec::new();
+            if !step.depends_on.is_empty() {
+                for dep_id in &step.depends_on {
+                    if let Some(ah) = in_flight.remove(dep_id.as_str()) {
+                        match ah.handle.join() {
+                            Ok(br) => branch_results.push(br),
+                            Err(_) => {
+                                *outcome_cell.borrow_mut() = Some(Err(AilError::runner_failed(
+                                    format!("Async branch '{}' panicked", dep_id.as_str()),
+                                )));
+                                return;
+                            }
+                        }
+                    }
+                }
+
+                // Append successful branch entries to the main session's turn log.
+                // Failed branches do not produce entries here — their error surfaces
+                // via the join's on_error handling below.
+                for br in &branch_results {
+                    if let Ok(entry) = &br.outcome {
+                        session.turn_log.append(entry.clone());
+                        for extra in &br.extra_entries {
+                            session.turn_log.append(extra.clone());
+                        }
+                    }
+                }
+            }
+
+            // ── Join step: merge branch results, evaluate on_result ──────
+            if parallel::is_join_step(step) {
+                let mode = parallel::join_error_mode(step)
+                    .cloned()
+                    .unwrap_or(JoinErrorMode::FailFast);
+
+                // fail_fast: if any branch failed, signal cancel for any
+                // later-arriving branches and surface the error via on_error.
+                let had_failure = branch_results.iter().any(|b| b.outcome.is_err());
+                if had_failure && matches!(mode, JoinErrorMode::FailFast) {
+                    cancel_token.cancel();
+                }
+
+                let deps_in_order: Vec<&str> = step.depends_on.iter().map(|s| s.as_str()).collect();
+
+                let join_entry_res =
+                    parallel::merge_join_results(step, &deps_in_order, &branch_results, &mode);
+
+                let join_entry = match join_entry_res {
+                    Ok(e) => e,
+                    Err(e) => {
+                        // Propagate via on_error handling path. For fail_fast
+                        // this is typically PipelineAborted.
+                        observer.on_step_failed(&step_id, e.detail());
+                        *outcome_cell.borrow_mut() = Some(Err(e));
+                        return;
+                    }
+                };
+
+                // Run before: chain (no-op for join since it's a synthetic step).
+                // Validate output_schema against merged response if declared.
+                if let Some(ref schema) = step.output_schema {
+                    let response = join_entry.response.as_deref().unwrap_or("");
+                    if let Err(e) = validate_join_output_schema(response, schema, &step_id) {
+                        observer.on_step_failed(&step_id, e.detail());
+                        *outcome_cell.borrow_mut() = Some(Err(e));
+                        return;
+                    }
+                }
+
+                session.turn_log.append(join_entry);
+
+                // Evaluate on_result against the merged response.
+                let matched_action = if let Some(ref branches) = step.on_result {
+                    let last_entry = session.turn_log.entries().last();
+                    last_entry.and_then(|e| evaluate_on_result(branches, e, None))
+                } else {
+                    None
+                };
+
+                if let Some(action) = matched_action {
+                    match handle_on_result_action(
+                        action, &step_id, step, session, runner, observer, depth,
+                    ) {
+                        Ok(LoopControl::Continue) => {}
+                        Ok(LoopControl::Skip) => continue,
+                        Ok(LoopControl::Break) => break,
+                        Ok(LoopControl::Return(outcome)) => {
+                            *outcome_cell.borrow_mut() = Some(Ok(outcome));
+                            return;
+                        }
+                        Err(e) => {
+                            *outcome_cell.borrow_mut() = Some(Err(e));
+                            return;
+                        }
+                    }
+                }
+                continue;
+            }
+
+            // ── Normal sequential step ──────────────────────────────────
+            // Condition + before_step were already evaluated above; go
+            // straight to execute_single_step.
+            tracing::info!(run_id = %session.run_id, step_id = %step_id, "executing step");
+            let matched_action = match execute_single_step(
+                step,
+                session,
+                runner,
+                observer,
+                depth,
+                total_steps,
+                step_index,
+            ) {
+                Ok(a) => a,
+                Err(e) => {
+                    *outcome_cell.borrow_mut() = Some(Err(e));
+                    return;
+                }
+            };
+
+            if let Some(action) = matched_action {
+                match handle_on_result_action(
+                    action, &step_id, step, session, runner, observer, depth,
+                ) {
+                    Ok(LoopControl::Continue) => {}
+                    Ok(LoopControl::Skip) => continue,
+                    Ok(LoopControl::Break) => break,
+                    Ok(LoopControl::Return(outcome)) => {
+                        *outcome_cell.borrow_mut() = Some(Ok(outcome));
+                        return;
+                    }
+                    Err(e) => {
+                        *outcome_cell.borrow_mut() = Some(Err(e));
+                        return;
+                    }
+                }
+            }
+        }
+
+        // Any remaining in-flight branches (e.g. pipeline ended without a
+        // join for them — should have been caught at parse time, but join
+        // them here to keep the scope clean).
+        let remaining: Vec<_> = in_flight.drain().collect();
+        for (_, ah) in remaining {
+            let _ = ah.handle.join();
+        }
+    });
+
+    if let Some(res) = outcome_cell.into_inner() {
+        return res;
+    }
+
+    let outcome = ExecuteOutcome::Completed;
+    observer.on_pipeline_done(&outcome);
+    Ok(outcome)
+}
+
+struct AsyncHandle<'scope> {
+    handle: std::thread::ScopedJoinHandle<'scope, parallel::BranchResult>,
+    #[allow(dead_code)]
+    launched_at: String,
+}
+
+enum LoopControl {
+    Continue,
+    Skip,
+    Break,
+    Return(ExecuteOutcome),
+}
+
+/// Dispatch a single top-level step the same way the pre-§29 loop did.
+/// Returns a [`LoopControl`] signalling how the outer loop should proceed.
+#[allow(clippy::too_many_arguments)]
+fn dispatch_top_level_step<O: StepObserver>(
+    step: &Step,
+    step_index: usize,
+    session: &mut Session,
+    runner: &(dyn Runner + Sync),
+    observer: &mut O,
+    depth: usize,
+    total_steps: usize,
+) -> Result<LoopControl, AilError> {
+    let step_id = step.id.as_str().to_string();
+
+    // Evaluate the condition — `None` means always run.
+    let condition_skip = if let Some(ref cond) = step.condition {
+        !evaluate_condition(cond, session, &step_id)?
+    } else {
+        false
+    };
+
+    match observer.before_step(&step_id, step_index, condition_skip) {
+        BeforeStepAction::Run => {}
+        BeforeStepAction::Skip => return Ok(LoopControl::Skip),
+        BeforeStepAction::Stop => return Ok(LoopControl::Break),
+    }
+
+    tracing::info!(run_id = %session.run_id, step_id = %step_id, "executing step");
+
+    let matched_action = execute_single_step(
+        step,
+        session,
+        runner,
+        observer,
+        depth,
+        total_steps,
+        step_index,
+    )?;
+
+    if let Some(action) = matched_action {
+        handle_on_result_action(action, &step_id, step, session, runner, observer, depth)
+    } else {
+        Ok(LoopControl::Continue)
+    }
+}
+
+fn handle_on_result_action<O: StepObserver>(
+    action: ResultAction,
+    step_id: &str,
+    step: &Step,
+    session: &mut Session,
+    runner: &(dyn Runner + Sync),
+    observer: &mut O,
+    depth: usize,
+) -> Result<LoopControl, AilError> {
+    let pipeline_base_dir_buf: Option<std::path::PathBuf> = session
+        .pipeline
+        .source
+        .as_deref()
+        .and_then(|p| p.parent())
+        .map(|p| p.to_path_buf());
+    let pipeline_base_dir = pipeline_base_dir_buf.as_deref();
+
+    match action {
+        ResultAction::Continue => Ok(LoopControl::Continue),
+        ResultAction::Break => {
+            tracing::info!(
+                run_id = %session.run_id,
+                step_id = %step_id,
+                "on_result break — stopping pipeline early"
+            );
+            let outcome = ExecuteOutcome::Break {
+                step_id: step_id.to_string(),
+            };
+            observer.on_pipeline_done(&outcome);
+            Ok(LoopControl::Return(outcome))
+        }
+        ResultAction::AbortPipeline => {
+            let err = AilError::PipelineAborted {
+                detail: format!("Step '{step_id}' on_result fired abort_pipeline"),
+                context: Some(crate::error::ErrorContext::for_step(
+                    &session.run_id,
+                    step_id,
+                )),
+            };
+            observer.on_pipeline_error(&err);
+            Err(err)
+        }
+        ResultAction::PauseForHuman => {
+            observer.on_result_pause(step_id, step.message.as_deref());
+            Ok(LoopControl::Continue)
+        }
+        ResultAction::Pipeline {
+            ref path,
+            ref prompt,
+        } => {
+            let on_result_step_id = format!("{step_id}__on_result");
+            let sub_entry = dispatch::sub_pipeline::execute_sub_pipeline(
+                path,
+                prompt.as_deref(),
+                &on_result_step_id,
+                session,
+                runner,
+                depth,
+                pipeline_base_dir,
+            )
+            .inspect_err(|e| observer.on_pipeline_error(e))?;
+            session.turn_log.append(sub_entry);
+            Ok(LoopControl::Continue)
+        }
+    }
+}
+
+/// Validate a join step's merged output against its `output_schema`.
+fn validate_join_output_schema(
+    response: &str,
+    schema: &serde_json::Value,
+    step_id: &str,
+) -> Result<(), AilError> {
+    let parsed: serde_json::Value = serde_json::from_str(response).map_err(|e| {
+        AilError::config_validation(format!(
+            "Join step '{step_id}' output is not valid JSON: {e}"
+        ))
+    })?;
+    let validator = jsonschema::validator_for(schema).map_err(|e| {
+        AilError::config_validation(format!(
+            "Join step '{step_id}' output_schema is not a valid JSON Schema: {e}"
+        ))
+    })?;
+    if !validator.is_valid(&parsed) {
+        return Err(AilError::OutputSchemaValidationFailed {
+            detail: format!("Join step '{step_id}' merged output does not match output_schema"),
+            context: None,
+        });
+    }
+    Ok(())
 }

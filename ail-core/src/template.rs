@@ -154,6 +154,14 @@ fn resolve_variable(variable: &str, session: &Session) -> Result<String, AilErro
                             }
                         }
                     }
+
+                    // SPEC §29.6: try dotted-path access on join step responses.
+                    // `step.<join_id>.<dep_id>.<field>` — walk JSON path after
+                    // `<join_id>`'s response, if that step's response is JSON.
+                    if let Some(v) = resolve_join_dotted_path(session, rest) {
+                        return Ok(v);
+                    }
+
                     // Return the original error.
                     return result;
                 }
@@ -256,5 +264,58 @@ fn resolve_step_field(
         _ => Err(unresolved(format!(
             "'{{ {variable} }}' is not a recognised template variable"
         ))),
+    }
+}
+
+/// Resolve a dotted-path reference into a join step's structured response
+/// (SPEC §29.6). Given `<step_id>.<a>.<b>.<c>...`, tries progressively
+/// shorter prefixes — `<step_id>`, `<step_id>.<a>`, etc. — until one matches
+/// a step with a JSON response, then walks the remaining path through the
+/// JSON value.
+///
+/// Returns `None` if no prefix matches a step with JSON content, or if the
+/// path does not exist inside the JSON. The caller falls back to its
+/// original error.
+fn resolve_join_dotted_path(session: &Session, rest: &str) -> Option<String> {
+    // `rest` is everything after `step.` — e.g. "checks_done.lint.clean".
+    let parts: Vec<&str> = rest.split('.').collect();
+    if parts.len() < 3 {
+        return None;
+    }
+
+    // Try splits: `parts[0]` as step id, rest as JSON path; then
+    // `parts[0..2]` as step id, `parts[2..]` as path; etc.
+    for split_at in 1..parts.len() {
+        let step_id = parts[..split_at].join(".");
+        let path = &parts[split_at..];
+        let response = session.turn_log.response_for_step(&step_id)?;
+        let json: serde_json::Value = match serde_json::from_str(response) {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
+        if let Some(value) = walk_json_path(&json, path) {
+            return Some(render_json_leaf(&value));
+        }
+    }
+    None
+}
+
+/// Walk a dotted-path sequence through a JSON value. Returns the final
+/// value, or `None` if any segment is missing.
+fn walk_json_path(root: &serde_json::Value, path: &[&str]) -> Option<serde_json::Value> {
+    let mut cur = root.clone();
+    for seg in path {
+        cur = cur.get(*seg).cloned()?;
+    }
+    Some(cur)
+}
+
+/// Render a JSON leaf as a plain string for template substitution.
+/// Strings are returned verbatim (no quotes); other scalars use JSON
+/// canonical form.
+fn render_json_leaf(v: &serde_json::Value) -> String {
+    match v {
+        serde_json::Value::String(s) => s.clone(),
+        other => other.to_string(),
     }
 }

@@ -21,7 +21,10 @@ use super::events::ExecuteOutcome;
 ///
 /// SPEC §4.2 core invariant: once execution begins, all steps run in order.
 /// Early exit only via explicit declared outcomes — never silent failures.
-pub fn execute(session: &mut Session, runner: &dyn Runner) -> Result<ExecuteOutcome, AilError> {
+pub fn execute(
+    session: &mut Session,
+    runner: &(dyn Runner + Sync),
+) -> Result<ExecuteOutcome, AilError> {
     execute_core(session, runner, &mut NullObserver, 0)
 }
 

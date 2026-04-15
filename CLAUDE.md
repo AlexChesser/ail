@@ -155,6 +155,9 @@ If nothing found → passthrough mode (safe zero-config default).
 | `{{ for_each.<as_name> }}` | Current item value under the declared `as:` name (e.g. `{{ for_each.task }}` when `as: task`) |
 | `{{ for_each.index }}` | Current 1-based item index (only inside `for_each:` body) |
 | `{{ for_each.total }}` | Total number of items in the collection, after `max_items` cap (only inside `for_each:` body) |
+| `{{ step.<join_id>.response }}` | Concatenated string output of an `action: join` step (SPEC §29.4) |
+| `{{ step.<join_id>.<dep_id>.response }}` | Full structured output of a named dependency in a structured join (SPEC §29.5) |
+| `{{ step.<join_id>.<dep_id>.<field> }}` | Specific field within a namespaced structured dependency output (SPEC §29.5) |
 
 Note: `{{ session.invocation_prompt }}` is a supported alias for `{{ step.invocation.prompt }}` in the implementation but is deprecated — prefer the canonical form.
 
@@ -185,6 +188,7 @@ Unresolved variables **abort with a typed error** — never silently empty.
 - `pipeline:` step bodies support both file-based sub-pipelines and named pipeline references (SPEC §9, §10)
 - `do_while:` fully implemented (§27): parse-time validation, executor loop, template vars, step ID namespacing, break/abort_pipeline, shared depth guard (MAX_LOOP_DEPTH=8). `on_max_iterations` field defaults to `abort_pipeline` (configurable variant not yet implemented). Controlled-mode executor events deferred.
 - `for_each:` fully implemented (§28): parse-time validation, runtime array iteration, item scope, template vars, break/abort_pipeline, max_items cap, shared depth guard with do_while. Controlled-mode executor events deferred.
+- `async:` / `depends_on:` / `action: join` fully implemented (§29): `std::thread::scope`-based parallel dispatch, session forking (clean HTTP store for `resume: false`), string-join (§29.4) and structured-join (§29.5), `on_error: fail_fast`/`wait_for_all`, `defaults.max_concurrency` semaphore, all parse-time validation rules (orphan detection, forward refs, cycle detection, concurrent resume conflict, structured-join compatibility), turn log `concurrent_group`/`launched_at`/`completed_at`, dotted-path template resolution (`{{ step.<join>.<dep>.<field> }}`). Mid-flight runner-level cancellation for `fail_fast` is best-effort (branches complete; first error propagates). Controlled-mode executor events for async launches are deferred.
 - `output_schema` / `input_schema` (§26): JSON Schema validation at parse time and runtime. `schema-as-file-path` variant (§26.1) not yet implemented — schemas must be inline.
 - `do_while[N]` indexed iteration access (§27.4) is specified but not implemented — template resolver only exposes the final iteration
 - `pipeline:` as alternative to inline `steps:` is supported in both `do_while:` and `for_each:` loop bodies

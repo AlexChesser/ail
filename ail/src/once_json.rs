@@ -12,7 +12,7 @@ use crate::control_bridge;
 /// as one JSON line. The invocation step (if host-managed) is also emitted as events.
 pub async fn run_once_json(
     session: &mut ail_core::session::Session,
-    runner: &dyn Runner,
+    runner: &(dyn Runner + Sync),
     prompt: &str,
 ) {
     use ail_core::executor::ExecutionControl;
