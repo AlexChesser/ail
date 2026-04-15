@@ -12,8 +12,8 @@ use std::sync::mpsc::Sender;
 use tracing::{debug, warn};
 
 use super::jsonrpc::{
-    self, InitializeParams, InitializeResult, InvokeParams, InvokeResult, JsonRpcRequest,
-    ParsedMessage, PermissionRespondParams, PluginCapabilities, RawJsonRpcMessage,
+    self, InitializeParams, InitializeResult, InvokeParams, InvokeResult, InvokeSamplingParams,
+    JsonRpcRequest, ParsedMessage, PermissionRespondParams, PluginCapabilities, RawJsonRpcMessage,
     StreamCostUpdateParams, StreamDeltaParams, StreamPermissionRequestParams, StreamThinkingParams,
     StreamToolResultParams, StreamToolUseParams,
 };
@@ -100,6 +100,14 @@ impl Runner for ProtocolRunner {
             model: options.model.clone(),
             system_prompt: options.system_prompt.clone(),
             tool_policy: tool_policy_json,
+            sampling: options.sampling.as_ref().map(|s| InvokeSamplingParams {
+                temperature: s.temperature,
+                top_p: s.top_p,
+                top_k: s.top_k,
+                max_tokens: s.max_tokens,
+                stop_sequences: s.stop_sequences.clone(),
+                thinking: s.thinking,
+            }),
         };
         let invoke_req = JsonRpcRequest::new(
             invoke_id,

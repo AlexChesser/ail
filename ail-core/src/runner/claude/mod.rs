@@ -149,6 +149,23 @@ impl ClaudeCliRunner {
         options: &InvokeOptions,
         hook_settings_file: Option<&std::path::Path>,
     ) -> SubprocessSpec {
+        fn quantize_effort(thinking: Option<f64>) -> Option<&'static str> {
+            // SPEC §30.4.2 — quartile quantization of `thinking: [0.0, 1.0]`
+            // to Claude CLI `--effort <low|medium|high|max>`. `0.0` omits the
+            // flag (let the CLI default apply).
+            let t = thinking?;
+            if t <= 0.0 {
+                None
+            } else if t <= 0.25 {
+                Some("low")
+            } else if t <= 0.50 {
+                Some("medium")
+            } else if t <= 0.75 {
+                Some("high")
+            } else {
+                Some("max")
+            }
+        }
         let exts = ClaudeInvokeExtensions::from_options(options);
         let base_url = exts.and_then(|e| e.base_url.as_deref());
         let auth_token = exts.and_then(|e| e.auth_token.as_deref());
@@ -214,6 +231,49 @@ impl ClaudeCliRunner {
         for entry in &options.append_system_prompt {
             args.push("--append-system-prompt".into());
             args.push(entry.clone());
+        }
+
+        // ── Sampling (SPEC §30.4.2) ──────────────────────────────────────────
+        //
+        // Claude CLI exposes only `--effort` (low|medium|high|max) for sampling
+        // control. Every other sampling field is warned-and-ignored — SPEC
+        // §30.4.1 requires warn-not-error so pipelines remain portable.
+        if let Some(s) = options.sampling.as_ref() {
+            if let Some(level) = quantize_effort(s.thinking) {
+                args.push("--effort".into());
+                args.push(level.to_string());
+            }
+            if s.temperature.is_some() {
+                tracing::warn!(
+                    "ClaudeCliRunner: sampling.temperature is not supported by the \
+                     claude CLI; ignoring"
+                );
+            }
+            if s.top_p.is_some() {
+                tracing::warn!(
+                    "ClaudeCliRunner: sampling.top_p is not supported by the claude \
+                     CLI; ignoring"
+                );
+            }
+            if s.top_k.is_some() {
+                tracing::warn!(
+                    "ClaudeCliRunner: sampling.top_k is not supported by the claude \
+                     CLI; ignoring"
+                );
+            }
+            if s.max_tokens.is_some() {
+                tracing::warn!(
+                    "ClaudeCliRunner: sampling.max_tokens is not supported by the \
+                     claude CLI; ignoring (this is distinct from --max-budget-usd, \
+                     which is a dollar cap, not a token cap)"
+                );
+            }
+            if s.stop_sequences.is_some() {
+                tracing::warn!(
+                    "ClaudeCliRunner: sampling.stop_sequences is not supported by \
+                     the claude CLI; ignoring"
+                );
+            }
         }
 
         // Permission HITL: register PreToolUse hooks when a settings file is provided.

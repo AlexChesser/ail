@@ -41,6 +41,19 @@ struct ChatRequest<'a> {
     stream: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     think: Option<bool>,
+    // ── Sampling parameters (SPEC §30.4.3) ───────────────────────────────────
+    #[serde(skip_serializing_if = "Option::is_none")]
+    temperature: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    top_p: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    top_k: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    max_tokens: Option<u64>,
+    /// OpenAI-compatible field name. Anthropic's native API uses `stop_sequences`;
+    /// the proxy layer is expected to translate. Ollama also accepts `stop`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    stop: Option<&'a [String]>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -286,11 +299,28 @@ impl Runner for HttpRunner {
             "HttpRunner: invoking"
         );
 
+        // Map sampling config (SPEC §30.4.3). `thinking` overrides the runner-wide
+        // `HttpRunnerConfig.think` for this invocation: any fraction >= 0.5 enables
+        // thinking, < 0.5 disables it. None falls through to the runner default.
+        let think = options
+            .sampling
+            .as_ref()
+            .and_then(|s| s.thinking)
+            .map(|t| t >= 0.5)
+            .or(self.config.think);
         let body = ChatRequest {
             model: &model,
             messages: &api_messages,
             stream: false,
-            think: self.config.think,
+            think,
+            temperature: options.sampling.as_ref().and_then(|s| s.temperature),
+            top_p: options.sampling.as_ref().and_then(|s| s.top_p),
+            top_k: options.sampling.as_ref().and_then(|s| s.top_k),
+            max_tokens: options.sampling.as_ref().and_then(|s| s.max_tokens),
+            stop: options
+                .sampling
+                .as_ref()
+                .and_then(|s| s.stop_sequences.as_deref()),
         };
 
         // Serialize request body on the caller thread (avoids serde in the worker).
