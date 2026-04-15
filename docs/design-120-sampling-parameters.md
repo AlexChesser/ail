@@ -392,9 +392,14 @@ struct ChatRequest<'a> {
 
 ## Open Questions for Review
 
-1. **Should `stop_sequences` merge or replace?** Current design: higher scope
-   *replaces* (not appends to) lower scope. Simpler; avoids surprising
-   accumulation. **Proposed**: replace (matches how `tools:` works).
+1. ~~`stop_sequences` merge vs replace~~ **Resolved**: replace semantics,
+   consistent with every other sampling field and with ail's `tools:`
+   override (§5). Authors setting `stop_sequences` at step level get the
+   list they wrote — no implicit accumulation from inherited scopes.
+   Spec §30.3.1 documents the rule and guides authors to put baseline
+   safety stops at the provider scope. Replace is strictly more expressive
+   than append (you can emulate append by copying; you cannot remove an
+   inherited stop under append).
 
 2. ~~`thinking` shape~~ **Resolved** (D7): decimal fraction `thinking: f64`
    in [0.0, 1.0]. YAML bool aliases: `true`→1.0, `false`→0.0. Each runner

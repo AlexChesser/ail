@@ -193,6 +193,43 @@ identical to `ProviderConfig.merge()` semantics (§15).
 2. `defaults.provider.sampling` (or `providers.<name>.sampling` when §15 lands)
 3. `step.sampling` — per-step override
 
+### 30.3.1 `stop_sequences` Replaces, Does Not Append
+
+`stop_sequences` is a list, but it follows the same replace semantics as
+every other field: a higher-precedence scope that sets `stop_sequences`
+**replaces** the entire list from lower scopes. It does not append.
+
+```yaml
+defaults:
+  provider:
+    sampling:
+      stop_sequences: ["Human:"]       # safety boundary
+
+pipeline:
+  - id: structured
+    sampling:
+      stop_sequences: ["</answer>"]    # REPLACES — "Human:" is gone
+```
+
+To keep inherited stops while adding new ones, include them explicitly:
+
+```yaml
+  - id: structured
+    sampling:
+      stop_sequences: ["Human:", "</answer>"]
+```
+
+**Rationale**: consistency with every other sampling field and with ail's
+`tools:` override (§5). Replace is strictly more expressive than append
+(you can emulate append by copying; you cannot remove an inherited stop
+under append semantics). Authors who need `stop_sequences` are generally
+operating at a level of detail where explicit lists aid clarity over
+implicit accumulation.
+
+**Guidance**: put critical safety stops (e.g., `"Human:"`) at the
+provider-scope `sampling:` block, and — when writing a step that overrides
+`stop_sequences` — remember to re-include the ones you still need.
+
 There is intentionally no `--temperature` CLI flag. Sampling is a pipeline
 design concern, not a runtime override. The `--model` CLI flag remains the
 appropriate runtime knob for switching model behavior.
