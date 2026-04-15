@@ -202,7 +202,7 @@ Rules are evaluated in declared order; the first match fires. Used when differen
 | Operator | Meaning |
 |---|---|
 | `contains: "TEXT"` | Response contains literal string (case-insensitive). |
-| `matches: "REGEX"` | Response matches regular expression. |
+| `matches: "REGEX"` | Response matches regular expression. Case-sensitive by default; use `(?i)` for case-insensitive. Shorthand for `expression: "{{ step.<id>.response }} matches '...'"`. See §12.2 for regex semantics. |
 | `starts_with: "TEXT"` | Response begins with literal string. |
 | `is_empty` | Response is blank or whitespace only. |
 | `exit_code: N` | Process exit code equals N. Valid on `shell:` sources within `context:` steps only. |
@@ -237,6 +237,16 @@ Rules are evaluated in declared order; the first match fires. Used when differen
       action: pause_for_human
       message: "Upstream rate-limited — human input required."
     - always
+      action: continue
+
+# Regex matching on stdout — catch either warning class with one branch.
+- id: lint
+  context:
+    shell: "cargo clippy"
+  on_result:
+    - expression: "{{ step.lint.stdout }} matches '(?i)warning|deprecated'"
+      action: pause_for_human
+    - exit_code: 0
       action: continue
 ```
 
