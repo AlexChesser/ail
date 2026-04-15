@@ -76,7 +76,7 @@ mod tests {
 
     #[test]
     fn dry_run_runner_default_trait() {
-        let runner = DryRunRunner::default();
+        let runner = DryRunRunner;
         let result = runner.invoke("test", InvokeOptions::default()).unwrap();
         assert!(result.response.contains("[DRY RUN]"));
     }

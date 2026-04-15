@@ -58,9 +58,11 @@ This creates a systematic feedback loop: the pipeline's prompts improve over tim
 
 ### Self-Modifying Pipelines
 
-> **Status: Deferred — post-POC. Significant design work required.**
+> **Status: Partially implemented — the minimum primitive (`action: reload_self`) ships in v0.3. Diff application, log injection, and FROM-layered modifications remain deferred.**
 >
 > Dependencies: stable pipeline execution (v0.0.1), parallel step execution (above), structured step I/O schemas (above), HITL approval flow (§13), hot reload mechanism (§22).
+>
+> **Spec correction (v0.3):** Earlier revisions framed hot reload as strictly "between runs" — i.e. a modified `.ail.yaml` would only take effect on the next `ail --once` invocation, never the current one. That framing was wrong. A minimum-viable mid-run reload is achievable with a single action and an anchor-by-ID resumption model; the full diff/FROM/log-injection machinery is not a prerequisite. Hot reload is now implemented (see below); the higher-level machinery remains deferred.
 
 #### The Core Vision
 
@@ -104,6 +106,78 @@ The hypothesis is runnable: a set of declared pipelines — linter step, test ru
 Either outcome is informative. A confirmed improvement validates the architectural claim. A null result prompts spec revision. The benchmark exists; the pipelines can be written.
 
 > **Near-term path:** The SWE-bench experiment does not require the self-modifying pipeline or the plugin system below. It requires only v0.1 primitives: `context: shell:` steps, `on_result` branching on exit codes, and the `--headless` flag. An external driver script iterates over benchmark tasks, calling `ail --headless --once "<task>" --pipeline swe-bench.yaml` per task. See §20 (v0.1 scope) for the target pipeline.
+
+#### Pipeline Hot Reload — `action: reload_self` (Implemented, v0.3)
+
+The minimum primitive that enables within-run self-modification. A pipeline step edits its own `.ail.yaml` on disk (via the runner's `Write`/`Edit` tools, a `context: shell:` step, or any other mechanism), and the subsequent `reload_self` step re-reads that file and swaps the running pipeline's step list in place.
+
+```yaml
+version: "1"
+pipeline:
+  - id: propose_step
+    prompt: |
+      Edit .ail.yaml to append a new step called `cleanup` that runs
+      `cargo clippy -- -D warnings` via context: shell:. Use the Edit tool.
+
+  - id: reload
+    action: reload_self
+
+  - id: cleanup_placeholder   # may not exist on first run — added by propose_step
+    condition: "{{ env.CLEANUP_ENABLED }} == 1"
+    context:
+      shell: echo "placeholder"
+```
+
+**Semantics**
+
+1. The `reload_self` step reads `session.pipeline.source` (the resolved absolute path of the active pipeline file).
+2. It calls the same `config::load()` used at startup — full DTO → validation → domain conversion, including `FROM` inheritance.
+3. On success, `session.pipeline` is atomically replaced with the reloaded value.
+4. The executor re-anchors by matching the reload step's own `id` against the new step list, and continues from the position immediately after that match.
+5. A `TurnEntry` is appended for the reload step with `prompt: "reload_self"` and `response` containing the before/after step count (audit trail).
+6. If the reloaded pipeline is invalid, the reload fails; the pipeline aborts via the step's declared `on_error` (default `abort_pipeline`).
+
+**Anchor-by-ID resumption**
+
+The reload step's ID must still exist in the reloaded pipeline — that is the anchor. Rationale:
+
+- The old step index is meaningless after reload (steps may have been inserted, removed, or reordered).
+- Matching by ID is the only stable identity the runtime has.
+- If the anchor ID is missing, the executor cannot safely determine where to resume and aborts with `ail:pipeline/reload-failed`.
+
+**Guardrails**
+
+| Guardrail | Behaviour |
+|---|---|
+| Source required | `reload_self` in passthrough mode (no `.ail.yaml` discovered) aborts with `ail:pipeline/reload-failed`. |
+| Reload cap | `MAX_RELOADS_PER_RUN = 16`. Once exceeded, further reloads abort. Prevents infinite self-rewrite loops. |
+| Anchor survival | The reload step's own `id` must exist in the reloaded pipeline; otherwise abort. |
+| Validation fidelity | Reload uses the same validator as startup. A reloaded pipeline that fails validation aborts the run with the validator's typed error. |
+| Top-level only | The reload signal is honoured by the top-level sequential loop. Inside `do_while:` / `for_each:` bodies and `before:`/`then:` chains, the reload is recorded and the pipeline reference is swapped, but the enclosing iteration continues against its frozen inner step list. The new pipeline is observed after control returns to the top level. |
+| Sequential dispatch only | Reload does not trigger inside the §29 parallel dispatch path — async branches work against a forked session snapshot and are unaffected. Declaring `async: true` on a `reload_self` step is not supported. |
+
+**Turn log**
+
+```json
+{
+  "step_id": "reload",
+  "prompt": "reload_self",
+  "response": "reloaded pipeline (3 -> 5 steps) from /abs/path/.ail.yaml"
+}
+```
+
+This makes self-modifications visible to downstream steps (they can reference `{{ step.reload.response }}`) and to post-hoc audit tooling.
+
+**What is still deferred**
+
+`reload_self` is the minimum — it trusts the step that edited the YAML. The following higher-level machinery layers on top and remains unimplemented:
+
+- `action: apply_pipeline_diff` — structured diff application with validation before write.
+- `context: run_log:` — log injection for reflection-style prompt steps.
+- `FROM`-layered modification — writing modifications as an inheriting layer rather than overwriting the base.
+- Rollback — reverting to the pre-reload pipeline if a subsequent step fails.
+
+These are additive: a future `apply_pipeline_diff` action would write a validated diff to disk and then internally invoke the same reload mechanism.
 
 #### Required Primitives (not yet specced)
 

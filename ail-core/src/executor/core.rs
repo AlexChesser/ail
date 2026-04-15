@@ -9,7 +9,7 @@
 
 use crate::config::domain::{
     ActionKind, Condition, ConditionExpr, ContextSource, JoinErrorMode, OnError, OnMaxItems,
-    ResultAction, Step, StepBody, StepId, MAX_LOOP_DEPTH,
+    ResultAction, Step, StepBody, StepId, MAX_LOOP_DEPTH, MAX_RELOADS_PER_RUN,
 };
 use crate::error::AilError;
 use crate::runner::{CancelToken, InvokeOptions, RunResult, Runner};
@@ -260,6 +260,13 @@ pub(super) fn execute_single_step<O: StepObserver>(
         return Ok(None);
     }
 
+    // action: reload_self — hot-reload the active pipeline from its source file
+    // on disk (SPEC §21). Handled inline: re-parse, swap session.pipeline, set
+    // reload_requested so the top-level sequential loop re-anchors after this step.
+    if let StepBody::Action(ActionKind::ReloadSelf) = &step.body {
+        return handle_reload_self(&step_id, session).map(|_| None);
+    }
+
     // action: join — synchronization barrier. Handled in execute_core_with_parallel
     // before this function is reached. If a join step reaches here, it means there
     // were no async steps to coordinate; produce an empty join entry as a no-op.
@@ -384,6 +391,10 @@ pub(super) fn execute_single_step<O: StepObserver>(
 
             StepBody::Action(ActionKind::Join { .. }) => {
                 unreachable!("Join handled above")
+            }
+
+            StepBody::Action(ActionKind::ReloadSelf) => {
+                unreachable!("ReloadSelf handled above")
             }
 
             StepBody::SubPipeline {
@@ -1381,30 +1392,73 @@ pub(super) fn execute_core<O: StepObserver>(
     execute_core_with_parallel(session, runner, observer, depth, &steps, total_steps)
 }
 
-/// Sequential execution path (no async steps). Preserves the pre-§29 behavior.
+/// Sequential execution path (no async steps). Preserves the pre-§29 behavior
+/// and additionally honours `session.reload_requested` (SPEC §21): after each
+/// step, if the flag is set, re-clone `session.pipeline.steps` and re-anchor
+/// the cursor by matching the current step's id in the reloaded list.
 fn execute_core_sequential<O: StepObserver>(
     session: &mut Session,
     runner: &(dyn Runner + Sync),
     observer: &mut O,
     depth: usize,
-    steps: &[Step],
-    total_steps: usize,
+    initial_steps: &[Step],
+    initial_total_steps: usize,
 ) -> Result<ExecuteOutcome, AilError> {
-    for (step_index, step) in steps.iter().enumerate() {
-        match dispatch_top_level_step(
-            step,
+    // Local mutable step list: starts as the caller's snapshot but may be
+    // re-cloned from session.pipeline.steps when a reload fires.
+    let mut steps: Vec<Step> = initial_steps.to_vec();
+    let mut total_steps = initial_total_steps;
+    let mut step_index: usize = 0;
+
+    while step_index < steps.len() {
+        let current_id = steps[step_index].id.as_str().to_string();
+
+        let control = dispatch_top_level_step(
+            &steps[step_index],
             step_index,
             session,
             runner,
             observer,
             depth,
             total_steps,
-        )? {
+        )?;
+
+        match control {
             LoopControl::Continue => {}
-            LoopControl::Skip => continue,
+            LoopControl::Skip => {
+                step_index += 1;
+                continue;
+            }
             LoopControl::Break => break,
             LoopControl::Return(outcome) => return Ok(outcome),
         }
+
+        // SPEC §21 reload seam: after a successful step, if the step (or any
+        // nested chain step) requested a hot reload, re-clone the step list
+        // and re-anchor by matching the current step id. The reload step
+        // itself (action: reload_self) sets this flag.
+        if session.reload_requested {
+            session.reload_requested = false;
+            steps = session.pipeline.steps.clone();
+            total_steps = steps.len();
+            let anchor = steps
+                .iter()
+                .position(|s| s.id.as_str() == current_id)
+                .ok_or_else(|| AilError::PipelineReloadFailed {
+                    detail: format!(
+                        "After reload, the executor could not find the anchor step \
+                         '{current_id}' in the reloaded pipeline — unable to resume"
+                    ),
+                    context: Some(crate::error::ErrorContext::for_step(
+                        &session.run_id,
+                        &current_id,
+                    )),
+                })?;
+            step_index = anchor + 1;
+            continue;
+        }
+
+        step_index += 1;
     }
 
     let outcome = ExecuteOutcome::Completed;
@@ -1834,6 +1888,110 @@ fn handle_on_result_action<O: StepObserver>(
             Ok(LoopControl::Continue)
         }
     }
+}
+
+/// Hot-reload the active pipeline from its source file on disk (SPEC §21).
+///
+/// Re-parses `session.pipeline.source`, validates, swaps `session.pipeline` in
+/// place, appends a `TurnEntry` recording the before/after step count, and
+/// sets `session.reload_requested` so the top-level sequential executor loop
+/// re-clones its steps vec and re-anchors by matching the reload step's id.
+///
+/// Errors on: passthrough (no source), exhausted `MAX_RELOADS_PER_RUN` cap,
+/// config load/validation failure, or missing anchor id in the reloaded pipeline.
+fn handle_reload_self(step_id: &str, session: &mut Session) -> Result<(), AilError> {
+    let source_path =
+        session
+            .pipeline
+            .source
+            .clone()
+            .ok_or_else(|| AilError::PipelineReloadFailed {
+                detail: format!(
+                    "Step '{step_id}' declares action: reload_self but this run has no \
+                 pipeline source on disk (passthrough mode); reload is only supported \
+                 for pipelines loaded from a file"
+                ),
+                context: Some(crate::error::ErrorContext::for_step(
+                    &session.run_id,
+                    step_id,
+                )),
+            })?;
+
+    if session.reload_count >= MAX_RELOADS_PER_RUN {
+        return Err(AilError::PipelineReloadFailed {
+            detail: format!(
+                "Step '{step_id}' exceeded the per-run reload cap ({MAX_RELOADS_PER_RUN}); \
+                 the pipeline has already hot-reloaded {} times — aborting to prevent \
+                 an infinite self-rewrite loop",
+                session.reload_count
+            ),
+            context: Some(crate::error::ErrorContext::for_step(
+                &session.run_id,
+                step_id,
+            )),
+        });
+    }
+
+    let before_len = session.pipeline.steps.len();
+
+    let new_pipeline =
+        crate::config::load(&source_path).map_err(|e| AilError::PipelineReloadFailed {
+            detail: format!(
+                "Step '{step_id}' failed to reload pipeline from {}: {}",
+                source_path.display(),
+                e.detail()
+            ),
+            context: Some(crate::error::ErrorContext::for_step(
+                &session.run_id,
+                step_id,
+            )),
+        })?;
+
+    // Anchor-by-id: the reload step's own id must survive in the new pipeline so
+    // the executor knows where to resume. Reject up front so we don't swap and
+    // then discover the problem mid-loop.
+    if !new_pipeline.steps.iter().any(|s| s.id.as_str() == step_id) {
+        return Err(AilError::PipelineReloadFailed {
+            detail: format!(
+                "Step '{step_id}' reloaded pipeline from {} but the reloaded step list \
+                 no longer contains a step with id '{step_id}'; the executor cannot \
+                 determine where to resume",
+                source_path.display()
+            ),
+            context: Some(crate::error::ErrorContext::for_step(
+                &session.run_id,
+                step_id,
+            )),
+        });
+    }
+
+    let after_len = new_pipeline.steps.len();
+    session.pipeline = new_pipeline;
+    session.reload_count += 1;
+    session.reload_requested = true;
+
+    tracing::info!(
+        run_id = %session.run_id,
+        step_id = %step_id,
+        before_len,
+        after_len,
+        reload_count = session.reload_count,
+        source = %source_path.display(),
+        "reload_self swapped pipeline in place"
+    );
+
+    let entry = crate::session::turn_log::TurnEntry {
+        step_id: step_id.to_string(),
+        prompt: "reload_self".to_string(),
+        response: Some(format!(
+            "reloaded pipeline ({before_len} -> {after_len} steps) from {}",
+            source_path.display()
+        )),
+        ..Default::default()
+    };
+    session.turn_log.append(entry);
+
+    Ok(())
 }
 
 /// Validate a join step's merged output against its `output_schema`.

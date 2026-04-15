@@ -1,5 +1,5 @@
-/// SPEC s26 -- Structured step I/O schemas: output_schema, input_schema,
-/// field:equals: operator, and parse-time compatibility checks.
+//! SPEC s26 -- Structured step I/O schemas: output_schema, input_schema,
+//! field:equals: operator, and parse-time compatibility checks.
 
 mod parse_valid {
     use ail_core::config;

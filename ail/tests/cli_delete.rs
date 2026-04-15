@@ -5,8 +5,6 @@
 
 mod common;
 
-use predicates::prelude::*;
-
 /// Helper: run `ail --once "hello" --output-format json` and extract the run_id from
 /// the `run_started` event.
 fn create_run(home: &std::path::Path) -> String {
@@ -43,7 +41,7 @@ fn delete_existing_run_text() {
 
     cmd.assert()
         .success()
-        .stdout(predicates::str::contains(&format!("Deleted run {run_id}")));
+        .stdout(predicates::str::contains(format!("Deleted run {run_id}")));
 }
 
 #[test]

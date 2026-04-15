@@ -1181,7 +1181,6 @@ mod tests {
             id: Some("ctx".to_string()),
             context: Some(ContextDto {
                 shell: Some("git status".to_string()),
-                ..Default::default()
             }),
             ..Default::default()
         }]);

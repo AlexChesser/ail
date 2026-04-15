@@ -85,7 +85,6 @@ mod tests {
     use crate::config::domain::{ConditionExpr, ConditionOp, Step, StepBody, StepId};
     use crate::session::TurnEntry;
     use crate::test_helpers::make_session;
-    use std::time::SystemTime;
 
     fn session_with_shell_entry(step_id: &str, exit_code: i32, stdout: &str) -> Session {
         let mut session = make_session(vec![prompt_step("dummy", "dummy")]);

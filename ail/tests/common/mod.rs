@@ -1,4 +1,10 @@
 //! Shared helpers for ail binary integration tests.
+//!
+//! Each integration test file is compiled as its own crate — `#[allow(dead_code)]`
+//! silences the "never used" warnings that appear in targets that don't happen
+//! to use every helper here.
+
+#![allow(dead_code)]
 
 use assert_cmd::Command;
 use std::path::PathBuf;

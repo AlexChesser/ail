@@ -1,4 +1,4 @@
-/// SPEC §27 — do_while: bounded repeat-until loop validation tests.
+//! SPEC §27 — do_while: bounded repeat-until loop validation tests.
 
 mod parse_valid {
     use ail_core::config;
