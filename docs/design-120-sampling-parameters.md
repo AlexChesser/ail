@@ -408,9 +408,9 @@ struct ChatRequest<'a> {
    `budget_tokens`: `thinking * PROVIDER_MAX_BUDGET`). Pipeline author's
    numeric intent survives runner granularity upgrades without edits.
 
-3. **`max_tokens` vs `max_output_tokens`?** Anthropic uses `max_tokens`,
-   OpenAI recently switched to `max_completion_tokens`. **Proposed**:
-   use `max_tokens` (shorter, more widely recognized). Runners map.
+3. ~~`max_tokens` vs `max_output_tokens` naming~~ **Resolved**: `max_tokens`.
+   Shorter, more widely recognized, matches Anthropic's convention. Runners
+   that target OpenAI's newer `max_completion_tokens` map the name internally.
 
 4. ~~Validation strictness: allow both `temperature` and `top_p`?~~
    **Resolved**: allow both, no conflict check. AIL passes values through
