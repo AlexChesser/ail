@@ -45,6 +45,10 @@ condition: "{{ step.check.response }} ends_with 'done'"
 - If the LHS template variable cannot be resolved (e.g. references a step that has not run), the pipeline aborts with a `CONDITION_INVALID` error (`ail:condition/invalid`).
 - If the condition string is not a recognised named condition and does not contain a supported operator, validation fails with `CONFIG_VALIDATION_FAILED` at parse time.
 
+#### Reuse in `on_result: expression:`
+
+The `expression:` matcher on `on_result` (§5.4) reuses this grammar without modification. Any valid condition expression is a valid `on_result: expression:` expression and vice versa. When the grammar is extended (e.g. numeric operators for confidence-score gating — #130), the extension applies to both sites simultaneously.
+
 #### Template Variables in Conditions
 
 All template variables from §11 are available:

@@ -207,7 +207,66 @@ Rules are evaluated in declared order; the first match fires. Used when differen
 | `is_empty` | Response is blank or whitespace only. |
 | `exit_code: N` | Process exit code equals N. Valid on `shell:` sources within `context:` steps only. |
 | `exit_code: any` | Any non-zero exit code. Valid on `shell:` sources within `context:` steps only. |
+| `expression: "EXPR"` | Evaluates a §12.2 condition expression against the session's template state. Fires when the expression is true. See below. |
 | `always` | Unconditionally fires. |
+
+#### `expression:` — general-purpose template-expression matcher
+
+> **Implementation status:** specified in this section, not yet implemented. Tracked via #130.
+
+`expression:` is the escape hatch for cases the named matchers do not cover. Its grammar is **identical to** the condition expression grammar defined in §12.2 — no new syntax, no second implementation. The LHS is template-resolved at runtime against the turn log; the RHS is a literal.
+
+```yaml
+# Exit code comparisons beyond `0` / `any` — e.g. distinguish "test failed" (1) from "crash" (>1).
+- id: tests
+  context:
+    shell: "cargo test"
+  on_result:
+    - expression: "{{ step.tests.exit_code }} == 1"
+      action: pipeline: ./pipelines/triage-failure.yaml
+    - exit_code: any
+      action: abort_pipeline
+    - exit_code: 0
+      action: continue
+
+# Branch on a field that isn't the step's `response` — here, stderr of a preceding context step.
+- id: decide
+  prompt: ./prompts/decide.md
+  on_result:
+    - expression: "{{ step.build.stderr }} contains 'rate limit'"
+      action: pause_for_human
+      message: "Upstream rate-limited — human input required."
+    - always
+      action: continue
+```
+
+**Evaluation semantics.**
+
+| Case | Behaviour |
+|---|---|
+| Expression evaluates to **true** | Branch matches, `action` fires. |
+| Expression evaluates to **false** | Branch does not match, evaluation continues with the next branch. |
+| LHS template variable **cannot be resolved** (step did not run, unknown field, etc.) | Pipeline aborts with `ail:template/unresolved-variable`. |
+| Expression string **fails to parse** at load time | Pipeline load fails with `ail:config/validation-failed`. The grammar is validated at parse time, not at match time. |
+
+An `on_result` branch that cannot be evaluated is a pipeline bug, not a silent non-match. This is the same contract the rest of the template system enforces (see §11).
+
+**Relationship to the named matchers.**
+
+| Form | When to use |
+|---|---|
+| `contains:`, `matches:`, `starts_with:`, `is_empty` | Matching the step's `response` — the common case. Keeps YAML terse and intent obvious. |
+| `exit_code: N` / `exit_code: any` | Matching `exit_code` of a `shell:` source. |
+| `field:` + `equals:` | Matching a named field of validated structured output (§26.4). The only matcher that runs against a parsed JSON value rather than a rendered string — prefer it over `expression:` when the step has an `input_schema`. |
+| `expression:` | Anything not covered above — comparisons against `stdout`/`stderr`, non-zero exit codes with specific values, comparisons against other steps' fields, future numeric/confidence signals, etc. |
+| `always` | Default / catch-all. |
+
+Prefer a named matcher when one fits — it reads as intent. Reach for `expression:` when no named matcher expresses the condition cleanly.
+
+**Why `expression:` is a matcher, not an action.** `on_result` may declare multiple branches; each branch is an independent match→action pair. Putting the predicate on the matcher keeps branches orthogonal and evaluable in declared order, matching how `contains:`, `exit_code:`, and `always` already compose.
+
+> **Planned extensions (not in v0.3).**
+> Numeric comparison operators (`<`, `<=`, `>`, `>=`) and boolean combinators (`&&`, `||`) are deliberately **not** in the v0.3 grammar. They are tracked as a joint extension to §12.2 and `expression:` — both must extend together, since `expression:` is defined as "§12.2 with no additions." The primary consumer is confidence-score gating on native LLM runners (#128, #130), e.g. `expression: "{{ step.review.confidence }} >= 0.75"`. Until then, `expression:` supports the §12.2 string-oriented operators only.
 
 #### Supported actions
 
