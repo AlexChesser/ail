@@ -7,7 +7,7 @@
     "strict": true,
     "esModuleInterop": true,
     "sourceMap": true,
-    "lib": ["ES2020", "DOM"],
+    "lib": ["ES2020", "DOM", "DOM.Iterable"],
     "jsx": "react",
     "skipLibCheck": true
   },

@@ -243,9 +243,9 @@ where
         while let Ok(Some(line)) = lines.next_line().await {
             match parse_control_message(&line) {
                 Some(ControlMessage::UserMessage(text)) => {
-                    if prompt_tx.send(Some(text)).await.is_err() {
+                    let Ok(()) = prompt_tx.send(Some(text)).await else {
                         break;
-                    }
+                    };
                 }
                 Some(ControlMessage::EndSession) => {
                     let _ = prompt_tx.send(None).await;

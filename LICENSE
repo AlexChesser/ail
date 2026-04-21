@@ -1,0 +1,71 @@
+ail — Multi-License Overview
+============================
+
+This repository contains several artifacts that serve different roles and are
+released under different licenses. Each top-level directory listed below
+carries its own LICENSE file with the full text of the applicable license.
+This file is a navigation aid and does not itself grant any rights beyond
+those granted by the per-directory LICENSE files.
+
+| Artifact            | License         | Full text                         |
+|---------------------|-----------------|-----------------------------------|
+| `spec/`             | CC BY-SA 4.0    | `spec/LICENSE`                    |
+| `ail-core/`         | MPL 2.0         | `ail-core/LICENSE`                |
+| `ail/` (CLI binary) | AGPL-3.0-only   | `ail/LICENSE`                     |
+| `stub-llm/`         | MPL 2.0         | `stub-llm/LICENSE`                |
+| `demo/`             | CC0 1.0         | `demo/LICENSE`                    |
+| `vscode-ail-chat/`  | MIT             | `vscode-ail-chat/LICENSE`         |
+
+Rationale
+---------
+
+- `spec/` — CC BY-SA 4.0. The specifications are standards documents. Anyone
+  can implement against them; derivative specs must remain open under the
+  same share-alike terms.
+
+- `ail-core/` — MPL 2.0. A library intended to be embedded in other software,
+  including proprietary software. Modifications to `ail-core` files
+  themselves must be published; combining with other code does not require
+  relicensing the combined work.
+
+- `ail/` (the CLI binary) — AGPL-3.0-only. The binary is the end-user
+  application. Running `ail serve` as a network service requires publishing
+  any modifications, preserving user freedom when the tool is used behind a
+  network boundary.
+
+- `stub-llm/` — MPL 2.0. A test helper crate; same embeddable treatment as
+  `ail-core`.
+
+- `demo/` — CC0 1.0. Example pipelines released into the public domain. Copy
+  freely into any project without attribution.
+
+- `vscode-ail-chat/` — MIT. The VS Code extension. Permissive license matches
+  marketplace convention so anyone can fork, repackage, or embed the UI code
+  into other editors and tools with minimal friction.
+
+Other directories
+-----------------
+
+The `vscode-ail-legacy/` directory is an archived copy of the previous
+extension retained for code reference only. It is not actively developed,
+distributed, or packaged. Its `package.json` carries a legacy license
+declaration that will be resolved when the directory is deleted.
+
+Contributor License Agreement (CLA)
+-----------------------------------
+
+All contributors must sign the `ail` CLA before their pull requests can be
+merged. The CLA assigns copyright in contributions to the project maintainer,
+preserving the ability to relicense any part of the project in the future.
+
+SPDX identifiers
+----------------
+
+Each per-directory LICENSE file corresponds to a standard SPDX identifier:
+
+- spec/            CC-BY-SA-4.0
+- ail-core/        MPL-2.0
+- ail/             AGPL-3.0-only
+- stub-llm/        MPL-2.0
+- demo/            CC0-1.0
+- vscode-ail-chat/ MIT
