@@ -19,11 +19,11 @@ target
 #  and can be added to the global gitignore or merged into this file.  For a more nuclear
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
 #.idea/
-vscode-ail/node_modules/
-vscode-ail/out/
-vscode-ail/dist/
-vscode-ail/*.vsix
-vscode-ail/coverage/
+vscode-ail-chat/node_modules/
+vscode-ail-chat/out/
+vscode-ail-chat/dist/
+vscode-ail-chat/*.vsix
+vscode-ail-chat/coverage/
 
 # Claude Code agent worktrees (isolated checkouts for background agents)
 .claude/worktrees/

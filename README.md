@@ -107,8 +107,7 @@ pipeline:
 - `--output-format json` — NDJSON event stream for programmatic consumers
 
 **Tooling:**
-- [VS Code extension](vscode-ail/) — syntax highlighting and language support for `.ail.yaml` files
-- [VS Code chat extension](vscode-ail-chat/) — pipeline graph visualization with collapse/expand for sub-pipelines
+- [VS Code extension](vscode-ail-chat/) — chat interface, pipeline graph visualization, and language support for `.ail.yaml` files
 
 **Architecture:**
 - Two-crate Rust workspace (`ail-core` library + `ail` binary)
