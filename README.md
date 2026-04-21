@@ -358,6 +358,8 @@ Either outcome is useful. The experiment can be designed. If you work in model e
 | `ail-core/` | [MPL 2.0](https://www.mozilla.org/en-US/MPL/2.0/) | Usable in proprietary software; modifications to `ail-core` files themselves must be published. |
 | `ail/` (the CLI binary) | [AGPL v3](https://www.gnu.org/licenses/agpl-3.0.html) | Running `ail serve` as a network service requires publishing modifications. |
 | `demo/` | [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/) | Examples released into the public domain. Copy freely into any project. |
+| `stub-llm/` | [MPL 2.0](https://www.mozilla.org/en-US/MPL/2.0/) | Test helper treated like `ail-core` — embeddable with share-alike on the crate itself. |
+| `vscode-ail-chat/` | [MIT](https://opensource.org/license/mit) | VS Code extension. Permissive license matches marketplace convention so anyone can fork, repackage, or embed the UI code. |
 
 **Contributor License Agreement (CLA):** All contributors must sign the `ail` CLA before their pull requests can be merged. The CLA assigns copyright in your contributions to the project maintainer, preserving the ability to relicense any part of the project in the future.
 

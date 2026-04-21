@@ -50,4 +50,4 @@ If nothing is found, ail runs in passthrough mode (your prompt goes straight to 
 
 ## License
 
-AGPL-3.0-only. See the [main repository](https://github.com/alexchesser/ail) for details.
+MIT. See [LICENSE](./LICENSE) for details. Other components of the `ail` project are under different licenses — see the [main repository](https://github.com/alexchesser/ail) for the full table.
