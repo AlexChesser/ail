@@ -118,6 +118,7 @@ impl RunnerFactory {
                         connect_timeout_seconds: provider.connect_timeout_seconds,
                         read_timeout_seconds: provider.read_timeout_seconds,
                         max_history_messages: provider.max_history_messages,
+                        ollama_compat: normalized == "ollama",
                     },
                     http_store.clone(),
                 )))

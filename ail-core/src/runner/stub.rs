@@ -79,6 +79,7 @@ pub struct RecordedCall {
     pub tool_policy: ToolPermissionPolicy,
     pub append_system_prompt: Vec<String>,
     pub system_prompt: Option<String>,
+    pub output_schema: Option<serde_json::Value>,
 }
 
 /// A stub runner that records each invocation for inspection in tests.
@@ -112,6 +113,7 @@ impl Runner for RecordingStubRunner {
                 tool_policy: options.tool_policy,
                 append_system_prompt: options.append_system_prompt,
                 system_prompt: options.system_prompt,
+                output_schema: options.output_schema,
             });
         Ok(RunResult::stub(
             self.response.clone(),

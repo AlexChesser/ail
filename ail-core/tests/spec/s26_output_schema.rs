@@ -730,3 +730,63 @@ mod template {
         assert!(execute(&mut session, &runner).is_err());
     }
 }
+
+mod invoke_options_propagation {
+    use ail_core::config::domain::{Step, StepBody, StepId};
+    use ail_core::executor::execute;
+    use ail_core::runner::stub::RecordingStubRunner;
+    use ail_core::test_helpers::make_session;
+
+    /// s26.7 -- output_schema is propagated into InvokeOptions so runners can
+    /// pass it to providers for constrained decoding.
+    #[test]
+    fn output_schema_propagated_to_invoke_options() {
+        let schema: serde_json::Value = serde_json::json!({
+            "type": "object",
+            "properties": {
+                "classification": {
+                    "type": "string",
+                    "enum": ["TRIVIAL", "EXPLICIT", "EXPLORATORY", "AMBIGUOUS"]
+                }
+            },
+            "required": ["classification"]
+        });
+        let step = Step {
+            id: StepId("classify".to_string()),
+            body: StepBody::Prompt("classify".to_string()),
+            output_schema: Some(schema.clone()),
+            ..Default::default()
+        };
+        let mut session = make_session(vec![step]);
+        let runner = RecordingStubRunner::new(r#"{"classification": "TRIVIAL"}"#);
+        execute(&mut session, &runner).expect("execution should succeed");
+
+        let calls = runner.calls();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(
+            calls[0].output_schema.as_ref(),
+            Some(&schema),
+            "output_schema must be forwarded into InvokeOptions"
+        );
+    }
+
+    /// s26.7 -- steps without output_schema have None in InvokeOptions.
+    #[test]
+    fn no_output_schema_means_none_in_invoke_options() {
+        let step = Step {
+            id: StepId("plain".to_string()),
+            body: StepBody::Prompt("hello".to_string()),
+            ..Default::default()
+        };
+        let mut session = make_session(vec![step]);
+        let runner = RecordingStubRunner::new("hello back");
+        execute(&mut session, &runner).expect("execution should succeed");
+
+        let calls = runner.calls();
+        assert_eq!(calls.len(), 1);
+        assert!(
+            calls[0].output_schema.is_none(),
+            "steps without output_schema should pass None"
+        );
+    }
+}
