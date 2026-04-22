@@ -6,21 +6,21 @@ const { mockShowQuickPick, mockExecuteCommand, mockShowErrorMessage, workspaceSt
   const workspaceStore = new Map<string, unknown>();
   return {
     workspaceStore,
-    mockShowQuickPick: vi.fn<[unknown[], unknown], Promise<unknown>>(() => Promise.resolve(undefined)),
+    mockShowQuickPick: vi.fn(),
     mockExecuteCommand: vi.fn(() => Promise.resolve(undefined)),
     mockShowErrorMessage: vi.fn(() => Promise.resolve(undefined)),
   };
 });
 
-// ── fs mock ──────────────────────────────────────────────────────────────────
-
 const { mockExistsSync, mockStatSync, mockReaddirSync, mockMkdirSync, mockCopyFileSync } = vi.hoisted(() => ({
-  mockExistsSync: vi.fn(() => false),
-  mockStatSync: vi.fn(() => ({ isDirectory: () => false })),
-  mockReaddirSync: vi.fn(() => [] as string[]),
+  mockExistsSync: vi.fn(),
+  mockStatSync: vi.fn(),
+  mockReaddirSync: vi.fn(),
   mockMkdirSync: vi.fn(),
   mockCopyFileSync: vi.fn(),
 }));
+
+// ── fs mock ──────────────────────────────────────────────────────────────────
 
 vi.mock('fs', () => ({
   existsSync: mockExistsSync,
@@ -73,10 +73,9 @@ function makeChatProvider() {
 }
 
 function pickTemplate(label: string) {
-  mockShowQuickPick.mockImplementation((items: unknown[]) => {
-    const arr = items as Array<{ label: string; dir: string }>;
-    return Promise.resolve(arr.find((i) => i.label.includes(label)));
-  });
+  mockShowQuickPick.mockImplementation((items: Array<{ label: string; dir: string }>) =>
+    Promise.resolve(items.find((i) => i.label.includes(label)))
+  );
 }
 
 beforeEach(() => {
@@ -99,19 +98,19 @@ describe('checkAndOfferInstall', () => {
     });
 
     it('does not show QuickPick when .ail.yaml exists', async () => {
-      mockExistsSync.mockImplementation((p: string) => p === '/workspace/.ail.yaml');
+      mockExistsSync.mockImplementation((p: unknown) => p === '/workspace/.ail.yaml');
       await checkAndOfferInstall(makeContext(), makeChatProvider());
       expect(mockShowQuickPick).not.toHaveBeenCalled();
     });
 
     it('does not show QuickPick when .ail.yml exists', async () => {
-      mockExistsSync.mockImplementation((p: string) => p === '/workspace/.ail.yml');
+      mockExistsSync.mockImplementation((p: unknown) => p === '/workspace/.ail.yml');
       await checkAndOfferInstall(makeContext(), makeChatProvider());
       expect(mockShowQuickPick).not.toHaveBeenCalled();
     });
 
     it('does not show QuickPick when .ail/ dir contains a yaml file', async () => {
-      mockExistsSync.mockImplementation((p: string) => p === '/workspace/.ail');
+      mockExistsSync.mockImplementation((p: unknown) => p === '/workspace/.ail');
       mockStatSync.mockReturnValue({ isDirectory: () => true });
       mockReaddirSync.mockReturnValue(['default.yaml']);
       await checkAndOfferInstall(makeContext(), makeChatProvider());
@@ -147,10 +146,9 @@ describe('checkAndOfferInstall', () => {
 
   describe('template installation', () => {
     beforeEach(() => {
-      mockExistsSync.mockImplementation((p: string) => {
-        if (typeof p === 'string' && p.includes('dist/templates')) return true;
-        return false;
-      });
+      mockExistsSync.mockImplementation((p: unknown) =>
+        typeof p === 'string' && p.includes('dist/templates')
+      );
       mockReaddirSync.mockReturnValue([]);
     });
 
@@ -169,10 +167,9 @@ describe('checkAndOfferInstall', () => {
 
     it('opens README in markdown preview after install when README exists', async () => {
       pickTemplate('Starter');
-      mockExistsSync.mockImplementation((p: string) => {
-        if (typeof p === 'string' && (p.includes('dist/templates') || p.includes('README.md'))) return true;
-        return false;
-      });
+      mockExistsSync.mockImplementation((p: unknown) =>
+        typeof p === 'string' && (p.includes('dist/templates') || p.includes('README.md'))
+      );
       await checkAndOfferInstall(makeContext(), makeChatProvider());
       expect(mockExecuteCommand).toHaveBeenCalledWith('markdown.showPreview', expect.anything());
     });
