@@ -94,6 +94,7 @@ pub(in crate::executor) fn execute<O: StepObserver>(
         system_prompt: resolved_system_prompt,
         append_system_prompt: resolved_append_system_prompt,
         sampling: sampling.clone(),
+        output_schema: step.output_schema.clone(),
     };
     observer.augment_options(&mut options);
 

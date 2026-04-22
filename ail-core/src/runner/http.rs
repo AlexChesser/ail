@@ -54,6 +54,13 @@ struct ChatRequest<'a> {
     /// the proxy layer is expected to translate. Ollama also accepts `stop`.
     #[serde(skip_serializing_if = "Option::is_none")]
     stop: Option<&'a [String]>,
+    // ── Structured output (SPEC §26.7) ────────────────────────────────────────
+    /// Ollama constrained decoding: top-level `format` accepts a JSON Schema object.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    format: Option<serde_json::Value>,
+    /// OpenAI structured outputs: `response_format` with `type: json_schema`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    response_format: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -100,6 +107,11 @@ pub struct HttpRunnerConfig {
     /// The system prompt (if present) is always preserved.
     /// `None` means no limit (all history is retained).
     pub max_history_messages: Option<usize>,
+    /// When `true`, uses Ollama's top-level `format` parameter for structured output
+    /// (SPEC §26.7). When `false`, uses the OpenAI `response_format` parameter.
+    /// Set automatically by `HttpRunner::ollama()` and `RunnerFactory` when the
+    /// runner name is `"ollama"`.
+    pub ollama_compat: bool,
 }
 
 impl Default for HttpRunnerConfig {
@@ -112,6 +124,7 @@ impl Default for HttpRunnerConfig {
             connect_timeout_seconds: None,
             read_timeout_seconds: None,
             max_history_messages: None,
+            ollama_compat: false,
         }
     }
 }
@@ -163,12 +176,14 @@ impl HttpRunner {
 
     /// Convenience constructor for a local Ollama instance with thinking disabled.
     ///
-    /// Sets `base_url = "http://localhost:11434/v1"` and `think = Some(false)`.
+    /// Sets `base_url = "http://localhost:11434/v1"`, `think = Some(false)`, and
+    /// `ollama_compat = true` (uses Ollama's `format` parameter for structured output).
     pub fn ollama(model: impl Into<String>, store: HttpSessionStore) -> Self {
         Self::new(
             HttpRunnerConfig {
                 default_model: Some(model.into()),
                 think: Some(false),
+                ollama_compat: true,
                 ..HttpRunnerConfig::default()
             },
             store,
@@ -308,6 +323,25 @@ impl Runner for HttpRunner {
             .and_then(|s| s.thinking)
             .map(|t| t >= 0.5)
             .or(self.config.think);
+        // ── Structured output (SPEC §26.7) ──────────────────────────────────
+        // Pass the output_schema to the provider for constrained decoding.
+        // Ollama accepts a top-level `format` field; OpenAI uses `response_format`.
+        let (format, response_format) = match &options.output_schema {
+            Some(schema) if self.config.ollama_compat => (Some(schema.clone()), None),
+            Some(schema) => (
+                None,
+                Some(serde_json::json!({
+                    "type": "json_schema",
+                    "json_schema": {
+                        "name": "output",
+                        "schema": schema,
+                        "strict": true
+                    }
+                })),
+            ),
+            None => (None, None),
+        };
+
         let body = ChatRequest {
             model: &model,
             messages: &api_messages,
@@ -321,6 +355,8 @@ impl Runner for HttpRunner {
                 .sampling
                 .as_ref()
                 .and_then(|s| s.stop_sequences.as_deref()),
+            format,
+            response_format,
         };
 
         // Serialize request body on the caller thread (avoids serde in the worker).

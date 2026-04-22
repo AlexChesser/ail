@@ -184,9 +184,24 @@ When a step's `output_schema` declares `type: array`, the array is available to 
 
 ### 26.7 Provider Compatibility
 
-`output_schema` may optionally be passed to the provider as a native JSON mode or schema enforcement constraint where supported. Providers that do not support native schema enforcement have their output validated by `ail` after receipt.
+When a step declares `output_schema`, `ail` passes the schema to the provider for **constrained decoding** — a mechanism where token sampling is filtered so the model is mechanically constrained to produce output matching the schema. With constrained decoding active, the model cannot produce markdown code fences, extra prose, or any output that doesn't conform to the schema.
 
-A validation failure from either native enforcement or `ail`-side validation is treated as a step error and escalates via `on_error`.
+**Implementation status:** Implemented for `HttpRunner`. `ClaudeCliRunner` and `CodexRunner` ignore `output_schema` in `InvokeOptions` — validation is ail-side only for those runners.
+
+#### HttpRunner paths
+
+| Runner name | Parameter | Format |
+|---|---|---|
+| `ollama` | `format` (top-level body field) | JSON Schema object passed directly |
+| `http` | `response_format` | `{ type: "json_schema", json_schema: { name: "output", schema: <schema>, strict: true } }` |
+
+The `ollama_compat` flag on `HttpRunnerConfig` controls which path is used. It is set automatically by `HttpRunner::ollama()` and by `RunnerFactory` when the runner name is `"ollama"`.
+
+Providers that do not support constrained decoding receive the request without schema constraints; `ail` validates the response after receipt. A validation failure is treated as a step error and escalates via `on_error`.
+
+#### Prompt description not required
+
+When constrained decoding is active, the model does not need to be told the output format in the prompt — the schema IS the format instruction to the provider. Prompts can focus on the task content only.
 
 ---
 

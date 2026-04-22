@@ -275,6 +275,12 @@ pub struct InvokeOptions {
     /// Runners that do not support a particular field should emit a
     /// `tracing::warn!` and ignore it (SPEC §30.4.1) rather than failing.
     pub sampling: Option<crate::config::domain::SamplingConfig>,
+    /// JSON Schema for structured output enforcement (SPEC §26.7).
+    /// When set, runners that support constrained decoding (HttpRunner) pass this
+    /// to the provider as `response_format` (OpenAI) or `format` (Ollama) so the
+    /// model is mechanically constrained to produce conforming JSON.
+    /// Runners that do not support constrained decoding ignore this field.
+    pub output_schema: Option<serde_json::Value>,
 }
 
 pub trait Runner {
