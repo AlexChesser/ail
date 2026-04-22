@@ -5,12 +5,14 @@
  * Key invariants:
  *   - CLAUDECODE env var is removed before spawn to avoid the nested-session guard.
  *   - Only one ail process may be active at a time; start() rejects if one is running.
- *   - cancel() sends SIGTERM, then SIGKILL after 5 seconds.
+ *   - cancel() eagerly clears _activeProcess, then delegates to ProcessKiller.
  */
 
 import { spawn, ChildProcess } from 'child_process';
 import { AilEvent, HostToWebviewMessage } from './types';
 import { parseNdjsonStream } from './ndjson';
+import { ProcessKiller } from './process/process-killer';
+import { createProcessKiller } from './process/process-killer-factory';
 
 export interface StartOptions {
   headless?: boolean;
@@ -21,12 +23,14 @@ type MessageHandler = (msg: HostToWebviewMessage) => void;
 export class AilProcessManager {
   private readonly _binaryPath: string;
   private readonly _cwd: string | undefined;
+  private readonly _killer: ProcessKiller;
   private _activeProcess: ChildProcess | undefined;
   private readonly _handlers = new Set<MessageHandler>();
 
-  constructor(binaryPath: string, cwd?: string) {
+  constructor(binaryPath: string, cwd?: string, killer: ProcessKiller = createProcessKiller()) {
     this._binaryPath = binaryPath;
     this._cwd = cwd;
+    this._killer = killer;
   }
 
   /** Register a handler that receives HostToWebviewMessages as they arrive. */
@@ -112,21 +116,14 @@ export class AilProcessManager {
     });
   }
 
-  /** Send SIGTERM, escalate to SIGKILL after 5 seconds. */
+  /** Kill the active process. Clears _activeProcess immediately before delegating to the killer. */
   cancel(): void {
-    if (!this._activeProcess) {
-      return;
-    }
+    if (!this._activeProcess) return;
     const proc = this._activeProcess;
-    proc.kill('SIGTERM');
-
-    const timeout = setTimeout(() => {
-      if (this._activeProcess === proc) {
-        proc.kill('SIGKILL');
-      }
-    }, 5000);
-
-    proc.once('close', () => clearTimeout(timeout));
+    this._activeProcess = undefined; // clear NOW, before async kill
+    void this._killer.kill(proc).catch((err: Error) => {
+      console.error(`[ail-chat] kill failed: ${err.message}`);
+    });
   }
 }
 
