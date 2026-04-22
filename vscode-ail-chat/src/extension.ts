@@ -12,6 +12,7 @@ import { clearBinaryCache } from './binary';
 import { SessionManager } from './session-manager';
 import { ChatViewProvider } from './chat-view-provider';
 import { PipelineGraphPanel } from './pipeline-graph/PipelineGraphPanel';
+import { AilOutputChannel } from './output-channel';
 
 let chatProvider: ChatViewProvider | undefined;
 
@@ -25,7 +26,10 @@ export function activate(context: vscode.ExtensionContext): void {
   );
 
   const sessionManager = new SessionManager(context);
-  chatProvider = new ChatViewProvider(context, sessionManager);
+  const rawChannel = vscode.window.createOutputChannel('AIL');
+  context.subscriptions.push(rawChannel);
+  const outputChannel = new AilOutputChannel(rawChannel);
+  chatProvider = new ChatViewProvider(context, sessionManager, outputChannel);
 
   context.subscriptions.push(
     vscode.window.registerWebviewViewProvider(ChatViewProvider.viewId, chatProvider, {
