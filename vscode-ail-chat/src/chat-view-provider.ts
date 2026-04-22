@@ -60,6 +60,13 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     this._view?.show?.(true);
   }
 
+  reloadPipeline(): void {
+    const resolved = this._resolvedPipeline();
+    this._currentPipeline = resolved;
+    void this._context.workspaceState.update(LAST_PIPELINE_KEY, resolved ?? undefined);
+    this._sendPipelineChanged();
+  }
+
   private _sendPipelineChanged(): void {
     const p = this._currentPipeline;
     void this._view?.webview.postMessage({

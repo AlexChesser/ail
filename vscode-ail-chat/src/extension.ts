@@ -13,6 +13,7 @@ import { SessionManager } from './session-manager';
 import { ChatViewProvider } from './chat-view-provider';
 import { PipelineGraphPanel } from './pipeline-graph/PipelineGraphPanel';
 import { AilOutputChannel } from './output-channel';
+import { checkAndOfferInstall } from './install-wizard';
 
 let chatProvider: ChatViewProvider | undefined;
 
@@ -82,8 +83,14 @@ export function activate(context: vscode.ExtensionContext): void {
       if (pipelinePath) {
         PipelineGraphPanel.show(context.extensionPath, pipelinePath);
       }
+    }),
+
+    vscode.workspace.onDidChangeWorkspaceFolders(() => {
+      if (chatProvider) void checkAndOfferInstall(context, chatProvider);
     })
   );
+
+  void checkAndOfferInstall(context, chatProvider);
 }
 
 // Process manager cleanup is handled by the view's onDidDispose.
