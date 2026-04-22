@@ -1,0 +1,66 @@
+version: "0.0.1"
+
+meta:
+  name: "Starter — Invocation-only pipeline"
+
+# Welcome to AIL (Artificial Intelligence Loops).
+#
+# A pipeline is a sequence of steps that run automatically after every prompt
+# you send. Steps can call LLMs, run shell commands, read files, invoke skills,
+# or chain into sub-pipelines — all before control returns to you.
+#
+# This starter pipeline has a single explicit step: the invocation. That's the
+# step that handles your prompt. Declaring it here (instead of leaving it
+# implicit) lets you customise the system prompt, tool permissions, and model.
+#
+# You can run this pipeline with:
+#   ail "your prompt here" --pipeline .ail/default.yaml
+#
+# Or just open the ail Chat sidebar in VS Code and start typing.
+
+pipeline:
+  - id: invocation
+    # The prompt field is passed to the agent verbatim.
+    # {{ step.invocation.prompt }} is filled in at runtime with what you typed.
+    prompt: "{{ step.invocation.prompt }}"
+
+    # Uncomment to override the model for this step:
+    # provider:
+    #   model: claude-opus-4-5
+
+    # Uncomment to restrict which tools the agent can use:
+    # tools:
+    #   allow:
+    #     - Read
+    #     - Edit
+    #     - Bash
+    #   deny:
+    #     - WebFetch
+
+    # Uncomment to inject project context before every response:
+    # append_system_prompt:
+    #   - shell: |
+    #       echo "=== Project structure ==="
+    #       find . -maxdepth 2 -type f | head -30
+
+# ─── Adding more steps ───────────────────────────────────────────────────────
+#
+# Steps run in order after the invocation. Common patterns:
+#
+#   - id: review
+#     prompt: |
+#       The agent just responded:
+#       {{ step.invocation.response }}
+#
+#       Review the response and suggest improvements.
+#     resume: true   # <-- resume: true continues the same session
+#
+#   - id: gather_context
+#     context:
+#       shell: |
+#         echo "=== Git status ==="
+#         git status --short
+#         echo "=== Recent commits ==="
+#         git log --oneline -5
+#
+# See the full spec at: https://github.com/AlexChesser/ail/tree/main/spec
