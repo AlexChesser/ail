@@ -13,6 +13,7 @@ import { AilEvent, HostToWebviewMessage } from './types';
 import { parseNdjsonStream } from './ndjson';
 import { ProcessKiller } from './process/process-killer';
 import { createProcessKiller } from './process/process-killer-factory';
+import { AilOutputChannel } from './output-channel';
 
 export interface StartOptions {
   headless?: boolean;
@@ -24,13 +25,20 @@ export class AilProcessManager {
   private readonly _binaryPath: string;
   private readonly _cwd: string | undefined;
   private readonly _killer: ProcessKiller;
+  private readonly _outputChannel: AilOutputChannel | undefined;
   private _activeProcess: ChildProcess | undefined;
   private readonly _handlers = new Set<MessageHandler>();
 
-  constructor(binaryPath: string, cwd?: string, killer: ProcessKiller = createProcessKiller()) {
+  constructor(
+    binaryPath: string,
+    cwd?: string,
+    killer: ProcessKiller = createProcessKiller(),
+    outputChannel?: AilOutputChannel,
+  ) {
     this._binaryPath = binaryPath;
     this._cwd = cwd;
     this._killer = killer;
+    this._outputChannel = outputChannel;
   }
 
   /** Register a handler that receives HostToWebviewMessages as they arrive. */
@@ -82,11 +90,13 @@ export class AilProcessManager {
 
       const proc = spawn(this._binaryPath, args, { cwd: this._cwd, env });
       this._activeProcess = proc;
+      this._outputChannel?.spawn(this._binaryPath, args);
 
       const mapper = new AilEventMapper();
       parseNdjsonStream(
         proc.stdout!,
         (event: AilEvent) => {
+          this._outputChannel?.event(event);
           const msgs = mapper.map(event);
           for (const msg of msgs) {
             this._emit(msg);
@@ -97,10 +107,16 @@ export class AilProcessManager {
         }
       );
 
-      // Consume stderr silently
-      proc.stderr?.resume();
+      // Pipe stderr to the output channel (replaces silent resume())
+      proc.stderr?.on('data', (chunk: Buffer) => {
+        for (const line of chunk.toString().split('\n')) {
+          const trimmed = line.trim();
+          if (trimmed) this._outputChannel?.stderr(trimmed);
+        }
+      });
 
       proc.on('close', (code) => {
+        this._outputChannel?.exit(code);
         this._activeProcess = undefined;
         if (code !== 0 && code !== null) {
           this._emit({ type: 'processError', message: `ail exited with code ${code}` });
@@ -109,6 +125,7 @@ export class AilProcessManager {
       });
 
       proc.on('error', (err) => {
+        this._outputChannel?.error(err.message);
         this._activeProcess = undefined;
         this._emit({ type: 'processError', message: `Failed to spawn ail: ${err.message}` });
         reject(err);

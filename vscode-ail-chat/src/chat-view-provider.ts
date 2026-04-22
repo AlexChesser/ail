@@ -6,6 +6,8 @@ import { AilProcessManager } from './ail-process-manager';
 import { SessionManager } from './session-manager';
 import { WebviewToHostMessage } from './types';
 import { PipelineGraphPanel } from './pipeline-graph/PipelineGraphPanel';
+import { AilOutputChannel } from './output-channel';
+import { createProcessKiller } from './process/process-killer-factory';
 
 const LAST_PIPELINE_KEY = 'ail-chat.lastPipeline';
 
@@ -19,7 +21,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 
   constructor(
     private readonly _context: vscode.ExtensionContext,
-    private readonly _sessionManager: SessionManager
+    private readonly _sessionManager: SessionManager,
+    private readonly _outputChannel?: AilOutputChannel,
   ) {
     // Restore last pipeline from workspace state.
     const saved = this._context.workspaceState.get<string>(LAST_PIPELINE_KEY);
@@ -84,7 +87,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
             return; // resolveBinary already showed the error
           }
           const cwd = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-          this._processManager = new AilProcessManager(binary.path, cwd);
+          this._processManager = new AilProcessManager(binary.path, cwd, createProcessKiller(), this._outputChannel);
           this._processManager.onMessage((m) => {
             void this._view?.webview.postMessage(m);
           });
