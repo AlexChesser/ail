@@ -4,7 +4,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { mapAilEventToMessages, AilEventMapper } from '../src/ail-process-manager';
+import { mapAilEventToMessages, AilEventMapper, AilProcessManager } from '../src/ail-process-manager';
 import { AilEvent } from '../src/types';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -242,5 +242,52 @@ describe('AilEventMapper', () => {
     mapper.map({ type: 'step_started', step_id: 'step2', step_index: 1, total_steps: 2, resolved_prompt: null } as AilEvent);
     msgs = mapper.map({ type: 'runner_event', event: { type: 'stream_delta', text: 'b' } } as AilEvent);
     expect(msgs[0]).toMatchObject({ stepId: 'step2' });
+  });
+});
+
+describe('cancel() with StubProcessKiller', () => {
+  it('clears _activeProcess immediately, before kill resolves', async () => {
+    let killCalled = false;
+    let resolveKill!: () => void;
+    const stubKiller = {
+      kill: (_proc: unknown) => {
+        killCalled = true;
+        return new Promise<void>(r => { resolveKill = r; });
+      }
+    };
+
+    const manager = new AilProcessManager('/nonexistent', undefined, stubKiller as any);
+    // Manually set _activeProcess via a cast to simulate a running process
+    (manager as any)._activeProcess = { pid: 999, kill: () => {}, killed: false } as any;
+
+    expect(manager.isRunning).toBe(true);
+    manager.cancel();
+
+    // Must be cleared immediately — before the kill promise resolves
+    expect(manager.isRunning).toBe(false);
+    expect(killCalled).toBe(true);
+
+    // Resolve the kill — no error
+    resolveKill();
+  });
+
+  it('start() succeeds after cancel() clears the pointer', async () => {
+    const stubKiller = {
+      kill: () => new Promise<void>(r => setTimeout(r, 100)), // slow kill
+    };
+
+    const manager = new AilProcessManager('/nonexistent', undefined, stubKiller as any);
+    (manager as any)._activeProcess = { pid: 999, kill: () => {}, killed: false } as any;
+
+    manager.cancel();
+    expect(manager.isRunning).toBe(false);
+
+    // start() should not throw "A pipeline is already running"
+    // (it will fail for other reasons since /nonexistent doesn't exist, but not the guard)
+    const startPromise = manager.start('hello');
+    // The guard passes — error will be spawn error, not the guard
+    await startPromise.catch((err: Error) => {
+      expect(err.message).not.toContain('A pipeline is already running');
+    });
   });
 });
