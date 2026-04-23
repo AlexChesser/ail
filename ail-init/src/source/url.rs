@@ -1,6 +1,4 @@
 #![allow(clippy::result_large_err)]
-// Removed in M6 when `run_in_cwd` dispatches URL-shaped args through this module.
-#![cfg_attr(not(test), allow(dead_code))]
 
 //! URL-based template source.
 //!

@@ -1,6 +1,4 @@
 #![allow(clippy::result_large_err)]
-// Removed in M5 when `run_in_cwd` routes URL-shaped args through this module.
-#![cfg_attr(not(test), allow(dead_code))]
 
 //! URL-shaped template argument parsing for `ail init <URL>`.
 //!

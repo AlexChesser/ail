@@ -1,6 +1,4 @@
 #![allow(clippy::result_large_err)]
-// Removed in M5 when `UrlSource` starts calling into this module.
-#![cfg_attr(not(test), allow(dead_code))]
 
 //! Pure HTTP fetch primitive and file-path safety checks shared by `UrlSource`.
 //!

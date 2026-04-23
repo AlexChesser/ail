@@ -30,8 +30,6 @@ struct ManifestDto {
 #[derive(Debug, Clone)]
 pub(crate) struct ParsedManifest {
     pub meta: TemplateMeta,
-    // Read by `UrlSource` in M5; bundled callers ignore it.
-    #[cfg_attr(not(test), allow(dead_code))]
     pub files: Option<Vec<String>>,
 }
 
