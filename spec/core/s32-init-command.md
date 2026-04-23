@@ -1,4 +1,4 @@
-# §31 The `ail init` Command
+# §32 The `ail init` Command
 
 **Status:** alpha — implemented in `ail-init` crate.
 
