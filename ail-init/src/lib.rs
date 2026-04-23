@@ -6,6 +6,7 @@
 //! time so `demo/` is the single source of truth. Every template installs
 //! under `$CWD/.ail/`.
 
+mod fetcher;
 mod install;
 mod manifest;
 mod picker;
