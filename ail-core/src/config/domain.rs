@@ -10,6 +10,9 @@ pub enum SystemPromptEntry {
     File(PathBuf),
     /// Shell command whose stdout+stderr output is injected at step runtime.
     Shell(String),
+    /// Embedded spec query — resolved to spec content at step runtime (SPEC §31).
+    /// Value is a tier name (`compact`, `schema`, `prose`) or a section ID (`s05`, `r02`).
+    Spec(String),
 }
 
 /// Maximum depth for nested sub-pipeline calls. Prevents infinite recursion
@@ -386,6 +389,7 @@ pub enum OnMaxItems {
 #[derive(Debug, Clone)]
 pub enum ContextSource {
     Shell(String),
+    Spec(String),
 }
 
 #[derive(Debug, Clone)]

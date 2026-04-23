@@ -9,6 +9,7 @@ path = "src/main.rs"
 
 [dependencies]
 ail-core = { path = "../ail-core" }
+ail-spec = { path = "../ail-spec" }
 clap = { version = "4", features = ["derive"] }
 dirs = "5"
 serde_json = "1"

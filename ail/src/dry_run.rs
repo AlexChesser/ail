@@ -63,6 +63,9 @@ pub fn run_dry_run(
             ail_core::config::domain::StepBody::Context(
                 ail_core::config::domain::ContextSource::Shell(_),
             ) => "context:shell",
+            ail_core::config::domain::StepBody::Context(
+                ail_core::config::domain::ContextSource::Spec(_),
+            ) => "context:spec",
             ail_core::config::domain::StepBody::DoWhile { .. } => "do_while",
             ail_core::config::domain::StepBody::ForEach { .. } => "for_each",
         };
@@ -104,6 +107,12 @@ pub fn run_dry_run(
             ) => {
                 println!("  Command: {cmd}");
                 println!("  (shell steps execute normally in dry-run mode)");
+            }
+            ail_core::config::domain::StepBody::Context(
+                ail_core::config::domain::ContextSource::Spec(query),
+            ) => {
+                println!("  Spec query: {query}");
+                println!("  (spec context resolves to embedded spec content)");
             }
             ail_core::config::domain::StepBody::SubPipeline { path, prompt: p } => {
                 println!("  Pipeline path: {path}");

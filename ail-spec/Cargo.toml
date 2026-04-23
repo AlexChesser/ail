@@ -1,0 +1,8 @@
+[package]
+name = "ail-spec"
+version = "0.0.1"
+edition = "2021"
+build = "build.rs"
+
+[build-dependencies]
+glob = "0.3"

@@ -174,6 +174,7 @@ pub enum ChainStepDto {
 #[derive(Debug, Default, Deserialize)]
 pub struct ContextDto {
     pub shell: Option<String>,
+    pub spec: Option<String>,
 }
 
 /// DTO for `do_while:` bounded repeat-until loop (SPEC §27).
@@ -291,4 +292,5 @@ pub struct AppendSystemPromptStructuredDto {
     pub text: Option<String>,
     pub file: Option<String>,
     pub shell: Option<String>,
+    pub spec: Option<String>,
 }

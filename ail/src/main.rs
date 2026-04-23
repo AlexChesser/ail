@@ -12,6 +12,7 @@ mod logs;
 mod materialize;
 mod once_json;
 mod once_text;
+mod spec;
 mod validate;
 
 use ail_core::runner::factory::RunnerFactory;
@@ -108,6 +109,23 @@ async fn main() {
             }
         }
         (None, Some(cmd)) => match cmd {
+            Commands::Spec {
+                format,
+                section,
+                list,
+                core,
+                runner,
+            } => {
+                let fmt = match spec::SpecFormat::parse(&format) {
+                    Ok(f) => f,
+                    Err(e) => {
+                        eprintln!("{e}");
+                        std::process::exit(1);
+                    }
+                };
+                let cmd = spec::SpecCommand::new(fmt, section, list, core, runner);
+                exit_with(cmd.execute());
+            }
             Commands::Delete {
                 run_id,
                 force,

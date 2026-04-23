@@ -36,6 +36,7 @@ name = "ail"
 version = "0.0.1"
 dependencies = [
  "ail-core",
+ "ail-spec",
  "assert_cmd",
  "clap",
  "dirs",
@@ -53,6 +54,7 @@ dependencies = [
 name = "ail-core"
 version = "0.0.1"
 dependencies = [
+ "ail-spec",
  "dirs",
  "event-listener",
  "interprocess",
@@ -69,6 +71,13 @@ dependencies = [
  "tracing",
  "ureq",
  "uuid",
+]
+
+[[package]]
+name = "ail-spec"
+version = "0.0.1"
+dependencies = [
+ "glob",
 ]
 
 [[package]]
@@ -604,6 +613,12 @@ dependencies = [
  "wasip2",
  "wasip3",
 ]
+
+[[package]]
+name = "glob"
+version = "0.3.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0cc23270f6e1808e30a928bdc84dea0b9b4136a8bc82338574f23baf47bbd280"
 
 [[package]]
 name = "hashbrown"

@@ -176,6 +176,29 @@ pub enum Commands {
         #[arg(long, value_name = "TOKEN")]
         provider_token: Option<String>,
     },
+    /// Print the AIL specification (embedded in the binary).
+    Spec {
+        /// Output format: `prose` (default, full spec), `compact` (compressed reference),
+        /// or `schema` (annotated YAML schema).
+        #[arg(long, default_value = "prose")]
+        format: String,
+
+        /// Print specific section(s) by ID (e.g. `s05`, `r02`). Comma-separated for multiple.
+        #[arg(long, value_delimiter = ',')]
+        section: Option<Vec<String>>,
+
+        /// List available section IDs with titles and word counts.
+        #[arg(long)]
+        list: bool,
+
+        /// Print only core spec sections (s-prefixed).
+        #[arg(long)]
+        core: bool,
+
+        /// Print only runner spec sections (r-prefixed).
+        #[arg(long)]
+        runner: bool,
+    },
     /// Delete a pipeline run from the history.
     Delete {
         /// Run ID to delete.

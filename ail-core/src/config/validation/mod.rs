@@ -1214,6 +1214,7 @@ mod tests {
             id: Some("ctx".to_string()),
             context: Some(ContextDto {
                 shell: Some("git status".to_string()),
+                ..Default::default()
             }),
             ..Default::default()
         }]);
@@ -1685,6 +1686,7 @@ mod tests {
                 text: Some("Be helpful".to_string()),
                 file: None,
                 shell: None,
+                spec: None,
             },
         )]);
         let dto = minimal_dto(vec![step]);
@@ -1704,6 +1706,7 @@ mod tests {
                 text: None,
                 file: Some("rules.txt".to_string()),
                 shell: None,
+                spec: None,
             },
         )]);
         let dto = minimal_dto(vec![step]);
@@ -1723,6 +1726,7 @@ mod tests {
                 text: None,
                 file: None,
                 shell: Some("cat rules.txt".to_string()),
+                spec: None,
             },
         )]);
         let dto = minimal_dto(vec![step]);
@@ -1742,6 +1746,7 @@ mod tests {
                 text: None,
                 file: None,
                 shell: None,
+                spec: None,
             },
         )]);
         let dto = minimal_dto(vec![step]);
@@ -1757,6 +1762,7 @@ mod tests {
                 text: Some("inline".to_string()),
                 file: Some("also-file.txt".to_string()),
                 shell: None,
+                spec: None,
             },
         )]);
         let dto = minimal_dto(vec![step]);
