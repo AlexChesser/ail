@@ -8,12 +8,14 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
-import { clearBinaryCache } from './binary';
+import { clearBinaryCache, resolveBinary } from './binary';
 import { SessionManager } from './session-manager';
 import { ChatViewProvider } from './chat-view-provider';
 import { PipelineGraphPanel } from './pipeline-graph/PipelineGraphPanel';
 import { AilOutputChannel } from './output-channel';
 import { checkAndOfferInstall } from './install-wizard';
+import { RunHistoryProvider, registerRunLogCommand } from './history-tree-provider';
+import { PipelineStepsProvider } from './steps-tree-provider';
 
 let chatProvider: ChatViewProvider | undefined;
 
@@ -30,7 +32,40 @@ export function activate(context: vscode.ExtensionContext): void {
   const rawChannel = vscode.window.createOutputChannel('AIL');
   context.subscriptions.push(rawChannel);
   const outputChannel = new AilOutputChannel(rawChannel);
-  chatProvider = new ChatViewProvider(context, sessionManager, outputChannel);
+
+  const cwd = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+
+  const historyProvider = new RunHistoryProvider('', cwd);
+  const stepsProvider = new PipelineStepsProvider();
+
+  // Resolve binary path lazily for tree providers (falls back gracefully if binary not found)
+  void resolveBinary(context).then((b) => {
+    historyProvider.setBinaryPath(b.path);
+    historyProvider.refresh();
+  }).catch(() => { /* binary not found — history tree stays empty */ });
+
+  context.subscriptions.push(
+    vscode.window.registerTreeDataProvider('ail-chat.historyView', historyProvider),
+    vscode.window.registerTreeDataProvider('ail-chat.stepsView', stepsProvider)
+  );
+
+  registerRunLogCommand(context, historyProvider);
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand('ail-chat.openStep', (item) => {
+      stepsProvider.openStep(item);
+    })
+  );
+
+  let panelVisible = false;
+  context.subscriptions.push(
+    vscode.commands.registerCommand('ail-chat.toggleInfoPanel', () => {
+      panelVisible = !panelVisible;
+      void vscode.commands.executeCommand('setContext', 'ail-chat.panelVisible', panelVisible);
+    })
+  );
+
+  chatProvider = new ChatViewProvider(context, sessionManager, outputChannel, historyProvider, stepsProvider);
 
   context.subscriptions.push(
     vscode.window.registerWebviewViewProvider(ChatViewProvider.viewId, chatProvider, {
