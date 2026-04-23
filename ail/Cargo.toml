@@ -10,6 +10,7 @@ path = "src/main.rs"
 
 [dependencies]
 ail-core = { path = "../ail-core" }
+ail-init = { path = "../ail-init" }
 ail-spec = { path = "../ail-spec" }
 clap = { version = "4", features = ["derive"] }
 dirs = "5"

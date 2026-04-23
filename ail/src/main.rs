@@ -172,6 +172,21 @@ async fn main() {
                 let cmd = validate::ValidateCommand::new(pipeline, output_format);
                 exit_with(cmd.execute());
             }
+            Commands::Init {
+                template,
+                force,
+                dry_run,
+            } => {
+                let args = ail_init::InitArgs {
+                    template,
+                    force,
+                    dry_run,
+                };
+                if let Err(e) = ail_init::run(args) {
+                    eprintln!("{e}");
+                    std::process::exit(1);
+                }
+            }
             Commands::Chat {
                 message,
                 stream,
