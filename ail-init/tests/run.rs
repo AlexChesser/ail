@@ -1,33 +1,26 @@
 use ail_init::{InitArgs, TemplateFile, TemplateMeta};
 
-// Use the public entry point + a private helper. We can't construct
-// `BundledSource` directly from an integration test (it's behind the
-// `source` private module), but we can exercise list/fetch through
-// a fresh `run()` call and, more usefully, by wiring a local copy of
-// the source logic. Simplest: test the public `run()` output format
-// is defensive, and test the observable contract via a dedicated
-// helper module exposed for tests below.
+fn args(template: Option<&str>, force: bool, dry_run: bool) -> InitArgs {
+    InitArgs {
+        template: template.map(|s| s.to_string()),
+        force,
+        dry_run,
+    }
+}
 
 #[test]
 fn run_without_template_lists_all_three() {
-    let args = InitArgs {
-        template: None,
-        force: false,
-        dry_run: false,
-    };
-    // run() prints to stdout; we can't easily capture without a wrapper,
-    // but we can at least verify it doesn't error.
-    assert!(ail_init::run(args).is_ok());
+    let tmp = tempfile::tempdir().unwrap();
+    assert!(ail_init::run_in_cwd(args(None, false, false), tmp.path()).is_ok());
+    // No files should have been written.
+    assert!(!tmp.path().join(".ail").exists());
 }
 
 #[test]
 fn run_with_unknown_template_errors() {
-    let args = InitArgs {
-        template: Some("does-not-exist".to_string()),
-        force: false,
-        dry_run: false,
-    };
-    let err = ail_init::run(args).unwrap_err();
+    let tmp = tempfile::tempdir().unwrap();
+    let err = ail_init::run_in_cwd(args(Some("does-not-exist"), false, false), tmp.path())
+        .unwrap_err();
     assert!(err.detail().contains("does-not-exist"));
     assert!(err.detail().contains("starter"));
     assert!(err.detail().contains("superpowers"));
@@ -35,31 +28,69 @@ fn run_with_unknown_template_errors() {
 }
 
 #[test]
-fn run_with_known_template_succeeds() {
-    for name in ["starter", "superpowers", "oh-my-ail"] {
-        let args = InitArgs {
-            template: Some(name.to_string()),
-            force: false,
-            dry_run: false,
-        };
-        assert!(
-            ail_init::run(args).is_ok(),
-            "expected `{name}` to resolve"
-        );
-    }
+fn starter_installs_expected_files() {
+    let tmp = tempfile::tempdir().unwrap();
+    ail_init::run_in_cwd(args(Some("starter"), false, false), tmp.path()).unwrap();
+    assert!(tmp.path().join(".ail/default.yaml").exists());
+    assert!(tmp.path().join(".ail/README.md").exists());
 }
 
 #[test]
-fn run_with_alias_oma_resolves_oh_my_ail() {
-    let args = InitArgs {
-        template: Some("oma".to_string()),
-        force: false,
-        dry_run: false,
-    };
-    assert!(ail_init::run(args).is_ok());
+fn oma_alias_installs_oh_my_ail() {
+    let tmp = tempfile::tempdir().unwrap();
+    ail_init::run_in_cwd(args(Some("oma"), false, false), tmp.path()).unwrap();
+    // oh-my-ail's main entry point.
+    assert!(tmp.path().join(".ail/.ohmy.ail.yaml").exists());
+    // One of the agent pipelines — proves subdir preservation.
+    assert!(tmp.path().join(".ail/agents/hephaestus.ail.yaml").exists());
 }
 
-// Silence unused-import warnings on types we re-export for public API
-// stability but don't construct in these tests.
+#[test]
+fn superpowers_installs_all_pipelines_under_ail() {
+    let tmp = tempfile::tempdir().unwrap();
+    ail_init::run_in_cwd(args(Some("superpowers"), false, false), tmp.path()).unwrap();
+    // A representative pipeline from the superpowers set.
+    assert!(tmp.path().join(".ail/brainstorming.ail.yaml").exists());
+    // Crucially: NOT at the CWD root.
+    assert!(!tmp.path().join("brainstorming.ail.yaml").exists());
+}
+
+#[test]
+fn dry_run_writes_nothing() {
+    let tmp = tempfile::tempdir().unwrap();
+    ail_init::run_in_cwd(args(Some("starter"), false, true), tmp.path()).unwrap();
+    assert!(!tmp.path().join(".ail").exists());
+}
+
+#[test]
+fn refuses_overwrite_without_force() {
+    let tmp = tempfile::tempdir().unwrap();
+    // First install — succeeds.
+    ail_init::run_in_cwd(args(Some("starter"), false, false), tmp.path()).unwrap();
+
+    // Seed conflicting content.
+    std::fs::write(tmp.path().join(".ail/default.yaml"), b"user-edited").unwrap();
+
+    // Second install without --force fails and preserves the edit.
+    let err =
+        ail_init::run_in_cwd(args(Some("starter"), false, false), tmp.path()).unwrap_err();
+    assert!(err.detail().contains("already exist"));
+    assert_eq!(
+        std::fs::read(tmp.path().join(".ail/default.yaml")).unwrap(),
+        b"user-edited"
+    );
+}
+
+#[test]
+fn overwrites_with_force() {
+    let tmp = tempfile::tempdir().unwrap();
+    ail_init::run_in_cwd(args(Some("starter"), false, false), tmp.path()).unwrap();
+    std::fs::write(tmp.path().join(".ail/default.yaml"), b"user-edited").unwrap();
+
+    ail_init::run_in_cwd(args(Some("starter"), true, false), tmp.path()).unwrap();
+    let restored = std::fs::read_to_string(tmp.path().join(".ail/default.yaml")).unwrap();
+    assert!(restored.contains("Starter — Invocation-only pipeline"));
+}
+
 #[allow(dead_code)]
 fn _public_api_surface(_: TemplateMeta, _: TemplateFile) {}
