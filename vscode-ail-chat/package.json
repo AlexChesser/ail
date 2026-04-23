@@ -37,6 +37,25 @@
           "id": "ail-chat.chatView",
           "name": "Chat",
           "type": "webview"
+        },
+        {
+          "id": "ail-chat.historyView",
+          "name": "Run History",
+          "when": "ail-chat.panelVisible"
+        },
+        {
+          "id": "ail-chat.stepsView",
+          "name": "Pipeline Steps",
+          "when": "ail-chat.panelVisible"
+        }
+      ]
+    },
+    "menus": {
+      "view/title": [
+        {
+          "command": "ail-chat.toggleInfoPanel",
+          "when": "view == ail-chat.chatView",
+          "group": "navigation"
         }
       ]
     },
@@ -75,12 +94,28 @@
         "command": "ail-chat.openPipelineGraph",
         "title": "ail Chat: Open Pipeline Graph",
         "category": "ail Chat"
+      },
+      {
+        "command": "ail-chat.toggleInfoPanel",
+        "title": "ail Chat: Toggle Run History & Steps Panel",
+        "category": "ail Chat",
+        "icon": "$(layout-sidebar-right)"
+      },
+      {
+        "command": "ail-chat.openRunLog",
+        "title": "ail Chat: Open Run Log",
+        "category": "ail Chat"
+      },
+      {
+        "command": "ail-chat.openStep",
+        "title": "ail Chat: Go to Step",
+        "category": "ail Chat"
       }
     ]
   },
   "scripts": {
-    "vscode:prepublish": "node esbuild.js --production",
-    "build": "node esbuild.js",
+    "vscode:prepublish": "node scripts/sync-templates.js && node esbuild.js --production",
+    "build": "node scripts/sync-templates.js && node esbuild.js",
     "compile": "tsc -p ./",
     "watch": "node esbuild.js --watch",
     "test": "vitest run",

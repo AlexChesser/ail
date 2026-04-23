@@ -8,6 +8,8 @@ import { WebviewToHostMessage } from './types';
 import { PipelineGraphPanel } from './pipeline-graph/PipelineGraphPanel';
 import { AilOutputChannel } from './output-channel';
 import { createProcessKiller } from './process/process-killer-factory';
+import type { RunHistoryProvider } from './history-tree-provider';
+import type { PipelineStepsProvider } from './steps-tree-provider';
 
 const LAST_PIPELINE_KEY = 'ail-chat.lastPipeline';
 
@@ -23,11 +25,14 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     private readonly _context: vscode.ExtensionContext,
     private readonly _sessionManager: SessionManager,
     private readonly _outputChannel?: AilOutputChannel,
+    private readonly _historyProvider?: RunHistoryProvider,
+    private readonly _stepsProvider?: PipelineStepsProvider,
   ) {
     // Restore last pipeline from workspace state.
     const saved = this._context.workspaceState.get<string>(LAST_PIPELINE_KEY);
     if (saved && fs.existsSync(saved)) {
       this._currentPipeline = saved;
+      this._stepsProvider?.refresh(saved);
     }
   }
 
@@ -60,6 +65,13 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     this._view?.show?.(true);
   }
 
+  reloadPipeline(): void {
+    const resolved = this._resolvedPipeline();
+    this._currentPipeline = resolved;
+    void this._context.workspaceState.update(LAST_PIPELINE_KEY, resolved ?? undefined);
+    this._sendPipelineChanged();
+  }
+
   private _sendPipelineChanged(): void {
     const p = this._currentPipeline;
     void this._view?.webview.postMessage({
@@ -90,6 +102,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
           this._processManager = new AilProcessManager(binary.path, cwd, createProcessKiller(), this._outputChannel);
           this._processManager.onMessage((m) => {
             void this._view?.webview.postMessage(m);
+            if (m.type === 'pipelineCompleted') {
+              this._historyProvider?.refresh();
+            }
           });
         }
 
@@ -125,6 +140,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         if (uris && uris.length > 0) {
           this._currentPipeline = uris[0].fsPath;
           void this._context.workspaceState.update(LAST_PIPELINE_KEY, this._currentPipeline);
+          this._stepsProvider?.refresh(this._currentPipeline);
           this._sendPipelineChanged();
         }
         break;
