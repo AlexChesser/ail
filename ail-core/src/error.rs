@@ -196,6 +196,12 @@ pub enum AilError {
         detail: String,
         context: Option<ErrorContext>,
     },
+
+    #[error("[ail:init/failed] {detail}")]
+    InitFailed {
+        detail: String,
+        context: Option<ErrorContext>,
+    },
 }
 
 impl AilError {
@@ -235,6 +241,7 @@ impl AilError {
             Self::SchemaCompatibilityFailed { .. } => error_types::SCHEMA_COMPATIBILITY_FAILED,
             Self::ForEachSourceInvalid { .. } => error_types::FOR_EACH_SOURCE_INVALID,
             Self::PipelineReloadFailed { .. } => error_types::PIPELINE_RELOAD_FAILED,
+            Self::InitFailed { .. } => error_types::INIT_FAILED,
         }
     }
 
@@ -268,7 +275,8 @@ impl AilError {
             | Self::InputSchemaValidationFailed { detail, .. }
             | Self::SchemaCompatibilityFailed { detail, .. }
             | Self::ForEachSourceInvalid { detail, .. }
-            | Self::PipelineReloadFailed { detail, .. } => detail,
+            | Self::PipelineReloadFailed { detail, .. }
+            | Self::InitFailed { detail, .. } => detail,
         }
     }
 
@@ -300,7 +308,8 @@ impl AilError {
             | Self::InputSchemaValidationFailed { detail, .. }
             | Self::SchemaCompatibilityFailed { detail, .. }
             | Self::ForEachSourceInvalid { detail, .. }
-            | Self::PipelineReloadFailed { detail, .. } => detail,
+            | Self::PipelineReloadFailed { detail, .. }
+            | Self::InitFailed { detail, .. } => detail,
         }
     }
 
@@ -334,7 +343,8 @@ impl AilError {
             | Self::InputSchemaValidationFailed { context, .. }
             | Self::SchemaCompatibilityFailed { context, .. }
             | Self::ForEachSourceInvalid { context, .. }
-            | Self::PipelineReloadFailed { context, .. } => context.as_ref(),
+            | Self::PipelineReloadFailed { context, .. }
+            | Self::InitFailed { context, .. } => context.as_ref(),
         }
     }
 
@@ -447,6 +457,10 @@ impl AilError {
                 context: ctx,
             },
             Self::PipelineReloadFailed { detail, .. } => Self::PipelineReloadFailed {
+                detail,
+                context: ctx,
+            },
+            Self::InitFailed { detail, .. } => Self::InitFailed {
                 detail,
                 context: ctx,
             },
@@ -652,6 +666,13 @@ impl AilError {
             context: None,
         }
     }
+
+    pub fn init_failed(detail: impl Into<String>) -> Self {
+        Self::InitFailed {
+            detail: detail.into(),
+            context: None,
+        }
+    }
 }
 
 pub mod error_types {
@@ -681,6 +702,7 @@ pub mod error_types {
     pub const SCHEMA_COMPATIBILITY_FAILED: &str = "ail:schema/compatibility-failed";
     pub const FOR_EACH_SOURCE_INVALID: &str = "ail:for-each/source-invalid";
     pub const PIPELINE_RELOAD_FAILED: &str = "ail:pipeline/reload-failed";
+    pub const INIT_FAILED: &str = "ail:init/failed";
 }
 
 #[cfg(test)]
@@ -841,6 +863,22 @@ mod tests {
             AilError::for_each_source_invalid("d").error_type(),
             error_types::FOR_EACH_SOURCE_INVALID
         );
+    }
+
+    #[test]
+    fn init_failed_constructor_and_accessors() {
+        let err = AilError::init_failed("transport: DNS failure");
+        assert_eq!(err.error_type(), error_types::INIT_FAILED);
+        assert_eq!(err.detail(), "transport: DNS failure");
+        assert_eq!(err.recovery_strategy(), RecoveryStrategy::Abort);
+        assert!(err.to_string().contains("ail:init/failed"));
+        assert!(err.to_string().contains("transport: DNS failure"));
+
+        let with_ctx = err.with_step_context("run-1", "step-1");
+        let ctx = with_ctx.context().unwrap();
+        assert_eq!(ctx.pipeline_run_id, Some("run-1".to_string()));
+        assert_eq!(ctx.step_id, Some("step-1".to_string()));
+        assert_eq!(with_ctx.into_detail(), "transport: DNS failure");
     }
 
     #[test]

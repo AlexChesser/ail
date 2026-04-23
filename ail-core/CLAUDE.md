@@ -213,6 +213,7 @@ pub struct AilError { pub error_type: &'static str, pub title: &'static str, pub
 | `INPUT_SCHEMA_VALIDATION_FAILED` | `ail:schema/input-validation-failed` |
 | `SCHEMA_COMPATIBILITY_FAILED` | `ail:schema/compatibility-failed` |
 | `FOR_EACH_SOURCE_INVALID` | `ail:for-each/source-invalid` |
+| `INIT_FAILED` | `ail:init/failed` |
 
 ## Invariants (do not break)
 
