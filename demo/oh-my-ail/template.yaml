@@ -1,0 +1,4 @@
+name: oh-my-ail
+short_description: Multi-agent intent-gate orchestration with four complexity tiers
+aliases: [oma]
+tags: [advanced, multi-agent]

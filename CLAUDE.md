@@ -27,7 +27,21 @@ ail-core/                   # library crate — all logic, no UI
     template.rs             # resolve() — {{ variable }} syntax
   tests/spec/               # spec-coverage integration tests, one file per SPEC section
   tests/fixtures/           # minimal, solo_developer, invalid_* YAML fixtures
-demo/                       # working demo pipeline (.ail.yaml + README)
+ail-init/                   # workspace-scaffolding crate — `ail init` command (SPEC §32)
+  src/
+    lib.rs                  # run() / run_in_cwd() entry points
+    install.rs              # plan() + apply() — $CWD/.ail/ install, --force / --dry-run
+    manifest.rs             # template.yaml DTO + parser
+    picker.rs               # dialoguer Select (TTY-gated)
+    source/bundled.rs       # BundledSource — include_dir! over demo/<name>/
+    template.rs             # Template, TemplateMeta, TemplateFile domain types
+  tests/
+    run.rs                  # end-to-end install tests (tempdir)
+    bundled_templates_validate.rs  # CI invariant — every bundled pipeline loads cleanly
+demo/                       # working demo pipelines — also serve as ail-init template sources
+  starter/                  # minimal single-step pipeline (embedded by ail-init)
+  superpowers/              # reference implementation of obra/superpowers as AIL pipelines
+  oh-my-ail/                # multi-agent intent-gate orchestration
 spec/                       # split spec files (primary published artifacts)
   core/s*.md                # AIL Pipeline Language Specification (one file per section)
   runner/r*.md              # Claude CLI runner contract (one file per section)
@@ -60,6 +74,12 @@ cargo fmt --check
 
 # Run the demo (requires release build and claude CLI)
 cd demo && ../target/release/ail "add a fizzbuzz function" --pipeline .ail.yaml
+
+# Scaffold a new workspace from a bundled template
+cargo run -- init              # interactive picker
+cargo run -- init starter      # minimal starter pipeline
+cargo run -- init oma          # oh-my-ail via alias
+cargo run -- init superpowers --dry-run  # preview without writing
 
 # Validate a pipeline file
 cargo run -- validate --pipeline demo/.ail.yaml

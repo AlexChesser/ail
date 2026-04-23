@@ -9,7 +9,7 @@ Oh My AIL implements an **Intent Gate** pattern: every user request is first cla
 ## Architecture
 
 ```
-.ail.yaml                    ← Main entry point (Sisyphus intent gate)
+.ohmy.ail.yaml               ← Main entry point (Sisyphus intent gate)
 ├── prompts/                 ← System prompt files for each agent
 │   ├── sisyphus.md          ← Intent Gate classification rules
 │   ├── metis.md             ← Pre-planning consultant
@@ -64,13 +64,13 @@ Oh My AIL implements an **Intent Gate** pattern: every user request is first cla
 ```bash
 # From the repo root — requires a release build and the claude CLI
 cd /path/to/your/project
-/path/to/ail/target/release/ail --once "your request here" --pipeline /path/to/ail/demo/oh-my-ail/.ail.yaml
+/path/to/ail/target/release/ail --once "your request here" --pipeline /path/to/ail/demo/oh-my-ail/.ohmy.ail.yaml
 
 # Validate the pipeline structure
-cargo run -- validate --pipeline demo/oh-my-ail/.ail.yaml
+cargo run -- validate --pipeline demo/oh-my-ail/.ohmy.ail.yaml
 
 # Inspect the resolved pipeline YAML
-cargo run -- materialize --pipeline demo/oh-my-ail/.ail.yaml
+cargo run -- materialize --pipeline demo/oh-my-ail/.ohmy.ail.yaml
 
 # Run individual agents for testing
 cargo run -- validate --pipeline demo/oh-my-ail/agents/hephaestus.ail.yaml

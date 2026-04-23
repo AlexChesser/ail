@@ -1,0 +1,4 @@
+name: starter
+short_description: Minimal single-step pipeline for onboarding
+aliases: []
+tags: [beginner, single-step]

@@ -199,6 +199,20 @@ pub enum Commands {
         #[arg(long)]
         runner: bool,
     },
+    /// Scaffold an ail workspace from a starter template.
+    Init {
+        /// Template name or alias. If omitted, shows an interactive picker.
+        #[arg(value_name = "TEMPLATE")]
+        template: Option<String>,
+
+        /// Overwrite existing files without prompting.
+        #[arg(long)]
+        force: bool,
+
+        /// Show which files would be written without writing anything.
+        #[arg(long)]
+        dry_run: bool,
+    },
     /// Delete a pipeline run from the history.
     Delete {
         /// Run ID to delete.
@@ -321,6 +335,59 @@ mod tests {
             assert!(matches!(output_format, OutputFormat::Json));
         } else {
             panic!("expected Validate command");
+        }
+    }
+
+    #[test]
+    fn init_subcommand_parses() {
+        let cli = Cli::try_parse_from(["ail", "init"]).unwrap();
+        assert!(matches!(cli.command, Some(Commands::Init { .. })));
+    }
+
+    #[test]
+    fn init_with_template_parses() {
+        let cli = Cli::try_parse_from(["ail", "init", "starter"]).unwrap();
+        if let Some(Commands::Init { template, .. }) = cli.command {
+            assert_eq!(template.as_deref(), Some("starter"));
+        } else {
+            panic!("expected Init command");
+        }
+    }
+
+    #[test]
+    fn init_force_flag_parses() {
+        let cli = Cli::try_parse_from(["ail", "init", "starter", "--force"]).unwrap();
+        if let Some(Commands::Init { force, .. }) = cli.command {
+            assert!(force);
+        } else {
+            panic!("expected Init command");
+        }
+    }
+
+    #[test]
+    fn init_dry_run_flag_parses() {
+        let cli = Cli::try_parse_from(["ail", "init", "--dry-run"]).unwrap();
+        if let Some(Commands::Init { dry_run, .. }) = cli.command {
+            assert!(dry_run);
+        } else {
+            panic!("expected Init command");
+        }
+    }
+
+    #[test]
+    fn init_defaults_to_no_template_no_force_no_dry_run() {
+        let cli = Cli::try_parse_from(["ail", "init"]).unwrap();
+        if let Some(Commands::Init {
+            template,
+            force,
+            dry_run,
+        }) = cli.command
+        {
+            assert!(template.is_none());
+            assert!(!force);
+            assert!(!dry_run);
+        } else {
+            panic!("expected Init command");
         }
     }
 

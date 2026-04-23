@@ -47,6 +47,29 @@ fn exit_with(outcome: CommandOutcome) -> ! {
     std::process::exit(outcome.exit_code())
 }
 
+/// Landing page shown when `ail` is invoked with no prompt and no subcommand.
+/// Surfaces `ail init` as the first-step affordance for new users.
+fn print_landing_page() {
+    println!(
+        "ail — Artificial Intelligence Loops ({})",
+        ail_core::version()
+    );
+    println!();
+    println!("The control plane for how agents behave after the human stops typing.");
+    println!();
+    println!("Common commands:");
+    println!("  ail init                    {}", ail_init::help_summary());
+    println!("  ail \"your prompt\"           Run a prompt through the discovered pipeline");
+    println!("  ail spec                    Print the embedded AIL specification");
+    println!("  ail validate                Validate the current pipeline without running it");
+    println!("  ail materialize             Print the fully-resolved pipeline YAML");
+    println!("  ail logs                    Query recorded pipeline runs");
+    println!("  ail chat                    Interactive multi-turn conversation");
+    println!();
+    println!("Getting started: if this is your first time, run `ail init`.");
+    println!("For the full reference: `ail --help`.");
+}
+
 #[tokio::main]
 async fn main() {
     let cli = Cli::parse();
@@ -172,6 +195,21 @@ async fn main() {
                 let cmd = validate::ValidateCommand::new(pipeline, output_format);
                 exit_with(cmd.execute());
             }
+            Commands::Init {
+                template,
+                force,
+                dry_run,
+            } => {
+                let args = ail_init::InitArgs {
+                    template,
+                    force,
+                    dry_run,
+                };
+                if let Err(e) = ail_init::run(args) {
+                    eprintln!("{e}");
+                    std::process::exit(1);
+                }
+            }
             Commands::Chat {
                 message,
                 stream,
@@ -224,12 +262,7 @@ async fn main() {
             }
         },
         (None, None) => {
-            // No prompt and no subcommand — print usage hint and exit.
-            eprintln!("Usage: ail <PROMPT> [OPTIONS]");
-            eprintln!("       ail --once <PROMPT> [OPTIONS]");
-            eprintln!("       ail <SUBCOMMAND> [OPTIONS]");
-            eprintln!();
-            eprintln!("Run `ail --help` for full usage.");
+            print_landing_page();
             std::process::exit(0);
         }
         (Some(_), Some(_)) => {
