@@ -60,6 +60,7 @@ fn print_landing_page() {
     println!("Common commands:");
     println!("  ail init                    {}", ail_init::help_summary());
     println!("  ail \"your prompt\"           Run a prompt through the discovered pipeline");
+    println!("  ail spec                    Print the embedded AIL specification");
     println!("  ail validate                Validate the current pipeline without running it");
     println!("  ail materialize             Print the fully-resolved pipeline YAML");
     println!("  ail logs                    Query recorded pipeline runs");

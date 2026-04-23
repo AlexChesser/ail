@@ -27,7 +27,7 @@ ail-core/                   # library crate — all logic, no UI
     template.rs             # resolve() — {{ variable }} syntax
   tests/spec/               # spec-coverage integration tests, one file per SPEC section
   tests/fixtures/           # minimal, solo_developer, invalid_* YAML fixtures
-ail-init/                   # workspace-scaffolding crate — `ail init` command (SPEC §31)
+ail-init/                   # workspace-scaffolding crate — `ail init` command (SPEC §32)
   src/
     lib.rs                  # run() / run_in_cwd() entry points
     install.rs              # plan() + apply() — $CWD/.ail/ install, --force / --dry-run

@@ -194,7 +194,7 @@ Disables the TUI entirely. All output is structured JSON to stdout. Suitable for
 ```
 ail-core/     — domain model, pipeline executor, runner adapters, config parsing
 ail/          — binary entry point, TUI, CLI argument parsing
-ail-init/     — workspace-scaffolding domain crate (SPEC §31); bundles demo/ templates
+ail-init/     — workspace-scaffolding domain crate (SPEC §32); bundles demo/ templates
 ```
 
 `ail` (the binary) depends on `ail-core` and `ail-init`. `ail-core` has no knowledge that a TUI exists. It communicates via events — the executor emits typed domain events (`StepStarted`, `StepCompleted`, `HitlGateOpened`, etc.); the TUI subscribes to them and renders. The headless mode simply subscribes a different renderer — one that serialises events to JSON.

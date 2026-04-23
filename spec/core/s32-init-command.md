@@ -8,7 +8,7 @@ dedicated workspace crate (`ail-init`) separate from `ail-core` to keep
 scaffolding, HTTP registry work, and template distribution out of the core
 library's dependency graph.
 
-## §31.1 Usage
+## §32.1 Usage
 
 ```bash
 ail init                      # interactive picker (TTY) OR list templates (non-TTY)
@@ -26,7 +26,7 @@ When stdin is not a TTY (CI, pipes, scripts), `ail init` with no argument
 prints the template list and exits 0. Callers should pass the template name
 explicitly in non-interactive contexts.
 
-## §31.2 Install Target
+## §32.2 Install Target
 
 Every template installs under `$CWD/.ail/`, preserving the template's internal
 directory structure. The `.ail/` prefix is a hard rule — it is not configurable
@@ -42,7 +42,7 @@ per template. Rationale:
 Files inside a template's source directory map 1:1 to `$CWD/.ail/<relative-path>`.
 The template's manifest file (`template.yaml`) is never installed.
 
-## §31.3 Bundled Templates
+## §32.3 Bundled Templates
 
 Three templates ship with `ail` in v0.3:
 
@@ -60,7 +60,7 @@ pipeline YAML under `demo/` flow through automatically on the next
 on every test run; schema drift in `ail-core` that isn't reflected in the
 demos fails the test before release.
 
-## §31.4 Conflict Semantics
+## §32.4 Conflict Semantics
 
 Before writing, `ail init` computes the full install plan and compares every
 target path against the filesystem. If any target already exists:
@@ -73,7 +73,7 @@ target path against the filesystem. If any target already exists:
 `--dry-run` always avoids writing and is compatible with `--force` (in which
 case the dry-run output marks conflicts as "would overwrite").
 
-## §31.5 Template Manifest (`template.yaml`)
+## §32.5 Template Manifest (`template.yaml`)
 
 Each bundled template has a `template.yaml` manifest at its source root:
 
@@ -93,7 +93,7 @@ Manifests not matching this shape abort `ail init` with
 `[ail:config/validation-failed]` at `BundledSource::new()` time. The
 `bundled_templates_validate` test guarantees every shipped manifest parses.
 
-## §31.6 Extension Points (Internal)
+## §32.6 Extension Points (Internal)
 
 The `ail-init` crate defines a private `TemplateSource` trait with two
 methods (`list() -> Vec<TemplateMeta>`, `fetch(&str) -> Option<Template>`).
@@ -102,7 +102,7 @@ v0.3 ships a single implementation, `BundledSource`. Future implementations
 without touching the install or picker logic. The trait is intentionally not
 part of the public API until the second source lands.
 
-## §31.7 Non-Goals
+## §32.7 Non-Goals
 
 - **Not a plugin discovery mechanism for subcommands.** `ail init` is a
   first-party built-in command; adding a third-party subcommand like
