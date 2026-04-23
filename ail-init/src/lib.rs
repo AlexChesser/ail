@@ -8,11 +8,13 @@
 
 mod install;
 mod manifest;
+mod picker;
 mod source;
 mod template;
 
 use ail_core::error::AilError;
 use source::{bundled::BundledSource, TemplateSource};
+use std::io::IsTerminal;
 use std::path::{Path, PathBuf};
 
 pub use template::{Template, TemplateFile, TemplateMeta};
@@ -35,9 +37,26 @@ pub fn run(args: InitArgs) -> Result<(), AilError> {
 pub fn run_in_cwd(args: InitArgs, cwd: &Path) -> Result<(), AilError> {
     let source = BundledSource::new()?;
 
-    let Some(name) = args.template.as_deref() else {
-        list_templates(&source);
-        return Ok(());
+    let name_owned: String;
+    let name: &str = match args.template.as_deref() {
+        Some(n) => n,
+        None => {
+            if std::io::stdin().is_terminal() {
+                match picker::pick(&source)? {
+                    Some(chosen) => {
+                        name_owned = chosen;
+                        &name_owned
+                    }
+                    None => {
+                        println!("Cancelled.");
+                        return Ok(());
+                    }
+                }
+            } else {
+                list_templates(&source);
+                return Ok(());
+            }
+        }
     };
 
     let template = source
