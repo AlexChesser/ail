@@ -20,6 +20,7 @@ tempfile = "3"
 ureq = { version = "2", features = ["json"] }
 event-listener = "5"
 regex = "1"
+ail-spec = { path = "../ail-spec" }
 
 [dev-dependencies]
 stub-llm = { path = "../stub-llm" }

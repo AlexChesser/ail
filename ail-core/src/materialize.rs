@@ -41,6 +41,9 @@ fn chain_step_summary(body: &StepBody) -> String {
         StepBody::Context(ContextSource::Shell(cmd)) => {
             format!("context: shell: \"{}\"", yaml_quote(cmd))
         }
+        StepBody::Context(ContextSource::Spec(query)) => {
+            format!("context: spec: {query}")
+        }
         StepBody::DoWhile {
             max_iterations,
             steps,
@@ -249,6 +252,9 @@ pub fn materialize(pipeline: &Pipeline) -> String {
                     yaml_quote(cmd)
                 ));
             }
+            StepBody::Context(ContextSource::Spec(query)) => {
+                out.push_str(&format!("    context:\n      spec: {query}\n"));
+            }
             StepBody::DoWhile {
                 max_iterations,
                 ref exit_when,
@@ -447,6 +453,11 @@ fn serialize_step(out: &mut String, step: &Step, indent: &str, origin_comment: O
             out.push_str(&format!(
                 "{field_indent}context:\n{field_indent}  shell: \"{}\"\n",
                 yaml_quote(cmd)
+            ));
+        }
+        StepBody::Context(ContextSource::Spec(query)) => {
+            out.push_str(&format!(
+                "{field_indent}context:\n{field_indent}  spec: {query}\n"
             ));
         }
         StepBody::DoWhile {

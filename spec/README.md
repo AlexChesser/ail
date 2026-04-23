@@ -53,6 +53,7 @@ The AIL Pipeline Language Specification — for pipeline authors and implementer
 | [s28-for-each.md](core/s28-for-each.md) | §28 `for_each:` — Collection Iteration | Map steps over a validated array from a prior `output_schema: type: array` step; `over`, `as`, `max_items`, `on_max_items`; plan-execution pattern; requires §26 | **v0.3** |
 | [s29-parallel-execution.md](core/s29-parallel-execution.md) | §29 Parallel Step Execution | `async: true`, `depends_on:`, `action: join`; session fork model; structured join with `output_schema` namespacing; `on_error: fail_fast \| wait_for_all`; cancel signals; template scoping rules; turn log concurrent_group | **v0.3** — parallel dispatch, session forking, string+structured joins, all validation rules, 23 tests |
 | [s30-sampling-parameters.md](core/s30-sampling-parameters.md) | §30 Sampling Parameter Control | `sampling:` block at three scopes (pipeline / provider-attached / per-step); temperature, top_p, top_k, max_tokens, stop_sequences, thinking; field-level merge; stop_sequences replace semantics; runner-specific quantization of `thinking` (ClaudeCLI `--effort`, HTTP boolean, ail-native passthrough) | **v0.3** — spec + all runners + tests |
+| [s31-spec-access.md](core/s31-spec-access.md) | §31 Specification Access & Injection | Spec compiled into binary; `ail spec` CLI command; three compression tiers (schema/compact/prose); `context: spec:` source; `append_system_prompt: - spec:` entry; per-section access; `ail-spec` crate architecture | **v0.4** |
 
 ---
 

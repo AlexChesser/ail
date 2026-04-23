@@ -381,6 +381,10 @@ pub(super) fn execute_single_step<O: StepObserver>(
                 dispatch::context::execute_shell(cmd, session, &step_id, observer)
             }
 
+            StepBody::Context(ContextSource::Spec(query)) => {
+                dispatch::context::execute_spec(query, session, &step_id, observer)
+            }
+
             StepBody::Action(ActionKind::PauseForHuman) => {
                 unreachable!("PauseForHuman handled above")
             }

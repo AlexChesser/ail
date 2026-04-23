@@ -54,6 +54,15 @@ pub(in crate::executor) fn resolve_step_system_prompts(
                         run_shell_command(&session.run_id, step_id, &resolved_cmd)?;
                     stdout
                 }
+                SystemPromptEntry::Spec(query) => {
+                    crate::executor::dispatch::context::resolve_spec_query(query).map_err(
+                        |detail| {
+                            AilError::config_validation(format!(
+                                "Step '{step_id}' append_system_prompt spec: {detail}"
+                            ))
+                        },
+                    )?
+                }
             };
             resolved_append.push(text);
         }

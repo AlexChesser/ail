@@ -1,0 +1,203 @@
+# AIL Pipeline Language — Annotated YAML Schema
+# Compact reference for writing correct .ail.yaml files.
+#
+# Discovery order (first match wins):
+#   1. --pipeline <path>  2. .ail.yaml (CWD)  3. .ail/default.yaml (CWD)  4. ~/.config/ail/default.yaml
+#   If nothing found: passthrough mode (agent behaves as if ail is absent).
+
+# ── TOP-LEVEL STRUCTURE ──
+
+version: "0.1"              # REQUIRED. Spec version.
+FROM: ./base.yaml            # Optional. Inherit steps; file paths only. Chains must be acyclic.
+
+meta:                        # Optional informational block.
+  name: "string"
+  description: "string"
+  author: "string"
+
+defaults:                    # Optional. Inherited by all steps unless overridden per-step.
+  model: claude-sonnet-4-5     # Model name passed as --model.
+  timeout_seconds: 120       # Per-step timeout. Default: 120.
+  max_concurrency: 4         # Max simultaneous async steps. Default: unlimited.
+  provider:
+    model: gemma3:1b         # Precedence over defaults.model.
+    base_url: http://localhost:11434  # ANTHROPIC_BASE_URL env.
+    auth_token: ollama               # ANTHROPIC_AUTH_TOKEN env.
+    sampling: { temperature: 0.3 }   # Provider-attached sampling defaults.
+  tools:                     # Pipeline-wide tool policy. Per-step tools: override entirely.
+    allow: [Read, Glob, LS]
+    deny: [WebFetch]
+  sampling:                  # Pipeline-wide sampling baseline. Field-level merge up the chain.
+    temperature: 0.3         # float 0.0-2.0.
+    top_p: 0.9               # float 0.0-1.0.
+    top_k: 40                # int >= 1.
+    max_tokens: 4096         # int >= 1.
+    stop_sequences: ["END"]  # Higher scope replaces, does NOT append.
+    thinking: 0.75           # float 0.0-1.0 (or true/false). Claude CLI maps to --effort quartiles.
+
+pipeline:                    # REQUIRED. Ordered list of steps.
+
+# ── HOOK OPERATIONS (only when FROM is set) ──
+# - run_before: <step_id>     # Insert before named step.
+# - run_after: <step_id>      # Insert after named step.
+# - override: <step_id>       # Replace step (must keep same id).
+# - disable: <step_id>        # Remove step entirely.
+# All target IDs must exist in resolved chain or parse error.
+
+# ── STEP TYPES — exactly one primary field per step ──
+
+# 1. prompt: (LLM call)
+- id: my_step                # REQUIRED on all steps. Snake_case. Treat as public API.
+  prompt: "inline text"      # String or file path (./  ../  ~/  / prefix = file).
+
+# 2. skill: (LLM via SKILL.md)
+- id: commit
+  skill: ./skills/commit/    # Dir with SKILL.md, or ail/<builtin> (e.g. ail/janitor).
+
+# 3. context: (deterministic, no LLM, zero tokens)
+- id: lint_output
+  context:
+    shell: "cargo clippy -- -D warnings"  # /bin/sh -c. Non-zero exit = result, not error.
+
+# 4. pipeline: (sub-pipeline, runs in isolation)
+- id: sub_task
+  pipeline: ./sub-pipeline.ail.yaml
+
+# 5. do_while: (bounded repeat-until)
+- id: fix_loop
+  do_while:
+    max_iterations: 5        # REQUIRED. int >= 1.
+    exit_when: "{{ step.test.exit_code }} == 0"  # REQUIRED. Condition expr. Checked AFTER each iteration.
+    on_max_iterations: abort_pipeline  # abort_pipeline | continue | pause_for_human. Default: abort_pipeline.
+    steps:                   # REQUIRED (XOR pipeline:). Inner step IDs namespaced as <loop_id>::<step_id>.
+      - id: fix
+        prompt: "Iteration {{ do_while.iteration }}. Fix: {{ step.test.result }}"
+        resume: true
+      - id: test
+        context:
+          shell: "cargo test 2>&1"
+    # pipeline: ./fix-body.ail.yaml   # Alternative to inline steps.
+
+# 6. for_each: (iterate validated array)
+- id: implement_tasks
+  for_each:
+    over: "{{ step.plan.items }}"  # REQUIRED. Source step must have output_schema type: array.
+    as: task                 # Optional. Default: "item". Access: {{ for_each.task }}.
+    max_items: 20            # Optional cap.
+    on_max_items: continue   # abort_pipeline | continue. Default: continue.
+    steps:                   # REQUIRED (XOR pipeline:).
+      - id: implement
+        prompt: "Task {{ for_each.index }}/{{ for_each.total }}: {{ for_each.task }}"
+        resume: true
+
+# ── COMMON STEP OPTIONS ──
+
+- id: example
+  prompt: "..."
+  runner: claude             # Optional. Overrides AIL_DEFAULT_RUNNER.
+  model: claude-opus-4-5       # Optional. Overrides defaults.model.
+  condition: "{{ step.build.exit_code }} == 0"  # Skip if false.
+  disabled: false            # true = always skip.
+  on_error: abort_pipeline   # abort_pipeline | continue | pause_for_human | retry.
+  max_retries: 2             # When on_error: retry.
+  resume: true               # Resume prior session on same provider. Default: false.
+
+  system_prompt: "full override"  # String/file. Replaces provider default.
+  append_system_prompt:      # Array, layered on top in order.
+    - "inline text"
+    - file: ./prompts/ctx.md
+    - text: "{{ step.info.result }}"
+
+  tools:
+    disabled: true           # No tool defs at all.
+    allow: [Read, "Edit(./src/*)"]
+    deny: [WebFetch]
+
+  output_schema:             # JSON Schema. Validated at runtime. Enables {{ step.<id>.items }} for arrays.
+    type: object
+    properties:
+      category: { type: string, enum: [bugfix, feature, refactor] }
+    required: [category]
+  input_schema:              # JSON Schema. Validated before step runs. Enables field: + equals: in on_result.
+    type: object
+    properties:
+      category: { type: string }
+    required: [category]
+
+  sampling:                  # Per-step override. Field-level merge with defaults.
+    temperature: 0.9
+    thinking: true           # true -> 1.0, false -> 0.0.
+
+  async: true                # Non-blocking launch. MUST appear in at least one depends_on.
+  depends_on: [lint, test]   # Wait for listed steps. No forward refs, no cycles.
+  action: join               # Sync barrier. Requires depends_on. No LLM call.
+                             # String join: concatenates [id]: responses.
+                             # Structured join (all deps have output_schema): { dep_id: output }.
+
+  on_result:                 # Declarative branching after step completes.
+    contains: "CLEAN"        # Operators: contains, matches, starts_with, is_empty, exit_code, always, field+equals.
+    if_true: { action: continue }
+    if_false: { action: pause_for_human, message: "Issues found." }
+  # Multi-branch array form (first match wins):
+  # on_result:
+  #   - exit_code: 0          # exit_code: only on shell context steps. Use 'any' for non-zero.
+  #     action: continue
+  #   - matches: /error/i     # Regex: /PATTERN/FLAGS. Flags: i m s.
+  #     action: abort_pipeline
+  #   - field: category       # Requires input_schema.
+  #     equals: "bugfix"
+  #     action: continue
+  #   - always:
+  #     action: continue
+  # Actions: continue | abort_pipeline | break | pause_for_human | pipeline: <path>
+
+  before:                    # Private pre-processing. Not hookable.
+    - ail/janitor            # Short-form: skill or file.
+    - prompt: "Optimize."    # Full-form. use_original (revert transform) only valid here.
+  then:                      # Private post-processing. Not hookable.
+    - prompt: "Summarize."
+
+# ── CONDITION OPERATORS (condition: and exit_when:) ──
+# Named:  always | never
+# {{ var }} == value            String equality (trimmed).
+# {{ var }} != value            String inequality.
+# {{ var }} contains 'text'     Case-insensitive substring.
+# {{ var }} starts_with 'x'     Case-insensitive prefix.
+# {{ var }} ends_with 'x'       Case-insensitive suffix.
+# {{ var }} matches /PAT/i      Regex. Flags: i m s.
+
+# ── TEMPLATE VARIABLES — {{ variable }} ──
+# Resolved at execution time. Unresolved = fatal error (never silently empty).
+#
+# {{ step.invocation.prompt }}         User prompt that triggered this run.
+# {{ step.invocation.response }}       Runner response before pipeline steps.
+# {{ last_response }}                  Most recent step response.
+# {{ step.<id>.response }}             Named prompt/skill step response.
+# {{ step.<id>.result }}               Context step output (shell: stdout+stderr).
+# {{ step.<id>.stdout }}               Shell stdout only.
+# {{ step.<id>.stderr }}               Shell stderr only.
+# {{ step.<id>.exit_code }}            Shell exit code (string).
+# {{ step.<id>.items }}                Array from output_schema type: array.
+# {{ step.<id>.tool_calls }}           Tool events as JSON array.
+# {{ pipeline.run_id }}                Run UUID.
+# {{ session.tool }}                   Runner name (e.g. "claude").
+# {{ session.cwd }}                    Working directory.
+# {{ env.VAR }}                        Env var (fatal if unset).
+# {{ env.VAR | default("fb") }}       Env var with fallback.
+#
+# do_while body only:
+# {{ do_while.iteration }}             0-based index.
+# {{ do_while.max_iterations }}        Declared max.
+#
+# for_each body only:
+# {{ for_each.item }}                  Current item (or {{ for_each.<as> }}).
+# {{ for_each.index }}                 1-based index.
+# {{ for_each.total }}                 Total items (after max_items).
+#
+# After loops (from later steps):
+# {{ step.<loop_id>.index }}           do_while iterations completed.
+# {{ step.<loop_id>::<step_id>.* }}    Inner step result (final iteration).
+#
+# Join steps:
+# {{ step.<join>.response }}           String join output.
+# {{ step.<join>.<dep>.<field> }}      Structured join field access.

@@ -12,6 +12,9 @@ ail/                        # binary crate — CLI entry point only
   src/main.rs               # --once, materialize, validate handlers
   src/cli.rs                # Cli, Commands (clap derive)
   src/command.rs            # CommandOutcome — command lifecycle types
+ail-spec/                   # library crate — embedded spec content
+  build.rs                  # scans spec/ at build time, generates include_str! code
+  src/lib.rs                # public API: section(), list_sections(), full_prose(), compact(), schema()
 ail-core/                   # library crate — all logic, no UI
   src/
     config/                 # discovery, dto, domain, validation, mod (load())
@@ -28,6 +31,8 @@ demo/                       # working demo pipeline (.ail.yaml + README)
 spec/                       # split spec files (primary published artifacts)
   core/s*.md                # AIL Pipeline Language Specification (one file per section)
   runner/r*.md              # Claude CLI runner contract (one file per section)
+  compressed/schema.yaml    # T1 — annotated YAML schema (~2-3K tokens)
+  compressed/compact.md     # T2 — compressed NL reference (~10-12K tokens)
   README.md                 # navigation index — start here
 SPEC.md                     # redirect stub → spec/core/
 RUNNER-SPEC.md              # redirect stub → spec/runner/

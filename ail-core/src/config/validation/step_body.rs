@@ -101,11 +101,22 @@ pub(in crate::config) fn parse_step_body(
             )),
         }
     } else if let Some(ref context_dto) = step_dto.context {
-        match context_dto.shell {
-            Some(ref cmd) => Ok(StepBody::Context(ContextSource::Shell(cmd.clone()))),
-            None => Err(cfg_err!(
-                "Step '{id_str}' declares context: but no source (shell:, mcp:) is present"
-            )),
+        let source_count = [context_dto.shell.is_some(), context_dto.spec.is_some()]
+            .iter()
+            .filter(|&&b| b)
+            .count();
+        if source_count != 1 {
+            return Err(cfg_err!(
+                "Step '{id_str}' declares context: but must have exactly one source \
+                 (shell: or spec:); found {source_count}"
+            ));
+        }
+        if let Some(ref cmd) = context_dto.shell {
+            Ok(StepBody::Context(ContextSource::Shell(cmd.clone())))
+        } else if let Some(ref query) = context_dto.spec {
+            Ok(StepBody::Context(ContextSource::Spec(query.clone())))
+        } else {
+            unreachable!("source_count == 1")
         }
     } else if step_dto.do_while.is_some() {
         parse_do_while_body(step_dto.do_while.take().unwrap(), id_str, pipeline_source)
