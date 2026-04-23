@@ -27,16 +27,19 @@ ail-core/                   # library crate — all logic, no UI
     template.rs             # resolve() — {{ variable }} syntax
   tests/spec/               # spec-coverage integration tests, one file per SPEC section
   tests/fixtures/           # minimal, solo_developer, invalid_* YAML fixtures
-ail-init/                   # workspace-scaffolding crate — `ail init` command (SPEC §32)
+ail-init/                   # workspace-scaffolding crate — `ail init` command (SPEC §32, §33)
   src/
-    lib.rs                  # run() / run_in_cwd() entry points
+    lib.rs                  # run() / run_in_cwd() entry points — URL-vs-bundled dispatch
     install.rs              # plan() + apply() — $CWD/.ail/ install, --force / --dry-run
-    manifest.rs             # template.yaml DTO + parser
+    manifest.rs             # template.yaml DTO + parser (incl. optional `files:` for URL sources)
     picker.rs               # dialoguer Select (TTY-gated)
+    fetcher.rs              # ureq fetch with byte cap + validate_relative_file_path
+    url_ref.rs              # URL/shorthand parsing → manifest_url + base_url (SPEC §33.2)
     source/bundled.rs       # BundledSource — include_dir! over demo/<name>/
+    source/url.rs           # UrlSource::fetch_url — manifest + per-file HTTP install (SPEC §33)
     template.rs             # Template, TemplateMeta, TemplateFile domain types
   tests/
-    run.rs                  # end-to-end install tests (tempdir)
+    run.rs                  # end-to-end install tests (tempdir); URL tests use mockito
     bundled_templates_validate.rs  # CI invariant — every bundled pipeline loads cleanly
 demo/                       # working demo pipelines — also serve as ail-init template sources
   starter/                  # minimal single-step pipeline (embedded by ail-init)
