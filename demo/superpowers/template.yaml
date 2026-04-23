@@ -1,0 +1,4 @@
+name: superpowers
+short_description: Reference implementation of obra/superpowers skills as AIL pipelines
+aliases: []
+tags: [advanced, multi-pipeline, reference]
