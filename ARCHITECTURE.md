@@ -189,16 +189,17 @@ Disables the TUI entirely. All output is structured JSON to stdout. Suitable for
 
 > *The UI may depend on core. Core must never depend on the UI. This dependency is non-cyclic and enforced at the crate boundary.*
 
-`ail` is structured as two crates:
+`ail` is structured as a small set of workspace crates:
 
 ```
 ail-core/     — domain model, pipeline executor, runner adapters, config parsing
 ail/          — binary entry point, TUI, CLI argument parsing
+ail-init/     — workspace-scaffolding domain crate (SPEC §31); bundles demo/ templates
 ```
 
-`ail` (the binary) depends on `ail-core`. `ail-core` has no knowledge that a TUI exists. It communicates via events — the executor emits typed domain events (`StepStarted`, `StepCompleted`, `HitlGateOpened`, etc.); the TUI subscribes to them and renders. The headless mode simply subscribes a different renderer — one that serialises events to JSON.
+`ail` (the binary) depends on `ail-core` and `ail-init`. `ail-core` has no knowledge that a TUI exists. It communicates via events — the executor emits typed domain events (`StepStarted`, `StepCompleted`, `HitlGateOpened`, etc.); the TUI subscribes to them and renders. The headless mode simply subscribes a different renderer — one that serialises events to JSON.
 
-This boundary is enforced structurally: if code in `ail-core` ever imports from `ail`, that is a build error, not a convention violation.
+This boundary is enforced structurally: if code in `ail-core` ever imports from `ail`, that is a build error, not a convention violation. `ail-init` is the pattern for future domain crates — scaffolding (today), a template registry client (planned, HTTP-heavy), and any other concern that does not belong in the core library's dependency graph. Domain crates depend one-way on `ail-core`; the reverse is a compile error.
 
 ---
 
