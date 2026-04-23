@@ -11,6 +11,7 @@ mod manifest;
 mod picker;
 mod source;
 mod template;
+mod url_ref;
 
 use ail_core::error::AilError;
 use source::{bundled::BundledSource, TemplateSource};
