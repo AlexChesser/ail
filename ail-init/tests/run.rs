@@ -19,8 +19,8 @@ fn run_without_template_lists_all_three() {
 #[test]
 fn run_with_unknown_template_errors() {
     let tmp = tempfile::tempdir().unwrap();
-    let err = ail_init::run_in_cwd(args(Some("does-not-exist"), false, false), tmp.path())
-        .unwrap_err();
+    let err =
+        ail_init::run_in_cwd(args(Some("does-not-exist"), false, false), tmp.path()).unwrap_err();
     assert!(err.detail().contains("does-not-exist"));
     assert!(err.detail().contains("starter"));
     assert!(err.detail().contains("superpowers"));
@@ -72,8 +72,7 @@ fn refuses_overwrite_without_force() {
     std::fs::write(tmp.path().join(".ail/default.yaml"), b"user-edited").unwrap();
 
     // Second install without --force fails and preserves the edit.
-    let err =
-        ail_init::run_in_cwd(args(Some("starter"), false, false), tmp.path()).unwrap_err();
+    let err = ail_init::run_in_cwd(args(Some("starter"), false, false), tmp.path()).unwrap_err();
     assert!(err.detail().contains("already exist"));
     assert_eq!(
         std::fs::read(tmp.path().join(".ail/default.yaml")).unwrap(),
