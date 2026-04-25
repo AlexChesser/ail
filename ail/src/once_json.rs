@@ -173,6 +173,14 @@ pub async fn run_once_json(
         Ok(_) => {
             // PipelineCompleted event already emitted by execute_with_control.
             session.turn_log.record_run_finished("completed");
+            // Exit explicitly rather than returning through #[tokio::main].
+            // On macOS the Tokio multi-thread runtime waits for spawn_blocking
+            // threads to join on shutdown; the stdin reader parks one such thread
+            // on read(stdin_fd). If the extension has not yet closed proc.stdin
+            // that thread never returns and ail hangs. All output has been flushed
+            // and the turn log committed above, so exiting here is safe.
+            // Symmetric with the Err path which already uses std::process::exit(1).
+            std::process::exit(0);
         }
         Err(e) => {
             session.turn_log.record_run_finished("failed");
