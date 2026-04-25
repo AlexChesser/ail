@@ -124,11 +124,6 @@ jobs:
             binary: ail
             artifact: ail-x86_64-unknown-linux-musl
             use-cross: true
-          - target: aarch64-unknown-linux-musl
-            runner: ubuntu-latest
-            binary: ail
-            artifact: ail-aarch64-unknown-linux-musl
-            use-cross: true
           - target: x86_64-pc-windows-msvc
             runner: windows-latest
             binary: ail.exe
@@ -210,7 +205,6 @@ jobs:
             | macOS (Intel) | `ail-x86_64-apple-darwin` |
             | macOS (Apple Silicon) | `ail-aarch64-apple-darwin` |
             | Linux (x86_64, musl) | `ail-x86_64-unknown-linux-musl` |
-            | Linux (ARM64, musl) | `ail-aarch64-unknown-linux-musl` |
             | Windows (x86_64) | `ail-x86_64-pc-windows-msvc.exe` |
 
             ### Installation

@@ -149,9 +149,6 @@ jobs:
       - name: Package VSIX — linux x64
         run: vsce package --target linux-x64 --out ail-linux-x64-${{ needs.preflight.outputs.new_version }}.vsix
 
-      - name: Package VSIX — linux arm64
-        run: vsce package --target linux-arm64 --out ail-linux-arm64-${{ needs.preflight.outputs.new_version }}.vsix
-
       - name: Package VSIX — darwin x64
         run: vsce package --target darwin-x64 --out ail-darwin-x64-${{ needs.preflight.outputs.new_version }}.vsix
 
@@ -190,7 +187,6 @@ jobs:
             | macOS (Intel) | `ail-darwin-x64-${{ needs.preflight.outputs.new_version }}.vsix` |
             | macOS (Apple Silicon) | `ail-darwin-arm64-${{ needs.preflight.outputs.new_version }}.vsix` |
             | Linux (x64) | `ail-linux-x64-${{ needs.preflight.outputs.new_version }}.vsix` |
-            | Linux (ARM64) | `ail-linux-arm64-${{ needs.preflight.outputs.new_version }}.vsix` |
             | Windows (x64) | `ail-win32-x64-${{ needs.preflight.outputs.new_version }}.vsix` |
 
             The `ail` binary is bundled — no Rust toolchain required for installation.
