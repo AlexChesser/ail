@@ -1,0 +1,398 @@
+name: Release
+
+# Unified release workflow.
+#
+# One dispatch produces ONE GitHub Release tagged `ail-release-vX.Y.Z`,
+# containing the full bundle (4 CLI binaries + 4 platform VSIX) regardless
+# of which inner component changed.
+#
+# Three independent semver tracks:
+#   - cli_bump  → bumps workspace `version` in Cargo.toml
+#   - ext_bump  → bumps `version` in vscode-ail-chat/package.json
+#   - release   → derived automatically from max(cli_bump, ext_bump)
+#
+# At least one of cli_bump / ext_bump must be non-`none`.
+
+on:
+  workflow_dispatch:
+    inputs:
+      cli_bump:
+        description: "CLI version bump (Cargo.toml workspace version)"
+        required: true
+        default: "none"
+        type: choice
+        options:
+          - none
+          - patch
+          - minor
+          - major
+      ext_bump:
+        description: "Extension version bump (vscode-ail-chat/package.json)"
+        required: true
+        default: "none"
+        type: choice
+        options:
+          - none
+          - patch
+          - minor
+          - major
+
+permissions:
+  contents: write
+
+jobs:
+  # ── Preflight: validate inputs, bump versions, tag the bundle ─────────────
+  preflight:
+    name: Preflight (bump + tag)
+    runs-on: ubuntu-latest
+    outputs:
+      release_version: ${{ steps.versions.outputs.release_version }}
+      cli_version: ${{ steps.versions.outputs.cli_version }}
+      ext_version: ${{ steps.versions.outputs.ext_version }}
+      cli_changed: ${{ steps.versions.outputs.cli_changed }}
+      ext_changed: ${{ steps.versions.outputs.ext_changed }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.RELEASE_PAT }}
+
+      - name: Validate inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ inputs.cli_bump }}" = "none" ] && [ "${{ inputs.ext_bump }}" = "none" ]; then
+            echo "::error::At least one of cli_bump or ext_bump must be patch/minor/major."
+            exit 1
+          fi
+
+      - name: Bump versions and derive release version
+        id: versions
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # Helper: bump "X.Y.Z" by patch|minor|major|none → echoes new version.
+          bump() {
+            local current="$1" kind="$2"
+            IFS='.' read -r MAJ MIN PAT <<< "${current}"
+            case "${kind}" in
+              none)  echo "${current}" ;;
+              patch) echo "${MAJ}.${MIN}.$((PAT+1))" ;;
+              minor) echo "${MAJ}.$((MIN+1)).0" ;;
+              major) echo "$((MAJ+1)).0.0" ;;
+              *) echo "::error::unknown bump kind: ${kind}" >&2; exit 1 ;;
+            esac
+          }
+
+          # Pick the larger of two bump kinds (none < patch < minor < major).
+          rank() {
+            case "$1" in
+              none)  echo 0 ;;
+              patch) echo 1 ;;
+              minor) echo 2 ;;
+              major) echo 3 ;;
+            esac
+          }
+          max_bump() {
+            if [ "$(rank "$1")" -ge "$(rank "$2")" ]; then echo "$1"; else echo "$2"; fi
+          }
+
+          # ── CLI inner bump ────────────────────────────────────────────────
+          CLI_CURRENT=$(grep -m1 '^version = ' Cargo.toml | sed 's/version = "\(.*\)"/\1/')
+          CLI_NEW=$(bump "${CLI_CURRENT}" "${{ inputs.cli_bump }}")
+          if [ "${{ inputs.cli_bump }}" != "none" ]; then
+            TMP=$(mktemp)
+            sed "s/^version = \"${CLI_CURRENT}\"/version = \"${CLI_NEW}\"/" Cargo.toml > "${TMP}"
+            mv "${TMP}" Cargo.toml
+            MATCHES=$(grep -c "^version = \"${CLI_NEW}\"" Cargo.toml)
+            if [ "${MATCHES}" -ne 1 ]; then
+              echo "::error::Expected 1 workspace version line; found ${MATCHES}"
+              exit 1
+            fi
+            echo "cli_changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "cli_changed=false" >> "$GITHUB_OUTPUT"
+          fi
+          echo "CLI: ${CLI_CURRENT} → ${CLI_NEW}"
+
+          # ── Extension inner bump ──────────────────────────────────────────
+          EXT_CURRENT=$(node -p "require('./vscode-ail-chat/package.json').version")
+          if [ "${{ inputs.ext_bump }}" != "none" ]; then
+            (cd vscode-ail-chat && npm version "${{ inputs.ext_bump }}" --no-git-tag-version >/dev/null)
+            EXT_NEW=$(node -p "require('./vscode-ail-chat/package.json').version")
+            echo "ext_changed=true" >> "$GITHUB_OUTPUT"
+          else
+            EXT_NEW="${EXT_CURRENT}"
+            echo "ext_changed=false" >> "$GITHUB_OUTPUT"
+          fi
+          echo "EXT: ${EXT_CURRENT} → ${EXT_NEW}"
+
+          # Stamp the bundled CLI version into package.json (always, so it
+          # tracks even when only the extension bumped).
+          (cd vscode-ail-chat && npm pkg set "config.ailBundledVersion=${CLI_NEW}" >/dev/null)
+
+          # ── Outer release version: max of the two requested bumps ─────────
+          RELEASE_BUMP=$(max_bump "${{ inputs.cli_bump }}" "${{ inputs.ext_bump }}")
+          # Find the most recent ail-release-v* tag (or seed at 0.0.0 if none).
+          LAST_RELEASE_TAG=$(git tag --list 'ail-release-v*' --sort=-v:refname | head -1 || true)
+          if [ -z "${LAST_RELEASE_TAG}" ]; then
+            RELEASE_CURRENT="0.0.0"
+          else
+            RELEASE_CURRENT="${LAST_RELEASE_TAG#ail-release-v}"
+          fi
+          RELEASE_NEW=$(bump "${RELEASE_CURRENT}" "${RELEASE_BUMP}")
+          echo "RELEASE: ${RELEASE_CURRENT} → ${RELEASE_NEW} (${RELEASE_BUMP})"
+
+          echo "cli_version=${CLI_NEW}"     >> "$GITHUB_OUTPUT"
+          echo "ext_version=${EXT_NEW}"     >> "$GITHUB_OUTPUT"
+          echo "release_version=${RELEASE_NEW}" >> "$GITHUB_OUTPUT"
+
+      - name: Install Rust toolchain
+        if: steps.versions.outputs.cli_changed == 'true'
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Refresh Cargo.lock
+        if: steps.versions.outputs.cli_changed == 'true'
+        run: cargo update --workspace
+
+      - name: Commit, tag, push
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          # Stage only the files we may have modified.
+          if [ "${{ steps.versions.outputs.cli_changed }}" = "true" ]; then
+            git add Cargo.toml Cargo.lock
+          fi
+          # package.json always gets the ailBundledVersion stamp; package-lock
+          # only if `npm version` ran.
+          git add vscode-ail-chat/package.json
+          if [ "${{ steps.versions.outputs.ext_changed }}" = "true" ]; then
+            git add vscode-ail-chat/package-lock.json
+          fi
+
+          git commit -m "chore: release ail-release-v${{ steps.versions.outputs.release_version }} (cli ${{ steps.versions.outputs.cli_version }}, ext ${{ steps.versions.outputs.ext_version }})"
+          git tag "ail-release-v${{ steps.versions.outputs.release_version }}"
+          git push origin HEAD:main
+          git push origin "ail-release-v${{ steps.versions.outputs.release_version }}"
+
+  # ── Build CLI binaries off the new tag (always — simpler than reusing) ────
+  build-cli:
+    name: Build CLI ${{ matrix.target }}
+    needs: preflight
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-apple-darwin
+            runner: macos-15-intel
+            binary: ail
+            artifact: ail-x86_64-apple-darwin
+          - target: aarch64-apple-darwin
+            runner: macos-15
+            binary: ail
+            artifact: ail-aarch64-apple-darwin
+          - target: x86_64-unknown-linux-musl
+            runner: ubuntu-latest
+            binary: ail
+            artifact: ail-x86_64-unknown-linux-musl
+            use-cross: true
+          - target: x86_64-pc-windows-msvc
+            runner: windows-latest
+            binary: ail.exe
+            artifact: ail-x86_64-pc-windows-msvc.exe
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ail-release-v${{ needs.preflight.outputs.release_version }}
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install cross (Linux musl)
+        if: matrix.use-cross == true
+        run: cargo install cross --git https://github.com/cross-rs/cross
+
+      - name: Build (cross)
+        if: matrix.use-cross == true
+        run: cross build --release --target ${{ matrix.target }}
+
+      - name: Build (native)
+        if: matrix.use-cross != true
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Strip binary (Unix)
+        if: runner.os != 'Windows'
+        run: strip target/${{ matrix.target }}/release/${{ matrix.binary }}
+
+      - name: Rename binary (Unix)
+        if: runner.os != 'Windows'
+        run: cp target/${{ matrix.target }}/release/${{ matrix.binary }} ${{ matrix.artifact }}
+
+      - name: Rename binary (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: Copy-Item target/${{ matrix.target }}/release/${{ matrix.binary }} -Destination ${{ matrix.artifact }}
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.artifact }}
+          retention-days: 1
+
+  # ── Package VSIX (always — bundles the freshly-built CLI binaries) ────────
+  package-vsix:
+    name: Package VSIX
+    needs: [preflight, build-cli]
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: vscode-ail-chat
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ail-release-v${{ needs.preflight.outputs.release_version }}
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: vscode-ail-chat/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests
+        run: npm test
+
+      - name: Download CLI binaries from this run
+        uses: actions/download-artifact@v8
+        with:
+          path: vscode-ail-chat/dist
+          merge-multiple: true
+
+      - name: Make binaries executable (Unix)
+        run: chmod +x dist/ail-* || true
+
+      - name: Show dist contents
+        run: ls -la dist/
+
+      - name: Install vsce
+        run: npm install -g @vscode/vsce
+
+      - name: Package VSIX — linux x64
+        run: vsce package --target linux-x64 --out ail-linux-x64-${{ needs.preflight.outputs.ext_version }}.vsix
+
+      - name: Package VSIX — darwin x64
+        run: vsce package --target darwin-x64 --out ail-darwin-x64-${{ needs.preflight.outputs.ext_version }}.vsix
+
+      - name: Package VSIX — darwin arm64
+        run: vsce package --target darwin-arm64 --out ail-darwin-arm64-${{ needs.preflight.outputs.ext_version }}.vsix
+
+      - name: Package VSIX — win32 x64
+        run: vsce package --target win32-x64 --out ail-win32-x64-${{ needs.preflight.outputs.ext_version }}.vsix
+
+      - name: Upload VSIX artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: vsix-packages
+          path: vscode-ail-chat/*.vsix
+
+  # ── Publish ONE GitHub Release with all 8 assets ──────────────────────────
+  release:
+    name: Create GitHub Release
+    needs: [preflight, build-cli, package-vsix]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ail-release-v${{ needs.preflight.outputs.release_version }}
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v8
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: List dist contents
+        run: ls -la dist/
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ail-release-v${{ needs.preflight.outputs.release_version }}
+          name: ail-release v${{ needs.preflight.outputs.release_version }}
+          files: dist/*
+          body: |
+            ## ail-release v${{ needs.preflight.outputs.release_version }}
+
+            | Component | Version | Changed this release? |
+            |-----------|---------|------------------------|
+            | CLI       | `${{ needs.preflight.outputs.cli_version }}` | ${{ needs.preflight.outputs.cli_changed == 'true' && 'yes' || 'no' }} |
+            | Extension | `${{ needs.preflight.outputs.ext_version }}` | ${{ needs.preflight.outputs.ext_changed == 'true' && 'yes' || 'no' }} |
+
+            The VSIX bundles CLI `${{ needs.preflight.outputs.cli_version }}`.
+
+            ### Pick one
+
+            **Just want the CLI?** Download the binary for your platform, mark it executable (`chmod +x`), and place it on your `PATH`.
+
+            | Platform | Artifact |
+            |----------|----------|
+            | macOS (Intel) | `ail-x86_64-apple-darwin` |
+            | macOS (Apple Silicon) | `ail-aarch64-apple-darwin` |
+            | Linux (x86_64, musl) | `ail-x86_64-unknown-linux-musl` |
+            | Windows (x86_64) | `ail-x86_64-pc-windows-msvc.exe` |
+
+            **Using VS Code?** Download the `.vsix` for your platform and install with `code --install-extension <file>.vsix`. The CLI is bundled — no Rust toolchain required.
+
+            | Platform | File |
+            |----------|------|
+            | macOS (Intel) | `ail-darwin-x64-${{ needs.preflight.outputs.ext_version }}.vsix` |
+            | macOS (Apple Silicon) | `ail-darwin-arm64-${{ needs.preflight.outputs.ext_version }}.vsix` |
+            | Linux (x64) | `ail-linux-x64-${{ needs.preflight.outputs.ext_version }}.vsix` |
+            | Windows (x64) | `ail-win32-x64-${{ needs.preflight.outputs.ext_version }}.vsix` |
+
+  # ── Optional: publish to VS Code Marketplace ──────────────────────────────
+  publish-marketplace:
+    name: Publish to Marketplace
+    needs: [preflight, package-vsix]
+    if: vars.PUBLISH_TO_MARKETPLACE == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: vscode-ail-chat
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ail-release-v${{ needs.preflight.outputs.release_version }}
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+
+      - name: Install vsce
+        run: npm install -g @vscode/vsce
+
+      - name: Download VSIX packages
+        uses: actions/download-artifact@v8
+        with:
+          name: vsix-packages
+          path: vscode-ail-chat/
+
+      - name: Publish all platforms
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+        run: |
+          for vsix in *.vsix; do
+            vsce publish --packagePath "$vsix"
+          done
