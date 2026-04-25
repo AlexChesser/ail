@@ -26,16 +26,15 @@ pub struct Cli {
     #[arg(long, value_name = "PROMPT")]
     pub once: Option<String>,
 
-    /// Path to the pipeline YAML file. Overrides automatic discovery.
+    /// Override pipeline file discovery (default: .ail.yaml → .ail/default.yaml → ~/.config/ail/default.yaml)
     #[arg(long, value_name = "PATH")]
     pub pipeline: Option<PathBuf>,
 
-    /// Pass `--dangerously-skip-permissions` to the underlying runner.
+    /// Skip all tool-use permission prompts (passes --dangerously-skip-permissions to the runner)
     #[arg(long)]
     pub headless: bool,
 
-    /// Override the model for all runner invocations (e.g. `gemma3:1b` for Ollama).
-    /// Takes precedence over any model declared in the pipeline YAML.
+    /// Override the model for all runner invocations
     #[arg(long, value_name = "MODEL")]
     pub model: Option<String>,
 
@@ -49,7 +48,7 @@ pub struct Cli {
     #[arg(long, value_name = "TOKEN")]
     pub provider_token: Option<String>,
 
-    /// Output format for pipeline execution. `json` emits an NDJSON event stream to stdout.
+    /// Output format: text (default) or json (NDJSON event stream)
     #[arg(long, value_name = "FORMAT", default_value = "text")]
     pub output_format: OutputFormat,
 
@@ -57,17 +56,15 @@ pub struct Cli {
     #[arg(long)]
     pub show_thinking: bool,
 
-    /// Print one summary line per completed step after execution (show-work mode).
+    /// Print one summary line per completed step
     #[arg(long)]
     pub show_work: bool,
 
-    /// Dry-run mode: resolve the full pipeline (templates, conditions, step ordering)
-    /// without making any LLM API calls. Shell context steps execute normally.
-    /// Output clearly indicates this is a dry run.
+    /// Resolve and print the pipeline without making any LLM calls
     #[arg(long)]
     pub dry_run: bool,
 
-    /// Stream per-step progress, thinking blocks, and responses as they arrive.
+    /// Stream per-step progress as it arrives
     #[arg(long, alias = "show-responses", hide_short_help = false)]
     pub watch: bool,
 
@@ -77,7 +74,7 @@ pub struct Cli {
 
 #[derive(Subcommand)]
 pub enum Commands {
-    /// Resolve and output the full pipeline. Alias: mp
+    /// Print the fully-resolved pipeline YAML with all template variables resolved
     #[command(name = "materialize", visible_alias = "mp")]
     Materialize {
         /// Path to the pipeline YAML file. Overrides automatic discovery.
@@ -92,7 +89,7 @@ pub enum Commands {
         #[arg(long)]
         expand_pipelines: bool,
     },
-    /// Validate a pipeline file without running it.
+    /// Check a pipeline file for errors without running it
     Validate {
         /// Path to the pipeline YAML file to validate. Overrides automatic discovery.
         #[arg(long, value_name = "PATH")]
@@ -103,7 +100,7 @@ pub enum Commands {
         #[arg(long, value_name = "FORMAT", default_value = "text")]
         output_format: OutputFormat,
     },
-    /// Query execution logs stored by ail.
+    /// Query recorded pipeline runs
     Logs {
         /// Filter by session run_id (prefix match).
         #[arg(long)]
@@ -125,7 +122,7 @@ pub enum Commands {
         #[arg(long, default_value_t = 20)]
         limit: usize,
     },
-    /// Display a formatted pipeline run (ail-log format).
+    /// Show a single run in full detail
     Log {
         /// Run ID (UUID). If omitted, shows the most recent run for the current directory.
         #[arg(value_name = "RUN_ID")]
@@ -155,7 +152,7 @@ pub enum Commands {
         #[arg(long)]
         socket: String,
     },
-    /// Interactive chat mode: multi-turn conversation with pipeline execution after each message.
+    /// Machine-facing NDJSON chat protocol (IPC — used by IDE extensions)
     Chat {
         /// Send a single message and exit (non-interactive).
         #[arg(long, short)]
@@ -176,7 +173,18 @@ pub enum Commands {
         #[arg(long, value_name = "TOKEN")]
         provider_token: Option<String>,
     },
-    /// Print the AIL specification (embedded in the binary).
+    /// Browse the embedded AIL specification
+    #[command(long_about = "Browse the embedded AIL specification.\n\n\
+                            By default, prints the full specification in prose form.\n\n\
+                            Progressive disclosure options:\n\
+                            \n\
+                            --list                  Print a table of contents with section IDs and word counts\n\
+                            --section s05           Print a single section by ID\n\
+                            --section s05,r02       Print multiple sections (comma-separated)\n\
+                            --format compact        Print the compressed reference (~10k tokens)\n\
+                            --format schema         Print the annotated YAML schema (~2-3k tokens)\n\
+                            --core / --runner       Filter to core spec or runner spec only\n\n\
+                            Section IDs: s01–s33 (core), r01–r11 (runner). Run `ail spec --list` to browse.")]
     Spec {
         /// Output format: `prose` (default, full spec), `compact` (compressed reference),
         /// or `schema` (annotated YAML schema).
@@ -199,7 +207,7 @@ pub enum Commands {
         #[arg(long)]
         runner: bool,
     },
-    /// Scaffold an ail workspace from a starter template.
+    /// Scaffold an ail workspace from a template
     Init {
         /// Template name or alias. If omitted, shows an interactive picker.
         #[arg(value_name = "TEMPLATE")]
@@ -213,7 +221,7 @@ pub enum Commands {
         #[arg(long)]
         dry_run: bool,
     },
-    /// Delete a pipeline run from the history.
+    /// Delete a recorded run from history
     Delete {
         /// Run ID to delete.
         #[arg(value_name = "RUN_ID")]
