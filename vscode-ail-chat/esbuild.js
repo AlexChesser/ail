@@ -47,23 +47,6 @@ const graphWebviewOptions = {
   loader: { '.css': 'css' },
 };
 
-function copyTemplates() {
-  const src = path.join(__dirname, 'templates');
-  const dest = path.join(__dirname, 'dist', 'templates');
-  if (!fs.existsSync(src)) return;
-
-  function copyDir(s, d) {
-    fs.mkdirSync(d, { recursive: true });
-    for (const entry of fs.readdirSync(s, { withFileTypes: true })) {
-      const sp = path.join(s, entry.name);
-      const dp = path.join(d, entry.name);
-      if (entry.isDirectory()) copyDir(sp, dp);
-      else fs.copyFileSync(sp, dp);
-    }
-  }
-  copyDir(src, dest);
-}
-
 function copyCodiconAssets() {
   const dist = path.join(__dirname, 'dist');
   if (!fs.existsSync(dist)) fs.mkdirSync(dist, { recursive: true });
@@ -99,7 +82,6 @@ async function build() {
   }
 
   copyCodiconAssets();
-  copyTemplates();
 
   if (watch) {
     const [extCtx, webCtx, graphCtx] = await Promise.all([

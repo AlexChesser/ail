@@ -3,6 +3,8 @@ import * as path from 'path';
 import { BinaryInstaller } from '../types';
 
 export class WindowsBinaryInstaller implements BinaryInstaller {
+  readonly targetLabel = '%LOCALAPPDATA%\\ail\\bin';
+
   async install(bundledBinaryPath: string): Promise<{ path: string; message: string }> {
     // Use LOCALAPPDATA if available, otherwise fall back to user home
     const appDataPath = process.env.LOCALAPPDATA || path.join(process.env.USERPROFILE || '', 'AppData', 'Local');

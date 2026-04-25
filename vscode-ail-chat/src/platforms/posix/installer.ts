@@ -4,6 +4,8 @@ import { homedir } from 'os';
 import { BinaryInstaller } from '../types';
 
 export class PosixBinaryInstaller implements BinaryInstaller {
+  readonly targetLabel = '~/.local/bin';
+
   async install(bundledBinaryPath: string): Promise<{ path: string; message: string }> {
     const binDir = path.join(homedir(), '.local', 'bin');
     const targetPath = path.join(binDir, 'ail');

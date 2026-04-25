@@ -7,7 +7,8 @@ import { SessionManager } from './session-manager';
 import { WebviewToHostMessage } from './types';
 import { PipelineGraphPanel } from './pipeline-graph/PipelineGraphPanel';
 import { AilOutputChannel } from './output-channel';
-import { createProcessKiller } from './platforms';
+import { createProcessKiller, createBinaryInstaller } from './platforms';
+import { isAilOnPath } from './path-detection';
 import type { RunHistoryProvider } from './history-tree-provider';
 import type { PipelineStepsProvider } from './steps-tree-provider';
 
@@ -70,6 +71,36 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     this._currentPipeline = resolved;
     void this._context.workspaceState.update(LAST_PIPELINE_KEY, resolved ?? undefined);
     this._sendPipelineChanged();
+    void this.sendSetupStatus();
+  }
+
+  /** Re-broadcast current setup status to the webview. */
+  async sendSetupStatus(): Promise<void> {
+    const cwd = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const hasPipeline = cwd ? this._pipelineExistsInWorkspace(cwd) : false;
+    const binaryOnPath = await isAilOnPath();
+    const installer = createBinaryInstaller();
+    void this._view?.webview.postMessage({
+      type: 'setupStatus',
+      hasPipeline,
+      binaryOnPath,
+      installTargetLabel: installer.targetLabel,
+    });
+  }
+
+  private _pipelineExistsInWorkspace(cwd: string): boolean {
+    for (const p of ['.ail.yaml', '.ail.yml']) {
+      if (fs.existsSync(path.join(cwd, p))) return true;
+    }
+    const ailDir = path.join(cwd, '.ail');
+    if (fs.existsSync(ailDir) && fs.statSync(ailDir).isDirectory()) {
+      try {
+        return fs.readdirSync(ailDir).some((e) => e.endsWith('.yaml') || e.endsWith('.yml'));
+      } catch {
+        // ignore unreadable dirs
+      }
+    }
+    return false;
   }
 
   private _sendPipelineChanged(): void {
@@ -87,6 +118,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         const list = await this._sessionManager.getSessions();
         void this._view?.webview.postMessage({ type: 'sessionsUpdated', sessions: list });
         this._sendPipelineChanged();
+        void this.sendSetupStatus();
         break;
       }
 
@@ -188,6 +220,14 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         }
         break;
       }
+
+      case 'runInstallWizard':
+        void vscode.commands.executeCommand('ail-chat.runInstallWizard');
+        break;
+
+      case 'installBinary':
+        void vscode.commands.executeCommand('ail-chat.installBinary');
+        break;
     }
   }
 

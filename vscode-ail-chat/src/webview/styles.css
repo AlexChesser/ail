@@ -987,6 +987,49 @@ button:disabled {
   background: var(--vscode-list-hoverBackground);
 }
 
+/* ── Setup cards (empty-state CTAs) ── */
+
+.setup-card {
+  width: 100%;
+  max-width: 340px;
+  border-left: 3px solid var(--vscode-inputValidation-warningBorder, var(--vscode-editorWarning-foreground));
+  border-radius: 0 var(--ail-radius) var(--ail-radius) 0;
+  background: var(--ail-card-bg);
+  padding: var(--ail-spacing-md) var(--ail-spacing-lg);
+  display: flex;
+  flex-direction: column;
+  gap: var(--ail-spacing-sm);
+  margin-bottom: var(--ail-spacing-md);
+  text-align: left;
+}
+
+.setup-card-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--vscode-foreground);
+}
+
+.setup-card-subtitle {
+  font-size: 11px;
+  color: var(--vscode-descriptionForeground);
+}
+
+.setup-card-button {
+  align-self: flex-start;
+  background: var(--vscode-button-background);
+  color: var(--vscode-button-foreground);
+  border: none;
+  border-radius: var(--ail-radius);
+  padding: 4px 10px;
+  font-size: 11px;
+  cursor: pointer;
+  transition: background 0.1s ease;
+}
+
+.setup-card-button:hover {
+  background: var(--vscode-button-hoverBackground);
+}
+
 /* ── Empty state ── */
 
 .empty-state {
