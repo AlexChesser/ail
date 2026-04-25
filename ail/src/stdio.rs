@@ -1,4 +1,5 @@
-//! Interactive chat mode — multi-turn conversation with pipeline execution after each message.
+//! Machine-facing bidirectional NDJSON protocol over stdin/stdout — multi-turn conversation
+//! with pipeline execution after each message. Used by IDE extensions and external TUIs.
 //!
 //! # NDJSON protocol (stdout)
 //!

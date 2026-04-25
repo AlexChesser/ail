@@ -152,8 +152,8 @@ pub enum Commands {
         #[arg(long)]
         socket: String,
     },
-    /// Machine-facing NDJSON chat protocol (IPC — used by IDE extensions)
-    Chat {
+    /// Machine-facing bidirectional NDJSON protocol over stdin/stdout
+    Stdio {
         /// Send a single message and exit (non-interactive).
         #[arg(long, short)]
         message: Option<String>,

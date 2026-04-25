@@ -103,7 +103,7 @@ These are fully working features in the codebase that either have no spec sectio
 | Sub-pipeline execution | executor.rs:124–209 | s09 status wrong | Spec says "deferred"; code fully works with depth guards, template resolution, error handling. Need to update spec/README.md status from "deferred" to "implemented". |
 | `step.<id>.result/stdout/stderr/exit_code` template vars | template.rs | s11 status wrong | Spec README says "specced, not yet impl"; code fully resolves these from context step TurnEntries. Tests pass (s11_template_variables.rs). Update spec status. |
 | `ail logs` command | ail/src/logs.rs, ail-core/src/logs.rs | No spec | SQLite-backed session listing with FTS search, prefix filtering, `--tail`, JSON output. Only `ail log` is specced; `ail logs` (plural) is completely unspecced. |
-| `ail chat` command | ail/src/chat.rs | No spec | Multi-turn interactive chat with pipeline execution. No spec section at all. |
+| `ail stdio` command | ail/src/stdio.rs | No spec | Multi-turn machine-facing NDJSON protocol over stdin/stdout. No spec section at all. |
 | TUI mode | ail/src/tui/ | No spec | Full terminal UI for interactive pipeline execution. Partial implementation. No spec section. |
 | MCP permission bridge | ail/src/mcp_bridge.rs, ail-core/src/ipc.rs | r02 incomplete | Handles tool permission HITL via local IPC. Mentioned in r02 but protocol details not documented. |
 | `--model` CLI flag | cli.rs line 33–36 | Not in spec | Override model for all invocations. |
@@ -158,7 +158,7 @@ Organized by priority and impact. Each gap above maps to one of these epics.
 
 **Items:**
 - [ ] **New s24b–`ail logs` Command:** Document the plural `logs` command (session listing, FTS search, filtering). Separate from existing `ail log` (singular, single-run display).
-- [ ] **New section–`ail chat` Command:** Document interactive chat mode with pipeline execution per message.
+- [ ] **New section–`ail stdio` Command:** Document the bidirectional NDJSON protocol (multi-turn pipeline execution per message, HITL events, permission responses).
 - [ ] **New section–CLI Flags:** Document `--model`, `--provider-url`, `--provider-token`, `--show-thinking`, `--show-responses`.
 - [ ] **New section–NDJSON Stdin Control Protocol:** Document `hitl_response`, `permission_response`, `pause`, `resume`, `kill` message types for extension/consumer integration.
 - [ ] **Expand s19–RunnerFactory:** Document `RunnerFactory::build()`, per-step `runner:` field, case-insensitive matching.
@@ -236,7 +236,7 @@ Organized by priority and impact. Each gap above maps to one of these epics.
 
 **Code files that implement unspecced features:**
 - `ail/src/logs.rs` (ail logs command)
-- `ail/src/chat.rs` (ail chat command)
+- `ail/src/stdio.rs` (ail stdio command)
 - `ail/src/tui/` (TUI mode)
 - `ail-core/src/ipc.rs` (permission bridge)
 - `main.rs:312–366` (stdin control protocol)

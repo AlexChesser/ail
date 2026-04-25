@@ -1,6 +1,5 @@
 mod ask_user_hook;
 mod ask_user_types;
-mod chat;
 mod check_permission_hook;
 mod cli;
 mod command;
@@ -14,6 +13,7 @@ mod materialize;
 mod once_json;
 mod once_text;
 mod spec;
+mod stdio;
 mod validate;
 
 use ail_core::runner::factory::RunnerFactory;
@@ -197,7 +197,7 @@ async fn main() {
                     std::process::exit(1);
                 }
             }
-            Commands::Chat {
+            Commands::Stdio {
                 message,
                 stream,
                 pipeline,
@@ -206,7 +206,7 @@ async fn main() {
                 provider_token,
             } => {
                 tracing::info!(
-                    event = "chat",
+                    event = "stdio",
                     one_shot = message.is_some(),
                     stream = stream
                 );
@@ -217,7 +217,7 @@ async fn main() {
                     auth_token: provider_token,
                     ..Default::default()
                 };
-                // Create a shared HTTP session store for the chat session.
+                // Shared HTTP session store for the stdio session.
                 let http_store: ail_core::runner::http::HttpSessionStore =
                     std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashMap::new()));
                 let runner = match RunnerFactory::build_default(
@@ -232,7 +232,7 @@ async fn main() {
                     }
                 };
                 let result = if stream {
-                    chat::run_chat_stream(
+                    stdio::run_chat_stream(
                         discovered_pipeline,
                         cli_provider,
                         runner.as_ref(),
@@ -240,10 +240,15 @@ async fn main() {
                     )
                     .await
                 } else {
-                    chat::run_chat_text(discovered_pipeline, cli_provider, runner.as_ref(), message)
+                    stdio::run_chat_text(
+                        discovered_pipeline,
+                        cli_provider,
+                        runner.as_ref(),
+                        message,
+                    )
                 };
                 if let Err(e) = result {
-                    eprintln!("chat error: {e}");
+                    eprintln!("stdio error: {e}");
                     std::process::exit(1);
                 }
             }
