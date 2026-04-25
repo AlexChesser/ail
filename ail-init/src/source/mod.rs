@@ -1,6 +1,7 @@
 use crate::template::{Template, TemplateMeta};
 
 pub mod bundled;
+pub mod url;
 
 /// A source of templates — bundled, local directory, or (future) remote registry.
 ///

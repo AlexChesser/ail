@@ -75,7 +75,7 @@ case the dry-run output marks conflicts as "would overwrite").
 
 ## §32.5 Template Manifest (`template.yaml`)
 
-Each bundled template has a `template.yaml` manifest at its source root:
+Each template has a `template.yaml` manifest at its source root:
 
 ```yaml
 name: oh-my-ail                        # required — canonical template name
@@ -83,24 +83,44 @@ short_description: >-                  # required — one-line UI string
   Multi-agent intent-gate orchestration with four complexity tiers
 aliases: [oma]                         # optional — shorthand names
 tags: [advanced, multi-agent]          # optional — future filtering
+files:                                 # optional — required for URL sources (§33)
+  - default.yaml
+  - agents/atlas.ail.yaml
 ```
+
+### §32.5.1 `files:` — when required
+
+- **Bundled templates** (shipped inside the `ail-init` crate): `files:` is
+  **omitted**. The directory walker supplies the install set by walking the
+  embedded `demo/<name>/` tree.
+- **URL-sourced templates** (§33): `files:` is **required**. It lists every
+  file to fetch and install, relative to the manifest's directory. Each entry
+  is subject to the same safety rules the fetcher enforces (no absolute paths,
+  no `..`, no backslashes, no null bytes, no trailing slashes, no
+  `template.yaml` self-reference, no duplicates). A URL manifest without a
+  `files:` list aborts with `ail:init/failed` (`manifest-invalid:`).
 
 Reserved fields (not yet used; added later without breaking existing manifests):
 `exclude` (file-path globs to skip), `install` (target-path mapping —
 currently "preserve structure under `.ail/`" is hardcoded).
 
 Manifests not matching this shape abort `ail init` with
-`[ail:config/validation-failed]` at `BundledSource::new()` time. The
-`bundled_templates_validate` test guarantees every shipped manifest parses.
+`[ail:config/validation-failed]` at `BundledSource::new()` time (for bundled
+sources) or `[ail:init/failed]` with a `manifest-invalid:` detail prefix (for
+URL sources). The `bundled_templates_validate` test guarantees every shipped
+manifest parses.
 
 ## §32.6 Extension Points (Internal)
 
 The `ail-init` crate defines a private `TemplateSource` trait with two
 methods (`list() -> Vec<TemplateMeta>`, `fetch(&str) -> Option<Template>`).
-v0.3 ships a single implementation, `BundledSource`. Future implementations
-(local `~/.ail/templates/` directory, remote GitHub-hosted registry) plug in
-without touching the install or picker logic. The trait is intentionally not
-part of the public API until the second source lands.
+v0.3 ships `BundledSource`; v0.4 adds `UrlSource` (§33) alongside it — the
+dispatcher in `run_in_cwd` routes URL-shaped arguments directly to `UrlSource`
+and plain names through `BundledSource`. Future implementations (local
+`~/.ail/templates/` directory, remote template registry) plug in without
+touching the install or picker logic. The trait is intentionally not part of
+the public API until the second *listable* source lands — `UrlSource` does
+not participate in `list()` because a direct-URL input has nothing to list.
 
 ## §32.7 Non-Goals
 

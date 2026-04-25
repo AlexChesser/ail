@@ -67,8 +67,11 @@ fn load_bundled(
             "template manifest at `{manifest_path}` is not valid UTF-8: {e}"
         ))
     })?;
-    let meta = parse_manifest(manifest_str, &manifest_path)?;
-    Ok(BundledTemplate { meta, dir })
+    let parsed = parse_manifest(manifest_str, &manifest_path)?;
+    Ok(BundledTemplate {
+        meta: parsed.meta,
+        dir,
+    })
 }
 
 fn collect_files(dir: &Dir<'_>) -> Vec<TemplateFile> {

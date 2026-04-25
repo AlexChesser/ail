@@ -6,14 +6,16 @@
 //! time so `demo/` is the single source of truth. Every template installs
 //! under `$CWD/.ail/`.
 
+mod fetcher;
 mod install;
 mod manifest;
 mod picker;
 mod source;
 mod template;
+mod url_ref;
 
 use ail_core::error::AilError;
-use source::{bundled::BundledSource, TemplateSource};
+use source::{bundled::BundledSource, url::UrlSource, TemplateSource};
 use std::io::IsTerminal;
 use std::path::{Path, PathBuf};
 
@@ -35,6 +37,15 @@ pub fn run(args: InitArgs) -> Result<(), AilError> {
 /// Testable entry point — callers pass an explicit CWD instead of relying on
 /// the process-wide `current_dir`.
 pub fn run_in_cwd(args: InitArgs, cwd: &Path) -> Result<(), AilError> {
+    // URL-shaped args route to the URL source before we touch the bundled
+    // catalog. Plain names fall through to the bundled flow below unchanged.
+    if let Some(name) = args.template.as_deref() {
+        if let Some(url_ref) = url_ref::parse(name)? {
+            let template = UrlSource::new().fetch_url(&url_ref)?;
+            return finish(&template, cwd, &args);
+        }
+    }
+
     let source = BundledSource::new()?;
 
     let name_owned: String;
@@ -63,15 +74,19 @@ pub fn run_in_cwd(args: InitArgs, cwd: &Path) -> Result<(), AilError> {
         .fetch(name)
         .ok_or_else(|| template_not_found(name, &source))?;
 
-    let plan = install::plan(&template, cwd);
+    finish(&template, cwd, &args)
+}
+
+fn finish(template: &Template, cwd: &Path, args: &InitArgs) -> Result<(), AilError> {
+    let plan = install::plan(template, cwd);
 
     if args.dry_run {
-        print_dry_run(&template, &plan);
+        print_dry_run(template, &plan);
         return Ok(());
     }
 
     install::apply(&plan, args.force)?;
-    print_success(&template, &plan);
+    print_success(template, &plan);
     Ok(())
 }
 
