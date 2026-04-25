@@ -127,6 +127,11 @@
         "command": "ail-chat.checkForUpdates",
         "title": "ail Chat: Check for ail Updates",
         "category": "ail Chat"
+      },
+      {
+        "command": "ail-chat.useAnyway",
+        "title": "ail Chat: Toggle \"Use Anyway\" Override (Bypass Minimum Version)",
+        "category": "ail Chat"
       }
     ]
   },

@@ -10,6 +10,13 @@ import * as path from 'path';
 import * as fs from 'fs';
 import { clearBinaryCache, resolveBinary, ResolvedBinary } from './binary';
 import { checkForLatestRelease, compareVersions } from './update-checker';
+import {
+  getMinVersionState,
+  isAcceptable,
+  MinVersionStatusItem,
+  setUseAnyway,
+  MinVersionState,
+} from './min-version-gate';
 import { SessionManager } from './session-manager';
 import { ChatViewProvider } from './chat-view-provider';
 import { PipelineGraphPanel } from './pipeline-graph/PipelineGraphPanel';
@@ -21,6 +28,8 @@ import { PipelineStepsProvider } from './steps-tree-provider';
 import { createBinaryInstaller } from './platforms';
 
 let chatProvider: ChatViewProvider | undefined;
+let minVersionState: MinVersionState | undefined;
+let minVersionStatusItem: MinVersionStatusItem | undefined;
 
 export function activate(context: vscode.ExtensionContext): void {
   context.subscriptions.push(
@@ -40,6 +49,9 @@ export function activate(context: vscode.ExtensionContext): void {
 
   const historyProvider = new RunHistoryProvider('', cwd);
   const stepsProvider = new PipelineStepsProvider();
+
+  minVersionStatusItem = new MinVersionStatusItem();
+  context.subscriptions.push(minVersionStatusItem);
 
   // Resolve binary path lazily for tree providers (falls back gracefully if binary not found)
   void resolveBinary(context).then((b) => {
@@ -88,6 +100,9 @@ export function activate(context: vscode.ExtensionContext): void {
         const installer = createBinaryInstaller();
         const result = await installer.install(binary.path);
         clearPathCache();
+        // Re-resolve so subsequent gate checks see the freshly-installed binary.
+        clearBinaryCache();
+        await refreshMinVersionGate(context);
         void vscode.window.showInformationMessage(result.message);
         if (chatProvider) void chatProvider.sendSetupStatus();
       } catch (err) {
@@ -98,7 +113,39 @@ export function activate(context: vscode.ExtensionContext): void {
   );
 
   context.subscriptions.push(
+    vscode.commands.registerCommand('ail-chat.useAnyway', async () => {
+      const currentlyActive = minVersionState?.useAnywayActive ?? false;
+      if (currentlyActive) {
+        const choice = await vscode.window.showWarningMessage(
+          'Disable the "Use Anyway" override? The extension will refuse to start sessions with an outdated ail binary until you install an update.',
+          { modal: true },
+          'Disable'
+        );
+        if (choice === 'Disable') {
+          await setUseAnyway(context, false);
+          await refreshMinVersionGate(context);
+          void vscode.window.showInformationMessage('"Use Anyway" override disabled.');
+        }
+      } else {
+        const choice = await vscode.window.showWarningMessage(
+          'Bypass the minimum-version check? The extension may not work correctly with an outdated ail binary, and features may fail unpredictably.',
+          { modal: true, detail: `Required minimum: ${minVersionState?.minVersion ?? 'unknown'}\nResolved binary: ${minVersionState?.resolvedVersion ?? 'unknown'}` },
+          'Use Anyway'
+        );
+        if (choice === 'Use Anyway') {
+          await setUseAnyway(context, true);
+          await refreshMinVersionGate(context);
+          void vscode.window.showInformationMessage(
+            '"Use Anyway" override enabled. Run the same command to disable it later.'
+          );
+        }
+      }
+    })
+  );
+
+  context.subscriptions.push(
     vscode.commands.registerCommand('ail-chat.runInstallWizard', async () => {
+      if (!(await ensureMinVersionGate(context))) return;
       if (chatProvider) {
         await runInstallWizard(context, chatProvider, { bypassDismiss: true });
         void chatProvider.sendSetupStatus();
@@ -125,11 +172,13 @@ export function activate(context: vscode.ExtensionContext): void {
       void vscode.commands.executeCommand('workbench.view.extension.ail-chat-sidebar');
     }),
 
-    vscode.commands.registerCommand('ail-chat.newSession', () => {
+    vscode.commands.registerCommand('ail-chat.newSession', async () => {
+      if (!(await ensureMinVersionGate(context))) return;
       chatProvider?.reveal();
     }),
 
     vscode.commands.registerCommand('ail-chat.openPipelineGraph', async () => {
+      if (!(await ensureMinVersionGate(context))) return;
       // Pipeline resolution order:
       // 1. Active editor (if it's a .ail.yaml file)
       // 2. File picker dialog
@@ -177,6 +226,7 @@ export function activate(context: vscode.ExtensionContext): void {
 
 /**
  * Run after a successful resolveBinary() during activation.
+ * - Compute and surface the minimum-version gate state (status bar + toast if below min).
  * - If using bundled fallback, surface an informational toast inviting installation to PATH.
  * - Run a throttled update check; if a newer ail-v* release is available, prompt to update.
  */
@@ -184,6 +234,13 @@ async function onBinaryResolved(
   context: vscode.ExtensionContext,
   binary: ResolvedBinary
 ): Promise<void> {
+  minVersionState = getMinVersionState(context, binary.version);
+  minVersionStatusItem?.update(minVersionState);
+
+  if (!isAcceptable(minVersionState)) {
+    void promptBelowMinVersion(minVersionState);
+  }
+
   if (binary.source === 'bundled') {
     void promptInstallBundledFallback();
   }
@@ -191,6 +248,56 @@ async function onBinaryResolved(
   const release = await checkForLatestRelease(context);
   if (release && compareVersions(release.version, binary.version) > 0) {
     void promptUpdateAvailable(release.version, binary.version);
+  }
+}
+
+/**
+ * Recompute the gate state (call after binary install or override toggle).
+ * Idempotent — safe to call as often as needed.
+ */
+async function refreshMinVersionGate(context: vscode.ExtensionContext): Promise<void> {
+  const binary = await resolveBinary(context).catch(() => undefined);
+  if (!binary) return;
+  minVersionState = getMinVersionState(context, binary.version);
+  minVersionStatusItem?.update(minVersionState);
+}
+
+/**
+ * Gate for session-starting commands. Returns true if execution should
+ * proceed; surfaces an actionable error toast and returns false otherwise.
+ */
+async function ensureMinVersionGate(context: vscode.ExtensionContext): Promise<boolean> {
+  // If we haven't resolved a binary yet, refresh once.
+  if (!minVersionState) {
+    await refreshMinVersionGate(context);
+  }
+  if (!minVersionState || isAcceptable(minVersionState)) return true;
+
+  const choice = await vscode.window.showErrorMessage(
+    `ail v${minVersionState.resolvedVersion} is below the minimum supported version (${minVersionState.minVersion}). Install an update to continue.`,
+    'Install Update',
+    'Use Anyway',
+    'Cancel'
+  );
+  if (choice === 'Install Update') {
+    void vscode.commands.executeCommand('ail-chat.installBinary');
+  } else if (choice === 'Use Anyway') {
+    void vscode.commands.executeCommand('ail-chat.useAnyway');
+  }
+  return false;
+}
+
+async function promptBelowMinVersion(state: MinVersionState): Promise<void> {
+  const choice = await vscode.window.showErrorMessage(
+    `ail v${state.resolvedVersion} is below the minimum supported version (${state.minVersion}). Sessions are blocked until you install an update.`,
+    'Install Update',
+    'Use Anyway',
+    'Dismiss'
+  );
+  if (choice === 'Install Update') {
+    void vscode.commands.executeCommand('ail-chat.installBinary');
+  } else if (choice === 'Use Anyway') {
+    void vscode.commands.executeCommand('ail-chat.useAnyway');
   }
 }
 
