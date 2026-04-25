@@ -44,7 +44,7 @@ fn main() {
                 .strip_prefix(workspace_root)
                 .unwrap()
                 .to_string_lossy()
-                .to_string();
+                .replace('\\', "/");
 
             specs.push(SpecFile {
                 id,
