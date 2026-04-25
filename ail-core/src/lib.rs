@@ -19,3 +19,14 @@ pub mod test_helpers;
 pub fn version() -> &'static str {
     env!("CARGO_PKG_VERSION")
 }
+
+pub fn version_full() -> &'static str {
+    concat!(
+        env!("CARGO_PKG_VERSION"),
+        " (rev ",
+        env!("VERGEN_GIT_SHA"),
+        ", built ",
+        env!("VERGEN_BUILD_DATE"),
+        ")"
+    )
+}
