@@ -1,93 +1,116 @@
 name: Release Extension
 
 on:
-  push:
-    tags:
-      - "vscode-v*"
+  workflow_dispatch:
+    inputs:
+      bump_type:
+        description: "Extension version bump type"
+        required: true
+        default: "patch"
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
 
 permissions:
   contents: write
 
 jobs:
-  # ── Build ail binaries for all platforms ─────────────────────────────────
-  build-binaries:
-    name: Build ${{ matrix.target }}
-    runs-on: ${{ matrix.runner }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - target: x86_64-apple-darwin
-            runner: macos-15-intel  # Intel x86_64 (macos-13 removed Sep 2025)
-            binary: ail
-            artifact: ail-x86_64-apple-darwin
-
-          - target: aarch64-apple-darwin
-            runner: macos-15        # Apple Silicon
-            binary: ail
-            artifact: ail-aarch64-apple-darwin
-
-          - target: x86_64-unknown-linux-musl
-            runner: ubuntu-latest
-            binary: ail
-            artifact: ail-x86_64-unknown-linux-musl
-            use-cross: true
-
-          - target: x86_64-pc-windows-msvc
-            runner: windows-latest
-            binary: ail.exe
-            artifact: ail-x86_64-pc-windows-msvc.exe
-
+  # ── Preflight: detect in-scope changes, look up bundled binary, bump, tag ─
+  preflight:
+    name: Preflight (bump + tag)
+    runs-on: ubuntu-latest
+    outputs:
+      should_release: ${{ steps.check.outputs.should_release }}
+      new_version: ${{ steps.bump.outputs.new_version }}
+      ail_binary_version: ${{ steps.ail_release.outputs.version }}
+      ail_binary_tag: ${{ steps.ail_release.outputs.tag }}
     steps:
       - uses: actions/checkout@v6
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.target }}
+          fetch-depth: 0
 
-      - name: Install cross (Linux musl)
-        if: matrix.use-cross == true
-        run: cargo install cross --git https://github.com/cross-rs/cross
+      - name: Check for in-scope changes since last release
+        id: check
+        shell: bash
+        run: |
+          set -euo pipefail
+          LAST_TAG=$(git tag --list 'vscode-ail-v*' --sort=-v:refname | head -1 || true)
+          if [ -z "${LAST_TAG}" ]; then
+            echo "No prior vscode-ail-v* tag — first extension release."
+            echo "should_release=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "Last tag: ${LAST_TAG}"
+          CHANGED=$(git diff --name-only "${LAST_TAG}..HEAD" -- vscode-ail-chat || true)
+          if [ -z "${CHANGED}" ]; then
+            echo "::notice::No in-scope changes since ${LAST_TAG}; nothing to release."
+            echo "should_release=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "In-scope changes since ${LAST_TAG}:"
+            echo "${CHANGED}"
+            echo "should_release=true" >> "$GITHUB_OUTPUT"
+          fi
 
-      - name: Build (cross)
-        if: matrix.use-cross == true
-        run: cross build --release --target ${{ matrix.target }}
+      - name: Look up latest ail-v* release
+        id: ail_release
+        if: steps.check.outputs.should_release == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          LATEST=$(gh release list --repo "${{ github.repository }}" --limit 50 --json tagName --jq '.[].tagName' | grep '^ail-v' | head -1 || true)
+          if [ -z "${LATEST}" ]; then
+            echo "::error::No ail-v* release found. Run release-binary.yml first."
+            exit 1
+          fi
+          VERSION="${LATEST#ail-v}"
+          echo "Bundled binary tag: ${LATEST} (version ${VERSION})"
+          echo "tag=${LATEST}" >> "$GITHUB_OUTPUT"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
 
-      - name: Build (native)
-        if: matrix.use-cross != true
-        run: cargo build --release --target ${{ matrix.target }}
+      - name: Bump version + stamp ailBundledVersion in package.json
+        id: bump
+        if: steps.check.outputs.should_release == 'true'
+        working-directory: vscode-ail-chat
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm version ${{ inputs.bump_type }} --no-git-tag-version
+          NEW=$(node -p "require('./package.json').version")
+          echo "New extension version: ${NEW}"
+          npm pkg set "config.ailBundledVersion=${{ steps.ail_release.outputs.version }}"
+          echo "Stamped config.ailBundledVersion=${{ steps.ail_release.outputs.version }}"
+          echo "new_version=${NEW}" >> "$GITHUB_OUTPUT"
 
-      - name: Strip binary (Unix)
-        if: runner.os != 'Windows'
-        run: strip target/${{ matrix.target }}/release/${{ matrix.binary }}
+      - name: Commit, tag, push
+        if: steps.check.outputs.should_release == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add vscode-ail-chat/package.json vscode-ail-chat/package-lock.json
+          git commit -m "chore: bump vscode-ail-chat to ${{ steps.bump.outputs.new_version }} (bundles ail v${{ steps.ail_release.outputs.version }})"
+          git tag "vscode-ail-v${{ steps.bump.outputs.new_version }}"
+          git push origin HEAD:main
+          git push origin "vscode-ail-v${{ steps.bump.outputs.new_version }}"
 
-      - name: Rename binary to platform artifact name (Unix)
-        if: runner.os != 'Windows'
-        run: cp target/${{ matrix.target }}/release/${{ matrix.binary }} ${{ matrix.artifact }}
-
-      - name: Rename binary to platform artifact name (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: Copy-Item target/${{ matrix.target }}/release/${{ matrix.binary }} -Destination ${{ matrix.artifact }}
-
-      - name: Upload binary artifact
-        uses: actions/upload-artifact@v7
-        with:
-          name: ${{ matrix.artifact }}
-          path: ${{ matrix.artifact }}
-          retention-days: 1
-
-  # ── Package and publish VSIX ──────────────────────────────────────────────
+  # ── Package VSIX with binaries downloaded from the ail-v* release ─────────
   package-vsix:
     name: Package VSIX
-    needs: build-binaries
+    needs: preflight
+    if: needs.preflight.outputs.should_release == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: vscode-ail-chat
     steps:
       - uses: actions/checkout@v6
+        with:
+          ref: vscode-ail-v${{ needs.preflight.outputs.new_version }}
 
       - name: Use Node.js 22
         uses: actions/setup-node@v6
@@ -102,11 +125,16 @@ jobs:
       - name: Run tests
         run: npm test
 
-      - name: Download all binaries
-        uses: actions/download-artifact@v8
-        with:
-          path: vscode-ail-chat/dist
-          merge-multiple: true
+      - name: Download bundled binaries from ail-v* release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        working-directory: .
+        run: |
+          set -euo pipefail
+          mkdir -p vscode-ail-chat/dist
+          gh release download "${{ needs.preflight.outputs.ail_binary_tag }}" \
+            --repo "${{ github.repository }}" \
+            --dir vscode-ail-chat/dist
 
       - name: Make binaries executable (Unix)
         run: chmod +x dist/ail-* || true
@@ -117,28 +145,20 @@ jobs:
       - name: Install vsce
         run: npm install -g @vscode/vsce
 
-      - name: Extract version from tag
-        id: version
-        run: echo "version=${GITHUB_REF_NAME#vscode-v}" >> "$GITHUB_OUTPUT"
-        shell: bash
-        working-directory: .
-
-      - name: Update version in package.json
-        run: |
-          npm version ${{ steps.version.outputs.version }} --no-git-tag-version
-
-      # Package once per target platform (VS Code platform-specific VSIX)
       - name: Package VSIX — linux x64
-        run: vsce package --target linux-x64 --out ail-linux-x64-${{ steps.version.outputs.version }}.vsix
+        run: vsce package --target linux-x64 --out ail-linux-x64-${{ needs.preflight.outputs.new_version }}.vsix
+
+      - name: Package VSIX — linux arm64
+        run: vsce package --target linux-arm64 --out ail-linux-arm64-${{ needs.preflight.outputs.new_version }}.vsix
 
       - name: Package VSIX — darwin x64
-        run: vsce package --target darwin-x64 --out ail-darwin-x64-${{ steps.version.outputs.version }}.vsix
+        run: vsce package --target darwin-x64 --out ail-darwin-x64-${{ needs.preflight.outputs.new_version }}.vsix
 
       - name: Package VSIX — darwin arm64
-        run: vsce package --target darwin-arm64 --out ail-darwin-arm64-${{ steps.version.outputs.version }}.vsix
+        run: vsce package --target darwin-arm64 --out ail-darwin-arm64-${{ needs.preflight.outputs.new_version }}.vsix
 
       - name: Package VSIX — win32 x64
-        run: vsce package --target win32-x64 --out ail-win32-x64-${{ steps.version.outputs.version }}.vsix
+        run: vsce package --target win32-x64 --out ail-win32-x64-${{ needs.preflight.outputs.new_version }}.vsix
 
       - name: Upload VSIX artifacts
         uses: actions/upload-artifact@v7
@@ -149,38 +169,44 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: vscode-ail-v${{ needs.preflight.outputs.new_version }}
+          name: "VS Code Extension v${{ needs.preflight.outputs.new_version }}"
           files: vscode-ail-chat/*.vsix
-          name: "VSCode Extension ${{ steps.version.outputs.version }}"
           body: |
-            ## ail VSCode Extension v${{ steps.version.outputs.version }}
+            ## ail VS Code Extension v${{ needs.preflight.outputs.new_version }}
+
+            Bundled `ail` binary: **v${{ needs.preflight.outputs.ail_binary_version }}**.
 
             ### Installation
 
             Download the `.vsix` for your platform and install with:
             ```
-            code --install-extension ail-<platform>-${{ steps.version.outputs.version }}.vsix
+            code --install-extension ail-<platform>-${{ needs.preflight.outputs.new_version }}.vsix
             ```
 
             | Platform | File |
             |----------|------|
-            | macOS (Intel) | `ail-darwin-x64-*.vsix` |
-            | macOS (Apple Silicon) | `ail-darwin-arm64-*.vsix` |
-            | Linux x64 | `ail-linux-x64-*.vsix` |
-            | Windows x64 | `ail-win32-x64-*.vsix` |
+            | macOS (Intel) | `ail-darwin-x64-${{ needs.preflight.outputs.new_version }}.vsix` |
+            | macOS (Apple Silicon) | `ail-darwin-arm64-${{ needs.preflight.outputs.new_version }}.vsix` |
+            | Linux (x64) | `ail-linux-x64-${{ needs.preflight.outputs.new_version }}.vsix` |
+            | Linux (ARM64) | `ail-linux-arm64-${{ needs.preflight.outputs.new_version }}.vsix` |
+            | Windows (x64) | `ail-win32-x64-${{ needs.preflight.outputs.new_version }}.vsix` |
 
-            The `ail` binary is bundled — no Rust toolchain required.
+            The `ail` binary is bundled — no Rust toolchain required for installation.
 
-  # ── Publish to VS Code Marketplace (optional, requires secret) ───────────
+  # ── Publish to VS Code Marketplace (optional, requires PUBLISH_TO_MARKETPLACE=true) ─
   publish:
     name: Publish to Marketplace
-    needs: package-vsix
-    runs-on: ubuntu-latest
+    needs: [preflight, package-vsix]
     if: vars.PUBLISH_TO_MARKETPLACE == 'true'
+    runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: vscode-ail-chat
     steps:
       - uses: actions/checkout@v6
+        with:
+          ref: vscode-ail-v${{ needs.preflight.outputs.new_version }}
 
       - name: Use Node.js 22
         uses: actions/setup-node@v6
