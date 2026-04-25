@@ -8,3 +8,7 @@ export interface BinaryResolver {
   bundledBinaryName(triple: string): string;
   pathBinaryName(): string;
 }
+
+export interface BinaryInstaller {
+  install(bundledBinaryPath: string): Promise<{ path: string; message: string }>;
+}

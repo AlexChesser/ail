@@ -16,6 +16,7 @@ import { AilOutputChannel } from './output-channel';
 import { checkAndOfferInstall } from './install-wizard';
 import { RunHistoryProvider, registerRunLogCommand } from './history-tree-provider';
 import { PipelineStepsProvider } from './steps-tree-provider';
+import { createBinaryInstaller } from './platforms';
 
 let chatProvider: ChatViewProvider | undefined;
 
@@ -54,6 +55,20 @@ export function activate(context: vscode.ExtensionContext): void {
   context.subscriptions.push(
     vscode.commands.registerCommand('ail-chat.openStep', (item) => {
       stepsProvider.openStep(item);
+    })
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand('ail-chat.installBinary', async () => {
+      try {
+        const binary = await resolveBinary(context);
+        const installer = createBinaryInstaller();
+        const result = await installer.install(binary.path);
+        void vscode.window.showInformationMessage(result.message);
+      } catch (err) {
+        const errorMsg = err instanceof Error ? err.message : String(err);
+        void vscode.window.showErrorMessage(`Failed to install ail binary: ${errorMsg}`);
+      }
     })
   );
 

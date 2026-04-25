@@ -110,6 +110,11 @@
         "command": "ail-chat.openStep",
         "title": "ail Chat: Go to Step",
         "category": "ail Chat"
+      },
+      {
+        "command": "ail-chat.installBinary",
+        "title": "ail Chat: Install CLI Binary to PATH",
+        "category": "ail Chat"
       }
     ]
   },
