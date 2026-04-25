@@ -76,6 +76,13 @@
           "type": "boolean",
           "default": false,
           "description": "Run ail with --headless (--dangerously-skip-permissions). Use only in trusted workspaces."
+        },
+        "ail-chat.updateCheckIntervalDays": {
+          "type": "number",
+          "default": 1,
+          "minimum": 0,
+          "maximum": 30,
+          "description": "How often (in days) to check for new ail releases at activation. 0 = check every activation. Set to a larger value to reduce GitHub API traffic."
         }
       }
     },
@@ -114,6 +121,11 @@
       {
         "command": "ail-chat.installBinary",
         "title": "ail Chat: Install CLI Binary to PATH",
+        "category": "ail Chat"
+      },
+      {
+        "command": "ail-chat.checkForUpdates",
+        "title": "ail Chat: Check for ail Updates",
         "category": "ail Chat"
       }
     ]

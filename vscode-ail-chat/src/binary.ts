@@ -2,9 +2,15 @@
  * Binary resolution — finds the ail executable to use.
  *
  * Resolution order:
- *   1. ail.binaryPath setting (if set and file exists)
- *   2. Bundled binary in dist/ail-{platform-triple}
- *   3. ail on PATH
+ *   1. ail-chat.binaryPath setting (if set and file exists)         → source: 'config'
+ *   2. ail on PATH (via `which`/`where`)                            → source: 'path'
+ *   3. Bundled binary in dist/ail-{platform-triple} (never-stuck)   → source: 'bundled'
+ *
+ * Bundled is the safety net so the extension always launches with a working
+ * binary — even on a fresh install with no network. PATH wins over bundled
+ * because users who installed `ail` deliberately should keep using their
+ * chosen version; the activation-time update check tells them when the
+ * bundled / latest release is newer.
  *
  * Reports a warning (not an error) if the resolved binary's version is below
  * the minimum declared in package.json#config.ailMinVersion.
@@ -15,10 +21,14 @@ import * as path from "path";
 import { execFile } from "child_process";
 import * as vscode from "vscode";
 import { createPlatform } from "./platforms";
+import { isAilOnPath } from "./path-detection";
+
+export type BinarySource = "config" | "path" | "bundled";
 
 export interface ResolvedBinary {
   path: string;
   version: string;
+  source: BinarySource;
 }
 
 let cached: ResolvedBinary | undefined;
@@ -47,8 +57,12 @@ async function getVersion(binaryPath: string): Promise<string> {
       if (err) {
         reject(err);
       } else {
-        // Output format: "ail 0.1.0" — extract last token
-        const version = stdout.trim().split(/\s+/).pop() ?? "unknown";
+        // Output formats:
+        //   "ail 0.4.0"
+        //   "ail 0.4.0 (rev abc123, built 2026-04-25)"
+        // Take the second whitespace-separated token (the SemVer).
+        const tokens = stdout.trim().split(/\s+/);
+        const version = tokens[1] ?? "unknown";
         resolve(version);
       }
     });
@@ -56,7 +70,7 @@ async function getVersion(binaryPath: string): Promise<string> {
 }
 
 /** Compare two semver strings. Returns true if actual >= minimum. */
-function meetsMinVersion(actual: string, minimum: string): boolean {
+export function meetsMinVersion(actual: string, minimum: string): boolean {
   const parse = (v: string) => v.split(".").map((n) => parseInt(n, 10) || 0);
   const [maj1, min1, pat1] = parse(actual);
   const [maj2, min2, pat2] = parse(minimum);
@@ -80,13 +94,23 @@ export async function resolveBinary(
   const configuredPath = config.get<string>("binaryPath", "");
 
   let binaryPath: string | undefined;
+  let source: BinarySource | undefined;
 
   // 1. User-configured path
   if (configuredPath && fs.existsSync(configuredPath)) {
     binaryPath = configuredPath;
+    source = "config";
   }
 
-  // 2. Bundled binary
+  // 2. PATH
+  if (!binaryPath) {
+    if (await isAilOnPath()) {
+      binaryPath = createPlatform().binary.pathBinaryName();
+      source = "path";
+    }
+  }
+
+  // 3. Bundled (never-stuck fallback)
   if (!binaryPath) {
     const bundled = path.join(
       context.extensionPath,
@@ -95,6 +119,7 @@ export async function resolveBinary(
     );
     if (fs.existsSync(bundled)) {
       binaryPath = bundled;
+      source = "bundled";
       // Ensure executable
       try {
         fs.chmodSync(bundled, 0o755);
@@ -104,9 +129,11 @@ export async function resolveBinary(
     }
   }
 
-  // 3. PATH fallback
-  if (!binaryPath) {
-    binaryPath = createPlatform().binary.pathBinaryName();
+  if (!binaryPath || !source) {
+    const msg =
+      "ail binary not found: no configured path, not on PATH, no bundled fallback. Set ail-chat.binaryPath to override.";
+    void vscode.window.showErrorMessage(msg);
+    throw new Error(msg);
   }
 
   // Verify binary works and get version
@@ -114,7 +141,7 @@ export async function resolveBinary(
   try {
     version = await getVersion(binaryPath);
   } catch (err) {
-    const msg = `ail binary not found or not executable at '${binaryPath}'. Set ail-chat.binaryPath to override.`;
+    const msg = `ail binary not executable at '${binaryPath}'. Set ail-chat.binaryPath to override.`;
     void vscode.window.showErrorMessage(msg);
     throw new Error(msg);
   }
@@ -132,7 +159,7 @@ export async function resolveBinary(
     );
   }
 
-  cached = { path: binaryPath, version };
+  cached = { path: binaryPath, version, source };
   return cached;
 }
 
