@@ -4,9 +4,10 @@ use crate::template::Template;
 use ail_core::error::AilError;
 use std::path::{Path, PathBuf};
 
-/// All templates install under `$CWD/.ail/` — matches the discovery rule for
-/// `.ail/default.yaml` and keeps the user's CWD root uncluttered regardless
-/// of how many files a template ships.
+/// All templates install under `$CWD/.ail/<template_name>/` so multiple
+/// templates can coexist without collision. The leading `.ail/` keeps the
+/// project root uncluttered; the per-template subdirectory means two templates
+/// that both ship `default.yaml` (every starter does) no longer fight.
 pub const INSTALL_SUBDIR: &str = ".ail";
 
 pub struct InstallPlan {
@@ -22,7 +23,7 @@ pub struct InstallFile {
 }
 
 pub fn plan(template: &Template, cwd: &Path) -> InstallPlan {
-    let install_root = cwd.join(INSTALL_SUBDIR);
+    let install_root = cwd.join(INSTALL_SUBDIR).join(&template.meta.name);
     let mut files = Vec::with_capacity(template.files.len());
     let mut conflicts = Vec::new();
 
@@ -109,10 +110,13 @@ mod tests {
     fn plan_computes_install_root_and_paths() {
         let tmp = tempfile::tempdir().unwrap();
         let p = plan(&sample_template(), tmp.path());
-        assert_eq!(p.install_root, tmp.path().join(".ail"));
+        assert_eq!(p.install_root, tmp.path().join(".ail/t"));
         assert_eq!(p.files.len(), 2);
-        assert_eq!(p.files[0].absolute_path, tmp.path().join(".ail/a.yaml"));
-        assert_eq!(p.files[1].absolute_path, tmp.path().join(".ail/sub/b.yaml"));
+        assert_eq!(p.files[0].absolute_path, tmp.path().join(".ail/t/a.yaml"));
+        assert_eq!(
+            p.files[1].absolute_path,
+            tmp.path().join(".ail/t/sub/b.yaml")
+        );
         assert!(p.conflicts.is_empty());
     }
 
@@ -122,11 +126,11 @@ mod tests {
         let p = plan(&sample_template(), tmp.path());
         apply(&p, false).unwrap();
         assert_eq!(
-            std::fs::read(tmp.path().join(".ail/a.yaml")).unwrap(),
+            std::fs::read(tmp.path().join(".ail/t/a.yaml")).unwrap(),
             b"a\n"
         );
         assert_eq!(
-            std::fs::read(tmp.path().join(".ail/sub/b.yaml")).unwrap(),
+            std::fs::read(tmp.path().join(".ail/t/sub/b.yaml")).unwrap(),
             b"b\n"
         );
     }
@@ -134,19 +138,19 @@ mod tests {
     #[test]
     fn conflicts_detected_when_target_exists() {
         let tmp = tempfile::tempdir().unwrap();
-        std::fs::create_dir_all(tmp.path().join(".ail")).unwrap();
-        std::fs::write(tmp.path().join(".ail/a.yaml"), b"existing").unwrap();
+        std::fs::create_dir_all(tmp.path().join(".ail/t")).unwrap();
+        std::fs::write(tmp.path().join(".ail/t/a.yaml"), b"existing").unwrap();
 
         let p = plan(&sample_template(), tmp.path());
         assert_eq!(p.conflicts.len(), 1);
-        assert_eq!(p.conflicts[0], tmp.path().join(".ail/a.yaml"));
+        assert_eq!(p.conflicts[0], tmp.path().join(".ail/t/a.yaml"));
     }
 
     #[test]
     fn apply_refuses_without_force_and_preserves_existing_contents() {
         let tmp = tempfile::tempdir().unwrap();
-        std::fs::create_dir_all(tmp.path().join(".ail")).unwrap();
-        std::fs::write(tmp.path().join(".ail/a.yaml"), b"existing").unwrap();
+        std::fs::create_dir_all(tmp.path().join(".ail/t")).unwrap();
+        std::fs::write(tmp.path().join(".ail/t/a.yaml"), b"existing").unwrap();
 
         let p = plan(&sample_template(), tmp.path());
         let err = apply(&p, false).unwrap_err();
@@ -154,7 +158,7 @@ mod tests {
         assert!(err.detail().contains("--force"));
 
         assert_eq!(
-            std::fs::read(tmp.path().join(".ail/a.yaml")).unwrap(),
+            std::fs::read(tmp.path().join(".ail/t/a.yaml")).unwrap(),
             b"existing"
         );
     }
@@ -162,15 +166,35 @@ mod tests {
     #[test]
     fn apply_overwrites_with_force() {
         let tmp = tempfile::tempdir().unwrap();
-        std::fs::create_dir_all(tmp.path().join(".ail")).unwrap();
-        std::fs::write(tmp.path().join(".ail/a.yaml"), b"existing").unwrap();
+        std::fs::create_dir_all(tmp.path().join(".ail/t")).unwrap();
+        std::fs::write(tmp.path().join(".ail/t/a.yaml"), b"existing").unwrap();
 
         let p = plan(&sample_template(), tmp.path());
         apply(&p, true).unwrap();
 
         assert_eq!(
-            std::fs::read(tmp.path().join(".ail/a.yaml")).unwrap(),
+            std::fs::read(tmp.path().join(".ail/t/a.yaml")).unwrap(),
             b"a\n"
         );
+    }
+
+    #[test]
+    fn distinct_template_names_install_to_separate_subdirs() {
+        let tmp = tempfile::tempdir().unwrap();
+
+        let mut t1 = sample_template();
+        t1.meta.name = "alpha".to_string();
+        let mut t2 = sample_template();
+        t2.meta.name = "beta".to_string();
+
+        let p1 = plan(&t1, tmp.path());
+        apply(&p1, false).unwrap();
+        let p2 = plan(&t2, tmp.path());
+        // Even though both ship a.yaml, no conflicts — they live in separate subdirs.
+        assert!(p2.conflicts.is_empty());
+        apply(&p2, false).unwrap();
+
+        assert!(tmp.path().join(".ail/alpha/a.yaml").exists());
+        assert!(tmp.path().join(".ail/beta/a.yaml").exists());
     }
 }

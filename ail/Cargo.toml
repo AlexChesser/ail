@@ -13,6 +13,7 @@ ail-core = { path = "../ail-core" }
 ail-init = { path = "../ail-init" }
 ail-spec = { path = "../ail-spec" }
 clap = { version = "4", features = ["derive"] }
+dialoguer = "0.11"
 dirs = "5"
 serde_json = "1"
 tracing = "0.1"

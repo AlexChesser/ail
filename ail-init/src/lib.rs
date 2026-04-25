@@ -131,8 +131,9 @@ fn print_dry_run(template: &Template, plan: &install::InstallPlan) {
             ""
         };
         println!(
-            "  {}/{}{}",
+            "  {}/{}/{}{}",
             install::INSTALL_SUBDIR,
+            template.meta.name,
             f.relative_path.display(),
             marker
         );
@@ -155,8 +156,9 @@ fn print_success(template: &Template, plan: &install::InstallPlan) {
     );
     for f in &plan.files {
         println!(
-            "  {}/{}",
+            "  {}/{}/{}",
             install::INSTALL_SUBDIR,
+            template.meta.name,
             f.relative_path.display()
         );
     }

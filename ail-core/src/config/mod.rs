@@ -2,9 +2,10 @@
 
 pub mod discovery;
 pub mod domain;
-pub use discovery::PipelineEntry;
+pub use discovery::{DiscoveryResult, PipelineEntry};
 pub mod dto;
 pub mod inheritance;
+pub mod project_state;
 pub mod validation;
 
 use std::path::Path;
@@ -29,7 +30,14 @@ pub fn load(path: &Path) -> Result<Pipeline, AilError> {
     let mut chain = Vec::new();
     let dto = inheritance::load_with_inheritance(&abs_source, &mut chain)?;
 
-    validate(dto, abs_source)
+    let pipeline = validate(dto, abs_source.clone())?;
+
+    // Successful load — record this path so the next invocation in this project
+    // auto-resumes the user's choice. Best-effort; failures are logged and
+    // swallowed by `project_state::write_last_used`.
+    project_state::write_last_used(&abs_source);
+
+    Ok(pipeline)
 }
 
 #[cfg(test)]

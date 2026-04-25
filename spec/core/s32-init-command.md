@@ -28,19 +28,23 @@ explicitly in non-interactive contexts.
 
 ## §32.2 Install Target
 
-Every template installs under `$CWD/.ail/`, preserving the template's internal
-directory structure. The `.ail/` prefix is a hard rule — it is not configurable
-per template. Rationale:
+Every template installs under `$CWD/.ail/<template_name>/`, preserving the
+template's internal directory structure under the namespaced subdirectory.
+Both the `.ail/` prefix and the per-template subdirectory are hard rules —
+neither is configurable per template. Rationale:
 
-- Discovery rule 3 (§3.1) already picks up `.ail/default.yaml` automatically,
-  so the starter template is runnable the moment install completes.
+- The per-template subdirectory means **multiple templates coexist without
+  collision**. Two templates that both ship `default.yaml` install cleanly
+  side-by-side. Discovery (§3.1) enumerates every `.ail/<sub>/*.yaml` it finds
+  and presents a picker when more than one is present.
 - Templates that ship many files (e.g. superpowers with 10 pipelines +
-  prompts) do not pollute the user's project root.
+  prompts) do not pollute the user's project root or the shared `.ail/` root.
 - A single install rule keeps manifest authoring trivial — authors do not
-  declare install paths.
+  declare install paths; the subdirectory name is `manifest.name`.
 
-Files inside a template's source directory map 1:1 to `$CWD/.ail/<relative-path>`.
-The template's manifest file (`template.yaml`) is never installed.
+Files inside a template's source directory map 1:1 to
+`$CWD/.ail/<template_name>/<relative-path>`. The template's manifest file
+(`template.yaml`) is never installed.
 
 ## §32.3 Bundled Templates
 

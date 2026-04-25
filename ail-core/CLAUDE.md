@@ -7,7 +7,8 @@ Consumed by `ail` (the binary) and future language-server / SDK targets.
 
 | Module | Responsibility |
 |---|---|
-| `config/discovery.rs` | Walk the four-step file resolution order (SPEC §3.1) |
+| `config/discovery.rs` | Project-aware pipeline file resolution (SPEC §3.1) — `discover() -> DiscoveryResult` (Resolved/Ambiguous/None) and `discover_all()` for picker UIs. Enumerates `.ail/<sub>/*.{yaml,yml}` at depth 2; deeper files are sub-pipelines and invisible to the picker. |
+| `config/project_state.rs` | Per-project pipeline-selection state — marker file (`<cwd>/.ail/default`) and last-used pointer (`~/.ail/projects/<sha1>/last_pipeline`). Reads are silent; writes are best-effort. |
 | `config/dto.rs` | Serde-deserialised raw structs — derives `Deserialize` |
 | `config/domain.rs` | Validated domain types — no `Deserialize` derives |
 | `config/validation/mod.rs` | `validate()` entry point, `cfg_err!` macro, `tools_to_policy` helper |

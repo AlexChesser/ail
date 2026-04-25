@@ -143,11 +143,16 @@ See `ARCHITECTURE.md` for the full rationale including the 15-factor design tabl
 ## Pipeline File Discovery Order (SPEC §3.1)
 
 1. Explicit `--pipeline <path>` flag
-2. `.ail.yaml` in CWD
-3. `.ail/default.yaml` in CWD
-4. `~/.config/ail/default.yaml`
+2. Per-project last-used pointer: `~/.ail/projects/<sha1_of_cwd>/last_pipeline` (written by `config::load()` on every successful parse)
+3. Project default marker: `<cwd>/.ail/default` (single-line text file, contents = path relative to `.ail/`)
+4. Subdir enumeration: `<cwd>/.ail/<sub>/*.{yaml,yml}` at depth 2 — single candidate auto-resolves; multiple candidates trigger an interactive picker on TTY or a non-zero exit on non-TTY
+5. `~/.config/ail/default.yaml`
 
 If nothing found → passthrough mode (safe zero-config default).
+
+Sub-pipeline files at depth ≥ 3 (e.g. `.ail/oh-my-ail/agents/foo.ail.yaml`) are
+intentionally invisible to the picker — they remain addressable via `--pipeline`
+or by writing their relative path into `.ail/default`.
 
 ## --once Flow
 

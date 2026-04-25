@@ -32,11 +32,18 @@ If no prompt and no subcommand are given, `ail` prints a short usage hint and ex
 `ail` looks for a pipeline definition file using the following resolution order. The first match wins.
 
 1. Explicit path passed via `--pipeline <path>` CLI flag.
-2. `.ail.yaml` in the current working directory.
-3. `.ail/default.yaml` in the current working directory.
-4. `~/.config/ail/default.yaml` (user-level default).
+2. **Per-project last-used pointer** — `~/.ail/projects/<sha1_of_cwd>/last_pipeline`. Written by `config::load()` after every successful parse, so the next invocation in this project auto-resumes the user's choice. Stale pointers (target deleted) are silently ignored.
+3. **Project default marker** — `<cwd>/.ail/default`, a single-line text file naming the default pipeline as a path relative to `.ail/` (e.g. `starter/default.yaml`). Hand-editable, commits cleanly, replaces a heavier YAML config for the one-line "which pipeline is the default" question.
+4. **Subdir enumeration** — every `<cwd>/.ail/<sub>/*.{yaml,yml}` file (depth 2 only):
+   - Exactly one candidate → resolve and use it.
+   - Multiple candidates → present an interactive picker on a TTY; print the candidate list to stderr and exit 1 on a non-TTY.
+   - Zero candidates → fall through.
+   Files deeper than depth 2 (e.g. `.ail/<sub>/agents/foo.ail.yaml`) are sub-pipelines, not entry points; they remain reachable via `--pipeline` or by writing their relative path into the marker file.
+5. `~/.config/ail/default.yaml` (user-level default).
 
 If no file is found, `ail` runs in **passthrough mode**: the underlying agent behaves exactly as if `ail` were not present. This is the zero-configuration safe default.
+
+When a user picks a pipeline interactively, the resulting load writes rule 2's last-used pointer, so subsequent invocations skip the picker and resume the same pipeline.
 
 The discovery order is significant beyond file resolution — it is the **authority order** that governs hook precedence in inherited pipelines. See §8.
 
