@@ -12,8 +12,8 @@
  * chosen version; the activation-time update check tells them when the
  * bundled / latest release is newer.
  *
- * Reports a warning (not an error) if the resolved binary's version is below
- * the minimum declared in package.json#config.ailMinVersion.
+ * The minimum-version gate (refusal + "Use Anyway" override + status bar)
+ * lives in `min-version-gate.ts`; this module is purely about resolution.
  */
 
 import * as fs from "fs";
@@ -144,19 +144,6 @@ export async function resolveBinary(
     const msg = `ail binary not executable at '${binaryPath}'. Set ail-chat.binaryPath to override.`;
     void vscode.window.showErrorMessage(msg);
     throw new Error(msg);
-  }
-
-  // Check minimum version
-  const pkgJson = JSON.parse(
-    fs.readFileSync(path.join(context.extensionPath, "package.json"), "utf-8")
-  ) as { config?: { ailMinVersion?: string } };
-  const minVersion = pkgJson.config?.ailMinVersion ?? "0.0.0";
-
-  if (!meetsMinVersion(version, minVersion)) {
-    void vscode.window.showWarningMessage(
-      `ail ${version} is below the minimum required version ${minVersion}. ` +
-        `Some features may not work correctly. Update ail or set ail.binaryPath.`
-    );
   }
 
   cached = { path: binaryPath, version, source };
