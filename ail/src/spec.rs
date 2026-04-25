@@ -59,13 +59,26 @@ impl SpecCommand {
     }
 
     fn run_list(&self) -> CommandOutcome {
-        for s in ail_spec::list_sections() {
+        let sections = ail_spec::list_sections();
+        let mut last_group = "";
+
+        for s in sections {
             if self.core_only && s.category != "core" {
                 continue;
             }
             if self.runner_only && s.category != "runner" {
                 continue;
             }
+
+            // Print group header when group changes
+            if s.group != last_group {
+                if !last_group.is_empty() {
+                    println!();
+                }
+                println!("## {}", s.group);
+                last_group = s.group;
+            }
+
             println!("{:<6} {:>6} words  {}", s.id, s.word_count, s.title);
         }
         CommandOutcome::Success

@@ -52,7 +52,7 @@ pipeline:                    # REQUIRED. Ordered list of steps.
 
 # 2. skill: (LLM via SKILL.md)
 - id: commit
-  skill: ./skills/commit/    # Dir with SKILL.md, or ail/<builtin> (e.g. ail/janitor).
+  skill: ./skills/commit/    # Dir with SKILL.md, or ail/<builtin> (not yet implemented in v0.x).
 
 # 3. context: (deterministic, no LLM, zero tokens)
 - id: lint_output
@@ -152,7 +152,7 @@ pipeline:                    # REQUIRED. Ordered list of steps.
   # Actions: continue | abort_pipeline | break | pause_for_human | pipeline: <path>
 
   before:                    # Private pre-processing. Not hookable.
-    - ail/janitor            # Short-form: skill or file.
+    - ./before-step.md       # Short-form: file path. Or skill: (see step type 2).
     - prompt: "Optimize."    # Full-form. use_original (revert transform) only valid here.
   then:                      # Private post-processing. Not hookable.
     - prompt: "Summarize."

@@ -15,6 +15,8 @@ struct SpecFile {
     rel_path: String,
     /// "core" or "runner"
     category: &'static str,
+    /// Section group/category for logical organization
+    group: String,
 }
 
 fn main() {
@@ -45,6 +47,7 @@ fn main() {
                 .unwrap()
                 .to_string_lossy()
                 .replace('\\', "/");
+            let group = group_for_section_id(&id, category);
 
             specs.push(SpecFile {
                 id,
@@ -52,6 +55,7 @@ fn main() {
                 word_count,
                 rel_path,
                 category,
+                group,
             });
         }
     }
@@ -63,6 +67,7 @@ fn main() {
     writeln!(out, "    pub title: &'static str,").unwrap();
     writeln!(out, "    pub word_count: usize,").unwrap();
     writeln!(out, "    pub category: &'static str,").unwrap();
+    writeln!(out, "    pub group: &'static str,").unwrap();
     writeln!(out, "}}").unwrap();
     writeln!(out).unwrap();
 
@@ -84,11 +89,12 @@ fn main() {
         let const_name = spec.id.to_uppercase();
         writeln!(
             out,
-            "    SpecSection {{ id: \"{}\", title: \"{}\", word_count: {}, category: \"{}\" }},",
+            "    SpecSection {{ id: \"{}\", title: \"{}\", word_count: {}, category: \"{}\", group: \"{}\" }},",
             spec.id,
             spec.title.replace('"', "\\\""),
             spec.word_count,
-            spec.category
+            spec.category,
+            spec.group
         )
         .unwrap();
         // Reference the constant so it's not unused
@@ -144,13 +150,41 @@ fn main() {
 }
 
 fn extract_title(content: &str) -> String {
+    // Find the first markdown heading (# or ##, etc.) in the file
     for line in content.lines() {
         let trimmed = line.trim();
-        if trimmed.starts_with("## ") {
-            return trimmed.trim_start_matches('#').trim().to_string();
+        if trimmed.starts_with('#') {
+            // Skip leading # chars, then trim whitespace
+            let title = trimmed.trim_start_matches('#').trim();
+            // Only return if there's actual content after the #
+            if !title.is_empty() {
+                return title.to_string();
+            }
         }
     }
     String::new()
+}
+
+fn group_for_section_id(id: &str, category: &str) -> String {
+    if category == "runner" {
+        return "Runner Spec".to_string();
+    }
+
+    // Parse section number from id like "s05"
+    if let Ok(num) = id.chars().skip(1).collect::<String>().parse::<u32>() {
+        match num {
+            1..=2 => "Foundation".to_string(),
+            3..=5 => "Core Language".to_string(),
+            6..=13 => "Pipeline Authoring".to_string(),
+            14..=16 => "Runtime".to_string(),
+            17..=22 => "Appendix".to_string(),
+            23 | 26..=30 => "Advanced Features".to_string(),
+            24..=25 | 31..=33 => "CLI Tooling".to_string(),
+            _ => "Uncategorized".to_string(),
+        }
+    } else {
+        "Uncategorized".to_string()
+    }
 }
 
 fn write_concatenated(out: &mut fs::File, name: &str, specs: &[SpecFile], category: &str) {
