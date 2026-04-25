@@ -1,4 +1,4 @@
-//! End-to-end tests for `ail chat`.
+//! End-to-end tests for `ail stdio`.
 //!
 //! Uses the stub runner (`AIL_DEFAULT_RUNNER=stub`) and isolated HOME directories.
 //! Interactive stdin-driven tests use `write_stdin()` to pipe input.
@@ -6,9 +6,9 @@
 mod common;
 
 #[test]
-fn chat_message_flag_text_mode_one_shot() {
+fn stdio_message_flag_text_mode_one_shot() {
     let (mut cmd, _home) = common::ail_cmd_isolated();
-    cmd.args(["chat", "-m", "hello"]);
+    cmd.args(["stdio", "-m", "hello"]);
 
     cmd.assert()
         .success()
@@ -16,11 +16,11 @@ fn chat_message_flag_text_mode_one_shot() {
 }
 
 #[test]
-fn chat_message_flag_stream_mode_emits_ndjson() {
+fn stdio_message_flag_stream_mode_emits_ndjson() {
     let (mut cmd, _home) = common::ail_cmd_isolated();
-    cmd.args(["chat", "-m", "hello", "--stream"]);
+    cmd.args(["stdio", "-m", "hello", "--stream"]);
 
-    let output = cmd.output().expect("failed to run ail chat --stream");
+    let output = cmd.output().expect("failed to run ail stdio --stream");
     assert!(
         output.status.success(),
         "Expected success, stderr: {}",
@@ -34,7 +34,8 @@ fn chat_message_flag_stream_mode_emits_ndjson() {
         assert!(parsed.is_ok(), "Expected valid JSON line, got: {line}");
     }
 
-    // Should contain chat_started and chat_ended events
+    // chat_started / chat_ended event names are intentionally unchanged — per
+    // issue #183, internal protocol field names are a follow-up.
     assert!(
         stdout.contains("chat_started"),
         "Expected chat_started event in output"
@@ -46,9 +47,9 @@ fn chat_message_flag_stream_mode_emits_ndjson() {
 }
 
 #[test]
-fn chat_eof_on_empty_stdin_exits_cleanly() {
+fn stdio_eof_on_empty_stdin_exits_cleanly() {
     let (mut cmd, _home) = common::ail_cmd_isolated();
-    cmd.args(["chat"]);
+    cmd.args(["stdio"]);
     // Close stdin immediately by writing empty bytes
     cmd.write_stdin(b"" as &[u8]);
 
@@ -56,9 +57,9 @@ fn chat_eof_on_empty_stdin_exits_cleanly() {
 }
 
 #[test]
-fn chat_single_prompt_via_stdin_gets_response() {
+fn stdio_single_prompt_via_stdin_gets_response() {
     let (mut cmd, _home) = common::ail_cmd_isolated();
-    cmd.args(["chat"]);
+    cmd.args(["stdio"]);
     // Send a prompt and immediately close stdin (EOF)
     cmd.write_stdin("hello\n");
 
