@@ -170,6 +170,6 @@
   },
   "config": {
     "ailMinVersion": "0.1.0",
-    "ailBundledVersion": "0.1.1"
+    "ailBundledVersion": "0.1.2"
   }
 }
