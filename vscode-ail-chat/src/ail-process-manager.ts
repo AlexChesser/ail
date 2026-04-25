@@ -101,6 +101,13 @@ export class AilProcessManager {
           for (const msg of msgs) {
             this._emit(msg);
           }
+          // Close stdin when the pipeline finishes so ail's stdin reader gets EOF.
+          // On macOS, Tokio uses a spawn_blocking thread for stdin reads that blocks
+          // runtime shutdown until the read returns. Closing stdin here signals EOF,
+          // allowing ail to exit cleanly after every turn.
+          if (event.type === 'pipeline_completed' || event.type === 'pipeline_error') {
+            proc.stdin?.end();
+          }
         },
         (err) => {
           console.error(`[ail-chat] NDJSON stream error: ${err.message}`);
