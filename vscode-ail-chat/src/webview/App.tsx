@@ -21,6 +21,7 @@ import { ChatInput } from './components/ChatInput';
 import { SessionList } from './components/SessionList';
 import { StatusBar } from './components/StatusBar';
 import { PipelineBar } from './components/PipelineBar';
+import { SetupCard } from './components/SetupCard';
 
 // ── VS Code API ────────────────────────────────────────────────────────────────
 
@@ -67,6 +68,8 @@ interface ChatState {
   showSessions: boolean;
   /** Active pipeline path and display name, or null for passthrough mode. */
   activePipeline: { path: string; displayName: string } | null;
+  /** Setup status for the empty-state CTAs. Null until the host sends the first setupStatus message. */
+  setupStatus: { hasPipeline: boolean; binaryOnPath: boolean; installTargetLabel: string } | null;
   /** Counter to generate unique IDs for display items. */
   _idCounter: number;
   /** The step ID currently being processed — set on stepStarted, cleared on completion. */
@@ -85,6 +88,7 @@ const initialState: ChatState = {
   activeSessionId: null,
   showSessions: false,
   activePipeline: null,
+  setupStatus: null,
   _idCounter: 0,
   currentStepId: null,
 };
@@ -444,6 +448,12 @@ function reducer(state: ChatState, action: Action): ChatState {
             activePipeline: msg.path ? { path: msg.path, displayName: msg.displayName ?? msg.path } : null,
           };
 
+        case 'setupStatus':
+          return {
+            ...state,
+            setupStatus: { hasPipeline: msg.hasPipeline, binaryOnPath: msg.binaryOnPath, installTargetLabel: msg.installTargetLabel },
+          };
+
         default:
           return state;
       }
@@ -721,6 +731,22 @@ export const App: React.FC = () => {
         <div className="message-list" ref={messageListRef}>
           {state.items.length === 0 && (
             <div className="empty-state">
+              {state.setupStatus && !state.setupStatus.hasPipeline && (
+                <SetupCard
+                  title="No AIL pipeline in this workspace"
+                  subtitle="Choose a template to scaffold .ail/ and get started."
+                  buttonLabel="Set up a pipeline"
+                  onAction={() => postToHost({ type: 'runInstallWizard' })}
+                />
+              )}
+              {state.setupStatus && !state.setupStatus.binaryOnPath && (
+                <SetupCard
+                  title="ail not found on your PATH"
+                  subtitle="Install the CLI so you can run ail from your terminal."
+                  buttonLabel={`Install ail to ${state.setupStatus.installTargetLabel}`}
+                  onAction={() => postToHost({ type: 'installBinary' })}
+                />
+              )}
               <div className="empty-state-title">What would you like to build?</div>
               <div className="empty-state-subtitle">Describe a task to get started with your ail pipeline.</div>
             </div>

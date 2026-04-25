@@ -12,12 +12,20 @@ const { mockShowQuickPick, mockExecuteCommand, mockShowErrorMessage, workspaceSt
   };
 });
 
-const { mockExistsSync, mockStatSync, mockReaddirSync, mockMkdirSync, mockCopyFileSync } = vi.hoisted(() => ({
+const { mockExistsSync, mockStatSync, mockReaddirSync } = vi.hoisted(() => ({
   mockExistsSync: vi.fn(),
   mockStatSync: vi.fn(),
   mockReaddirSync: vi.fn(),
-  mockMkdirSync: vi.fn(),
-  mockCopyFileSync: vi.fn(),
+}));
+
+const { mockExecFile } = vi.hoisted(() => ({
+  mockExecFile: vi.fn((_cmd: string, _args: string[], _opts: unknown, cb: (err: null, result: { stdout: string; stderr: string }) => void) =>
+    cb(null, { stdout: '', stderr: '' })
+  ),
+}));
+
+const { mockResolveBinary } = vi.hoisted(() => ({
+  mockResolveBinary: vi.fn(() => Promise.resolve({ path: '/usr/local/bin/ail' })),
 }));
 
 // ── fs mock ──────────────────────────────────────────────────────────────────
@@ -26,8 +34,18 @@ vi.mock('fs', () => ({
   existsSync: mockExistsSync,
   statSync: mockStatSync,
   readdirSync: mockReaddirSync,
-  mkdirSync: mockMkdirSync,
-  copyFileSync: mockCopyFileSync,
+}));
+
+// ── child_process mock ────────────────────────────────────────────────────────
+
+vi.mock('child_process', () => ({
+  execFile: mockExecFile,
+}));
+
+// ── binary mock ───────────────────────────────────────────────────────────────
+
+vi.mock('../src/binary', () => ({
+  resolveBinary: mockResolveBinary,
 }));
 
 // ── vscode mock ───────────────────────────────────────────────────────────────
@@ -50,7 +68,7 @@ vi.mock('vscode', () => ({
 
 // ── Import under test ─────────────────────────────────────────────────────────
 
-import { checkAndOfferInstall } from '../src/install-wizard';
+import { checkAndOfferInstall, runInstallWizard } from '../src/install-wizard';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -73,7 +91,7 @@ function makeChatProvider() {
 }
 
 function pickTemplate(label: string) {
-  mockShowQuickPick.mockImplementation((items: Array<{ label: string; dir: string }>) =>
+  mockShowQuickPick.mockImplementation((items: Array<{ label: string; templateName: string }>) =>
     Promise.resolve(items.find((i) => i.label.includes(label)))
   );
 }
@@ -85,6 +103,10 @@ beforeEach(() => {
   mockStatSync.mockReturnValue({ isDirectory: () => false });
   mockReaddirSync.mockReturnValue([]);
   mockShowQuickPick.mockResolvedValue(undefined);
+  mockExecFile.mockImplementation((_cmd: string, _args: string[], _opts: unknown, cb: (err: null, result: { stdout: string; stderr: string }) => void) =>
+    cb(null, { stdout: '', stderr: '' })
+  );
+  mockResolveBinary.mockResolvedValue({ path: '/usr/local/bin/ail' });
 });
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
@@ -144,42 +166,86 @@ describe('checkAndOfferInstall', () => {
     });
   });
 
-  describe('template installation', () => {
-    beforeEach(() => {
-      mockExistsSync.mockImplementation((p: unknown) =>
-        typeof p === 'string' && p.includes('dist/templates')
-      );
-      mockReaddirSync.mockReturnValue([]);
-    });
-
-    it('copies starter template to .ail/ directory', async () => {
+  describe('template installation via ail init', () => {
+    it('spawns ail init with the correct template name for Starter', async () => {
       pickTemplate('Starter');
       await checkAndOfferInstall(makeContext(), makeChatProvider());
-      expect(mockMkdirSync).toHaveBeenCalledWith('/workspace/.ail', expect.objectContaining({ recursive: true }));
+      expect(mockExecFile).toHaveBeenCalledWith(
+        '/usr/local/bin/ail',
+        ['init', 'starter'],
+        expect.objectContaining({ cwd: '/workspace' }),
+        expect.any(Function)
+      );
     });
 
-    it('calls reloadPipeline after installing a template', async () => {
+    it('spawns ail init with oh-my-ail for Oh My AIL', async () => {
+      pickTemplate('Oh My AIL');
+      await checkAndOfferInstall(makeContext(), makeChatProvider());
+      expect(mockExecFile).toHaveBeenCalledWith(
+        '/usr/local/bin/ail',
+        ['init', 'oh-my-ail'],
+        expect.any(Object),
+        expect.any(Function)
+      );
+    });
+
+    it('spawns ail init with superpowers for Superpowers', async () => {
+      pickTemplate('Superpowers');
+      await checkAndOfferInstall(makeContext(), makeChatProvider());
+      expect(mockExecFile).toHaveBeenCalledWith(
+        '/usr/local/bin/ail',
+        ['init', 'superpowers'],
+        expect.any(Object),
+        expect.any(Function)
+      );
+    });
+
+    it('calls reloadPipeline after successful ail init', async () => {
       pickTemplate('Starter');
       const provider = makeChatProvider();
       await checkAndOfferInstall(makeContext(), provider);
       expect(provider.reloadPipeline).toHaveBeenCalledOnce();
     });
 
-    it('opens README in markdown preview after install when README exists', async () => {
+    it('opens README in markdown preview when README exists after install', async () => {
       pickTemplate('Starter');
       mockExistsSync.mockImplementation((p: unknown) =>
-        typeof p === 'string' && (p.includes('dist/templates') || p.includes('README.md'))
+        typeof p === 'string' && p === '/workspace/.ail/README.md'
       );
       await checkAndOfferInstall(makeContext(), makeChatProvider());
       expect(mockExecuteCommand).toHaveBeenCalledWith('markdown.showPreview', expect.anything());
     });
 
-    it('does not call reloadPipeline when template source is missing', async () => {
+    it('shows error message and does not reload when ail init fails', async () => {
       pickTemplate('Starter');
-      mockExistsSync.mockReturnValue(false);
+      const err = Object.assign(new Error('conflict'), { stderr: 'already exist' });
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      mockExecFile.mockImplementation((...args: any[]) => args[args.length - 1](err));
       const provider = makeChatProvider();
       await checkAndOfferInstall(makeContext(), provider);
+      expect(mockShowErrorMessage).toHaveBeenCalledWith(expect.stringContaining('already exist'));
       expect(provider.reloadPipeline).not.toHaveBeenCalled();
     });
+
+    it('does not call ail init when resolveBinary throws', async () => {
+      pickTemplate('Starter');
+      mockResolveBinary.mockRejectedValue(new Error('binary not found'));
+      await checkAndOfferInstall(makeContext(), makeChatProvider());
+      expect(mockExecFile).not.toHaveBeenCalled();
+    });
+  });
+});
+
+describe('runInstallWizard', () => {
+  it('bypasses dismiss flag when bypassDismiss is true', async () => {
+    workspaceStore.set('ail-chat.installPromptDismissed', true);
+    await runInstallWizard(makeContext(), makeChatProvider(), { bypassDismiss: true });
+    expect(mockShowQuickPick).toHaveBeenCalledOnce();
+  });
+
+  it('respects dismiss flag when bypassDismiss is not set', async () => {
+    workspaceStore.set('ail-chat.installPromptDismissed', true);
+    await runInstallWizard(makeContext(), makeChatProvider());
+    expect(mockShowQuickPick).not.toHaveBeenCalled();
   });
 });

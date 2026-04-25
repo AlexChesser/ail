@@ -119,8 +119,8 @@
     ]
   },
   "scripts": {
-    "vscode:prepublish": "node scripts/sync-templates.js && node esbuild.js --production",
-    "build": "node scripts/sync-templates.js && node esbuild.js",
+    "vscode:prepublish": "node esbuild.js --production",
+    "build": "node esbuild.js",
     "compile": "tsc -p ./",
     "watch": "node esbuild.js --watch",
     "test": "vitest run",

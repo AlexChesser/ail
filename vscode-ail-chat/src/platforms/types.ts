@@ -11,4 +11,5 @@ export interface BinaryResolver {
 
 export interface BinaryInstaller {
   install(bundledBinaryPath: string): Promise<{ path: string; message: string }>;
+  readonly targetLabel: string;
 }

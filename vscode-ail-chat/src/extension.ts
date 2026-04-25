@@ -13,7 +13,8 @@ import { SessionManager } from './session-manager';
 import { ChatViewProvider } from './chat-view-provider';
 import { PipelineGraphPanel } from './pipeline-graph/PipelineGraphPanel';
 import { AilOutputChannel } from './output-channel';
-import { checkAndOfferInstall } from './install-wizard';
+import { runInstallWizard } from './install-wizard';
+import { clearPathCache } from './path-detection';
 import { RunHistoryProvider, registerRunLogCommand } from './history-tree-provider';
 import { PipelineStepsProvider } from './steps-tree-provider';
 import { createBinaryInstaller } from './platforms';
@@ -64,10 +65,21 @@ export function activate(context: vscode.ExtensionContext): void {
         const binary = await resolveBinary(context);
         const installer = createBinaryInstaller();
         const result = await installer.install(binary.path);
+        clearPathCache();
         void vscode.window.showInformationMessage(result.message);
+        if (chatProvider) void chatProvider.sendSetupStatus();
       } catch (err) {
         const errorMsg = err instanceof Error ? err.message : String(err);
         void vscode.window.showErrorMessage(`Failed to install ail binary: ${errorMsg}`);
+      }
+    })
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand('ail-chat.runInstallWizard', async () => {
+      if (chatProvider) {
+        await runInstallWizard(context, chatProvider, { bypassDismiss: true });
+        void chatProvider.sendSetupStatus();
       }
     })
   );
@@ -136,11 +148,9 @@ export function activate(context: vscode.ExtensionContext): void {
     }),
 
     vscode.workspace.onDidChangeWorkspaceFolders(() => {
-      if (chatProvider) void checkAndOfferInstall(context, chatProvider);
+      if (chatProvider) void chatProvider.sendSetupStatus();
     })
   );
-
-  void checkAndOfferInstall(context, chatProvider);
 }
 
 // Process manager cleanup is handled by the view's onDidDispose.

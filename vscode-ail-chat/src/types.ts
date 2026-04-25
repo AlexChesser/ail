@@ -173,7 +173,8 @@ export type HostToWebviewMessage =
   | { type: 'pipelineError'; error: string }
   | { type: 'processError'; message: string }
   | { type: 'sessionsUpdated'; sessions: SessionSummary[] }
-  | { type: 'pipelineChanged'; path: string | null; displayName: string | null };
+  | { type: 'pipelineChanged'; path: string | null; displayName: string | null }
+  | { type: 'setupStatus'; hasPipeline: boolean; binaryOnPath: boolean; installTargetLabel: string };
 
 /**
  * Messages sent FROM the webview TO the extension host.
@@ -187,4 +188,6 @@ export type WebviewToHostMessage =
   | { type: 'switchSession'; sessionId: string }
   | { type: 'newSession' }
   | { type: 'loadPipeline' }
-  | { type: 'openPipelineGraph' };
+  | { type: 'openPipelineGraph' }
+  | { type: 'runInstallWizard' }
+  | { type: 'installBinary' };

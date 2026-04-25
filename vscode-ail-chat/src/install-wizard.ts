@@ -1,41 +1,46 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
+import { execFile } from 'child_process';
+import { promisify } from 'util';
+import { resolveBinary } from './binary';
 import { ChatViewProvider } from './chat-view-provider';
+
+const execFileAsync = promisify(execFile);
 
 const DISMISSED_KEY = 'ail-chat.installPromptDismissed';
 
-const PIPELINE_PATTERNS = ['.ail.yaml', '.ail.yml'];
-const AIL_DIR_PATTERNS = ['.ail'];
+export const PIPELINE_PATTERNS = ['.ail.yaml', '.ail.yml'];
+export const AIL_DIR_PATTERNS = ['.ail'];
 
 const TEMPLATES = [
   {
     label: '① Starter',
     description: 'Invocation-only pipeline (recommended)',
     detail: 'Single explicit invocation step. Heavily commented so you see exactly what AIL does.',
-    dir: 'starter',
+    templateName: 'starter',
   },
   {
     label: '② Oh My AIL',
     description: 'Intent-routed multi-agent orchestration',
     detail: 'Sisyphus classifier (TRIVIAL/EXPLICIT/EXPLORATORY/AMBIGUOUS) + full agent/workflow tree.',
-    dir: 'oh-my-ail',
+    templateName: 'oh-my-ail',
   },
   {
     label: '③ Superpowers',
     description: 'Curated high-leverage workflows',
     detail: 'TDD, code-review, planning, brainstorming, parallel debug, plan execution, and more.',
-    dir: 'superpowers',
+    templateName: 'superpowers',
   },
   {
     label: '$(x) Dismiss',
     description: "Don't ask again for this workspace",
     detail: '',
-    dir: '',
+    templateName: '',
   },
 ] as const;
 
-function pipelineExistsInWorkspace(cwd: string): boolean {
+export function pipelineExistsInWorkspace(cwd: string): boolean {
   for (const p of PIPELINE_PATTERNS) {
     if (fs.existsSync(path.join(cwd, p))) return true;
   }
@@ -53,21 +58,12 @@ function pipelineExistsInWorkspace(cwd: string): boolean {
   return false;
 }
 
-function copyDir(src: string, dest: string): void {
-  fs.mkdirSync(dest, { recursive: true });
-  for (const entry of fs.readdirSync(src, { withFileTypes: true })) {
-    const sp = path.join(src, entry.name);
-    const dp = path.join(dest, entry.name);
-    if (entry.isDirectory()) copyDir(sp, dp);
-    else fs.copyFileSync(sp, dp);
-  }
-}
-
-export async function checkAndOfferInstall(
+export async function runInstallWizard(
   context: vscode.ExtensionContext,
-  chatProvider: ChatViewProvider
+  chatProvider: ChatViewProvider,
+  options?: { bypassDismiss?: boolean }
 ): Promise<void> {
-  if (context.workspaceState.get<boolean>(DISMISSED_KEY)) return;
+  if (!options?.bypassDismiss && context.workspaceState.get<boolean>(DISMISSED_KEY)) return;
 
   const cwd = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
   if (!cwd) return;
@@ -75,7 +71,7 @@ export async function checkAndOfferInstall(
   if (pipelineExistsInWorkspace(cwd)) return;
 
   const picked = await vscode.window.showQuickPick(
-    TEMPLATES.map((t) => ({ label: t.label, description: t.description, detail: t.detail, dir: t.dir })),
+    TEMPLATES.map((t) => ({ label: t.label, description: t.description, detail: t.detail, templateName: t.templateName })),
     {
       title: 'Set up an AIL pipeline for this workspace',
       placeHolder: 'Choose a template to get started, or dismiss',
@@ -85,30 +81,39 @@ export async function checkAndOfferInstall(
 
   if (!picked) return; // Escape — do not set flag, re-prompt next time
 
-  if (picked.dir === '') {
+  if (picked.templateName === '') {
     // Dismiss item
     await context.workspaceState.update(DISMISSED_KEY, true);
     return;
   }
 
-  const templateSrc = path.join(context.extensionPath, 'dist', 'templates', picked.dir);
-  if (!fs.existsSync(templateSrc)) {
-    void vscode.window.showErrorMessage(`AIL: template "${picked.dir}" not found in extension bundle.`);
-    return;
+  let binaryPath: string;
+  try {
+    const binary = await resolveBinary(context);
+    binaryPath = binary.path;
+  } catch {
+    return; // resolveBinary already showed the error
   }
 
-  const dest = path.join(cwd, '.ail');
   try {
-    copyDir(templateSrc, dest);
+    await execFileAsync(binaryPath, ['init', picked.templateName], { cwd });
   } catch (err) {
-    void vscode.window.showErrorMessage(`AIL: failed to copy template — ${String(err)}`);
+    const stderr = (err as { stderr?: string }).stderr ?? String(err);
+    void vscode.window.showErrorMessage(`AIL: ail init failed — ${stderr.trim()}`);
     return;
   }
 
   chatProvider.reloadPipeline();
 
-  const readmePath = path.join(dest, 'README.md');
+  const readmePath = path.join(cwd, '.ail', 'README.md');
   if (fs.existsSync(readmePath)) {
     void vscode.commands.executeCommand('markdown.showPreview', vscode.Uri.file(readmePath));
   }
+}
+
+export async function checkAndOfferInstall(
+  context: vscode.ExtensionContext,
+  chatProvider: ChatViewProvider
+): Promise<void> {
+  return runInstallWizard(context, chatProvider);
 }
