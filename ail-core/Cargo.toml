@@ -1,8 +1,9 @@
 [package]
 name = "ail-core"
-version = "0.0.1"
-edition = "2021"
+version.workspace = true
+edition.workspace = true
 license = "MPL-2.0"
+build = "build.rs"
 
 [dependencies]
 thiserror = "1"
