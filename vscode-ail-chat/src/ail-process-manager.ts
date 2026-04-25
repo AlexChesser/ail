@@ -11,8 +11,8 @@
 import { spawn, ChildProcess } from 'child_process';
 import { AilEvent, HostToWebviewMessage } from './types';
 import { parseNdjsonStream } from './ndjson';
-import { ProcessKiller } from './process/process-killer';
-import { createProcessKiller } from './process/process-killer-factory';
+import { ProcessKiller } from './process/killer';
+import { createProcessKiller } from './process/factory';
 import { AilOutputChannel } from './output-channel';
 
 export interface StartOptions {

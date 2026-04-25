@@ -7,7 +7,7 @@ import { SessionManager } from './session-manager';
 import { WebviewToHostMessage } from './types';
 import { PipelineGraphPanel } from './pipeline-graph/PipelineGraphPanel';
 import { AilOutputChannel } from './output-channel';
-import { createProcessKiller } from './process/process-killer-factory';
+import { createProcessKiller } from './process/factory';
 import type { RunHistoryProvider } from './history-tree-provider';
 import type { PipelineStepsProvider } from './steps-tree-provider';
 
