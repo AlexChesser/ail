@@ -39,7 +39,7 @@ jobs:
             artifact: ail-x86_64-pc-windows-msvc.exe
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -72,7 +72,7 @@ jobs:
         run: Copy-Item target/${{ matrix.target }}/release/${{ matrix.binary }} -Destination ${{ matrix.artifact }}
 
       - name: Upload binary artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.artifact }}
           path: ${{ matrix.artifact }}
@@ -87,10 +87,10 @@ jobs:
       run:
         working-directory: vscode-ail-chat
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Use Node.js 22
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: "22"
           cache: "npm"
@@ -103,7 +103,7 @@ jobs:
         run: npm test
 
       - name: Download all binaries
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           path: vscode-ail-chat/dist
           merge-multiple: true
@@ -141,7 +141,7 @@ jobs:
         run: vsce package --target win32-x64 --out ail-win32-x64-${{ steps.version.outputs.version }}.vsix
 
       - name: Upload VSIX artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: vsix-packages
           path: vscode-ail-chat/*.vsix
@@ -180,10 +180,10 @@ jobs:
       run:
         working-directory: vscode-ail-chat
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Use Node.js 22
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: "22"
 
@@ -191,7 +191,7 @@ jobs:
         run: npm install -g @vscode/vsce
 
       - name: Download VSIX packages
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: vsix-packages
           path: vscode-ail-chat/
