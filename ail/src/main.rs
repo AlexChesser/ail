@@ -7,6 +7,7 @@ mod command;
 mod control_bridge;
 mod delete;
 mod dry_run;
+mod help;
 mod log;
 mod logs;
 mod materialize;
@@ -35,48 +36,34 @@ fn load_pipeline(explicit_path: Option<std::path::PathBuf>) -> ail_core::config:
     }
 }
 
-/// Initialise tracing. Always writes structured JSON logs to stderr.
-fn init_tracing() {
-    tracing_subscriber::fmt()
-        .json()
-        .with_writer(std::io::stderr)
-        .init();
+/// Initialise tracing conditionally based on output format.
+fn init_tracing(output_format: &OutputFormat) {
+    match output_format {
+        OutputFormat::Json => {
+            tracing_subscriber::fmt()
+                .json()
+                .with_writer(std::io::stderr)
+                .init();
+            tracing::info!(event = "startup", version = ail_core::version());
+        }
+        OutputFormat::Text => {
+            // Silent by default in text mode — developers can use RUST_LOG to enable tracing.
+            let _ = tracing_subscriber::fmt()
+                .with_writer(std::io::stderr)
+                .try_init();
+        }
+    }
 }
 
 fn exit_with(outcome: CommandOutcome) -> ! {
     std::process::exit(outcome.exit_code())
 }
 
-/// Landing page shown when `ail` is invoked with no prompt and no subcommand.
-/// Surfaces `ail init` as the first-step affordance for new users.
-fn print_landing_page() {
-    println!(
-        "ail — Artificial Intelligence Loops ({})",
-        ail_core::version()
-    );
-    println!();
-    println!("The control plane for how agents behave after the human stops typing.");
-    println!();
-    println!("Common commands:");
-    println!("  ail init                    {}", ail_init::help_summary());
-    println!("  ail \"your prompt\"           Run a prompt through the discovered pipeline");
-    println!("  ail spec                    Print the embedded AIL specification");
-    println!("  ail validate                Validate the current pipeline without running it");
-    println!("  ail materialize             Print the fully-resolved pipeline YAML");
-    println!("  ail logs                    Query recorded pipeline runs");
-    println!("  ail chat                    Interactive multi-turn conversation");
-    println!();
-    println!("Getting started: if this is your first time, run `ail init`.");
-    println!("For the full reference: `ail --help`.");
-}
-
 #[tokio::main]
 async fn main() {
     let cli = Cli::parse();
 
-    init_tracing();
-
-    tracing::info!(event = "startup", version = ail_core::version());
+    init_tracing(&cli.output_format);
 
     // Effective prompt: positional wins, --once as long-form alias.
     let effective_prompt = cli.prompt.clone().or(cli.once.clone());
@@ -262,7 +249,7 @@ async fn main() {
             }
         },
         (None, None) => {
-            print_landing_page();
+            help::print_landing_page();
             std::process::exit(0);
         }
         (Some(_), Some(_)) => {
