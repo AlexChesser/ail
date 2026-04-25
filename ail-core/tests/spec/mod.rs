@@ -36,8 +36,8 @@ mod s27_do_while;
 mod s28_for_each;
 mod s29_parallel;
 mod s30_sampling;
-mod s_formatter_consistency;
 mod s40_delete_run;
+mod s_formatter_consistency;
 
 /// Serialises all tests that mutate process-wide CWD via `std::env::set_current_dir`.
 /// `std::env::current_dir()` is global process state; parallel tests that change it
