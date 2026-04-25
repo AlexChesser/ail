@@ -1,5 +1,5 @@
 import { ChildProcess, spawn } from 'child_process';
-import { ProcessKiller } from '../killer';
+import { ProcessKiller } from '../types';
 
 export class WindowsProcessKiller implements ProcessKiller {
   kill(proc: ChildProcess): Promise<void> {

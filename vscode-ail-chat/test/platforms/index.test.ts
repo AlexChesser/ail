@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { createProcessKiller } from '../../src/process/factory';
-import { PosixProcessKiller } from '../../src/process/posix/killer';
-import { WindowsProcessKiller } from '../../src/process/win/killer';
+import { createProcessKiller } from '../../src/platforms/index';
+import { PosixProcessKiller } from '../../src/platforms/posix/killer';
+import { WindowsProcessKiller } from '../../src/platforms/win/killer';
 
 describe('createProcessKiller', () => {
   it('returns WindowsProcessKiller on win32', () => {

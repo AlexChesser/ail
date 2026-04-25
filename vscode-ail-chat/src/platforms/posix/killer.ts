@@ -1,5 +1,5 @@
 import { ChildProcess } from 'child_process';
-import { ProcessKiller } from '../killer';
+import { ProcessKiller } from '../types';
 
 export class PosixProcessKiller implements ProcessKiller {
   kill(proc: ChildProcess): Promise<void> {

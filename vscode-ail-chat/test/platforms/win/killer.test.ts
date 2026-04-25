@@ -5,7 +5,7 @@ import * as path from 'path';
 describe('WindowsProcessKiller', () => {
   it('calls taskkill with /F /T /PID <pid>', () => {
     const source = fs.readFileSync(
-      path.join(__dirname, '../../../src/process/win/killer.ts'),
+      path.join(__dirname, '../../../src/platforms/win/killer.ts'),
       'utf-8'
     );
     expect(source).toContain("'taskkill'");
