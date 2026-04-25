@@ -1,4 +1,4 @@
-# r11. Runner Plugin Discovery
+## r11. Runner Plugin Discovery
 
 > **Status:** alpha
 

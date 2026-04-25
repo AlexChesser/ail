@@ -1,4 +1,4 @@
-# 23. Structured Output Mode
+## 23. Structured Output Mode
 
 > **Source of truth:** §4.5 (Execution Model — Controlled Mode) is the implementation-authoritative description of the executor event types and stdin control protocol. This section (§23) is the consumer-facing documentation and extends §4.5 with usage examples and integration guidance. When event types change, update §4.5 first, then reflect changes here.
 

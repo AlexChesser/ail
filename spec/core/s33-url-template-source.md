@@ -1,4 +1,4 @@
-# §33 URL-Based Template Source
+## 33. URL-Based Template Source
 
 **Status:** alpha — implemented in `ail-init` (`source::url::UrlSource`).
 

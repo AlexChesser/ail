@@ -1,4 +1,6 @@
 mod r05_http_runner;
+mod r10_plugin_protocol;
+mod r11_plugin_discovery;
 mod s03_file_format;
 mod s04_execution_model;
 mod s04_log_provider;
@@ -9,7 +11,6 @@ mod s05_append_system_prompt;
 mod s05_step_specification;
 mod s06_skills;
 mod s07_pipeline_inheritance;
-mod s08_multi_runner;
 mod s08_runner_adapter;
 mod s08_subprocess;
 mod s09_permission_listener;
@@ -23,21 +24,20 @@ mod s13_sqlite_provider;
 mod s16_on_error;
 mod s17_error_handling;
 mod s18_materialize;
-mod s19_plugin_discovery;
-mod s19_plugin_protocol;
+mod s19_runner_factory;
 mod s21_dry_run;
 mod s21_mvp;
 mod s21_reload_self;
 mod s23_structured_output;
+mod s24_log_formatter;
 mod s26_output_schema;
 mod s26_s27_s28_integration;
 mod s27_do_while;
 mod s28_for_each;
 mod s29_parallel;
 mod s30_sampling;
-mod s35_ail_log_formatter;
-mod s39_consistency;
 mod s40_delete_run;
+mod s_formatter_consistency;
 
 /// Serialises all tests that mutate process-wide CWD via `std::env::set_current_dir`.
 /// `std::env::current_dir()` is global process state; parallel tests that change it

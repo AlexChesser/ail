@@ -1,4 +1,4 @@
-# 30. Sampling Parameter Control
+## 30. Sampling Parameter Control
 
 > **Implementation status:** v0.3 — fully implemented. Applies to `ClaudeCliRunner`, `HttpRunner`, and `StubRunner`. All validation rules and runner mappings are active at parse time and runtime.
 
