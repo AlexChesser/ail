@@ -6,7 +6,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { mapAilEventToMessages, AilEventMapper, AilProcessManager } from '../src/ail-process-manager';
 import { AilEvent } from '../src/types';
-import type { ProcessKiller } from '../src/process/killer';
+import type { ProcessKiller } from '../src/platforms';
 import * as fs from 'fs';
 import * as path from 'path';
 import { Readable, PassThrough } from 'stream';

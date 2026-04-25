@@ -14,6 +14,7 @@ import * as fs from "fs";
 import * as path from "path";
 import { execFile } from "child_process";
 import * as vscode from "vscode";
+import { createPlatform } from "./platforms";
 
 export interface ResolvedBinary {
   path: string;
@@ -36,8 +37,7 @@ export function platformTriple(): string {
 
 /** Returns the bundled binary filename for this platform. */
 function bundledBinaryName(): string {
-  const triple = platformTriple();
-  return process.platform === "win32" ? `ail-${triple}.exe` : `ail-${triple}`;
+  return createPlatform().binary.bundledBinaryName(platformTriple());
 }
 
 /** Run `ail --version` and return the version string. */
@@ -106,7 +106,7 @@ export async function resolveBinary(
 
   // 3. PATH fallback
   if (!binaryPath) {
-    binaryPath = process.platform === "win32" ? "ail.exe" : "ail";
+    binaryPath = createPlatform().binary.pathBinaryName();
   }
 
   // Verify binary works and get version

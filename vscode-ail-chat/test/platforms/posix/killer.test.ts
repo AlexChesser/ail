@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 
 describe('PosixProcessKiller', () => {
   it.skipIf(process.platform === 'win32')('sends SIGTERM then SIGKILL after timeout', async () => {
-    const { PosixProcessKiller } = await import('../../../src/process/posix/killer');
+    const { PosixProcessKiller } = await import('../../../src/platforms/posix/killer');
     const { spawn } = await import('child_process');
 
     const proc = spawn('sleep', ['30']);
