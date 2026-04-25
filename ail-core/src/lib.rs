@@ -17,5 +17,5 @@ pub mod template;
 pub mod test_helpers;
 
 pub fn version() -> &'static str {
-    "0.0.1"
+    env!("CARGO_PKG_VERSION")
 }
