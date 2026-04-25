@@ -8,7 +8,8 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
-import { clearBinaryCache, resolveBinary } from './binary';
+import { clearBinaryCache, resolveBinary, ResolvedBinary } from './binary';
+import { checkForLatestRelease, compareVersions } from './update-checker';
 import { SessionManager } from './session-manager';
 import { ChatViewProvider } from './chat-view-provider';
 import { PipelineGraphPanel } from './pipeline-graph/PipelineGraphPanel';
@@ -44,6 +45,7 @@ export function activate(context: vscode.ExtensionContext): void {
   void resolveBinary(context).then((b) => {
     historyProvider.setBinaryPath(b.path);
     historyProvider.refresh();
+    void onBinaryResolved(context, b);
   }).catch(() => { /* binary not found — history tree stays empty */ });
 
   context.subscriptions.push(
@@ -56,6 +58,26 @@ export function activate(context: vscode.ExtensionContext): void {
   context.subscriptions.push(
     vscode.commands.registerCommand('ail-chat.openStep', (item) => {
       stepsProvider.openStep(item);
+    })
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand('ail-chat.checkForUpdates', async () => {
+      const binary = await resolveBinary(context).catch(() => undefined);
+      const release = await checkForLatestRelease(context, { force: true });
+      if (!release) {
+        void vscode.window.showInformationMessage(
+          'No ail release information available right now. Check your network connection or try again later.'
+        );
+        return;
+      }
+      if (binary && compareVersions(release.version, binary.version) > 0) {
+        void promptUpdateAvailable(release.version, binary.version);
+      } else {
+        void vscode.window.showInformationMessage(
+          `ail is up to date (running ${binary?.version ?? 'unknown'}; latest release ${release.version}).`
+        );
+      }
     })
   );
 
@@ -151,6 +173,52 @@ export function activate(context: vscode.ExtensionContext): void {
       if (chatProvider) void chatProvider.sendSetupStatus();
     })
   );
+}
+
+/**
+ * Run after a successful resolveBinary() during activation.
+ * - If using bundled fallback, surface an informational toast inviting installation to PATH.
+ * - Run a throttled update check; if a newer ail-v* release is available, prompt to update.
+ */
+async function onBinaryResolved(
+  context: vscode.ExtensionContext,
+  binary: ResolvedBinary
+): Promise<void> {
+  if (binary.source === 'bundled') {
+    void promptInstallBundledFallback();
+  }
+
+  const release = await checkForLatestRelease(context);
+  if (release && compareVersions(release.version, binary.version) > 0) {
+    void promptUpdateAvailable(release.version, binary.version);
+  }
+}
+
+async function promptInstallBundledFallback(): Promise<void> {
+  const choice = await vscode.window.showInformationMessage(
+    'ail is not on your PATH — using the bundled fallback. Install to PATH for command-line use?',
+    'Install',
+    'Not Now'
+  );
+  if (choice === 'Install') {
+    void vscode.commands.executeCommand('ail-chat.installBinary');
+  }
+}
+
+async function promptUpdateAvailable(latest: string, current: string): Promise<void> {
+  const choice = await vscode.window.showInformationMessage(
+    `ail v${latest} is available (you have ${current}). Install update?`,
+    'Install Update',
+    'Release Notes',
+    'Not Now'
+  );
+  if (choice === 'Install Update') {
+    void vscode.commands.executeCommand('ail-chat.installBinary');
+  } else if (choice === 'Release Notes') {
+    void vscode.env.openExternal(
+      vscode.Uri.parse(`https://github.com/AlexChesser/ail/releases/tag/ail-v${latest}`)
+    );
+  }
 }
 
 // Process manager cleanup is handled by the view's onDidDispose.
