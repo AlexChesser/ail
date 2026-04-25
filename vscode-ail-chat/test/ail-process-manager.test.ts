@@ -3,13 +3,22 @@
  * Tests mapAilEventToMessages (pure function) without spawning any process.
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import { mapAilEventToMessages, AilEventMapper, AilProcessManager } from '../src/ail-process-manager';
 import { AilEvent } from '../src/types';
+import type { ProcessKiller } from '../src/process/killer';
 import * as fs from 'fs';
 import * as path from 'path';
-import { Readable } from 'stream';
+import { Readable, PassThrough } from 'stream';
 import { parseNdjsonStream } from '../src/ndjson';
+import * as childProcess from 'child_process';
+
+// Module-level mock so vi.mocked(childProcess.spawn) is writable in tests.
+// Existing tests don't call spawn, so this mock has no effect on them.
+vi.mock('child_process', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('child_process')>();
+  return { ...actual, spawn: vi.fn(actual.spawn) };
+});
 
 function loadFixture(name: string): AilEvent[] {
   const content = fs.readFileSync(path.join(__dirname, 'fixtures', name), 'utf-8');
@@ -289,5 +298,128 @@ describe('cancel() with StubProcessKiller', () => {
     await startPromise.catch((err: Error) => {
       expect(err.message).not.toContain('A pipeline is already running');
     });
+  });
+});
+
+describe('stdin closed on pipeline completion (macOS hang fix)', () => {
+  afterEach(() => { vi.resetAllMocks(); });
+
+  /**
+   * Creates a controllable fake ChildProcess.
+   * Write JSON lines to proc.stdout (a PassThrough) to simulate ail stdout events.
+   * Inspect proc.stdinEnd to verify stdin.end() was called.
+   * Call proc.simulateClose(code) to fire the Node.js close event.
+   */
+  function makeFakeProcess() {
+    const stdout = new PassThrough({ encoding: 'utf8' });
+    const stderr = new PassThrough({ encoding: 'utf8' });
+    const closeHandlers: Array<(code: number | null) => void> = [];
+
+    // When stdin.end() is called (the fix), simulate the process exiting:
+    // stdin EOF → child exits → Node.js fires close event.
+    const stdinEnd = vi.fn(() => {
+      stdout.push(null);
+      for (const h of closeHandlers) h(0);
+    });
+
+    const proc = {
+      stdout,
+      stderr,
+      stdin: { write: vi.fn(), end: stdinEnd },
+      on(event: string, handler: (...args: unknown[]) => void) {
+        if (event === 'close') closeHandlers.push(handler as (code: number | null) => void);
+        return this;
+      },
+      simulateClose(code: number | null = 0) {
+        stdout.push(null);
+        for (const h of closeHandlers) h(code);
+      },
+      stdinEnd,
+    };
+    return proc;
+  }
+
+  function makeStubKiller() {
+    return { kill: vi.fn().mockResolvedValue(undefined) };
+  }
+
+  it('calls proc.stdin.end() when pipeline_completed arrives on stdout', async () => {
+    const fake = makeFakeProcess();
+    vi.mocked(childProcess.spawn).mockReturnValue(
+      fake as unknown as ReturnType<typeof childProcess.spawn>
+    );
+
+    const manager = new AilProcessManager(
+      '/fake/ail', undefined,
+      makeStubKiller() as unknown as ProcessKiller
+    );
+    const startPromise = manager.start('hello');
+
+    fake.stdout.push(
+      JSON.stringify({ type: 'pipeline_completed', outcome: 'completed' }) + '\n'
+    );
+    await new Promise<void>(resolve => setImmediate(resolve));
+
+    expect(fake.stdinEnd).toHaveBeenCalled();
+
+    fake.simulateClose(0);
+    await startPromise;
+  });
+
+  it('calls proc.stdin.end() when pipeline_error arrives on stdout', async () => {
+    const fake = makeFakeProcess();
+    vi.mocked(childProcess.spawn).mockReturnValue(
+      fake as unknown as ReturnType<typeof childProcess.spawn>
+    );
+
+    const manager = new AilProcessManager(
+      '/fake/ail', undefined,
+      makeStubKiller() as unknown as ProcessKiller
+    );
+    void manager.start('hello').catch(() => {});
+
+    fake.stdout.push(
+      JSON.stringify({ type: 'pipeline_error', error: 'boom', error_type: 'EXEC_ERROR' }) + '\n'
+    );
+    await new Promise<void>(resolve => setImmediate(resolve));
+
+    expect(fake.stdinEnd).toHaveBeenCalled();
+
+    fake.simulateClose(1);
+  });
+
+  it('start() succeeds on the second turn after first pipeline_completed (no close event)', async () => {
+    const proc1 = makeFakeProcess();
+    const proc2 = makeFakeProcess();
+    vi.mocked(childProcess.spawn)
+      .mockReturnValueOnce(proc1 as unknown as ReturnType<typeof childProcess.spawn>)
+      .mockReturnValueOnce(proc2 as unknown as ReturnType<typeof childProcess.spawn>);
+
+    const manager = new AilProcessManager(
+      '/fake/ail', undefined,
+      makeStubKiller() as unknown as ProcessKiller
+    );
+
+    // Turn 1: emit pipeline_completed but deliberately do NOT call simulateClose.
+    // Without the fix, stdin is never closed so the Tokio runtime hangs and
+    // the Node.js 'close' event never fires — _activeProcess stays set.
+    void manager.start('first prompt');
+    proc1.stdout.push(
+      JSON.stringify({ type: 'pipeline_completed', outcome: 'completed' }) + '\n'
+    );
+    await new Promise<void>(resolve => setImmediate(resolve));
+
+    // The fix must clear _activeProcess (or close stdin so close fires).
+    // With the fix applied, isRunning should be false here.
+    expect(manager.isRunning).toBe(false);
+
+    // Turn 2 — must not reject with "A pipeline is already running"
+    const turn2 = manager.start('second prompt');
+    proc2.stdout.push(
+      JSON.stringify({ type: 'pipeline_completed', outcome: 'completed' }) + '\n'
+    );
+    await new Promise<void>(resolve => setImmediate(resolve));
+    proc2.simulateClose(0);
+    await expect(turn2).resolves.toBeUndefined();
   });
 });

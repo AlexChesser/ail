@@ -11,8 +11,8 @@
 import { spawn, ChildProcess } from 'child_process';
 import { AilEvent, HostToWebviewMessage } from './types';
 import { parseNdjsonStream } from './ndjson';
-import { ProcessKiller } from './process/process-killer';
-import { createProcessKiller } from './process/process-killer-factory';
+import { ProcessKiller } from './process/killer';
+import { createProcessKiller } from './process/factory';
 import { AilOutputChannel } from './output-channel';
 
 export interface StartOptions {
@@ -100,6 +100,13 @@ export class AilProcessManager {
           const msgs = mapper.map(event);
           for (const msg of msgs) {
             this._emit(msg);
+          }
+          // Close stdin when the pipeline finishes so ail's stdin reader gets EOF.
+          // On macOS, Tokio uses a spawn_blocking thread for stdin reads that blocks
+          // runtime shutdown until the read returns. Closing stdin here signals EOF,
+          // allowing ail to exit cleanly after every turn.
+          if (event.type === 'pipeline_completed' || event.type === 'pipeline_error') {
+            proc.stdin?.end();
           }
         },
         (err) => {
