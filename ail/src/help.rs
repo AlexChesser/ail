@@ -1,7 +1,7 @@
 pub fn print_landing_page() {
     println!(
         "ail — Artificial Intelligence Loops {}",
-        ail_core::version()
+        ail_core::version_full()
     );
     println!();
     println!("The control plane for how agents behave after the human stops typing.");

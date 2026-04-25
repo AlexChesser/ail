@@ -14,7 +14,7 @@ pub enum OutputFormat {
 #[derive(Parser)]
 #[command(
     name = "ail",
-    version = ail_core::version(),
+    version = ail_core::version_full(),
     about = "Artificial Intelligence Loops — the control plane for how agents behave after the human stops typing."
 )]
 pub struct Cli {
