@@ -1,3 +1,5 @@
+use ail_core::config::discovery::{discover, DiscoveryResult};
+
 use crate::cli::OutputFormat;
 use crate::command::CommandOutcome;
 
@@ -15,9 +17,9 @@ impl ValidateCommand {
     }
 
     pub fn execute(&self) -> CommandOutcome {
-        let path = match ail_core::config::discovery::discover(self.pipeline_path.clone()) {
-            Some(p) => p,
-            None => {
+        let path = match discover(self.pipeline_path.clone()) {
+            DiscoveryResult::Resolved(p) => p,
+            DiscoveryResult::None => {
                 match self.output_format {
                     OutputFormat::Json => {
                         println!(
@@ -30,6 +32,31 @@ impl ValidateCommand {
                     }
                     OutputFormat::Text => {
                         eprintln!("No pipeline file found.");
+                    }
+                }
+                return CommandOutcome::ExitCode(1);
+            }
+            DiscoveryResult::Ambiguous(entries) => {
+                let names: Vec<String> = entries
+                    .iter()
+                    .map(|e| format!("{} ({})", e.name, e.path.display()))
+                    .collect();
+                let msg = format!(
+                    "Multiple pipelines found; pass --pipeline <path>. Candidates: {}",
+                    names.join(", ")
+                );
+                match self.output_format {
+                    OutputFormat::Json => {
+                        println!(
+                            "{}",
+                            serde_json::json!({
+                                "valid": false,
+                                "errors": [{"message": msg, "error_type": "ail:config/file-not-found"}]
+                            })
+                        );
+                    }
+                    OutputFormat::Text => {
+                        eprintln!("{msg}");
                     }
                 }
                 return CommandOutcome::ExitCode(1);

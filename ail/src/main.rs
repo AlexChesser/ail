@@ -5,6 +5,7 @@ mod cli;
 mod command;
 mod control_bridge;
 mod delete;
+mod discover;
 mod dry_run;
 mod help;
 mod log;
@@ -24,7 +25,7 @@ use command::CommandOutcome;
 /// Discover and load a pipeline from an optional explicit path, falling back to
 /// automatic discovery and then passthrough mode. Exits with code 1 on load error.
 fn load_pipeline(explicit_path: Option<std::path::PathBuf>) -> ail_core::config::domain::Pipeline {
-    match ail_core::config::discovery::discover(explicit_path) {
+    match discover::resolve_or_passthrough(explicit_path) {
         Some(ref path) => match ail_core::config::load(path) {
             Ok(p) => p,
             Err(e) => {

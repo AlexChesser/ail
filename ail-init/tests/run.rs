@@ -31,18 +31,21 @@ fn run_with_unknown_template_errors() {
 fn starter_installs_expected_files() {
     let tmp = tempfile::tempdir().unwrap();
     ail_init::run_in_cwd(args(Some("starter"), false, false), tmp.path()).unwrap();
-    assert!(tmp.path().join(".ail/default.yaml").exists());
-    assert!(tmp.path().join(".ail/README.md").exists());
+    assert!(tmp.path().join(".ail/starter/default.yaml").exists());
+    assert!(tmp.path().join(".ail/starter/README.md").exists());
 }
 
 #[test]
 fn oma_alias_installs_oh_my_ail() {
     let tmp = tempfile::tempdir().unwrap();
     ail_init::run_in_cwd(args(Some("oma"), false, false), tmp.path()).unwrap();
-    // oh-my-ail's main entry point.
-    assert!(tmp.path().join(".ail/.ohmy.ail.yaml").exists());
+    // oh-my-ail's main entry point — note: namespaced under .ail/oh-my-ail/.
+    assert!(tmp.path().join(".ail/oh-my-ail/.ohmy.ail.yaml").exists());
     // One of the agent pipelines — proves subdir preservation.
-    assert!(tmp.path().join(".ail/agents/hephaestus.ail.yaml").exists());
+    assert!(tmp
+        .path()
+        .join(".ail/oh-my-ail/agents/hephaestus.ail.yaml")
+        .exists());
 }
 
 #[test]
@@ -50,7 +53,10 @@ fn superpowers_installs_all_pipelines_under_ail() {
     let tmp = tempfile::tempdir().unwrap();
     ail_init::run_in_cwd(args(Some("superpowers"), false, false), tmp.path()).unwrap();
     // A representative pipeline from the superpowers set.
-    assert!(tmp.path().join(".ail/brainstorming.ail.yaml").exists());
+    assert!(tmp
+        .path()
+        .join(".ail/superpowers/brainstorming.ail.yaml")
+        .exists());
     // Crucially: NOT at the CWD root.
     assert!(!tmp.path().join("brainstorming.ail.yaml").exists());
 }
@@ -68,14 +74,14 @@ fn refuses_overwrite_without_force() {
     // First install — succeeds.
     ail_init::run_in_cwd(args(Some("starter"), false, false), tmp.path()).unwrap();
 
-    // Seed conflicting content.
-    std::fs::write(tmp.path().join(".ail/default.yaml"), b"user-edited").unwrap();
+    // Seed conflicting content under the namespaced location.
+    std::fs::write(tmp.path().join(".ail/starter/default.yaml"), b"user-edited").unwrap();
 
     // Second install without --force fails and preserves the edit.
     let err = ail_init::run_in_cwd(args(Some("starter"), false, false), tmp.path()).unwrap_err();
     assert!(err.detail().contains("already exist"));
     assert_eq!(
-        std::fs::read(tmp.path().join(".ail/default.yaml")).unwrap(),
+        std::fs::read(tmp.path().join(".ail/starter/default.yaml")).unwrap(),
         b"user-edited"
     );
 }
@@ -84,11 +90,23 @@ fn refuses_overwrite_without_force() {
 fn overwrites_with_force() {
     let tmp = tempfile::tempdir().unwrap();
     ail_init::run_in_cwd(args(Some("starter"), false, false), tmp.path()).unwrap();
-    std::fs::write(tmp.path().join(".ail/default.yaml"), b"user-edited").unwrap();
+    std::fs::write(tmp.path().join(".ail/starter/default.yaml"), b"user-edited").unwrap();
 
     ail_init::run_in_cwd(args(Some("starter"), true, false), tmp.path()).unwrap();
-    let restored = std::fs::read_to_string(tmp.path().join(".ail/default.yaml")).unwrap();
+    let restored = std::fs::read_to_string(tmp.path().join(".ail/starter/default.yaml")).unwrap();
     assert!(restored.contains("Starter — Invocation-only pipeline"));
+}
+
+#[test]
+fn distinct_templates_install_side_by_side() {
+    // The whole point of namespacing — two templates that both ship `default.yaml`
+    // (or any other shared filename) install cleanly without --force.
+    let tmp = tempfile::tempdir().unwrap();
+    ail_init::run_in_cwd(args(Some("starter"), false, false), tmp.path()).unwrap();
+    ail_init::run_in_cwd(args(Some("oma"), false, false), tmp.path()).unwrap();
+
+    assert!(tmp.path().join(".ail/starter/default.yaml").exists());
+    assert!(tmp.path().join(".ail/oh-my-ail/.ohmy.ail.yaml").exists());
 }
 
 #[allow(dead_code)]
@@ -130,15 +148,15 @@ files:
     ail_init::run_in_cwd(args(Some(&manifest_url), false, false), tmp.path()).unwrap();
 
     assert_eq!(
-        std::fs::read(tmp.path().join(".ail/default.yaml")).unwrap(),
+        std::fs::read(tmp.path().join(".ail/remote-demo/default.yaml")).unwrap(),
         default_yaml
     );
     assert_eq!(
-        std::fs::read(tmp.path().join(".ail/agents/atlas.ail.yaml")).unwrap(),
+        std::fs::read(tmp.path().join(".ail/remote-demo/agents/atlas.ail.yaml")).unwrap(),
         atlas_yaml
     );
     // Manifest is metadata, never installed.
-    assert!(!tmp.path().join(".ail/template.yaml").exists());
+    assert!(!tmp.path().join(".ail/remote-demo/template.yaml").exists());
 }
 
 #[test]
@@ -192,14 +210,18 @@ files:
 
     let manifest_url = format!("{}/template.yaml", server.url());
     let tmp = tempfile::tempdir().unwrap();
-    std::fs::create_dir_all(tmp.path().join(".ail")).unwrap();
-    std::fs::write(tmp.path().join(".ail/default.yaml"), b"user-edited").unwrap();
+    std::fs::create_dir_all(tmp.path().join(".ail/remote-demo")).unwrap();
+    std::fs::write(
+        tmp.path().join(".ail/remote-demo/default.yaml"),
+        b"user-edited",
+    )
+    .unwrap();
 
     let err =
         ail_init::run_in_cwd(args(Some(&manifest_url), false, false), tmp.path()).unwrap_err();
     assert!(err.detail().contains("already exist"));
     assert_eq!(
-        std::fs::read(tmp.path().join(".ail/default.yaml")).unwrap(),
+        std::fs::read(tmp.path().join(".ail/remote-demo/default.yaml")).unwrap(),
         b"user-edited"
     );
 }

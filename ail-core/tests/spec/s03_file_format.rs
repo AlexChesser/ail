@@ -1,44 +1,69 @@
 mod s3_1_discovery {
-    use ail_core::config::discovery::discover;
+    use ail_core::config::discovery::{discover, DiscoveryResult};
     use std::path::PathBuf;
+
+    fn write_pipeline(path: &std::path::Path) {
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(
+            path,
+            "version: \"0.0.1\"\npipeline:\n  - id: x\n    prompt: hi\n",
+        )
+        .unwrap();
+    }
 
     #[test]
     fn explicit_path_takes_precedence() {
         let explicit = PathBuf::from("/some/explicit/path.ail.yaml");
         let result = discover(Some(explicit.clone()));
-        assert_eq!(result, Some(explicit));
+        assert_eq!(result, DiscoveryResult::Resolved(explicit));
     }
 
     #[test]
-    fn returns_none_when_no_file_found() {
+    fn empty_cwd_does_not_resolve_inside_tempdir() {
         let _cwd_guard = crate::spec::CWD_LOCK.lock().unwrap();
         let tmp = tempfile::tempdir().unwrap();
         let original_dir = std::env::current_dir().unwrap();
         std::env::set_current_dir(tmp.path()).unwrap();
         let result = discover(None);
         std::env::set_current_dir(original_dir).unwrap();
-        assert!(result.is_none());
+        // Host's ~/.config/ail/default.yaml could match — assert only that no
+        // result points back into our scratch tempdir.
+        if let DiscoveryResult::Resolved(p) = result {
+            assert!(!p.starts_with(tmp.path()));
+        }
     }
 
     #[test]
-    fn falls_back_to_ail_yaml_in_cwd() {
+    fn single_template_subdir_resolves_to_its_pipeline() {
         let _cwd_guard = crate::spec::CWD_LOCK.lock().unwrap();
         let tmp = tempfile::tempdir().unwrap();
-        // Canonicalize to resolve symlinks (macOS: /tmp -> /private/tmp) so the
-        // expected path matches what current_dir() returns inside discover().
-        let tmp_path = tmp.path().canonicalize().unwrap();
-        let ail_yaml = tmp_path.join(".ail.yaml");
-        std::fs::write(
-            &ail_yaml,
-            "version: \"0.0.1\"\npipeline:\n  - id: s\n    prompt: x\n",
-        )
-        .unwrap();
+        let canonical = tmp.path().canonicalize().unwrap();
+        let pipeline = canonical.join(".ail/starter/default.yaml");
+        write_pipeline(&pipeline);
         let original_dir = std::env::current_dir().unwrap();
-        std::env::set_current_dir(&tmp_path).unwrap();
+        std::env::set_current_dir(&canonical).unwrap();
         let result = discover(None);
         std::env::set_current_dir(original_dir).unwrap();
-        // Discovery now returns absolute paths so parent() is always usable (SPEC §9).
-        assert_eq!(result, Some(ail_yaml));
+        assert_eq!(result, DiscoveryResult::Resolved(pipeline));
+    }
+
+    #[test]
+    fn multiple_template_subdirs_returns_ambiguous() {
+        let _cwd_guard = crate::spec::CWD_LOCK.lock().unwrap();
+        let tmp = tempfile::tempdir().unwrap();
+        let canonical = tmp.path().canonicalize().unwrap();
+        write_pipeline(&canonical.join(".ail/starter/default.yaml"));
+        write_pipeline(&canonical.join(".ail/oh-my-ail/.ohmy.ail.yaml"));
+        let original_dir = std::env::current_dir().unwrap();
+        std::env::set_current_dir(&canonical).unwrap();
+        let result = discover(None);
+        std::env::set_current_dir(original_dir).unwrap();
+        match result {
+            DiscoveryResult::Ambiguous(entries) => {
+                assert!(entries.len() >= 2, "expected ≥2 candidates");
+            }
+            other => panic!("expected Ambiguous, got {other:?}"),
+        }
     }
 }
 
@@ -46,44 +71,35 @@ mod s3_1_discover_all {
     use ail_core::config::discovery::discover_all;
 
     #[test]
-    fn returns_empty_when_no_yaml_files_present() {
+    fn returns_only_user_global_when_cwd_has_no_pipelines() {
         let _cwd_guard = crate::spec::CWD_LOCK.lock().unwrap();
         let tmp = tempfile::tempdir().unwrap();
         let original_dir = std::env::current_dir().unwrap();
         std::env::set_current_dir(tmp.path()).unwrap();
         let result = discover_all();
         std::env::set_current_dir(original_dir).unwrap();
-        assert!(result.is_empty());
+        // Host may have ~/.config/ail entries — assert only that nothing came from our tempdir.
+        for e in result {
+            assert!(!e.path.starts_with(tmp.path()));
+        }
     }
 
     #[test]
-    fn finds_ail_yaml_in_cwd_as_default() {
-        let _cwd_guard = crate::spec::CWD_LOCK.lock().unwrap();
-        let tmp = tempfile::tempdir().unwrap();
-        std::fs::write(tmp.path().join(".ail.yaml"), "x").unwrap();
-        let original_dir = std::env::current_dir().unwrap();
-        std::env::set_current_dir(tmp.path()).unwrap();
-        let result = discover_all();
-        std::env::set_current_dir(original_dir).unwrap();
-        assert_eq!(result.len(), 1);
-        assert_eq!(result[0].name, "default");
-    }
-
-    #[test]
-    fn finds_yaml_files_in_ail_directory() {
+    fn finds_pipelines_under_template_subdirs() {
         let _cwd_guard = crate::spec::CWD_LOCK.lock().unwrap();
         let tmp = tempfile::tempdir().unwrap();
         let ail_dir = tmp.path().join(".ail");
-        std::fs::create_dir(&ail_dir).unwrap();
-        std::fs::write(ail_dir.join("code-review.yaml"), "x").unwrap();
-        std::fs::write(ail_dir.join("incident.yaml"), "x").unwrap();
+        std::fs::create_dir_all(ail_dir.join("ops")).unwrap();
+        std::fs::create_dir_all(ail_dir.join("review")).unwrap();
+        std::fs::write(ail_dir.join("ops/default.yaml"), "x").unwrap();
+        std::fs::write(ail_dir.join("review/code-review.ail.yaml"), "x").unwrap();
         let original_dir = std::env::current_dir().unwrap();
         std::env::set_current_dir(tmp.path()).unwrap();
         let result = discover_all();
         std::env::set_current_dir(original_dir).unwrap();
         let names: Vec<&str> = result.iter().map(|e| e.name.as_str()).collect();
-        assert!(names.contains(&"code-review"));
-        assert!(names.contains(&"incident"));
+        assert!(names.contains(&"ops"));
+        assert!(names.contains(&"review/code-review"));
     }
 
     #[test]
@@ -91,34 +107,18 @@ mod s3_1_discover_all {
         let _cwd_guard = crate::spec::CWD_LOCK.lock().unwrap();
         let tmp = tempfile::tempdir().unwrap();
         let ail_dir = tmp.path().join(".ail");
-        std::fs::create_dir(&ail_dir).unwrap();
-        std::fs::write(ail_dir.join("zebra.yaml"), "x").unwrap();
-        std::fs::write(ail_dir.join("alpha.yaml"), "x").unwrap();
-        std::fs::write(ail_dir.join("middle.yaml"), "x").unwrap();
+        std::fs::create_dir_all(ail_dir.join("zebra")).unwrap();
+        std::fs::create_dir_all(ail_dir.join("alpha")).unwrap();
+        std::fs::create_dir_all(ail_dir.join("middle")).unwrap();
+        std::fs::write(ail_dir.join("zebra/default.yaml"), "x").unwrap();
+        std::fs::write(ail_dir.join("alpha/default.yaml"), "x").unwrap();
+        std::fs::write(ail_dir.join("middle/default.yaml"), "x").unwrap();
         let original_dir = std::env::current_dir().unwrap();
         std::env::set_current_dir(tmp.path()).unwrap();
         let result = discover_all();
         std::env::set_current_dir(original_dir).unwrap();
         let names: Vec<&str> = result.iter().map(|e| e.name.as_str()).collect();
         assert_eq!(names, vec!["alpha", "middle", "zebra"]);
-    }
-
-    #[test]
-    fn cwd_entry_wins_over_home_config_on_duplicate_name() {
-        let _cwd_guard = crate::spec::CWD_LOCK.lock().unwrap();
-        // We can't easily test ~/.config/ail/ in isolation, but we can verify
-        // that the .ail/ directory entry takes precedence by checking deduplication
-        // logic: if the same name appears twice, only one entry is returned.
-        let tmp = tempfile::tempdir().unwrap();
-        let ail_dir = tmp.path().join(".ail");
-        std::fs::create_dir(&ail_dir).unwrap();
-        std::fs::write(ail_dir.join("code-review.yaml"), "x").unwrap();
-        let original_dir = std::env::current_dir().unwrap();
-        std::env::set_current_dir(tmp.path()).unwrap();
-        let result = discover_all();
-        std::env::set_current_dir(original_dir).unwrap();
-        let code_review_count = result.iter().filter(|e| e.name == "code-review").count();
-        assert_eq!(code_review_count, 1);
     }
 }
 
