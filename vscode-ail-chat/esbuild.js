@@ -85,11 +85,17 @@ function copyCodiconAssets() {
 
 async function build() {
   if (!watch) {
-    // Clean dist before every non-watch build (rmdirSync works on Node ≥12.10)
+    // Clean dist but preserve bundled ail binaries (ail-<triple> / ail-<triple>.exe).
+    // Full rmSync would wipe binaries downloaded by CI before vsce package runs.
     const dist = path.join(__dirname, 'dist');
-    try {
-      (fs.rmSync || fs.rmdirSync)(dist, { recursive: true, force: true });
-    } catch (_) {}
+    if (fs.existsSync(dist)) {
+      for (const entry of fs.readdirSync(dist)) {
+        if (/^ail[-.]/.test(entry)) continue; // keep bundled binaries
+        try {
+          (fs.rmSync || fs.rmdirSync)(path.join(dist, entry), { recursive: true, force: true });
+        } catch (_) {}
+      }
+    }
   }
 
   copyCodiconAssets();

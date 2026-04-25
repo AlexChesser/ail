@@ -62,11 +62,20 @@ jobs:
         if: runner.os != 'Windows'
         run: strip target/${{ matrix.target }}/release/${{ matrix.binary }}
 
+      - name: Rename binary to platform artifact name (Unix)
+        if: runner.os != 'Windows'
+        run: cp target/${{ matrix.target }}/release/${{ matrix.binary }} ${{ matrix.artifact }}
+
+      - name: Rename binary to platform artifact name (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: Copy-Item target/${{ matrix.target }}/release/${{ matrix.binary }} -Destination ${{ matrix.artifact }}
+
       - name: Upload binary artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact }}
-          path: target/${{ matrix.target }}/release/${{ matrix.binary }}
+          path: ${{ matrix.artifact }}
           retention-days: 1
 
   # ── Package and publish VSIX ──────────────────────────────────────────────
