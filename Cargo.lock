@@ -33,7 +33,7 @@ dependencies = [
 
 [[package]]
 name = "ail"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "ail-core",
  "ail-init",
@@ -53,7 +53,7 @@ dependencies = [
 
 [[package]]
 name = "ail-core"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "ail-spec",
  "dirs",
@@ -77,7 +77,7 @@ dependencies = [
 
 [[package]]
 name = "ail-init"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "ail-core",
  "dialoguer",
@@ -91,7 +91,7 @@ dependencies = [
 
 [[package]]
 name = "ail-spec"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "glob",
 ]
@@ -1854,7 +1854,7 @@ checksum = "7da8b5736845d9f2fcb837ea5d9e2628564b3b043a70948a3f0b778838c5fb4f"
 
 [[package]]
 name = "stub-llm"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "serde_json",
 ]
