@@ -36,4 +36,90 @@ Prompt strings, file-based prompts, and `pipeline:` paths may reference runtime 
 
 **Future step variables:** Template variables may only reference steps that have already run. A reference to a step that has not yet executed at the point of resolution raises a fatal parse error.
 
+### 11.1 Examples
+
+Reference the original prompt and prior step responses:
+
+```yaml
+pipeline:
+  - id: plan
+    prompt: "Outline an implementation plan for: {{ step.invocation.prompt }}"
+  - id: critique
+    prompt: |
+      Review this plan and list risks:
+
+      {{ step.plan.response }}
+```
+
+Inject the result of a deterministic context step:
+
+```yaml
+pipeline:
+  - id: gather_diff
+    context:
+      shell: "git diff --staged"
+  - id: review
+    prompt: |
+      Review the following staged diff:
+
+      {{ step.gather_diff.stdout }}
+```
+
+Branch on a context step's exit code via a condition:
+
+```yaml
+pipeline:
+  - id: tests
+    context:
+      shell: "cargo nextest run"
+  - id: triage
+    condition: "{{ step.tests.exit_code }} != '0'"
+    prompt: "Tests failed. Triage:\n\n{{ step.tests.stderr }}"
+```
+
+Read an environment variable with a literal default:
+
+```yaml
+pipeline:
+  - id: greet
+    prompt: 'Greet the user named "{{ env.USER_NAME | default("friend") }}".'
+```
+
+Use loop variables inside a `for_each:` body:
+
+```yaml
+pipeline:
+  - id: implement_each
+    for_each:
+      over: "{{ step.plan.items }}"
+      as: task
+      steps:
+        - id: implement
+          prompt: "Step {{ for_each.index }}/{{ for_each.total }}: {{ for_each.task }}"
+```
+
+A complete, runnable pipeline tying the patterns together — pinned by
+the CI check (the leading `# spec:validate` comment opts it in), so
+a regression here fails the build:
+
+```yaml
+# spec:validate
+version: "0.1"
+
+pipeline:
+  - id: gather_diff
+    context:
+      shell: "git diff --staged"
+
+  - id: review
+    prompt: |
+      Review the staged diff and list any concerns:
+
+      {{ step.gather_diff.stdout }}
+
+  - id: triage
+    condition: "{{ step.gather_diff.exit_code }} != '0'"
+    prompt: "git diff exited non-zero — investigate:\n\n{{ step.gather_diff.stderr }}"
+```
+
 ---

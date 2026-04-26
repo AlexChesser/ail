@@ -140,6 +140,7 @@ Steps running against the same provider also run in isolation by default — eac
 
 A called pipeline (via `pipeline:` step) owns its context in isolation. The caller has access only to the sub-pipeline's input, final response, and — where available — its top-level tool calls. The sub-pipeline's internal steps, intermediate responses, and local template variables are not visible to the caller.
 
+<!-- compact:skip -->
 ### §4.5 Controlled Execution Mode
 
 > **Consumer documentation:** §23 (Structured Output & Controlled Mode) documents the same event stream and stdin control protocol from the consumer's perspective. §4.5 is the implementation source of truth; §23 extends it with consumer-oriented detail. Keep both in sync when adding or changing event types.
@@ -282,5 +283,6 @@ Before any steps execute, `run_once_json` emits a `run_started` envelope:
 ```
 
 `pipeline_source` is `null` when in passthrough mode (no pipeline file found).
+<!-- /compact:skip -->
 
 ---

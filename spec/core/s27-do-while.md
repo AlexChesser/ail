@@ -149,6 +149,7 @@ See §12.2 for the full operator list (`==`, `!=`, `contains`, `starts_with`, `e
 
 ---
 
+<!-- compact:skip -->
 ### 27.6 Turn Log Events
 
 Each loop produces the following NDJSON events in the pipeline run log (§4.4):
@@ -188,6 +189,7 @@ For pipelines running in `--output-format json` controlled mode (§4.5), the fol
 | `DoWhileMaxIterationsExceeded { step_id, max_iterations }` | When the iteration budget fires (before `on_max_iterations` action) |
 
 ---
+<!-- /compact:skip -->
 
 ### 27.8 Validation Rules
 

@@ -100,6 +100,7 @@ These variables are available only within the `steps:` block of a `for_each:` st
 
 ---
 
+<!-- compact:skip -->
 ### 28.5 Turn Log Events
 
 Each `for_each:` loop produces the following NDJSON events in the pipeline run log (§4.4):
@@ -138,6 +139,7 @@ For pipelines running in `--output-format json` controlled mode (§4.5):
 | `ForEachCompleted { step_id, items_processed, exit_reason }` | After the loop finishes |
 
 ---
+<!-- /compact:skip -->
 
 ### 28.7 Validation Rules
 

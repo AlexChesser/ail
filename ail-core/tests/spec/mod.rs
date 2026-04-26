@@ -36,6 +36,7 @@ mod s27_do_while;
 mod s28_for_each;
 mod s29_parallel;
 mod s30_sampling;
+mod s31_compact;
 mod s40_delete_run;
 mod s_formatter_consistency;
 

@@ -181,12 +181,13 @@ pub enum Commands {
                             --list                  Print a table of contents with section IDs and word counts\n\
                             --section s05           Print a single section by ID\n\
                             --section s05,r02       Print multiple sections (comma-separated)\n\
-                            --format compact        Print the compressed reference (~10k tokens)\n\
-                            --format schema         Print the annotated YAML schema (~2-3k tokens)\n\
+                            --format compact        Authoring reference — everything an LLM needs to write a correct .ail.yaml,\n\
+                                                    with ail's internals, roadmap, and operational tooling stripped (~40-50k tokens)\n\
+                            --format schema         Annotated YAML schema (~2-3k tokens)\n\
                             --core / --runner       Filter to core spec or runner spec only\n\n\
                             Section IDs: s01–s33 (core), r01–r11 (runner). Run `ail spec --list` to browse.")]
     Spec {
-        /// Output format: `prose` (default, full spec), `compact` (compressed reference),
+        /// Output format: `prose` (default, full spec), `compact` (authoring reference for LLMs),
         /// or `schema` (annotated YAML schema).
         #[arg(long, default_value = "prose")]
         format: String,
