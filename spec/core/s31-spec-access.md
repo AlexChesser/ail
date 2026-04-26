@@ -10,15 +10,17 @@ Since no LLM has been trained on AIL, spec injection provides the LLM with the k
 
 ### 31.2 Tiers
 
-Three compression tiers trade detail for token budget:
+Three tiers trade scope for token budget. Each is purpose-built:
 
 | Tier | Name | Tokens | Contents | Use case |
 |---|---|---|---|---|
 | T1 | `schema` | ~2-3K | Annotated YAML schema with inline constraints | Syntax reminder for someone who roughly knows AIL |
-| T2 | `compact` | ~10-12K | Compressed NL — all rules, no examples | Teach an LLM enough to write correct pipelines |
-| T3 | `prose` | ~80K | Full specification verbatim | Deep reference for edge cases and rationale |
+| T2 | `compact` | ~40-50K | Authoring reference — every rule and example needed to write a correct `.ail.yaml`, with ail's internals, roadmap, status notes, operational tooling, and CLI scaffolding stripped out | Feed to an LLM that is writing a pipeline |
+| T3 | `prose` | ~80K | Full specification verbatim | Deep reference for edge cases, rationale, and ail's internals |
 
-T1 and T2 are hand-authored checked-in files under `spec/compressed/`. T3 is the raw concatenation of all `spec/core/s*.md` and `spec/runner/r*.md` files.
+T1 (`schema`) is a hand-authored checked-in file at `spec/compressed/schema.yaml`. T2 (`compact`) is **derived** at build time from `spec/core/` and `spec/runner/`: authoring-relevant sections are concatenated, sections that don't help an LLM write a pipeline are excluded wholesale (s01, s19–s22, s23, s24–s25, s31–s33, r04, r10–r11), and `<!-- compact:skip --> … <!-- /compact:skip -->` blocks are stripped out for paragraph-level trimming of fluff. T3 is the raw concatenation of all `spec/core/s*.md` and `spec/runner/r*.md` files.
+
+The single source of truth for `compact` is the section files themselves — there is no hand-curated mirror to drift.
 
 ### 31.3 CLI Command — `ail spec`
 
@@ -82,7 +84,8 @@ pipeline:
 Spec content is compiled into the `ail-spec` crate via `build.rs` at build time. The crate:
 
 - Scans `spec/core/s*.md` and `spec/runner/r*.md` using `include_str!`
-- Embeds T1 from `spec/compressed/schema.yaml` and T2 from `spec/compressed/compact.md`
+- Embeds T1 from `spec/compressed/schema.yaml`
+- Builds T2 (`compact`) at build time by concatenating authoring-relevant sections and stripping `<!-- compact:skip -->` blocks; the result is embedded as a `&'static str`
 - Exposes a public API: `section(id)`, `list_sections()`, `full_prose()`, `compact()`, `schema()`
 - Automatically picks up new spec files on rebuild (no Rust code changes needed)
 

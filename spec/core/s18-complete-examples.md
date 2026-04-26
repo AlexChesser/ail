@@ -2,7 +2,13 @@
 
 ### 18.1 The Simplest Possible Pipeline
 
+> Pinned: this example is mechanically validated by the CI check at
+> `ail-core/tests/spec/s31_compact.rs`. The leading `# spec:validate`
+> comment opts the block into validation. Other examples in this
+> section illustrate aspirational syntax and are documentation-only.
+
 ```yaml
+# spec:validate
 version: "0.1"
 
 pipeline:

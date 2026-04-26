@@ -13,11 +13,36 @@ struct SpecFile {
     word_count: usize,
     /// Path relative to workspace root (for include_str!)
     rel_path: String,
+    /// Absolute path used for build-time content reads.
+    abs_path: PathBuf,
     /// "core" or "runner"
     category: &'static str,
     /// Section group/category for logical organization
     group: String,
 }
+
+/// Section IDs excluded from the `compact` (authoring) tier wholesale.
+/// Compact is the LLM-authoring reference: it includes only sections
+/// describing how to write a correct pipeline. Excluded sections cover
+/// purpose/philosophy, ail's internals, MVP/roadmap/open questions,
+/// operational/consumer tooling, CLI scaffolding, and plugin-author
+/// material that doesn't help an LLM write a `.ail.yaml`.
+const COMPACT_EXCLUDE: &[&str] = &[
+    "s01", // Purpose & non-goals (philosophy)
+    "s19", // Runners & adapters (ail internals)
+    "s20", // MVP scope (status)
+    "s21", // Planned extensions (roadmap)
+    "s22", // Open questions (status)
+    "s23", // Structured output mode (consumer-facing event stream)
+    "s24", // log command (operational)
+    "s25", // logs command (operational)
+    "s31", // Specification access (meta)
+    "s32", // ail init (scaffolding)
+    "s33", // URL template source (scaffolding)
+    "r04", // ail log format spec (for log consumers)
+    "r10", // Plugin protocol (for plugin authors)
+    "r11", // Plugin discovery (for plugin authors)
+];
 
 fn main() {
     let out_dir = env::var("OUT_DIR").unwrap();
@@ -54,6 +79,7 @@ fn main() {
                 title,
                 word_count,
                 rel_path,
+                abs_path: path.clone(),
                 category,
                 group,
             });
@@ -136,10 +162,13 @@ fn main() {
     )
     .unwrap();
 
-    // T2 compact
+    // T2 compact — derived from authoring-relevant sections with
+    // <!-- compact:skip --> ... <!-- /compact:skip --> blocks stripped.
+    let compact = build_compact(&specs);
     writeln!(
         out,
-        "pub const COMPACT: &str = include_str!(concat!(env!(\"CARGO_MANIFEST_DIR\"), \"/../spec/compressed/compact.md\"));"
+        "pub const COMPACT: &str = {};",
+        rust_string_literal(&compact)
     )
     .unwrap();
 
@@ -147,6 +176,84 @@ fn main() {
     println!("cargo:rerun-if-changed=../spec/core");
     println!("cargo:rerun-if-changed=../spec/runner");
     println!("cargo:rerun-if-changed=../spec/compressed");
+}
+
+/// Build the T2 compact reference by concatenating authoring-relevant
+/// sections (filtered against `COMPACT_EXCLUDE`) with `<!-- compact:skip -->`
+/// blocks stripped. Runs at build time so the result is embedded as a
+/// `&'static str`.
+fn build_compact(specs: &[SpecFile]) -> String {
+    let mut out = String::new();
+    out.push_str("# AIL Specification — Authoring Reference\n\n");
+    out.push_str(
+        "Everything an LLM needs to write a correct `.ail.yaml` pipeline. \
+         Excludes ail's internals, roadmap, status notes, operational tooling, \
+         and CLI scaffolding. Generated at build time from `spec/core/` and \
+         `spec/runner/` — single source of truth, no hand-curated mirror.\n\n",
+    );
+
+    for spec in specs {
+        if COMPACT_EXCLUDE.contains(&spec.id.as_str()) {
+            continue;
+        }
+        let raw = fs::read_to_string(&spec.abs_path).unwrap_or_default();
+        let stripped = strip_compact_skip(&raw);
+        out.push_str(&stripped);
+        if !stripped.ends_with('\n') {
+            out.push('\n');
+        }
+        out.push('\n');
+    }
+
+    out
+}
+
+/// Strip every `<!-- compact:skip --> ... <!-- /compact:skip -->` block
+/// (including the markers themselves) from a section's prose. Tags must
+/// appear on their own line. Unmatched opens are tolerated by leaving
+/// the remainder of the file in place.
+fn strip_compact_skip(input: &str) -> String {
+    const OPEN: &str = "<!-- compact:skip -->";
+    const CLOSE: &str = "<!-- /compact:skip -->";
+
+    let mut out = String::with_capacity(input.len());
+    let mut skipping = false;
+
+    for line in input.lines() {
+        let trimmed = line.trim();
+        if !skipping && trimmed == OPEN {
+            skipping = true;
+            continue;
+        }
+        if skipping && trimmed == CLOSE {
+            skipping = false;
+            continue;
+        }
+        if skipping {
+            continue;
+        }
+        out.push_str(line);
+        out.push('\n');
+    }
+
+    out
+}
+
+/// Emit a Rust string literal for `s` — uses a raw string with a `#`
+/// guard sequence longer than any run of `#`s in the input, so any
+/// content (including embedded `"`, `\`, and markdown) round-trips
+/// exactly without escape processing.
+fn rust_string_literal(s: &str) -> String {
+    let mut hashes = 1usize;
+    loop {
+        let needle = format!("\"{}", "#".repeat(hashes));
+        if !s.contains(&needle) {
+            break;
+        }
+        hashes += 1;
+    }
+    let pad = "#".repeat(hashes);
+    format!("r{pad}\"{s}\"{pad}")
 }
 
 fn extract_title(content: &str) -> String {

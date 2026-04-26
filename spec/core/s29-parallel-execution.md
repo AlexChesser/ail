@@ -237,6 +237,7 @@ All branches run to completion regardless of individual failures. Failed branche
 
 ---
 
+<!-- compact:skip -->
 ### 29.8 Turn log format for concurrent execution
 
 Turn log entries gain two fields when steps run concurrently:
@@ -261,6 +262,7 @@ Cancel events are recorded as a separate entry type:
 The `ail log` command (§24) uses `concurrent_group` and timestamps to reconstruct and display the parallel execution timeline.
 
 ---
+<!-- /compact:skip -->
 
 ### 29.9 Session fork model
 

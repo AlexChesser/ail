@@ -12,6 +12,7 @@ The Claude CLI supports a structured bidirectional JSON interface that `ail` use
 | Input to Claude | `--input-format stream-json` | NDJSON messages on stdin |
 | Prompt (non-interactive) | `-p "<prompt>"` or `--print "<prompt>"` | Plain string |
 
+<!-- compact:skip -->
 ### Output Event Stream
 
 `--output-format stream-json` produces a newline-delimited stream of JSON events. Key event types:
@@ -187,6 +188,7 @@ The `tool_input` field was added to `PermissionRequest` (as `Option<serde_json::
 #### `PreToolUse` Hook (Alternative Intercept)
 
 As an alternative to `--permission-prompt-tool`, Claude CLI supports a `PreToolUse` hook — a process that runs synchronously after Claude creates tool parameters but before the tool executes. This is more suitable for automated validation than for interactive HITL; `ail`'s primary HITL mechanism is the MCP bridge.
+<!-- /compact:skip -->
 
 ### Headless Mode
 
