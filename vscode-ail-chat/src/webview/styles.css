@@ -427,6 +427,7 @@ body {
   margin-left: auto;
 }
 
+
 .tool-card-body {
   border-top: 1px solid var(--vscode-panel-border);
   padding: var(--ail-spacing-sm) 10px;

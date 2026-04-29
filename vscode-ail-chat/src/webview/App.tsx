@@ -231,6 +231,19 @@ function updateStep(steps: StepInfo[], stepId: string, updates: Partial<StepInfo
   return steps.map((s) => s.stepId === stepId ? { ...s, ...updates } : s);
 }
 
+/**
+ * Close any active assistant streams. Called before inserting tool calls,
+ * thinking blocks, or permission cards so that subsequent streamDelta events
+ * create a new bubble *below* the inserted item rather than appending text
+ * back into an earlier bubble (which would make the final answer appear
+ * out of order — above tool calls that ran chronologically before it).
+ */
+function closeActiveStreams(items: DisplayItem[]): DisplayItem[] {
+  return items.map((it) =>
+    it.kind === 'assistant-stream' && it.streaming ? { ...it, streaming: false } : it
+  );
+}
+
 function reducer(state: ChatState, action: Action): ChatState {
   switch (action.type) {
     case 'USER_SUBMIT': {
@@ -285,7 +298,7 @@ function reducer(state: ChatState, action: Action): ChatState {
           const [id, s2] = nextId(state);
           return {
             ...s2,
-            items: [...s2.items, { kind: 'thinking', id, text: msg.text }],
+            items: [...closeActiveStreams(s2.items), { kind: 'thinking', id, text: msg.text }],
           };
         }
 
@@ -293,7 +306,7 @@ function reducer(state: ChatState, action: Action): ChatState {
           const [id, s2] = nextId(state);
           return {
             ...s2,
-            items: [...s2.items, {
+            items: [...closeActiveStreams(s2.items), {
               kind: 'tool-call',
               id,
               data: {
@@ -357,11 +370,7 @@ function reducer(state: ChatState, action: Action): ChatState {
         }
 
         case 'hitlGate': {
-          // Cancel any streaming in progress
-          const itemsWithStoppedStream = state.items.map((it) =>
-            it.kind === 'assistant-stream' && it.streaming ? { ...it, streaming: false } : it
-          );
-          const [id, s2] = nextId({ ...state, items: itemsWithStoppedStream });
+          const [id, s2] = nextId({ ...state, items: closeActiveStreams(state.items) });
           return {
             ...s2,
             items: [...s2.items, {
@@ -379,7 +388,7 @@ function reducer(state: ChatState, action: Action): ChatState {
           if (msg.displayName === 'AskUserQuestion') {
             const questions = parseAskUserQuestions(msg.toolInput);
             if (questions !== null) {
-              const [id, s2] = nextId(state);
+              const [id, s2] = nextId({ ...state, items: closeActiveStreams(state.items) });
               return {
                 ...s2,
                 items: [...s2.items, {
@@ -391,7 +400,7 @@ function reducer(state: ChatState, action: Action): ChatState {
               };
             }
           }
-          const [id, s2] = nextId(state);
+          const [id, s2] = nextId({ ...state, items: closeActiveStreams(state.items) });
           return {
             ...s2,
             items: [...s2.items, {
@@ -433,9 +442,7 @@ function reducer(state: ChatState, action: Action): ChatState {
             isRunning: false,
             runStartTime: null,
             currentStepId: null,
-            items: [...s2.items.map((it) =>
-              it.kind === 'assistant-stream' && it.streaming ? { ...it, streaming: false } : it
-            ), { kind: 'error', id, message: errorMsg }],
+            items: [...closeActiveStreams(s2.items), { kind: 'error', id, message: errorMsg }],
           };
         }
 
@@ -721,6 +728,7 @@ export const App: React.FC = () => {
           displayName={state.activePipeline?.displayName ?? null}
           onLoad={handleLoadPipeline}
           onOpenGraph={handleOpenGraph}
+          onNewSession={handleNewSession}
         />
         {state.steps.length > 0 && (
           <StepProgress

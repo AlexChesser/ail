@@ -10,49 +10,58 @@ function makeMockChannel() {
   };
 }
 
+/** Matches "[YYYY-MM-DD HH:MM:SS.mmm] [tag] body". */
+const TS_PREFIX = /^\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3}\] /;
+
 describe('AilOutputChannel', () => {
-  it('spawn() prefixes with [spawn]', () => {
+  it('spawn() prefixes with timestamp and [spawn]', () => {
     const { channel, lines } = makeMockChannel();
     const c = new AilOutputChannel(channel);
     c.spawn('/usr/bin/ail', ['--once', 'hello', '--output-format', 'json']);
-    expect(lines[0]).toBe('[spawn] /usr/bin/ail --once hello --output-format json');
+    expect(lines[0]).toMatch(TS_PREFIX);
+    expect(lines[0]).toContain('[spawn] /usr/bin/ail --once hello --output-format json');
   });
 
-  it('event() prefixes with [event] and JSON-stringifies', () => {
+  it('event() prefixes with timestamp and [event] and JSON-stringifies', () => {
     const { channel, lines } = makeMockChannel();
     const c = new AilOutputChannel(channel);
     const event: AilEvent = { type: 'pipeline_completed', outcome: 'completed' };
     c.event(event);
-    expect(lines[0]).toMatch(/^\[event\] /);
+    expect(lines[0]).toMatch(TS_PREFIX);
+    expect(lines[0]).toContain('[event] ');
     expect(lines[0]).toContain('"pipeline_completed"');
   });
 
-  it('stderr() prefixes with [stderr]', () => {
+  it('stderr() prefixes with timestamp and [stderr]', () => {
     const { channel, lines } = makeMockChannel();
     const c = new AilOutputChannel(channel);
     c.stderr('something went wrong');
-    expect(lines[0]).toBe('[stderr] something went wrong');
+    expect(lines[0]).toMatch(TS_PREFIX);
+    expect(lines[0]).toContain('[stderr] something went wrong');
   });
 
-  it('exit() prefixes with [exit] and includes code', () => {
+  it('exit() prefixes with timestamp and [exit] and includes code', () => {
     const { channel, lines } = makeMockChannel();
     const c = new AilOutputChannel(channel);
     c.exit(1);
-    expect(lines[0]).toBe('[exit] code=1');
+    expect(lines[0]).toMatch(TS_PREFIX);
+    expect(lines[0]).toContain('[exit] code=1');
   });
 
   it('exit() handles null code', () => {
     const { channel, lines } = makeMockChannel();
     const c = new AilOutputChannel(channel);
     c.exit(null);
-    expect(lines[0]).toBe('[exit] code=null');
+    expect(lines[0]).toMatch(TS_PREFIX);
+    expect(lines[0]).toContain('[exit] code=null');
   });
 
-  it('error() prefixes with [error]', () => {
+  it('error() prefixes with timestamp and [error]', () => {
     const { channel, lines } = makeMockChannel();
     const c = new AilOutputChannel(channel);
     c.error('spawn ENOENT');
-    expect(lines[0]).toBe('[error] spawn ENOENT');
+    expect(lines[0]).toMatch(TS_PREFIX);
+    expect(lines[0]).toContain('[error] spawn ENOENT');
   });
 
   it('consumes a large stderr stream without back-pressure', async () => {
