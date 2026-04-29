@@ -39,6 +39,7 @@ const COMPACT_EXCLUDE: &[&str] = &[
     "s31", // Specification access (meta)
     "s32", // ail init (scaffolding)
     "s33", // URL template source (scaffolding)
+    "s34", // ail agent-guide (CLAUDE.md scaffolding)
     "r04", // ail log format spec (for log consumers)
     "r10", // Plugin protocol (for plugin authors)
     "r11", // Plugin discovery (for plugin authors)

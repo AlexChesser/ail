@@ -33,6 +33,7 @@ const EXCLUDED_HEADINGS: &[&str] = &[
     "## 31. Specification Access & Injection",
     "## 32. The `ail init` Command",
     "## 33. URL-Based Template Source",
+    "## 34. The `ail agent-guide` Command",
     "## r04. AIL Log Format Specification",
     "## r10. AIL Runner Plugin Protocol",
     "## r11. Runner Plugin Discovery",
