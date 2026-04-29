@@ -40,12 +40,7 @@ fn unresolved(detail: impl Into<String>) -> AilError {
 
 fn resolve_variable(variable: &str, session: &Session) -> Result<String, AilError> {
     match variable {
-        // `step.invocation.prompt` is the canonical form (SPEC §11).
-        // `session.invocation_prompt` and `session.invocation.prompt` are
-        // deprecated aliases retained for backwards compatibility.
-        "step.invocation.prompt" | "session.invocation_prompt" | "session.invocation.prompt" => {
-            Ok(session.invocation_prompt.clone())
-        }
+        "step.invocation.prompt" => Ok(session.invocation_prompt.clone()),
 
         "step.invocation.response" => session
             .turn_log
