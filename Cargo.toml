@@ -3,5 +3,5 @@ members = ["ail-core", "ail", "ail-init", "ail-spec", "stub-llm"]
 resolver = "2"
 
 [workspace.package]
-version = "0.1.3"
+version = "0.1.4"
 edition = "2021"
