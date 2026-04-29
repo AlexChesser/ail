@@ -227,15 +227,18 @@ pub enum Commands {
         name = "agent-guide",
         long_about = "Print a CLAUDE.md (or AGENTS.md) snippet that teaches an agent how \
                       to use ail in this project.\n\n\
-                      The snippet is short, self-contained, and points at \
-                      `ail spec --format compact` as the canonical authoring \
-                      reference rather than restating spec content. Pipe it \
-                      into your project's CLAUDE.md or AGENTS.md:\n\n\
-                      \tail agent-guide >> CLAUDE.md\n\n\
+                      The default snippet is intentionally lean (~150-200 tokens, four \
+                      or five commands with one-line notes) — anything pasted into \
+                      CLAUDE.md is paid for on every turn. Both the lean and full forms \
+                      reference `ail spec --format compact` as the canonical authoring \
+                      reference rather than restating spec content.\n\n\
+                      \tail agent-guide              >> CLAUDE.md   # default — lean\n\
+                      \tail agent-guide --format claudemd-full      # ~800 tokens, opt-in\n\n\
                       Re-run after upgrading ail to refresh the snippet."
     )]
     AgentGuide {
-        /// Output format. `claudemd` (default) is markdown valid for CLAUDE.md and AGENTS.md.
+        /// Output format. `claudemd` (default, lean ~150-200 tokens) or `claudemd-full`
+        /// (long-form briefing, ~800 tokens). `agents-md` is an alias for `claudemd`.
         #[arg(long, default_value = "claudemd")]
         format: String,
     },

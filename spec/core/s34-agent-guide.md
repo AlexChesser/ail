@@ -23,12 +23,14 @@ scaffolds the agent's understanding of them.
 ### 34.2 CLI Command
 
 ```
-ail agent-guide                          # default — prints CLAUDE.md snippet
+ail agent-guide                          # default — lean snippet
 ail agent-guide --format claudemd        # explicit name for the default
-ail agent-guide --format agents-md       # alias for claudemd (same output)
+ail agent-guide --format agents-md       # alias for claudemd
+ail agent-guide --format claudemd-full   # long-form briefing (opt-in)
+ail agent-guide --format full            # alias for claudemd-full
 ```
 
-Output goes to stdout and is pipeable, so the canonical install is:
+Output goes to stdout and is pipeable. Canonical install:
 
 ```bash
 ail agent-guide >> CLAUDE.md
@@ -37,46 +39,71 @@ ail agent-guide >> CLAUDE.md
 Re-run after upgrading `ail` to refresh the snippet against the
 current binary's UX.
 
-### 34.3 Snippet Design Principles
+### 34.3 Two Tiers — Lean Default, Full Opt-In
 
-The emitted snippet is curated by hand and embedded in the binary at
-build time (`ail/src/agent_guide/claudemd.md`, included via
-`include_str!`). It deliberately:
+`agent-guide` mirrors `ail spec`'s tiered design and for the same
+reason: anything pasted into a `CLAUDE.md` is paid for on **every
+turn** the agent runs. The default cannot be expensive.
 
-- **References, does not duplicate.** The snippet points at
-  `ail spec --format compact` (§31) as the canonical authoring
-  reference. It does not restate spec content. This keeps the snippet
-  short (~800 tokens) and resists drift as the spec evolves.
-- **Marks itself as generated.** The first two lines are HTML comments
+| Tier | Tokens | Contents | Use case |
+|---|---|---|---|
+| `claudemd` (default) | ~150-200 | Four or five commands in a table with one-line "when to use" notes; one sentence pointing at `ail spec --format compact` as the spec entry point. | The right thing to paste into nearly every project's `CLAUDE.md`. |
+| `claudemd-full` | ~800 | Long-form briefing — what ail is, how the harness relates to authored steps, the validation loop, passthrough mode, when *not* to bypass ail, plus the same command table. | Teaching repos, READMEs, onboarding docs — anywhere the per-turn cost is justified by the audience. |
+
+Both tiers point at `ail spec --format compact` (§31) as the canonical
+authoring reference. The lean snippet additionally links to the full
+form so a reader who needs more depth can find it.
+
+### 34.4 Snippet Design Principles
+
+The emitted snippets are curated by hand and embedded in the binary at
+build time (`ail/src/agent_guide/{claudemd,claudemd-full}.md`,
+included via `include_str!`). They deliberately:
+
+- **Reference, do not duplicate.** Both snippets point at
+  `ail spec --format compact` as the canonical authoring reference —
+  they do not restate spec content. This keeps the snippet small and
+  resists drift as the spec evolves.
+- **Mark themselves as generated.** The first line is an HTML comment
   identifying the command that produced the snippet, so a user (or a
-  future agent) knows it is safe to regenerate.
-- **Targets agent behaviour, not human reading.** The snippet tells
+  future agent) knows it is safe to regenerate. The lean snippet's
+  header also names the full-form opt-in for discoverability.
+- **Target agent behaviour, not human reading.** The snippet tells
   the agent what to do (read the spec before authoring; run validate
   + materialize as the build/test cycle), not what `ail` *is* in
   marketing terms.
 
-### 34.4 Test Contract
+### 34.5 Test Contract
 
-CI asserts the snippet:
+CI asserts the lean snippet:
 
-1. Is non-empty (> 500 bytes).
+1. Stays under ~1000 bytes (~250 tokens) — the cap that makes
+   per-turn inclusion cheap enough.
 2. Starts with the generated-by HTML comment marker.
 3. Mentions `ail spec --format compact`, `ail validate`,
-   `ail materialize`, and explains passthrough mode.
+   `ail materialize`, and the `claudemd-full` opt-in.
 
-These checks live in `ail/src/agent_guide/mod.rs`. They guard against
-the snippet drifting out of sync with the canonical command surface
-without forcing a snapshot test that breaks on every prose tweak.
+CI asserts the full snippet:
 
-### 34.5 Future Formats
+1. Is at least 3× the size of the lean snippet (otherwise the split
+   is not paying for itself).
+2. Mentions `ail spec --format compact` and explains passthrough mode.
+
+These checks live in `ail/src/agent_guide/mod.rs` (unit) and
+`ail/tests/cli_agent_guide.rs` (end-to-end). They guard against
+unintended bloat of the default tier and against drift in the long
+form, without forcing a snapshot test that breaks on every prose
+tweak.
+
+### 34.6 Future Formats
 
 The `--format` flag is in place specifically so additional flavours
 can be added without renaming the command. Likely candidates:
 
-- A long-form variant suitable for project READMEs.
 - A localised variant for non-English agent prompts.
 - A project-aware variant that detects the current `.ail.yaml` and
   names it directly in the snippet.
 
-None are implemented in v0.0.4. The flag accepts only `claudemd` and
-`agents-md` (alias) today.
+None are implemented in v0.0.4. The flag accepts `claudemd`
+(+ aliases `agents-md`, `agentsmd`) and `claudemd-full`
+(+ aliases `agents-md-full`, `full`) today.

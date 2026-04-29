@@ -7,17 +7,23 @@ mod common;
 use predicates::prelude::*;
 
 #[test]
-fn agent_guide_default_format_succeeds() {
+fn agent_guide_default_is_lean_snippet() {
     let (mut cmd, _home) = common::ail_cmd_isolated();
     cmd.arg("agent-guide");
 
-    cmd.assert().success().stdout(predicates::str::contains(
-        "Working with `ail` in this project",
-    ));
+    let output = cmd.output().expect("failed to run ail agent-guide");
+    assert!(output.status.success());
+    // Lean snippet must stay cheap enough to paste into CLAUDE.md
+    // without taxing every turn.
+    assert!(
+        output.stdout.len() < 1100,
+        "default snippet ballooned to {} bytes — must stay lean",
+        output.stdout.len()
+    );
 }
 
 #[test]
-fn agent_guide_starts_with_generated_marker() {
+fn agent_guide_default_starts_with_generated_marker() {
     let (mut cmd, _home) = common::ail_cmd_isolated();
     cmd.arg("agent-guide");
 
@@ -27,7 +33,17 @@ fn agent_guide_starts_with_generated_marker() {
 }
 
 #[test]
-fn agent_guide_points_at_compact_spec_reference() {
+fn agent_guide_default_advertises_full_variant() {
+    let (mut cmd, _home) = common::ail_cmd_isolated();
+    cmd.arg("agent-guide");
+
+    cmd.assert()
+        .success()
+        .stdout(predicates::str::contains("claudemd-full"));
+}
+
+#[test]
+fn agent_guide_default_points_at_compact_spec_reference() {
     let (mut cmd, _home) = common::ail_cmd_isolated();
     cmd.arg("agent-guide");
 
@@ -37,7 +53,7 @@ fn agent_guide_points_at_compact_spec_reference() {
 }
 
 #[test]
-fn agent_guide_explains_validation_loop() {
+fn agent_guide_default_lists_validation_commands() {
     let (mut cmd, _home) = common::ail_cmd_isolated();
     cmd.arg("agent-guide");
 
@@ -51,6 +67,33 @@ fn agent_guide_explains_validation_loop() {
 fn agent_guide_agents_md_alias_succeeds() {
     let (mut cmd, _home) = common::ail_cmd_isolated();
     cmd.args(["agent-guide", "--format", "agents-md"]);
+
+    cmd.assert().success();
+}
+
+#[test]
+fn agent_guide_full_format_is_long_form() {
+    let (mut cmd, _home) = common::ail_cmd_isolated();
+    cmd.args(["agent-guide", "--format", "claudemd-full"]);
+
+    let output = cmd.output().expect("failed to run ail agent-guide");
+    assert!(output.status.success());
+    // Full snippet is the long-form briefing; ought to be several
+    // times the lean snippet's size.
+    assert!(
+        output.stdout.len() > 2000,
+        "full snippet is only {} bytes — expected long-form briefing",
+        output.stdout.len()
+    );
+    let body = String::from_utf8(output.stdout).expect("utf-8 stdout");
+    assert!(body.contains("passthrough"));
+    assert!(body.contains("ail spec --format compact"));
+}
+
+#[test]
+fn agent_guide_full_alias_succeeds() {
+    let (mut cmd, _home) = common::ail_cmd_isolated();
+    cmd.args(["agent-guide", "--format", "full"]);
 
     cmd.assert().success();
 }
