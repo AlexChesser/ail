@@ -436,14 +436,6 @@ body {
   margin-left: 4px;
 }
 
-.thinking-block-timestamp {
-  font-size: 10px;
-  color: var(--vscode-descriptionForeground);
-  opacity: 0.5;
-  flex-shrink: 0;
-  font-family: var(--vscode-editor-font-family, monospace);
-  margin-left: 4px;
-}
 
 .tool-card-body {
   border-top: 1px solid var(--vscode-panel-border);

@@ -771,7 +771,7 @@ export const App: React.FC = () => {
                 case 'assistant-stream':
                   return <ChatMessage role="assistant" content={item.text} streaming={item.streaming} timestamp={item.timestamp} />;
                 case 'thinking':
-                  return <ThinkingBlock text={item.text} timestamp={item.timestamp} />;
+                  return <ThinkingBlock text={item.text} />;
                 case 'tool-call':
                   return <ToolCallCard data={item.data} timestamp={item.timestamp} />;
                 case 'hitl':
