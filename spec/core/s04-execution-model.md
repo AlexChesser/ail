@@ -32,7 +32,7 @@ step_2
 version: "0.0.1"
 pipeline:
   - id: invocation
-    prompt: "{{ session.invocation_prompt }}"
+    prompt: "{{ step.invocation.prompt }}"
   - id: review
     prompt: "Review the above output."
 ```

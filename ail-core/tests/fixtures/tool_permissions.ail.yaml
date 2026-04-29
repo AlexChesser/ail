@@ -1,7 +1,7 @@
 version: "0.0.1"
 pipeline:
   - id: invocation
-    prompt: "{{ session.invocation_prompt }}"
+    prompt: "{{ step.invocation.prompt }}"
     tools:
       allow:
         - Read

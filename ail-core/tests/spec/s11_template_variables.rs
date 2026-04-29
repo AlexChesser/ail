@@ -290,7 +290,7 @@ fn step_result_missing_step_returns_error() {
     assert_eq!(err.error_type(), error_types::TEMPLATE_UNRESOLVED);
 }
 
-// ── 11. session.invocation_prompt alias ───────────────────────────────────
+// ── 11. Deprecated invocation prompt aliases ──────────────────────────────
 
 #[test]
 fn session_invocation_prompt_alias_resolves() {
@@ -304,6 +304,21 @@ fn session_invocation_prompt_alias_matches_canonical() {
     let session = make_session();
     let canonical = resolve("{{ step.invocation.prompt }}", &session).unwrap();
     let alias = resolve("{{ session.invocation_prompt }}", &session).unwrap();
+    assert_eq!(canonical, alias);
+}
+
+#[test]
+fn session_invocation_dotted_alias_resolves() {
+    let session = make_session();
+    let result = resolve("{{ session.invocation.prompt }}", &session).unwrap();
+    assert_eq!(result, "original prompt");
+}
+
+#[test]
+fn session_invocation_dotted_alias_matches_canonical() {
+    let session = make_session();
+    let canonical = resolve("{{ step.invocation.prompt }}", &session).unwrap();
+    let alias = resolve("{{ session.invocation.prompt }}", &session).unwrap();
     assert_eq!(canonical, alias);
 }
 
