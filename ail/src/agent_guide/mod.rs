@@ -111,9 +111,11 @@ mod tests {
     }
 
     #[test]
-    fn lean_snippet_references_validation_loop() {
+    fn lean_snippet_references_validate_command() {
+        // `ail validate` is the only validation command that earns
+        // its tokens at the lean tier. `ail materialize` and
+        // `ail "<prompt>" --dry-run` live in the full snippet.
         assert!(CLAUDEMD_SNIPPET.contains("ail validate"));
-        assert!(CLAUDEMD_SNIPPET.contains("ail materialize"));
     }
 
     // --- full (opt-in) snippet ---

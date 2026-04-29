@@ -6,8 +6,8 @@ This project uses ail. Pipelines live in `.ail.yaml` or under `.ail/`. The AIL l
 
 | Command | When to use |
 |---|---|
-| `ail spec --format compact` | **Before** authoring or editing any `.ail.yaml`. |
-| `ail spec --section sNN` | Deep-dive a single spec section (e.g. `s27` for `do_while`). |
+| `ail spec --list` | One-line table of contents for the spec. Run first to find the section you need. |
+| `ail spec --format compact` | Full authoring reference (~40k tokens). Read before authoring or editing any `.ail.yaml`. |
+| `ail spec --section sNN` | Deep-dive a single concept without re-reading the whole spec (e.g. `s27` for `do_while`). |
 | `ail validate --pipeline <path>` | Parse + validate. No LLM calls. Run after every edit. |
-| `ail materialize --pipeline <path>` | Print fully-resolved YAML (FROM-inheritance flattened). |
-| `ail "<prompt>" --dry-run` | Walk the pipeline end-to-end with no LLM calls. |
+| `ail agent-guide --format claudemd-full` | Long-form briefing — what ail is, the validation loop, when *not* to bypass it. |

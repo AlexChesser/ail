@@ -53,14 +53,16 @@ fn agent_guide_default_points_at_compact_spec_reference() {
 }
 
 #[test]
-fn agent_guide_default_lists_validation_commands() {
+fn agent_guide_default_lists_validate_command() {
     let (mut cmd, _home) = common::ail_cmd_isolated();
     cmd.arg("agent-guide");
 
+    // `ail validate` is the only validation command that earns its
+    // tokens at the lean tier. `ail materialize` and `--dry-run`
+    // live in the full snippet.
     cmd.assert()
         .success()
-        .stdout(predicates::str::contains("ail validate"))
-        .stdout(predicates::str::contains("ail materialize"));
+        .stdout(predicates::str::contains("ail validate"));
 }
 
 #[test]
