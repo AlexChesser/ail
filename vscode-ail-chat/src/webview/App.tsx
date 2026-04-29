@@ -46,12 +46,12 @@ function postToHost(msg: WebviewToHostMessage): void {
 export type DisplayItem =
   | { kind: 'user-message'; id: string; text: string; timestamp: number }
   | { kind: 'assistant-stream'; id: string; text: string; streaming: boolean; stepId?: string; timestamp: number }
-  | { kind: 'thinking'; id: string; text: string; timestamp: number }
-  | { kind: 'tool-call'; id: string; data: ToolCallData; timestamp: number }
-  | { kind: 'hitl'; id: string; stepId: string; message?: string; cardState: HitlCardState; resolvedText?: string; timestamp: number }
-  | { kind: 'permission'; id: string; displayName: string; displayDetail: string; cardState: PermissionCardState; resolvedAllowed?: boolean; timestamp: number }
-  | { kind: 'ask-user-question'; id: string; questions: AskUserQuestion[]; cardState: AskUserCardState; resolvedAnswer?: string; timestamp: number }
-  | { kind: 'error'; id: string; message: string; timestamp: number };
+  | { kind: 'thinking'; id: string; text: string }
+  | { kind: 'tool-call'; id: string; data: ToolCallData }
+  | { kind: 'hitl'; id: string; stepId: string; message?: string; cardState: HitlCardState; resolvedText?: string }
+  | { kind: 'permission'; id: string; displayName: string; displayDetail: string; cardState: PermissionCardState; resolvedAllowed?: boolean }
+  | { kind: 'ask-user-question'; id: string; questions: AskUserQuestion[]; cardState: AskUserCardState; resolvedAnswer?: string }
+  | { kind: 'error'; id: string; message: string };
 
 // ── State ──────────────────────────────────────────────────────────────────────
 
@@ -298,7 +298,7 @@ function reducer(state: ChatState, action: Action): ChatState {
           const [id, s2] = nextId(state);
           return {
             ...s2,
-            items: [...closeActiveStreams(s2.items), { kind: 'thinking', id, text: msg.text, timestamp: Date.now() }],
+            items: [...closeActiveStreams(s2.items), { kind: 'thinking', id, text: msg.text }],
           };
         }
 
@@ -309,7 +309,6 @@ function reducer(state: ChatState, action: Action): ChatState {
             items: [...closeActiveStreams(s2.items), {
               kind: 'tool-call',
               id,
-              timestamp: Date.now(),
               data: {
                 toolUseId: msg.toolUseId,
                 toolName: msg.toolName,
@@ -366,7 +365,7 @@ function reducer(state: ChatState, action: Action): ChatState {
           return {
             ...s2,
             steps: updateStep(s2.steps, msg.stepId, { status: 'failed' }),
-            items: [...s2.items, { kind: 'error', id, message: `Step '${msg.stepId}' failed: ${msg.error}`, timestamp: Date.now() }],
+            items: [...s2.items, { kind: 'error', id, message: `Step '${msg.stepId}' failed: ${msg.error}` }],
           };
         }
 
@@ -380,7 +379,6 @@ function reducer(state: ChatState, action: Action): ChatState {
               stepId: msg.stepId,
               message: msg.message,
               cardState: 'pending',
-              timestamp: Date.now(),
             }],
           };
         }
@@ -398,7 +396,6 @@ function reducer(state: ChatState, action: Action): ChatState {
                   id,
                   questions,
                   cardState: 'pending' as AskUserCardState,
-                  timestamp: Date.now(),
                 }],
               };
             }
@@ -412,7 +409,6 @@ function reducer(state: ChatState, action: Action): ChatState {
               displayName: msg.displayName,
               displayDetail: msg.displayDetail,
               cardState: 'pending',
-              timestamp: Date.now(),
             }],
           };
         }
@@ -446,7 +442,7 @@ function reducer(state: ChatState, action: Action): ChatState {
             isRunning: false,
             runStartTime: null,
             currentStepId: null,
-            items: [...closeActiveStreams(s2.items), { kind: 'error', id, message: errorMsg, timestamp: Date.now() }],
+            items: [...closeActiveStreams(s2.items), { kind: 'error', id, message: errorMsg }],
           };
         }
 
@@ -773,7 +769,7 @@ export const App: React.FC = () => {
                 case 'thinking':
                   return <ThinkingBlock text={item.text} />;
                 case 'tool-call':
-                  return <ToolCallCard data={item.data} timestamp={item.timestamp} />;
+                  return <ToolCallCard data={item.data} />;
                 case 'hitl':
                   return (
                     <HitlCard

@@ -12,12 +12,6 @@ export interface ToolCallData {
 
 export interface ToolCallCardProps {
   data: ToolCallData;
-  /** Unix timestamp (ms) when this tool call started. */
-  timestamp?: number;
-}
-
-function formatTime(ts: number): string {
-  return new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 }
 
 /** Extract the most relevant argument from tool input for compact display. */
@@ -95,7 +89,7 @@ function StatusIcon({ data }: { data: ToolCallData }) {
   );
 }
 
-export const ToolCallCard: React.FC<ToolCallCardProps> = ({ data, timestamp }) => {
+export const ToolCallCard: React.FC<ToolCallCardProps> = ({ data }) => {
   const [collapsed, setCollapsed] = useState(true);
 
   const inputStr = data.input != null
@@ -124,9 +118,6 @@ export const ToolCallCard: React.FC<ToolCallCardProps> = ({ data, timestamp }) =
         )}
         {summary && (
           <span className="tool-card-summary">{summary}</span>
-        )}
-        {timestamp !== undefined && (
-          <span className="tool-card-timestamp" title={new Date(timestamp).toLocaleString()}>{formatTime(timestamp)}</span>
         )}
       </div>
       <div className={`tool-card-body${collapsed ? ' collapsed' : ''}`}>
