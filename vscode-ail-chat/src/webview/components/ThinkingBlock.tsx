@@ -2,9 +2,15 @@ import React, { useState } from 'react';
 
 export interface ThinkingBlockProps {
   text: string;
+  /** Unix timestamp (ms) when this thinking block was created. */
+  timestamp?: number;
 }
 
-export const ThinkingBlock: React.FC<ThinkingBlockProps> = ({ text }) => {
+function formatTime(ts: number): string {
+  return new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+}
+
+export const ThinkingBlock: React.FC<ThinkingBlockProps> = ({ text, timestamp }) => {
   const [collapsed, setCollapsed] = useState(true);
   const charCount = text.length;
 
@@ -27,6 +33,9 @@ export const ThinkingBlock: React.FC<ThinkingBlockProps> = ({ text }) => {
           </span>
         )}
         <span className="thinking-block-meta">{charCount.toLocaleString()} chars</span>
+        {timestamp !== undefined && (
+          <span className="thinking-block-timestamp" title={new Date(timestamp).toLocaleString()}>{formatTime(timestamp)}</span>
+        )}
       </div>
       <div className={`thinking-block-content${collapsed ? ' collapsed' : ''}`}>
         {text}

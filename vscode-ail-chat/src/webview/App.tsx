@@ -46,12 +46,12 @@ function postToHost(msg: WebviewToHostMessage): void {
 export type DisplayItem =
   | { kind: 'user-message'; id: string; text: string; timestamp: number }
   | { kind: 'assistant-stream'; id: string; text: string; streaming: boolean; stepId?: string; timestamp: number }
-  | { kind: 'thinking'; id: string; text: string }
-  | { kind: 'tool-call'; id: string; data: ToolCallData }
-  | { kind: 'hitl'; id: string; stepId: string; message?: string; cardState: HitlCardState; resolvedText?: string }
-  | { kind: 'permission'; id: string; displayName: string; displayDetail: string; cardState: PermissionCardState; resolvedAllowed?: boolean }
-  | { kind: 'ask-user-question'; id: string; questions: AskUserQuestion[]; cardState: AskUserCardState; resolvedAnswer?: string }
-  | { kind: 'error'; id: string; message: string };
+  | { kind: 'thinking'; id: string; text: string; timestamp: number }
+  | { kind: 'tool-call'; id: string; data: ToolCallData; timestamp: number }
+  | { kind: 'hitl'; id: string; stepId: string; message?: string; cardState: HitlCardState; resolvedText?: string; timestamp: number }
+  | { kind: 'permission'; id: string; displayName: string; displayDetail: string; cardState: PermissionCardState; resolvedAllowed?: boolean; timestamp: number }
+  | { kind: 'ask-user-question'; id: string; questions: AskUserQuestion[]; cardState: AskUserCardState; resolvedAnswer?: string; timestamp: number }
+  | { kind: 'error'; id: string; message: string; timestamp: number };
 
 // ── State ──────────────────────────────────────────────────────────────────────
 
@@ -231,6 +231,19 @@ function updateStep(steps: StepInfo[], stepId: string, updates: Partial<StepInfo
   return steps.map((s) => s.stepId === stepId ? { ...s, ...updates } : s);
 }
 
+/**
+ * Close any active assistant streams. Called before inserting tool calls,
+ * thinking blocks, or permission cards so that subsequent streamDelta events
+ * create a new bubble *below* the inserted item rather than appending text
+ * back into an earlier bubble (which would make the final answer appear
+ * out of order — above tool calls that ran chronologically before it).
+ */
+function closeActiveStreams(items: DisplayItem[]): DisplayItem[] {
+  return items.map((it) =>
+    it.kind === 'assistant-stream' && it.streaming ? { ...it, streaming: false } : it
+  );
+}
+
 function reducer(state: ChatState, action: Action): ChatState {
   switch (action.type) {
     case 'USER_SUBMIT': {
@@ -285,7 +298,7 @@ function reducer(state: ChatState, action: Action): ChatState {
           const [id, s2] = nextId(state);
           return {
             ...s2,
-            items: [...s2.items, { kind: 'thinking', id, text: msg.text }],
+            items: [...closeActiveStreams(s2.items), { kind: 'thinking', id, text: msg.text, timestamp: Date.now() }],
           };
         }
 
@@ -293,9 +306,10 @@ function reducer(state: ChatState, action: Action): ChatState {
           const [id, s2] = nextId(state);
           return {
             ...s2,
-            items: [...s2.items, {
+            items: [...closeActiveStreams(s2.items), {
               kind: 'tool-call',
               id,
+              timestamp: Date.now(),
               data: {
                 toolUseId: msg.toolUseId,
                 toolName: msg.toolName,
@@ -352,16 +366,12 @@ function reducer(state: ChatState, action: Action): ChatState {
           return {
             ...s2,
             steps: updateStep(s2.steps, msg.stepId, { status: 'failed' }),
-            items: [...s2.items, { kind: 'error', id, message: `Step '${msg.stepId}' failed: ${msg.error}` }],
+            items: [...s2.items, { kind: 'error', id, message: `Step '${msg.stepId}' failed: ${msg.error}`, timestamp: Date.now() }],
           };
         }
 
         case 'hitlGate': {
-          // Cancel any streaming in progress
-          const itemsWithStoppedStream = state.items.map((it) =>
-            it.kind === 'assistant-stream' && it.streaming ? { ...it, streaming: false } : it
-          );
-          const [id, s2] = nextId({ ...state, items: itemsWithStoppedStream });
+          const [id, s2] = nextId({ ...state, items: closeActiveStreams(state.items) });
           return {
             ...s2,
             items: [...s2.items, {
@@ -370,6 +380,7 @@ function reducer(state: ChatState, action: Action): ChatState {
               stepId: msg.stepId,
               message: msg.message,
               cardState: 'pending',
+              timestamp: Date.now(),
             }],
           };
         }
@@ -379,7 +390,7 @@ function reducer(state: ChatState, action: Action): ChatState {
           if (msg.displayName === 'AskUserQuestion') {
             const questions = parseAskUserQuestions(msg.toolInput);
             if (questions !== null) {
-              const [id, s2] = nextId(state);
+              const [id, s2] = nextId({ ...state, items: closeActiveStreams(state.items) });
               return {
                 ...s2,
                 items: [...s2.items, {
@@ -387,11 +398,12 @@ function reducer(state: ChatState, action: Action): ChatState {
                   id,
                   questions,
                   cardState: 'pending' as AskUserCardState,
+                  timestamp: Date.now(),
                 }],
               };
             }
           }
-          const [id, s2] = nextId(state);
+          const [id, s2] = nextId({ ...state, items: closeActiveStreams(state.items) });
           return {
             ...s2,
             items: [...s2.items, {
@@ -400,6 +412,7 @@ function reducer(state: ChatState, action: Action): ChatState {
               displayName: msg.displayName,
               displayDetail: msg.displayDetail,
               cardState: 'pending',
+              timestamp: Date.now(),
             }],
           };
         }
@@ -433,9 +446,7 @@ function reducer(state: ChatState, action: Action): ChatState {
             isRunning: false,
             runStartTime: null,
             currentStepId: null,
-            items: [...s2.items.map((it) =>
-              it.kind === 'assistant-stream' && it.streaming ? { ...it, streaming: false } : it
-            ), { kind: 'error', id, message: errorMsg }],
+            items: [...closeActiveStreams(s2.items), { kind: 'error', id, message: errorMsg, timestamp: Date.now() }],
           };
         }
 
@@ -721,6 +732,7 @@ export const App: React.FC = () => {
           displayName={state.activePipeline?.displayName ?? null}
           onLoad={handleLoadPipeline}
           onOpenGraph={handleOpenGraph}
+          onNewSession={handleNewSession}
         />
         {state.steps.length > 0 && (
           <StepProgress
@@ -759,9 +771,9 @@ export const App: React.FC = () => {
                 case 'assistant-stream':
                   return <ChatMessage role="assistant" content={item.text} streaming={item.streaming} timestamp={item.timestamp} />;
                 case 'thinking':
-                  return <ThinkingBlock text={item.text} />;
+                  return <ThinkingBlock text={item.text} timestamp={item.timestamp} />;
                 case 'tool-call':
-                  return <ToolCallCard data={item.data} />;
+                  return <ToolCallCard data={item.data} timestamp={item.timestamp} />;
                 case 'hitl':
                   return (
                     <HitlCard
