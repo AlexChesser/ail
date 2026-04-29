@@ -40,9 +40,7 @@ fn unresolved(detail: impl Into<String>) -> AilError {
 
 fn resolve_variable(variable: &str, session: &Session) -> Result<String, AilError> {
     match variable {
-        "session.invocation_prompt" | "step.invocation.prompt" => {
-            Ok(session.invocation_prompt.clone())
-        }
+        "step.invocation.prompt" => Ok(session.invocation_prompt.clone()),
 
         "step.invocation.response" => session
             .turn_log

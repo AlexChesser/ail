@@ -30,8 +30,6 @@ Prompt strings, file-based prompts, and `pipeline:` paths may reference runtime 
 | `{{ for_each.index }}` | Inside a `for_each:` step body (§28): the current 0-based item index. |
 | `{{ for_each.total }}` | Inside a `for_each:` step body (§28): the total number of items in the collection. |
 
-> **Note:** All variable references use the dot-path structure above. `{{ session.invocation_prompt }}` is a supported but **deprecated** alias for `{{ step.invocation.prompt }}`; prefer the canonical form. No other aliases exist.
-
 **Skipped step variables:** If a template variable references a step that was skipped by its `condition`, `ail` raises a **parse-time error** if the reference is unconditional, or returns an empty string if the referencing step itself has a matching condition guard. Silently empty references are never permitted.
 
 **Future step variables:** Template variables may only reference steps that have already run. A reference to a step that has not yet executed at the point of resolution raises a fatal parse error.

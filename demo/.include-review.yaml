@@ -10,7 +10,7 @@ defaults:
     auth_token: ollama
 pipeline:
   - id: invocation
-    prompt: "{{ session.invocation_prompt }}"
+    prompt: "{{ step.invocation.prompt }}"
   - id: review
     prompt: |
       this is a demo - repeat the last sentence of the following:

@@ -35,7 +35,7 @@ pipeline:
       Classify this request. Explain your reasoning.
 
       ## User Request
-      {{ session.invocation_prompt }}
+      {{ step.invocation.prompt }}
     output_schema:
       type: object
       properties:

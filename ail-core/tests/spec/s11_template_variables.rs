@@ -290,24 +290,7 @@ fn step_result_missing_step_returns_error() {
     assert_eq!(err.error_type(), error_types::TEMPLATE_UNRESOLVED);
 }
 
-// ── 11. session.invocation_prompt alias ───────────────────────────────────
-
-#[test]
-fn session_invocation_prompt_alias_resolves() {
-    let session = make_session();
-    let result = resolve("{{ session.invocation_prompt }}", &session).unwrap();
-    assert_eq!(result, "original prompt");
-}
-
-#[test]
-fn session_invocation_prompt_alias_matches_canonical() {
-    let session = make_session();
-    let canonical = resolve("{{ step.invocation.prompt }}", &session).unwrap();
-    let alias = resolve("{{ session.invocation_prompt }}", &session).unwrap();
-    assert_eq!(canonical, alias);
-}
-
-// ── 12. Unknown variables return errors ───────────────────────────────────
+// ── 11. Unknown variables return errors ───────────────────────────────────
 
 #[test]
 fn unknown_top_level_namespace_returns_error() {
@@ -327,6 +310,20 @@ fn unknown_variable_error_contains_variable_name() {
 fn bare_word_returns_error() {
     let session = make_session();
     let err = resolve("{{ notavariable }}", &session).unwrap_err();
+    assert_eq!(err.error_type(), error_types::TEMPLATE_UNRESOLVED);
+}
+
+#[test]
+fn legacy_session_invocation_prompt_alias_rejected() {
+    let session = make_session();
+    let err = resolve("{{ session.invocation_prompt }}", &session).unwrap_err();
+    assert_eq!(err.error_type(), error_types::TEMPLATE_UNRESOLVED);
+}
+
+#[test]
+fn legacy_session_invocation_dotted_alias_rejected() {
+    let session = make_session();
+    let err = resolve("{{ session.invocation.prompt }}", &session).unwrap_err();
     assert_eq!(err.error_type(), error_types::TEMPLATE_UNRESOLVED);
 }
 

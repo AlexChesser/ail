@@ -192,8 +192,6 @@ or by writing their relative path into `.ail/default`.
 | `{{ step.<join_id>.<dep_id>.response }}` | Full structured output of a named dependency in a structured join (SPEC §29.5) |
 | `{{ step.<join_id>.<dep_id>.<field> }}` | Specific field within a namespaced structured dependency output (SPEC §29.5) |
 
-Note: `{{ session.invocation_prompt }}` is a supported alias for `{{ step.invocation.prompt }}` in the implementation but is deprecated — prefer the canonical form.
-
 Unresolved variables **abort with a typed error** — never silently empty.
 
 ## Code Conventions

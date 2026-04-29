@@ -3,7 +3,7 @@ version: "0.0.1"
 pipelines:
   review:
     - id: do_review
-      prompt: "{{ session.invocation_prompt }}"
+      prompt: "{{ step.invocation.prompt }}"
 
 pipeline:
   - id: invoke_review

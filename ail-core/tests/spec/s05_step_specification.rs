@@ -99,7 +99,7 @@ mod s5_2_file_path_resolution {
         let sp_path = prompts_dir.join("system.md");
         std::fs::write(&sp_path, "You are a test agent.").unwrap();
 
-        let yaml = "version: \"0.0.1\"\npipeline:\n  - id: invocation\n    system_prompt: ./prompts/system.md\n    prompt: \"{{ session.invocation_prompt }}\"\n";
+        let yaml = "version: \"0.0.1\"\npipeline:\n  - id: invocation\n    system_prompt: ./prompts/system.md\n    prompt: \"{{ step.invocation.prompt }}\"\n";
         let pipeline_path = tmp.path().join("test.ail.yaml");
         std::fs::write(&pipeline_path, yaml).unwrap();
 

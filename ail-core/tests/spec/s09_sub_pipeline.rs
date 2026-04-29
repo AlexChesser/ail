@@ -440,7 +440,7 @@ fn sub_pipeline_step_prompt_override_is_passed_to_child() {
     let child_path = tmp.path().join("child_override.ail.yaml");
     std::fs::write(
         &child_path,
-        "version: \"0.0.1\"\npipeline:\n  - id: echo\n    prompt: \"{{ session.invocation_prompt }}\"\n",
+        "version: \"0.0.1\"\npipeline:\n  - id: echo\n    prompt: \"{{ step.invocation.prompt }}\"\n",
     )
     .unwrap();
 
@@ -502,7 +502,7 @@ fn sub_pipeline_step_prompt_override_resolves_template_variables() {
     let child_path = tmp.path().join("child_tmpl.ail.yaml");
     std::fs::write(
         &child_path,
-        "version: \"0.0.1\"\npipeline:\n  - id: echo\n    prompt: \"{{ session.invocation_prompt }}\"\n",
+        "version: \"0.0.1\"\npipeline:\n  - id: echo\n    prompt: \"{{ step.invocation.prompt }}\"\n",
     )
     .unwrap();
 
@@ -510,7 +510,7 @@ fn sub_pipeline_step_prompt_override_resolves_template_variables() {
         id: StepId("parent".to_string()),
         body: StepBody::SubPipeline {
             path: child_path.to_str().unwrap().to_string(),
-            prompt: Some("{{ session.invocation_prompt }}".to_string()),
+            prompt: Some("{{ step.invocation.prompt }}".to_string()),
         },
         message: None,
         tools: None,
@@ -557,7 +557,7 @@ fn on_result_pipeline_prompt_override_is_passed_to_child() {
     let child_path = tmp.path().join("child_on_result.ail.yaml");
     std::fs::write(
         &child_path,
-        "version: \"0.0.1\"\npipeline:\n  - id: echo\n    prompt: \"{{ session.invocation_prompt }}\"\n",
+        "version: \"0.0.1\"\npipeline:\n  - id: echo\n    prompt: \"{{ step.invocation.prompt }}\"\n",
     )
     .unwrap();
 
