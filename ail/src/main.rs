@@ -1,3 +1,4 @@
+mod agent_guide;
 mod ask_user_hook;
 mod ask_user_types;
 mod check_permission_hook;
@@ -181,6 +182,17 @@ async fn main() {
                 output_format,
             } => {
                 let cmd = validate::ValidateCommand::new(pipeline, output_format);
+                exit_with(cmd.execute());
+            }
+            Commands::AgentGuide { format } => {
+                let fmt = match agent_guide::AgentGuideFormat::parse(&format) {
+                    Ok(f) => f,
+                    Err(e) => {
+                        eprintln!("{e}");
+                        std::process::exit(1);
+                    }
+                };
+                let cmd = agent_guide::AgentGuideCommand::new(fmt);
                 exit_with(cmd.execute());
             }
             Commands::Init {

@@ -185,7 +185,7 @@ pub enum Commands {
                                                     with ail's internals, roadmap, and operational tooling stripped (~40-50k tokens)\n\
                             --format schema         Annotated YAML schema (~2-3k tokens)\n\
                             --core / --runner       Filter to core spec or runner spec only\n\n\
-                            Section IDs: s01–s33 (core), r01–r11 (runner). Run `ail spec --list` to browse.")]
+                            Section IDs: s01–s34 (core), r01–r11 (runner). Run `ail spec --list` to browse.")]
     Spec {
         /// Output format: `prose` (default, full spec), `compact` (authoring reference for LLMs),
         /// or `schema` (annotated YAML schema).
@@ -221,6 +221,23 @@ pub enum Commands {
         /// Show which files would be written without writing anything.
         #[arg(long)]
         dry_run: bool,
+    },
+    /// Print a CLAUDE.md snippet that teaches an agent how to use ail in this project
+    #[command(
+        name = "agent-guide",
+        long_about = "Print a CLAUDE.md (or AGENTS.md) snippet that teaches an agent how \
+                      to use ail in this project.\n\n\
+                      The snippet is short, self-contained, and points at \
+                      `ail spec --format compact` as the canonical authoring \
+                      reference rather than restating spec content. Pipe it \
+                      into your project's CLAUDE.md or AGENTS.md:\n\n\
+                      \tail agent-guide >> CLAUDE.md\n\n\
+                      Re-run after upgrading ail to refresh the snippet."
+    )]
+    AgentGuide {
+        /// Output format. `claudemd` (default) is markdown valid for CLAUDE.md and AGENTS.md.
+        #[arg(long, default_value = "claudemd")]
+        format: String,
     },
     /// Delete a recorded run from history
     Delete {
@@ -497,5 +514,31 @@ mod tests {
     fn dry_run_flag_defaults_to_false() {
         let cli = Cli::try_parse_from(["ail", "--once", "hi"]).unwrap();
         assert!(!cli.dry_run);
+    }
+
+    #[test]
+    fn agent_guide_subcommand_parses() {
+        let cli = Cli::try_parse_from(["ail", "agent-guide"]).unwrap();
+        assert!(matches!(cli.command, Some(Commands::AgentGuide { .. })));
+    }
+
+    #[test]
+    fn agent_guide_format_defaults_to_claudemd() {
+        let cli = Cli::try_parse_from(["ail", "agent-guide"]).unwrap();
+        if let Some(Commands::AgentGuide { format }) = cli.command {
+            assert_eq!(format, "claudemd");
+        } else {
+            panic!("expected AgentGuide command");
+        }
+    }
+
+    #[test]
+    fn agent_guide_format_flag_parses() {
+        let cli = Cli::try_parse_from(["ail", "agent-guide", "--format", "agents-md"]).unwrap();
+        if let Some(Commands::AgentGuide { format }) = cli.command {
+            assert_eq!(format, "agents-md");
+        } else {
+            panic!("expected AgentGuide command");
+        }
     }
 }
