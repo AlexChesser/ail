@@ -114,6 +114,7 @@ fn named_pipeline_step_executes_child_steps() {
         named_pipelines,
         max_concurrency: None,
         sampling_defaults: None,
+        max_cost_usd: None,
     };
     let mut session = Session::new(pipeline, "invocation prompt".to_string())
         .with_log_provider(Box::new(ail_core::session::log_provider::NullProvider));
@@ -146,6 +147,7 @@ fn named_pipeline_response_is_accessible_as_template_variable() {
         named_pipelines,
         max_concurrency: None,
         sampling_defaults: None,
+        max_cost_usd: None,
     };
     let mut session = Session::new(pipeline, "invocation prompt".to_string())
         .with_log_provider(Box::new(ail_core::session::log_provider::NullProvider));
@@ -242,6 +244,7 @@ fn undefined_named_pipeline_reference_returns_error() {
         named_pipelines: HashMap::new(),
         max_concurrency: None,
         sampling_defaults: None,
+        max_cost_usd: None,
     };
     let mut session = Session::new(pipeline, "trigger".to_string())
         .with_log_provider(Box::new(ail_core::session::log_provider::NullProvider));
@@ -367,6 +370,7 @@ fn materialize_expanded_circular_returns_error() {
         named_pipelines,
         max_concurrency: None,
         sampling_defaults: None,
+        max_cost_usd: None,
     };
     let result = ail_core::materialize::materialize_expanded(&pipeline);
     assert!(result.is_err());

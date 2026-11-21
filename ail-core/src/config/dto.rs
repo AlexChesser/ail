@@ -26,6 +26,8 @@ pub struct DefaultsDto {
     /// Pipeline-wide sampling defaults (SPEC §30). Orthogonal to provider —
     /// applies as the lowest-precedence baseline for every step, regardless of provider.
     pub sampling: Option<SamplingDto>,
+    /// Pipeline-wide USD cap. The run aborts once booked step cost reaches it.
+    pub max_cost_usd: Option<f64>,
 }
 
 #[derive(Debug, Default, Deserialize)]

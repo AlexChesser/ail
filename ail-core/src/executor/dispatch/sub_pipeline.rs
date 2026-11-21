@@ -108,6 +108,7 @@ pub(in crate::executor) fn execute_sub_pipeline(
 
     let mut child_session = crate::session::Session::new(sub_pipeline, invocation_prompt);
     child_session.cli_provider = session.cli_provider.clone();
+    child_session.cost_budget = session.cost_budget.clone();
 
     tracing::info!(
         run_id = %session.run_id,
@@ -256,10 +257,12 @@ pub(in crate::executor) fn execute_named_pipeline(
         named_pipelines: session.pipeline.named_pipelines.clone(),
         max_concurrency: session.pipeline.max_concurrency,
         sampling_defaults: session.pipeline.sampling_defaults.clone(),
+        max_cost_usd: session.pipeline.max_cost_usd,
     };
 
     let mut child_session = crate::session::Session::new(child_pipeline, invocation_prompt);
     child_session.cli_provider = session.cli_provider.clone();
+    child_session.cost_budget = session.cost_budget.clone();
 
     tracing::info!(
         run_id = %session.run_id,

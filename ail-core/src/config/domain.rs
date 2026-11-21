@@ -146,6 +146,8 @@ pub struct Pipeline {
     /// applied as the lowest-precedence scope in the three-scope merge chain
     /// (pipeline defaults → provider-attached → per-step).
     pub sampling_defaults: Option<SamplingConfig>,
+    /// Pipeline-wide USD cap from `defaults.max_cost_usd`. `None` means uncapped.
+    pub max_cost_usd: Option<f64>,
 }
 
 impl Pipeline {

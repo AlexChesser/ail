@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
+use llm_budget::budget::AtomicBudget;
 use uuid::Uuid;
 
 use crate::config::domain::{Pipeline, ProviderConfig};
@@ -78,6 +79,9 @@ pub struct Session {
     /// The top-level sequential executor loop observes this flag after each step,
     /// re-clones `session.pipeline.steps`, and re-anchors by step-id.
     pub reload_requested: bool,
+    /// Run-wide USD cap from `defaults.max_cost_usd`, shared with branches and
+    /// sub-pipelines. `None` means uncapped.
+    pub cost_budget: Option<Arc<AtomicBudget>>,
 }
 
 impl Session {
@@ -110,6 +114,11 @@ impl Session {
         let runner_name =
             std::env::var("AIL_DEFAULT_RUNNER").unwrap_or_else(|_| "claude".to_string());
 
+        let cost_budget = pipeline
+            .max_cost_usd
+            .and_then(|limit| AtomicBudget::new(limit).ok())
+            .map(Arc::new);
+
         Session {
             run_id,
             pipeline,
@@ -125,6 +134,30 @@ impl Session {
             loop_depth: 0,
             reload_count: 0,
             reload_requested: false,
+            cost_budget,
+        }
+    }
+
+    /// Refuse to start another model call once booked spend has reached
+    /// `defaults.max_cost_usd`.
+    pub fn ensure_under_cost_cap(&self, step_id: &str) -> Result<(), crate::error::AilError> {
+        match &self.cost_budget {
+            Some(budget) if budget.is_exhausted() => Err(crate::error::AilError::PipelineAborted {
+                detail: format!(
+                    "Step '{step_id}' not started: run spend ${:.4} reached defaults.max_cost_usd ${:.4}",
+                    budget.spent_usd(),
+                    budget.limit_usd()
+                ),
+                context: Some(crate::error::ErrorContext::for_step(&self.run_id, step_id)),
+            }),
+            _ => Ok(()),
+        }
+    }
+
+    /// Book the cost a runner reported for a finished call against the cap.
+    pub fn record_cost(&self, cost_usd: Option<f64>) {
+        if let (Some(budget), Some(cost)) = (&self.cost_budget, cost_usd) {
+            budget.charge_force(cost);
         }
     }
 
@@ -205,6 +238,7 @@ impl Session {
             // (see §21: reload is sequential-top-level only).
             reload_count: 0,
             reload_requested: false,
+            cost_budget: self.cost_budget.clone(),
         }
     }
 }

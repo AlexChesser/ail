@@ -229,6 +229,7 @@ fn executor_dispatches_per_step_runner() {
         named_pipelines: Default::default(),
         max_concurrency: None,
         sampling_defaults: None,
+        max_cost_usd: None,
     };
 
     // The default runner returns a distinct response so we can tell it apart from the stub.

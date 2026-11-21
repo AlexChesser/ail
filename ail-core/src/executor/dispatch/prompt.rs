@@ -85,6 +85,9 @@ pub(in crate::executor) fn execute<O: StepObserver>(
     };
     observer.augment_options(&mut options);
 
+    session
+        .ensure_under_cost_cap(step_id)
+        .inspect_err(|e| observer.on_step_failed(step_id, e.detail()))?;
     let result = observer
         .invoke(effective_runner, &resolved, options)
         .inspect_err(|e| observer.on_step_failed(step_id, e.detail()))?;
@@ -95,6 +98,7 @@ pub(in crate::executor) fn execute<O: StepObserver>(
         cost_usd = ?result.cost_usd,
         "step complete"
     );
+    session.record_cost(result.cost_usd);
     observer.on_prompt_completed(step_id, &result);
 
     Ok(

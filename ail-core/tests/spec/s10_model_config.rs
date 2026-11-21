@@ -133,6 +133,7 @@ fn invoke_options_carries_resolved_model() {
         named_pipelines: Default::default(),
         max_concurrency: None,
         sampling_defaults: None,
+        max_cost_usd: None,
     };
     let mut session = Session::new(pipeline, "prompt".to_string());
     let runner = CountingStubRunner::new("ok");

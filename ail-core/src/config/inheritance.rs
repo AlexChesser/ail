@@ -194,6 +194,7 @@ fn merge_defaults(base: Option<DefaultsDto>, child: Option<DefaultsDto>) -> Opti
             tools: c.tools.or(b.tools),
             max_concurrency: c.max_concurrency.or(b.max_concurrency),
             sampling: merge_sampling_dto(b.sampling, c.sampling),
+            max_cost_usd: c.max_cost_usd.or(b.max_cost_usd),
         }),
     }
 }

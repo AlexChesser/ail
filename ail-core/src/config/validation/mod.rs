@@ -822,6 +822,14 @@ pub fn validate(dto: PipelineFileDto, source: PathBuf) -> Result<Pipeline, AilEr
     // Resolve top-level defaults (provider/model config, tool policy, and timeout).
     let timeout_seconds = dto.defaults.as_ref().and_then(|d| d.timeout_seconds);
     let max_concurrency = dto.defaults.as_ref().and_then(|d| d.max_concurrency);
+    let max_cost_usd = dto.defaults.as_ref().and_then(|d| d.max_cost_usd);
+    if let Some(limit) = max_cost_usd {
+        if !limit.is_finite() || limit <= 0.0 {
+            return Err(cfg_err!(
+                "defaults.max_cost_usd must be a positive number, got {limit}"
+            ));
+        }
+    }
 
     // Sampling (SPEC §30) is validated at two scopes in the pipeline file:
     // `defaults.sampling:` (pipeline-wide) and `defaults.provider.sampling:`
@@ -961,6 +969,7 @@ pub fn validate(dto: PipelineFileDto, source: PathBuf) -> Result<Pipeline, AilEr
         named_pipelines,
         max_concurrency,
         sampling_defaults: pipeline_sampling,
+        max_cost_usd,
     })
 }
 

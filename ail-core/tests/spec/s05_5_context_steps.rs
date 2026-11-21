@@ -180,6 +180,7 @@ fn context_shell_captures_stdout() {
         named_pipelines: Default::default(),
         max_concurrency: None,
         sampling_defaults: None,
+        max_cost_usd: None,
     };
     let mut session = ail_core::session::Session::new(pipeline, "p".to_string());
     execute(&mut session, &StubRunner::new("x")).unwrap();
@@ -214,6 +215,7 @@ fn context_shell_captures_stderr() {
         named_pipelines: Default::default(),
         max_concurrency: None,
         sampling_defaults: None,
+        max_cost_usd: None,
     };
     let mut session = ail_core::session::Session::new(pipeline, "p".to_string());
     execute(&mut session, &StubRunner::new("x")).unwrap();
@@ -251,6 +253,7 @@ fn context_shell_captures_exit_code_zero() {
         named_pipelines: Default::default(),
         max_concurrency: None,
         sampling_defaults: None,
+        max_cost_usd: None,
     };
     let mut session = ail_core::session::Session::new(pipeline, "p".to_string());
     execute(&mut session, &StubRunner::new("x")).unwrap();
@@ -283,6 +286,7 @@ fn context_shell_captures_nonzero_exit_code() {
         named_pipelines: Default::default(),
         max_concurrency: None,
         sampling_defaults: None,
+        max_cost_usd: None,
     };
     let mut session = ail_core::session::Session::new(pipeline, "p".to_string());
     let result = execute(&mut session, &StubRunner::new("x"));
@@ -316,6 +320,7 @@ fn context_shell_does_not_call_runner() {
         named_pipelines: Default::default(),
         max_concurrency: None,
         sampling_defaults: None,
+        max_cost_usd: None,
     };
     let mut session = ail_core::session::Session::new(pipeline, "p".to_string());
     let counting_runner = ail_core::runner::stub::CountingStubRunner::new("x");
@@ -361,6 +366,7 @@ fn context_then_prompt_pipeline() {
         named_pipelines: Default::default(),
         max_concurrency: None,
         sampling_defaults: None,
+        max_cost_usd: None,
     };
     let mut session = ail_core::session::Session::new(pipeline, "p".to_string());
     execute(&mut session, &StubRunner::new("ok")).unwrap();
@@ -406,6 +412,7 @@ fn template_step_exit_code_resolves() {
         named_pipelines: Default::default(),
         max_concurrency: None,
         sampling_defaults: None,
+        max_cost_usd: None,
     };
     let mut session = ail_core::session::Session::new(pipeline, "p".to_string());
     execute(&mut session, &StubRunner::new("ok")).unwrap();
@@ -446,6 +453,7 @@ fn prompt_file_path_loads_contents() {
         named_pipelines: Default::default(),
         max_concurrency: None,
         sampling_defaults: None,
+        max_cost_usd: None,
     };
     let mut session = ail_core::session::Session::new(pipeline, "p".to_string());
     execute(&mut session, &StubRunner::new("ok")).unwrap();
@@ -483,6 +491,7 @@ fn prompt_file_not_found_returns_error() {
         named_pipelines: Default::default(),
         max_concurrency: None,
         sampling_defaults: None,
+        max_cost_usd: None,
     };
     let mut session = ail_core::session::Session::new(pipeline, "p".to_string());
     let result = execute(&mut session, &StubRunner::new("x"));
@@ -518,6 +527,7 @@ fn prompt_inline_string_unchanged() {
         named_pipelines: Default::default(),
         max_concurrency: None,
         sampling_defaults: None,
+        max_cost_usd: None,
     };
     let mut session = ail_core::session::Session::new(pipeline, "p".to_string());
     execute(&mut session, &StubRunner::new("ok")).unwrap();
