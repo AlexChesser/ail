@@ -24,6 +24,7 @@ tempfile = "3"
 ureq = { version = "2", features = ["json"] }
 event-listener = "5"
 regex = "1"
+llm-budget = { version = "0.10.0", default-features = false }
 ail-spec = { path = "../ail-spec" }
 
 [dev-dependencies]

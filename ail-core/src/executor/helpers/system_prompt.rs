@@ -214,6 +214,7 @@ mod tests {
             named_pipelines: Default::default(),
             max_concurrency: None,
             sampling_defaults: None,
+            max_cost_usd: None,
         };
         Session::new(pipeline, "test invocation".to_string())
             .with_log_provider(Box::new(NullProvider))

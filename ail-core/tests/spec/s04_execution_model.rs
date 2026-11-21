@@ -22,6 +22,7 @@ mod executor {
             named_pipelines: Default::default(),
             max_concurrency: None,
             sampling_defaults: None,
+            max_cost_usd: None,
         };
         let mut session = Session::new(pipeline, "p".to_string());
         execute(&mut session, &StubRunner::new("r")).unwrap();
@@ -50,6 +51,55 @@ mod executor {
         assert!(result.is_ok());
         assert_eq!(session.turn_log.entries().len(), 1);
         assert_eq!(session.turn_log.entries()[0].step_id, "invocation");
+
+        std::env::set_current_dir(orig).unwrap();
+    }
+
+    /// `defaults.max_cost_usd` stops the run once booked step cost reaches the cap.
+    #[test]
+    fn max_cost_usd_stops_pipeline_when_spend_reaches_cap() {
+        use ail_core::error::AilError;
+        use ail_core::runner::{InvokeOptions, RunResult, Runner};
+
+        struct CostRunner;
+        impl Runner for CostRunner {
+            fn invoke(
+                &self,
+                _prompt: &str,
+                _options: InvokeOptions,
+            ) -> Result<RunResult, AilError> {
+                let mut result = RunResult::stub("r", "s");
+                result.cost_usd = Some(0.30);
+                Ok(result)
+            }
+        }
+
+        let _cwd_guard = crate::spec::CWD_LOCK.lock().unwrap();
+        let tmp = tempfile::tempdir().unwrap();
+        let orig = std::env::current_dir().unwrap();
+        std::env::set_current_dir(tmp.path()).unwrap();
+
+        let pipeline = Pipeline {
+            steps: vec![
+                prompt_step("a", "A"),
+                prompt_step("b", "B"),
+                prompt_step("c", "C"),
+                prompt_step("d", "D"),
+            ],
+            max_cost_usd: Some(0.50),
+            ..Default::default()
+        };
+        let mut session = Session::new(pipeline, "p".to_string());
+        let err = execute(&mut session, &CostRunner).unwrap_err();
+
+        assert!(matches!(err, AilError::PipelineAborted { .. }), "{err}");
+        let ids: Vec<_> = session
+            .turn_log
+            .entries()
+            .iter()
+            .map(|e| e.step_id.as_str())
+            .collect();
+        assert_eq!(ids, vec!["a", "b"]);
 
         std::env::set_current_dir(orig).unwrap();
     }

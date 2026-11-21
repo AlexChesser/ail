@@ -706,6 +706,7 @@ mod tests {
             named_pipelines: Default::default(),
             max_concurrency: None,
             sampling_defaults: None,
+            max_cost_usd: None,
         }
     }
 
@@ -771,6 +772,7 @@ mod tests {
             named_pipelines: Default::default(),
             max_concurrency: None,
             sampling_defaults: None,
+            max_cost_usd: None,
         };
         let output = materialize(&pipeline);
         assert!(output.contains("alpha"), "alpha not in output");
@@ -793,6 +795,7 @@ mod tests {
             named_pipelines: Default::default(),
             max_concurrency: None,
             sampling_defaults: None,
+            max_cost_usd: None,
         };
         let output = materialize(&pipeline);
         assert!(output.contains("# origin: [1]"), "missing origin [1]");
@@ -838,6 +841,7 @@ mod tests {
             named_pipelines: Default::default(),
             max_concurrency: None,
             sampling_defaults: None,
+            max_cost_usd: None,
         };
         let output = materialize(&pipeline);
         assert!(output.contains("context:"), "context: key missing");
@@ -860,6 +864,7 @@ mod tests {
             named_pipelines: Default::default(),
             max_concurrency: None,
             sampling_defaults: None,
+            max_cost_usd: None,
         };
         let output = materialize(&pipeline);
         let result: Result<serde_yaml::Value, _> = serde_yaml::from_str(&output);
@@ -880,6 +885,7 @@ mod tests {
             named_pipelines: Default::default(),
             max_concurrency: None,
             sampling_defaults: None,
+            max_cost_usd: None,
         };
         let output = materialize(&pipeline);
         assert!(
@@ -902,6 +908,7 @@ mod tests {
             named_pipelines: Default::default(),
             max_concurrency: None,
             sampling_defaults: None,
+            max_cost_usd: None,
         };
         let output = materialize(&pipeline);
         assert!(
@@ -929,6 +936,7 @@ mod tests {
             named_pipelines: Default::default(),
             max_concurrency: None,
             sampling_defaults: None,
+            max_cost_usd: None,
         };
         let output = materialize(&pipeline);
         assert!(
@@ -954,6 +962,7 @@ mod tests {
             named_pipelines: Default::default(),
             max_concurrency: None,
             sampling_defaults: None,
+            max_cost_usd: None,
         };
         let output = materialize(&pipeline);
         assert!(output.contains("on_result:"), "on_result: key missing");
@@ -979,6 +988,7 @@ mod tests {
             named_pipelines: Default::default(),
             max_concurrency: None,
             sampling_defaults: None,
+            max_cost_usd: None,
         };
         let output = materialize(&pipeline);
         assert!(
@@ -1004,6 +1014,7 @@ mod tests {
             named_pipelines: Default::default(),
             max_concurrency: None,
             sampling_defaults: None,
+            max_cost_usd: None,
         };
         let output = materialize(&pipeline);
         assert!(output.contains("skill:"), "skill: key missing");
@@ -1038,6 +1049,7 @@ mod tests {
             named_pipelines: Default::default(),
             max_concurrency: None,
             sampling_defaults: None,
+            max_cost_usd: None,
         };
         let output = materialize(&pipeline);
         let result: Result<serde_yaml::Value, _> = serde_yaml::from_str(&output);

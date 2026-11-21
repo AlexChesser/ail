@@ -634,6 +634,7 @@ fn materialize_shows_before_then_chains() {
         named_pipelines: Default::default(),
         max_concurrency: None,
         sampling_defaults: None,
+        max_cost_usd: None,
     };
 
     let output = materialize(&pipeline);
